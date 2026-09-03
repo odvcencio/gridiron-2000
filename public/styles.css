@@ -15933,3 +15933,33 @@ a.skip-link {
   overflow-wrap: anywhere;
   min-width: 0;
 }
+
+/* hotfix — draft-preflight (yarrow re-audit, findings 1-3)
+   DraftPreflight (app/draft/page.gsx) renders as the FIRST grid child of
+   .draft-panes before the draft starts. Without a rule it took the 360px
+   history track and shifted every pane one column right: the pool became
+   the 300px column, the manager's own pane wrapped to a 2px second row,
+   and the ?view=board segment rendered one letter per line. The strip
+   must span the whole row and never take a pane track. */
+.draft-panes > .draft-preflight {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(12rem, 20rem) minmax(0, 1fr);
+  gap: var(--space-md);
+  align-items: start;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 0.5rem);
+  background: var(--color-white-faint);
+  min-height: 0;
+}
+.draft-panes > .draft-preflight .checklist {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space-sm) var(--space-md);
+}
+@media (width <= 56.1875rem) {
+  .draft-panes > .draft-preflight {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
