@@ -7,6 +7,20 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 No changes yet.
 
+## [release-2026.09.03-eaa98d1-draftweek] — 2026-09-03
+
+Scope: draft-week fixes from the commissioner's own use of the live site.
+Rolled to the flagship as revision 94; no schema change.
+
+### Fixed
+- Punters are in the live draft pool again: the pool keeps a per-position floor (teams × slots + 4) that the ADP cut cannot remove, so a roster with a P slot can always fill it.
+- A custom team avatar stored with a writable file mode no longer returns 404: the read path repairs the mode after a hash match, and a boot sweep repairs the whole store.
+- A player's news headline no longer stretches Big Board, player pool, and draft rows: the row detail stays one line and the headline opens from a newspaper icon with its own detail panel.
+- A managed save keeps your scroll position: runtime requests drop the section anchor from the redirect, native form posts keep it.
+- Developer comments inside `.gsx` markup no longer render as page text (GoSX v0.53.11, pinned by pseudo-version).
+- Two tests that depended on the wall clock or on an incidental element count are deterministic.
+
+
 ## [release-2026.09.02-1d2b7e4-wave7] — 2026-09-02
 
 Scope: draft results and roster clarity, plus the mobile pass across every
