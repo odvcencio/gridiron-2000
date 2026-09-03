@@ -16362,3 +16362,24 @@ a.skip-link {
     row-gap: 0.3rem;
   }
 }
+
+/* Item 9 (2026-09-02 audit): .stat-tip__summary--news's own min-width:
+   var(--control-h) (44px, above) lost to the shared touch-target-floor
+   sweep's own ".site-frame summary:not(...)" rule (public/styles.css,
+   the "(pointer: coarse), (hover: none), (max-width: 38rem)" query) —
+   six :not() classes plus an element gives that rule (0,6,1)
+   specificity, well past this one's plain (0,1,0), so its own
+   min-width: 0 reset won even though it comes first in source order.
+   The query's OWN condition is not phone-width-only — "(hover: none)"
+   alone is true on any touch-primary device regardless of window width
+   (a tablet or touch laptop at a "desktop" viewport), which is exactly
+   how the audit measured this short on BOTH /players (21.8x44) and
+   /draft (19.9x44) rather than only at narrow widths. #main-content's
+   ID gives this re-assert enough specificity to win honestly, the same
+   technique the sweep's own .lineup-week-form/.draft-command__pill-
+   caret/.position-filters re-asserts already use elsewhere in this
+   file, with no !important needed. */
+#main-content .stat-tip__summary--news {
+  min-width: var(--control-h);
+  min-height: var(--control-h);
+}
