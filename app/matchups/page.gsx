@@ -104,7 +104,7 @@ func StarterCell(props StarterCellData) Node {
 			</summary>
 			<div class="matchup-ledger__body">
 				<p class="matchup-ledger__hint">Configured starters only. Bench, reserve, and IR are excluded.</p>
-				<span data-gosx-live-bind={"starterProvenance." + props.LiveKey}>{props.Provenance}</span><span data-gosx-live-bind={"starterJoinState." + props.LiveKey}>{props.JoinState}</span><span data-gosx-live-bind={"starterSource." + props.LiveKey}>{props.Source}</span>
+				<span data-gosx-live-bind={"starterProvenanceText." + props.LiveKey}>{props.ProvenanceText}</span><span data-gosx-live-bind={"starterJoinStateText." + props.LiveKey}>{props.JoinStateText}</span><span data-gosx-live-bind={"starterSourceText." + props.LiveKey}>{props.SourceText}</span>
 				<small class="matchup-ledger__detail" data-gosx-live-bind={"starterDetail." + props.LiveKey}>{props.Detail}</small>
 			</div>
 		</details>

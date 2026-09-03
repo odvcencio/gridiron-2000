@@ -588,28 +588,35 @@ func TestLiveScoresViewStarterRowsUpdateEveryFieldForIdentityAndJoinTransitions(
 			}
 		}
 	}
-	// starterProvenance/starterJoinState carry ledgerLineupText/
-	// ledgerStatsText's already-labelled words (wave-8 audit item 3), not
-	// the raw StarterLedgerRow.Provenance/JoinState tokens this fixture's
-	// row() helper still stores under those field names.
+	// starterProvenance/starterJoinState stay the RAW StarterLedgerRow
+	// tokens this fixture's row() helper stores (a caller that matches
+	// join provenance verbatim, e.g. league.StatSourceLive, needs the
+	// exact token); starterProvenanceText/starterJoinStateText carry
+	// ledgerLineupText/ledgerStatsText's already-labelled words instead
+	// (wave-8 audit item 3) — the page renders the *Text fields, never
+	// these raw ones.
 	wantFields := map[string][2]string{
-		"starterPoints":     {"0.0", "0.0"},
-		"starterPlayerName": {"Player A", "Empty slot"},
-		"starterPosition":   {"QB", "RB"},
-		"starterNFLTeam":    {"AAA", ""},
-		"starterProvenance": {"Lineup: set by the manager", "Lineup: no player in this slot"},
-		"starterJoinState":  {" · Stats: no stat row yet", ""},
-		"starterDetail":     {"No matching player-stat row for Player A.", "No player configured in this starting slot."},
+		"starterPoints":         {"0.0", "0.0"},
+		"starterPlayerName":     {"Player A", "Empty slot"},
+		"starterPosition":       {"QB", "RB"},
+		"starterNFLTeam":        {"AAA", ""},
+		"starterProvenance":     {"explicit", "empty"},
+		"starterJoinState":      {"missing-join", "empty"},
+		"starterProvenanceText": {"Lineup: set by the manager", "Lineup: no player in this slot"},
+		"starterJoinStateText":  {" · Stats: no stat row yet", ""},
+		"starterDetail":         {"No matching player-stat row for Player A.", "No player configured in this starting slot."},
 	}
 	assertView(svc.LiveScoresView(context.Background()), wantFields)
 	wantFields = map[string][2]string{
-		"starterPoints":     {"6.0", "3.0"},
-		"starterPlayerName": {"Player B", "Player C"},
-		"starterPosition":   {"QB", "RB"},
-		"starterNFLTeam":    {"BBB", "CCC"},
-		"starterProvenance": {"Lineup: auto-filled", "Lineup: set by the manager"},
-		"starterJoinState":  {" · Stats: scored", " · Stats: scored"},
-		"starterDetail":     {"Matched current player-stat row.", "Matched current player-stat row."},
+		"starterPoints":         {"6.0", "3.0"},
+		"starterPlayerName":     {"Player B", "Player C"},
+		"starterPosition":       {"QB", "RB"},
+		"starterNFLTeam":        {"BBB", "CCC"},
+		"starterProvenance":     {"auto-filled", "explicit"},
+		"starterJoinState":      {"matched", "matched"},
+		"starterProvenanceText": {"Lineup: auto-filled", "Lineup: set by the manager"},
+		"starterJoinStateText":  {" · Stats: scored", " · Stats: scored"},
+		"starterDetail":         {"Matched current player-stat row.", "Matched current player-stat row."},
 	}
 	assertView(svc.LiveScoresView(context.Background()), wantFields)
 	if provider.index != 2 {

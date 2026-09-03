@@ -3490,6 +3490,19 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	starterJoinState := make(map[string]string)
 	starterDetail := make(map[string]string)
 	starterSource := make(map[string]string)
+	// starterProvenanceText/starterJoinStateText/starterSourceText carry
+	// ledgerLineupText/ledgerStatsText/ledgerSourceText's humanized words
+	// (wave-8 audit item 3) for the page's own disclosure line, kept
+	// separate from starterProvenance/starterJoinState/starterSource
+	// themselves: those three stay the RAW StarterLedgerRow tokens (e.g.
+	// StatSourceLive, "live"), the join-provenance contract external
+	// callers (sim_live_test.go's replay scenarios, matching
+	// league.StatSourceLive verbatim) and any future caller need — the
+	// same separation of raw fact from rendered prose ledgerPlayerDetail's
+	// own Detail field already keeps for the tip's long-form sentence.
+	starterProvenanceText := make(map[string]string)
+	starterJoinStateText := make(map[string]string)
+	starterSourceText := make(map[string]string)
 	starterGameStateBind := make(map[string]string)
 	starterPossessionBind := make(map[string]string)
 	matchupStatus := make(map[string]string, len(live.Matchups))
@@ -3522,15 +3535,18 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		starterPlayerName[row.LiveKey] = row.PlayerName
 		starterPosition[row.LiveKey] = row.Position
 		starterNFLTeam[row.LiveKey] = row.NFLTeam
+		starterProvenance[row.LiveKey] = row.Provenance
+		starterJoinState[row.LiveKey] = row.JoinState
+		starterDetail[row.LiveKey] = row.Detail
+		starterSource[row.LiveKey] = row.Source
 		// ledgerLineupText/ledgerStatsText/ledgerSourceText (matchup_ledger.go)
 		// turn the raw Provenance/JoinState/Source tokens into the labelled
 		// words the ledger disclosure shows, each with its own leading
 		// separator or empty string, so a live poll re-sends the exact same
 		// already-formatted text a full render would (wave-8 audit item 3).
-		starterProvenance[row.LiveKey] = ledgerLineupText(row.Provenance)
-		starterJoinState[row.LiveKey] = ledgerStatsText(row.JoinState)
-		starterDetail[row.LiveKey] = row.Detail
-		starterSource[row.LiveKey] = ledgerSourceText(row.Source)
+		starterProvenanceText[row.LiveKey] = ledgerLineupText(row.Provenance)
+		starterJoinStateText[row.LiveKey] = ledgerStatsText(row.JoinState)
+		starterSourceText[row.LiveKey] = ledgerSourceText(row.Source)
 		starterGameStateBind[row.LiveKey] = row.GameState
 		starterPossessionBind[row.LiveKey] = row.Possession
 	}
@@ -3574,49 +3590,52 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	statsUpdated := s.formatMatchupUpdateOrUnavailable(live.StatsUpdatedAt)
 	liveStatus := s.liveStatusText(live, presentation)
 	return map[string]any{
-		"ok":                live.OK,
-		"source":            live.Source,
-		"sourceLabel":       live.SourceLabel,
-		"week":              live.Week,
-		"weekLabel":         s.presentedWeekLabel(live),
-		"state":             live.State,
-		"status":            live.Status,
-		"warning":           live.Warning,
-		"liveState":         live.LiveState,
-		"sourceLine":        live.SourceLine,
-		"slateLine":         live.SlateLine,
-		"gamesFinal":        live.GamesFinal,
-		"scores":            scores,
-		"matchupStatus":     matchupStatus,
-		"matchupClock":      matchupClock,
-		"matchupIndicator":  matchupIndicator,
-		"matchupLiveState":  matchupLiveStateBind,
-		"projected":         projected,
-		"winProb":           winProb,
-		"stillToPlay":       stillToPlayBind,
-		"stillToPlayTotal":  stillToPlayTotalBind,
-		"starterPoints":     starterPoints,
-		"starterPlayerName": starterPlayerName,
-		"starterPosition":   starterPosition,
-		"starterNFLTeam":    starterNFLTeam,
-		"starterProvenance": starterProvenance,
-		"starterJoinState":  starterJoinState,
-		"starterDetail":     starterDetail,
-		"starterSource":     starterSource,
-		"starterGameState":  starterGameStateBind,
-		"starterPossession": starterPossessionBind,
-		"liveStatus":        liveStatus,
-		"liveUpdated":       checked,
-		"lastUpdated":       statsUpdated,
-		"checkedAt":         checked,
-		"statsUpdatedAt":    statsUpdated,
-		"liveStatsUpdated":  statsUpdated,
-		"liveIndicator":     liveIndicatorToken(live.State),
-		"headlineTop":       presentation["headline_top"],
-		"headlineBottom":    presentation["headline_bottom"],
-		"refreshLabel":      presentation["refresh_label"],
-		"noteTitle":         presentation["note_title"],
-		"noteBody":          presentation["note_body"],
+		"ok":                    live.OK,
+		"source":                live.Source,
+		"sourceLabel":           live.SourceLabel,
+		"week":                  live.Week,
+		"weekLabel":             s.presentedWeekLabel(live),
+		"state":                 live.State,
+		"status":                live.Status,
+		"warning":               live.Warning,
+		"liveState":             live.LiveState,
+		"sourceLine":            live.SourceLine,
+		"slateLine":             live.SlateLine,
+		"gamesFinal":            live.GamesFinal,
+		"scores":                scores,
+		"matchupStatus":         matchupStatus,
+		"matchupClock":          matchupClock,
+		"matchupIndicator":      matchupIndicator,
+		"matchupLiveState":      matchupLiveStateBind,
+		"projected":             projected,
+		"winProb":               winProb,
+		"stillToPlay":           stillToPlayBind,
+		"stillToPlayTotal":      stillToPlayTotalBind,
+		"starterPoints":         starterPoints,
+		"starterPlayerName":     starterPlayerName,
+		"starterPosition":       starterPosition,
+		"starterNFLTeam":        starterNFLTeam,
+		"starterProvenance":     starterProvenance,
+		"starterJoinState":      starterJoinState,
+		"starterDetail":         starterDetail,
+		"starterSource":         starterSource,
+		"starterProvenanceText": starterProvenanceText,
+		"starterJoinStateText":  starterJoinStateText,
+		"starterSourceText":     starterSourceText,
+		"starterGameState":      starterGameStateBind,
+		"starterPossession":     starterPossessionBind,
+		"liveStatus":            liveStatus,
+		"liveUpdated":           checked,
+		"lastUpdated":           statsUpdated,
+		"checkedAt":             checked,
+		"statsUpdatedAt":        statsUpdated,
+		"liveStatsUpdated":      statsUpdated,
+		"liveIndicator":         liveIndicatorToken(live.State),
+		"headlineTop":           presentation["headline_top"],
+		"headlineBottom":        presentation["headline_bottom"],
+		"refreshLabel":          presentation["refresh_label"],
+		"noteTitle":             presentation["note_title"],
+		"noteBody":              presentation["note_body"],
 	}
 }
 
@@ -5041,19 +5060,24 @@ func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []m
 	return out
 }
 
-// starterLedgerMaps' provenance/join_state/source fields carry the
+// starterLedgerMaps' provenance/join_state/source fields stay the RAW
+// StarterLedgerRow tokens (a caller matching join provenance verbatim,
+// e.g. league.StatSourceLive, needs the exact token, not prose that is
+// free to reword); provenance_text/join_state_text/source_text carry the
 // already-labelled, plain-word ledgerLineupText/ledgerStatsText/
-// ledgerSourceText segments (wave-8 audit item 3), each with its own
-// leading separator or "" — the page (StarterCell, app/matchups/page.gsx)
-// concatenates all three with no separator of its own.
+// ledgerSourceText segments (wave-8 audit item 3) instead, each with its
+// own leading separator or "" — the page (StarterCell,
+// app/matchups/page.gsx) concatenates all three *_text fields with no
+// separator of its own.
 func starterLedgerMaps(rows []StarterLedgerRow) []map[string]any {
 	out := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, map[string]any{
 			"live_key": row.LiveKey, "slot": row.Slot, "player_id": row.PlayerID,
 			"player_name": row.PlayerName, "position": row.Position, "nfl_team": row.NFLTeam,
-			"points": row.PointsText, "provenance": ledgerLineupText(row.Provenance), "join_state": ledgerStatsText(row.JoinState),
-			"detail": row.Detail, "source": ledgerSourceText(row.Source), "game_state": row.GameState,
+			"points": row.PointsText, "provenance": row.Provenance, "join_state": row.JoinState,
+			"provenance_text": ledgerLineupText(row.Provenance), "join_state_text": ledgerStatsText(row.JoinState),
+			"detail": row.Detail, "source": row.Source, "source_text": ledgerSourceText(row.Source), "game_state": row.GameState,
 			"possession": row.Possession,
 		})
 	}
