@@ -519,7 +519,7 @@ func TradeDeskRegion() Node {
 			<section class="player-pool" id="review">
 				<div class="pool-toolbar">
 					<div>
-						<span class="section-index">05 // COMMISSIONER REVIEW</span>
+						<span class="section-index">{data.section_review_index + " // COMMISSIONER REVIEW"}</span>
 						<h2>Trades awaiting a decision</h2>
 					</div>
 				</div>
@@ -612,7 +612,7 @@ func TradeDeskRegion() Node {
 			<section class="player-pool" id="vote">
 				<div class="pool-toolbar">
 					<div>
-						<span class="section-index">06 // LEAGUE VOTE</span>
+						<span class="section-index">{data.section_vote_index + " // LEAGUE VOTE"}</span>
 						<h2>Trades open for a veto vote</h2>
 					</div>
 				</div>
@@ -669,7 +669,7 @@ func TradeDeskRegion() Node {
 		<section class="player-pool" id="history">
 			<div class="pool-toolbar">
 				<div>
-					<span class="section-index">07 // HISTORY</span>
+					<span class="section-index">{data.section_history_index + " // HISTORY"}</span>
 					<h2>Trade history</h2>
 				</div>
 			</div>

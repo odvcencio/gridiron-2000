@@ -90,3 +90,34 @@ func TestTradeComposerOptionMeetsTouchFloor(t *testing.T) {
 		}
 	}
 }
+
+// TestTradeSectionsRenumberAroundHiddenSections covers wave-8 audit item
+// 11: COMMISSIONER REVIEW and LEAGUE VOTE bind their section-index chip
+// to a computed field (league.tradeSectionIndexLabels) instead of the
+// hardcoded "05"/"06" text, so HISTORY's own chip does the same rather
+// than staying pinned at the literal "07" it used to skip to.
+func TestTradeSectionsRenumberAroundHiddenSections(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(page)
+	for _, want := range []string{
+		`<span class="section-index">{data.section_review_index + " // COMMISSIONER REVIEW"}</span>`,
+		`<span class="section-index">{data.section_vote_index + " // LEAGUE VOTE"}</span>`,
+		`<span class="section-index">{data.section_history_index + " // HISTORY"}</span>`,
+	} {
+		if !strings.Contains(markup, want) {
+			t.Errorf("trade section header missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`<span class="section-index">05 // COMMISSIONER REVIEW</span>`,
+		`<span class="section-index">06 // LEAGUE VOTE</span>`,
+		`<span class="section-index">07 // HISTORY</span>`,
+	} {
+		if strings.Contains(markup, forbidden) {
+			t.Errorf("trade section header still carries the hardcoded index %q", forbidden)
+		}
+	}
+}

@@ -68,6 +68,56 @@ func TestTradesDataCarriesVetoPolicyLabel(t *testing.T) {
 	}
 }
 
+// TestTradeSectionIndexLabelsSkipHiddenSections covers wave-8 audit item
+// 11: COMMISSIONER REVIEW and LEAGUE VOTE each render only for some
+// viewers (the section's own <If> guard in page.gsx), so HISTORY (and
+// LEAGUE VOTE, when COMMISSIONER REVIEW is the one hidden) must take
+// whichever number is actually next, never skip a number the way the
+// page's old hardcoded "01, 02, 03, 04, 07" did for a manager who was
+// neither a commissioner nor party to an open vote.
+func TestTradeSectionIndexLabelsSkipHiddenSections(t *testing.T) {
+	cases := []struct {
+		name                          string
+		reviewVisible, voteVisible    bool
+		wantReview, wantVote, wantHis string
+	}{
+		{"both visible", true, true, "05", "06", "07"},
+		{"only review visible", true, false, "05", "", "06"},
+		{"only vote visible", false, true, "", "05", "06"},
+		{"neither visible", false, false, "", "", "05"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			review, vote, history := tradeSectionIndexLabels(c.reviewVisible, c.voteVisible)
+			if review != c.wantReview || vote != c.wantVote || history != c.wantHis {
+				t.Fatalf("tradeSectionIndexLabels(%v, %v) = (%q, %q, %q), want (%q, %q, %q)",
+					c.reviewVisible, c.voteVisible, review, vote, history, c.wantReview, c.wantVote, c.wantHis)
+			}
+		})
+	}
+}
+
+// TestTradesDataCarriesSectionIndexes covers wave-8 audit item 11 at the
+// TradesData boundary: a non-commissioner viewer with no open vote
+// (this league's default veto mode, "commissioner") sees neither
+// COMMISSIONER REVIEW nor LEAGUE VOTE, so HISTORY reads "05".
+func TestTradesDataCarriesSectionIndexes(t *testing.T) {
+	// demoMode makes every viewer a commissioner (Service.IsCommissioner);
+	// this fixture needs a genuine non-commissioner viewer, so it uses a
+	// non-demo service (matching TestTradesDataRequiresSeatAndOnlyListsManagedPartners's
+	// own seatless/managed fixtures above).
+	service := newTestService(t, false)
+	if _, _, err := service.store.AssignMember("one@example.com", "One"); err != nil {
+		t.Fatal(err)
+	}
+	request, _ := http.NewRequest(http.MethodGet, "/trades", nil)
+	data := service.TradesData(request)
+	if data["section_review_index"] != "" || data["section_vote_index"] != "" || data["section_history_index"] != "05" {
+		t.Fatalf("section indexes = review:%v vote:%v history:%v, want \"\"/\"\"/\"05\"",
+			data["section_review_index"], data["section_vote_index"], data["section_history_index"])
+	}
+}
+
 func TestTradesDataRequiresSeatAndOnlyListsManagedPartners(t *testing.T) {
 	seatless := newTestService(t, false)
 	request, _ := http.NewRequest(http.MethodGet, "/trades?counterparty=team-2", nil)

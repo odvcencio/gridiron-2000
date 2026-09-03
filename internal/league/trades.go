@@ -100,6 +100,30 @@ func tradeVetoPolicyLabel(veto string) string {
 	}
 }
 
+// tradeSectionIndexLabels resolves the trade desk's three trailing
+// section-index chips (COMMISSIONER REVIEW, LEAGUE VOTE, HISTORY) as
+// "%02d" strings, counting only the sections that actually render for
+// this viewer (wave-8 audit item 11): COMPOSE/INBOX/OUTBOX/PENDING
+// REVIEW always render as 01-04, so this starts counting from 4.
+// reviewVisible/voteVisible must match the section's own <If> guard in
+// page.gsx exactly (data.is_commissioner and
+// data.vote_panel_empty == false respectively); a hidden section's own
+// label is "" (unused — HISTORY always renders last regardless).
+func tradeSectionIndexLabels(reviewVisible, voteVisible bool) (reviewLabel, voteLabel, historyLabel string) {
+	index := 4
+	if reviewVisible {
+		index++
+		reviewLabel = fmt.Sprintf("%02d", index)
+	}
+	if voteVisible {
+		index++
+		voteLabel = fmt.Sprintf("%02d", index)
+	}
+	index++
+	historyLabel = fmt.Sprintf("%02d", index)
+	return reviewLabel, voteLabel, historyLabel
+}
+
 // tradeVetoThreshold resolves ceil((seats - 2) / 2) — section 6.1's veto
 // threshold: one veto per non-party seat, "3 of 6" (6 non-party seats)
 // under the reference 8-team league. Integer ceil((n-2)/2) == (n-1)/2 for
@@ -1354,6 +1378,7 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 	}
 
 	history := s.tradeHistoryRows(state, pool, teamID, isCommissioner, threshold)
+	reviewIndex, voteIndex, historyIndex := tradeSectionIndexLabels(isCommissioner, len(votePanel) > 0)
 	return map[string]any{
 		"viewer":                    viewer,
 		"public_entry":              publicEntry,
@@ -1393,6 +1418,20 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 		"vote_panel_empty":          len(votePanel) == 0,
 		"history":                   history,
 		"history_empty":             len(history) == 0,
+		// section_review_index/section_vote_index/section_history_index
+		// (wave-8 audit item 11) renumber the page's own section-index
+		// chips sequentially over whichever sections actually render for
+		// THIS viewer: COMMISSIONER REVIEW (section) renders only for a
+		// commissioner (data.is_commissioner, the section's own <If>
+		// guard) and LEAGUE VOTE only when votePanel is non-empty (the
+		// section's own <If cond={data.vote_panel_empty == false}> guard)
+		// — a manager who is neither saw "01, 02, 03, 04, 07" with two
+		// numbers silently skipped. COMPOSE/INBOX/OUTBOX/PENDING REVIEW
+		// always render, so 01-04 stay the literal page.gsx text; only
+		// the three sections below them ever move.
+		"section_review_index":  reviewIndex,
+		"section_vote_index":    voteIndex,
+		"section_history_index": historyIndex,
 		// demo_mode (wave-6 item 6) backs the Trade Desk's own REHEARSAL MODE
 		// disclosure, matching /admin's and /draft's existing top-level key.
 		"demo_mode": s.demoMode,
