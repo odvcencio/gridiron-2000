@@ -2,7 +2,6 @@ package league
 
 import (
 	"fmt"
-	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -213,8 +212,6 @@ func BuildActionCenter(f ActionCenterFacts) ActionCenter {
 	}
 	return c
 }
-
-func BuildHQActionCenter(f ActionCenterFacts) ActionCenter { return BuildActionCenter(f) }
 
 func resolveActionCenterStage(f ActionCenterFacts) ActionCenterStage {
 	if !f.HasSeat || !f.Admitted ||
@@ -531,20 +528,4 @@ func actionCenterActionMaps(actions []ActionCenterAction, location *time.Locatio
 		})
 	}
 	return out
-}
-
-// ActionCenterHref only builds an existing path with an optional week query.
-func ActionCenterHref(path string, week int) string {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		path = "/"
-	}
-	if week <= 0 {
-		return path
-	}
-	separator := "?"
-	if strings.Contains(path, "?") {
-		separator = "&"
-	}
-	return path + separator + url.QueryEscape("week") + "=" + url.QueryEscape(fmt.Sprintf("%d", week))
 }
