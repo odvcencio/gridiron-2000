@@ -149,3 +149,48 @@ func TestSettingsPageRendersDeliveryTruthAndCurrentMarkers(t *testing.T) {
 		t.Fatal("settings render claims delivery to an account while email transport is not configured")
 	}
 }
+
+// TestSettingsPageNoTransportRowsAndSectionNoticeMatchDeliveryTruth is item
+// 6's own regression test (2026-09-02 audit): with no mail transport
+// configured, every row under "01 // LIVE DELIVERY" used to read "Current
+// state: ON" beside the masthead's own honest "EMAIL NOT CONFIGURED" —
+// each row must now say so is not configured too, and the section itself
+// carries a plain-language notice instead of silently promising delivery.
+func TestSettingsPageNoTransportRowsAndSectionNoticeMatchDeliveryTruth(t *testing.T) {
+	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
+	t.Setenv("DEMO_MODE", "false")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
+	})
+	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
+		t.Fatalf("AddDir: %v", err)
+	}
+	handler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+
+	authn := auth.New(nil, auth.Options{Provider: auth.ProviderFunc(func(*http.Request) (auth.User, bool) {
+		return auth.User{ID: "settings-manager-2", Email: "manager2@example.com"}, true
+	})})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	authn.Middleware(handler).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / (settings page) = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Email delivery is not configured on this league; these preferences apply once it is.") {
+		t.Errorf("settings render missing the live-delivery section's no-transport notice: %s", body)
+	}
+	if !strings.Contains(body, "Current state: ON (no transport)") && !strings.Contains(body, "Current state: OFF (no transport)") {
+		t.Errorf("settings render has no row stating its no-transport state: %s", body)
+	}
+	if strings.Contains(body, "Current state: ON</span>") || strings.Contains(body, "Current state: OFF</span>") {
+		t.Errorf("settings render has a bare ON/OFF row while email transport is not configured: %s", body)
+	}
+}
