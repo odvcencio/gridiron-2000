@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -460,5 +462,136 @@ func TestMatchupSourceFromSnapshotDSTUsesOffenseRank(t *testing.T) {
 	// number.
 	if _, ok := source("KC", "QB"); ok {
 		t.Errorf("KC/QB should be unranked in this fixture (no QB rows) — DST fallback leaked into a non-DST lookup")
+	}
+}
+
+// TestFetchSeasonPlayerStatsPagesPastTheRowCapByTeam is the P1 route-crawl
+// fix (2026-09-02 finding — rowan): a real week's combined offensive-
+// skill-position rows (~1333 typical) exceed fetchSeasonPlayerStatsRowCap
+// (1000), and openstats.filterPlayerStats clamps every single call's
+// result to that cap no matter what Limit asks for — so one whole-week
+// query call always silently dropped rows past 1000. This fake source
+// simulates a week whose two teams' rows sum to 1,333 (700 + 633), each
+// comfortably under the per-call cap on its own, and asserts
+// fetchSeasonPlayerStats' per-team pagination (games(0) names every team,
+// then one query call per (week, team) pair) consumes every row and never
+// logs the cap-truncation warning, since no individual call actually hit
+// the cap.
+func TestFetchSeasonPlayerStatsPagesPastTheRowCapByTeam(t *testing.T) {
+	const week1RowsAAA = 700
+	const week1RowsBBB = 633
+
+	games := func(week int) []openstats.ScheduleGame {
+		// games(0) (the "name every team in the season" call
+		// fetchSeasonPlayerStats makes once) and games(1) (a genuine
+		// per-week schedule lookup, exercised for realism even though
+		// this fix does not branch on the week argument) both see the
+		// same two-team matchup.
+		if week != 0 && week != 1 {
+			return nil
+		}
+		return []openstats.ScheduleGame{{Week: 1, HomeTeam: "AAA", AwayTeam: "BBB"}}
+	}
+
+	rowsForTeam := func(team string, count int) []openstats.PlayerWeekStat {
+		rows := make([]openstats.PlayerWeekStat, count)
+		for i := range rows {
+			rows[i] = openstats.PlayerWeekStat{
+				PlayerID: team + "-" + strconv.Itoa(i),
+				Team:     team,
+				Week:     1,
+				Position: "WR",
+			}
+		}
+		return rows
+	}
+
+	query := func(q openstats.PlayerQuery) []openstats.PlayerWeekStat {
+		if q.Week != 1 {
+			return nil
+		}
+		var rows []openstats.PlayerWeekStat
+		switch q.Team {
+		case "AAA":
+			rows = rowsForTeam("AAA", week1RowsAAA)
+		case "BBB":
+			rows = rowsForTeam("BBB", week1RowsBBB)
+		default:
+			t.Fatalf("query called with unexpected team %q — pagination should always filter by a named team", q.Team)
+		}
+		// Mirror openstats.filterPlayerStats' own clamp, so this fake
+		// stays honest to the real contract fetchSeasonPlayerStats relies
+		// on: a call never returns more than min(Limit, 1000) rows.
+		limit := q.Limit
+		if limit <= 0 || limit > fetchSeasonPlayerStatsRowCap {
+			limit = fetchSeasonPlayerStatsRowCap
+		}
+		if len(rows) > limit {
+			rows = rows[:limit]
+		}
+		return rows
+	}
+
+	var logOutput bytes.Buffer
+	log.SetOutput(&logOutput)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	got := fetchSeasonPlayerStats(games, query)
+
+	if want := week1RowsAAA + week1RowsBBB; len(got) != want {
+		t.Fatalf("fetchSeasonPlayerStats returned %d rows, want %d (every row from both teams, none dropped)", len(got), want)
+	}
+	seen := map[string]bool{}
+	for _, row := range got {
+		if seen[row.PlayerID] {
+			t.Fatalf("duplicate row for player_id %q — pagination double-counted a row", row.PlayerID)
+		}
+		seen[row.PlayerID] = true
+	}
+	if logOutput.Len() != 0 {
+		t.Fatalf("fetchSeasonPlayerStats logged a truncation warning even though no single call hit the row cap: %q", logOutput.String())
+	}
+}
+
+// TestFetchSeasonPlayerStatsFallsBackToOneCallPerWeekWithNoSchedule pins
+// the fallback path every existing matchup_cache_test.go fixture already
+// depends on: newMatchupTestStats never writes a schedule CSV, so
+// games(0) returns no teams, and fetchSeasonPlayerStats must fall back to
+// its original one-call-per-week behavior — including the cap-truncation
+// warning when a call genuinely fills the cap — rather than silently
+// fetching nothing.
+func TestFetchSeasonPlayerStatsFallsBackToOneCallPerWeekWithNoSchedule(t *testing.T) {
+	games := func(int) []openstats.ScheduleGame { return nil }
+
+	calls := 0
+	query := func(q openstats.PlayerQuery) []openstats.PlayerWeekStat {
+		calls++
+		if q.Team != "" {
+			t.Fatalf("query called with a team filter %q — no schedule data should mean no team partitioning", q.Team)
+		}
+		if q.Week != 1 {
+			return nil
+		}
+		rows := make([]openstats.PlayerWeekStat, fetchSeasonPlayerStatsRowCap)
+		for i := range rows {
+			rows[i] = openstats.PlayerWeekStat{PlayerID: strconv.Itoa(i), Week: 1}
+		}
+		return rows
+	}
+
+	var logOutput bytes.Buffer
+	log.SetOutput(&logOutput)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	got := fetchSeasonPlayerStats(games, query)
+
+	if calls != matchupMaxRegularWeek {
+		t.Fatalf("query called %d times, want exactly %d (one per week, no team partitioning)", calls, matchupMaxRegularWeek)
+	}
+	if len(got) != fetchSeasonPlayerStatsRowCap {
+		t.Fatalf("fetchSeasonPlayerStats returned %d rows, want %d", len(got), fetchSeasonPlayerStatsRowCap)
+	}
+	if !bytes.Contains(logOutput.Bytes(), []byte("returned exactly the 1000-row query cap")) {
+		t.Fatalf("expected a cap-truncation warning for the fallback path, got %q", logOutput.String())
 	}
 }

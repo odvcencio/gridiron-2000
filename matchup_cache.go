@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -179,14 +180,14 @@ func computeMatchupSnapshot(stats *openstats.Service, scoringValues map[string]f
 	currentSeason := stats.Status().Season
 	previousSeason := currentSeason - 1
 
-	currentStats := fetchSeasonPlayerStats(stats.PlayerStats)
+	currentStats := fetchSeasonPlayerStats(stats.Games, stats.PlayerStats)
 	season, label, useCurrent := matchup.SelectSeason(currentSeason, distinctWeeks(currentStats), previousSeason)
 
 	var chosen []openstats.PlayerWeekStat
 	if useCurrent {
 		chosen = currentStats
 	} else {
-		chosen = fetchSeasonPlayerStats(stats.PlayerStatsPrevSeason)
+		chosen = fetchSeasonPlayerStats(stats.Games, stats.PlayerStatsPrevSeason)
 	}
 
 	rows := matchupWeekRows(chosen)
@@ -246,34 +247,88 @@ func matchupWeekRows(rows []openstats.PlayerWeekStat) []matchupRow {
 }
 
 // fetchSeasonPlayerStats retrieves one season's full REG-season player
-// ledger by looping every regular-season week and concatenating: query
-// (stats.PlayerStats or stats.PlayerStatsPrevSeason) caps each single
-// call at 1000 rows, well above one week's row count but far below a
-// full season's (main.go's leagueWeekStatsSource documents the same
-// per-call cap) — looping by week is what keeps a season-long aggregate
-// honest instead of silently truncating at row 1000. A week with no
-// data yet (future weeks, or a season that has not started) simply
-// returns an empty slice for that week; the loop does not distinguish
-// "not played yet" from "no games this week" since neither should ever
-// feed a rank.
-// fetchSeasonPlayerStatsRowCap is the per-week query cap passed to query
-// below. A real week (an active roster's worth of QB/RB/WR/TE/K/DST rows,
-// ~1333 typical) sits comfortably under it, but the cap itself gives no
-// signal when a week's true row count reaches or exceeds it — a query
-// result of exactly this many rows is indistinguishable from "there were
-// more, and they got dropped" without checking the count.
-const fetchSeasonPlayerStatsRowCap = 1000
-
-func fetchSeasonPlayerStats(query func(openstats.PlayerQuery) []openstats.PlayerWeekStat) []openstats.PlayerWeekStat {
+// ledger by looping every regular-season week and concatenating.
+//
+// query (stats.PlayerStats or stats.PlayerStatsPrevSeason) caps every
+// single call at 1000 rows no matter what Limit asks for
+// (openstats.filterPlayerStats clamps internally) — a real week's
+// offensive-skill-position rows alone run close to that cap (~1333
+// typical across a full week), so one whole-week call risked silently
+// dropping rows past the cap. This fix pages by TEAM within each week
+// (the only other filter PlayerQuery exposes): games(0) reads the whole
+// season's schedule once to name every team that plays it, and a
+// per-team query stays far under the cap (one team's own roster is a
+// few dozen rows, never anywhere near 1000). A bye week for a team just
+// returns zero rows for that (team, week) pair, which is correct.
+//
+// If games returns no teams at all (an unconfigured or fake schedule
+// source — every existing matchup_cache_test.go fixture writes no
+// schedule CSV), this falls back to the original one-call-per-week
+// query so a caller with no schedule data still gets every week's rows
+// instead of silently fetching nothing; the row-cap warning applies
+// only to that fallback path, since the per-team path cannot realistically
+// hit it.
+func fetchSeasonPlayerStats(games func(week int) []openstats.ScheduleGame, query func(openstats.PlayerQuery) []openstats.PlayerWeekStat) []openstats.PlayerWeekStat {
+	teams := scheduleTeams(games(0))
 	var all []openstats.PlayerWeekStat
 	for week := 1; week <= matchupMaxRegularWeek; week++ {
-		rows := query(openstats.PlayerQuery{Week: week, SeasonType: "REG", Limit: fetchSeasonPlayerStatsRowCap})
-		if len(rows) == fetchSeasonPlayerStatsRowCap {
-			log.Printf("matchup: week %d returned exactly the %d-row query cap; a real week's rows may have been silently truncated", week, fetchSeasonPlayerStatsRowCap)
+		if len(teams) == 0 {
+			all = append(all, fetchWeekRowsCapped(query, week, "")...)
+			continue
 		}
-		all = append(all, rows...)
+		for _, team := range teams {
+			all = append(all, fetchWeekRowsCapped(query, week, team)...)
+		}
 	}
 	return all
+}
+
+// fetchSeasonPlayerStatsRowCap is the per-call query cap passed to query
+// in fetchWeekRowsCapped. A real week's rows for one team (an active
+// roster's worth of QB/RB/WR/TE/K/DST rows) sit far under it; the whole
+// week's combined rows across all 32 teams (~1333 typical) do not, which
+// is exactly why fetchSeasonPlayerStats no longer issues one whole-week
+// call. The cap itself gives no signal when a call's true row count
+// reaches or exceeds it — a query result of exactly this many rows is
+// indistinguishable from "there were more, and they got dropped" without
+// checking the count.
+const fetchSeasonPlayerStatsRowCap = 1000
+
+// fetchWeekRowsCapped issues one query call for (week, team) — team may
+// be "" for the no-schedule fallback, meaning the whole week unfiltered
+// — and logs the truncation warning only when the result exactly fills
+// the cap, the one case where rows were provably dropped.
+func fetchWeekRowsCapped(query func(openstats.PlayerQuery) []openstats.PlayerWeekStat, week int, team string) []openstats.PlayerWeekStat {
+	rows := query(openstats.PlayerQuery{Week: week, SeasonType: "REG", Team: team, Limit: fetchSeasonPlayerStatsRowCap})
+	if len(rows) == fetchSeasonPlayerStatsRowCap {
+		if team == "" {
+			log.Printf("matchup: week %d returned exactly the %d-row query cap; a real week's rows may have been silently truncated", week, fetchSeasonPlayerStatsRowCap)
+		} else {
+			log.Printf("matchup: week %d team %s returned exactly the %d-row query cap; rows may have been silently truncated", week, team, fetchSeasonPlayerStatsRowCap)
+		}
+	}
+	return rows
+}
+
+// scheduleTeams returns the distinct, sorted set of team abbreviations
+// named as either side of any game in games — every franchise that
+// plays somewhere in the season, independent of any single week's bye.
+func scheduleTeams(games []openstats.ScheduleGame) []string {
+	seen := map[string]bool{}
+	for _, game := range games {
+		if game.HomeTeam != "" {
+			seen[game.HomeTeam] = true
+		}
+		if game.AwayTeam != "" {
+			seen[game.AwayTeam] = true
+		}
+	}
+	teams := make([]string, 0, len(seen))
+	for team := range seen {
+		teams = append(teams, team)
+	}
+	sort.Strings(teams)
+	return teams
 }
 
 // distinctWeeks counts the distinct Week values present in rows — the

@@ -9,6 +9,30 @@ import (
 
 const playerDataUnavailableMessage = "player data is unavailable; roster and waiver actions are temporarily blocked"
 
+// playerSearchQueryMaxLength caps the /players search box's accepted
+// length. The query echoes back into the page more than a dozen times
+// (the visible input's value, both pagination hrefs, and one hidden "q"
+// field per pool-row action form), so an unbounded query — a 16,000-
+// character value has been observed — multiplied that many times over
+// into a response hundreds of kilobytes larger than any real search
+// term could ever need. No player or team name in this pool comes close
+// to 100 characters.
+const playerSearchQueryMaxLength = 100
+
+// truncateSearchQuery trims s and, if what remains is still longer than
+// playerSearchQueryMaxLength, cuts it down to that many runes — never
+// splitting a multi-byte character — so every later echo of the query
+// (the input's own value, pagination hrefs, hidden form fields) carries
+// the same short, honest value the search actually ran against.
+func truncateSearchQuery(s string) string {
+	s = strings.TrimSpace(s)
+	runes := []rune(s)
+	if len(runes) <= playerSearchQueryMaxLength {
+		return s
+	}
+	return string(runes[:playerSearchQueryMaxLength])
+}
+
 func requirePlayerData(pool playerPool) error {
 	if playerPoolIsUnavailable(pool) {
 		return fmt.Errorf("%s", playerDataUnavailableMessage)
@@ -211,7 +235,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	faab := s.cfg.Waivers.Mode == "faab"
 
 	pos := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("pos")))
-	rawQuery := strings.TrimSpace(r.URL.Query().Get("q"))
+	rawQuery := truncateSearchQuery(r.URL.Query().Get("q"))
 	query := strings.ToLower(rawQuery)
 
 	myRoster := currentRosters(state)[teamID]
