@@ -39,7 +39,8 @@ func (s *Service) CommissionerSummary(instanceID string, runtime commissionerhq.
 			readySeats++
 		}
 		ledger = append(ledger, commissionerhq.SeatLedgerEntry{
-			Seat: ordinal + 1, Claimed: isClaimed, Ready: isReady,
+			Seat: ordinal + 1, Abbreviation: team.Abbreviation, Name: team.Name,
+			Claimed: isClaimed, Ready: isReady,
 		})
 	}
 
