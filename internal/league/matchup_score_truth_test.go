@@ -588,13 +588,17 @@ func TestLiveScoresViewStarterRowsUpdateEveryFieldForIdentityAndJoinTransitions(
 			}
 		}
 	}
+	// starterProvenance/starterJoinState carry ledgerLineupText/
+	// ledgerStatsText's already-labelled words (wave-8 audit item 3), not
+	// the raw StarterLedgerRow.Provenance/JoinState tokens this fixture's
+	// row() helper still stores under those field names.
 	wantFields := map[string][2]string{
 		"starterPoints":     {"0.0", "0.0"},
 		"starterPlayerName": {"Player A", "Empty slot"},
 		"starterPosition":   {"QB", "RB"},
 		"starterNFLTeam":    {"AAA", ""},
-		"starterProvenance": {"explicit", "empty"},
-		"starterJoinState":  {"missing-join", "empty"},
+		"starterProvenance": {"Lineup: set by the manager", "Lineup: no player in this slot"},
+		"starterJoinState":  {" · Stats: no stat row yet", ""},
 		"starterDetail":     {"No matching player-stat row for Player A.", "No player configured in this starting slot."},
 	}
 	assertView(svc.LiveScoresView(context.Background()), wantFields)
@@ -603,8 +607,8 @@ func TestLiveScoresViewStarterRowsUpdateEveryFieldForIdentityAndJoinTransitions(
 		"starterPlayerName": {"Player B", "Player C"},
 		"starterPosition":   {"QB", "RB"},
 		"starterNFLTeam":    {"BBB", "CCC"},
-		"starterProvenance": {"auto-filled", "explicit"},
-		"starterJoinState":  {"matched", "matched"},
+		"starterProvenance": {"Lineup: auto-filled", "Lineup: set by the manager"},
+		"starterJoinState":  {" · Stats: scored", " · Stats: scored"},
 		"starterDetail":     {"Matched current player-stat row.", "Matched current player-stat row."},
 	}
 	assertView(svc.LiveScoresView(context.Background()), wantFields)

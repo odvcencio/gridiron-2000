@@ -3442,10 +3442,15 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		starterPlayerName[row.LiveKey] = row.PlayerName
 		starterPosition[row.LiveKey] = row.Position
 		starterNFLTeam[row.LiveKey] = row.NFLTeam
-		starterProvenance[row.LiveKey] = row.Provenance
-		starterJoinState[row.LiveKey] = row.JoinState
+		// ledgerLineupText/ledgerStatsText/ledgerSourceText (matchup_ledger.go)
+		// turn the raw Provenance/JoinState/Source tokens into the labelled
+		// words the ledger disclosure shows, each with its own leading
+		// separator or empty string, so a live poll re-sends the exact same
+		// already-formatted text a full render would (wave-8 audit item 3).
+		starterProvenance[row.LiveKey] = ledgerLineupText(row.Provenance)
+		starterJoinState[row.LiveKey] = ledgerStatsText(row.JoinState)
 		starterDetail[row.LiveKey] = row.Detail
-		starterSource[row.LiveKey] = row.Source
+		starterSource[row.LiveKey] = ledgerSourceText(row.Source)
 		starterGameStateBind[row.LiveKey] = row.GameState
 		starterPossessionBind[row.LiveKey] = row.Possession
 	}
@@ -4870,14 +4875,19 @@ func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []m
 	return out
 }
 
+// starterLedgerMaps' provenance/join_state/source fields carry the
+// already-labelled, plain-word ledgerLineupText/ledgerStatsText/
+// ledgerSourceText segments (wave-8 audit item 3), each with its own
+// leading separator or "" — the page (StarterCell, app/matchups/page.gsx)
+// concatenates all three with no separator of its own.
 func starterLedgerMaps(rows []StarterLedgerRow) []map[string]any {
 	out := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, map[string]any{
 			"live_key": row.LiveKey, "slot": row.Slot, "player_id": row.PlayerID,
 			"player_name": row.PlayerName, "position": row.Position, "nfl_team": row.NFLTeam,
-			"points": row.PointsText, "provenance": row.Provenance, "join_state": row.JoinState,
-			"detail": row.Detail, "source": row.Source, "game_state": row.GameState,
+			"points": row.PointsText, "provenance": ledgerLineupText(row.Provenance), "join_state": ledgerStatsText(row.JoinState),
+			"detail": row.Detail, "source": ledgerSourceText(row.Source), "game_state": row.GameState,
 			"possession": row.Possession,
 		})
 	}
