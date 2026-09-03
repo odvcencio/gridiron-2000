@@ -1889,8 +1889,16 @@ func DraftAvailable(props DraftAvailableProps) Node {
 							    surviving exposure of the active rank there —
 							    same AvailRowRank component, same two ranks, just
 							    inline before the name instead of its own column. */}
-							<span class="avail-row__rank-chip mono"><AvailRowRank Sort={props.Data.pool_sort} HasHouseRank={player.HasHouseRank} HouseRank={player.HouseRank} Rank={player.Rank}></AvailRowRank></span>
-							<strong>{player.Name}</strong> <small>· {player.Detail}</small>
+							{/* .avail-row__player-body (2026-09-03 mobile pass): the phone
+							    layout lays this cell out as a two-line grid (name, then
+							    rank + detail). The grid sits on this inner block, not the
+							    td: a td that stops being display: table-cell is wrapped
+							    in an anonymous cell together with its inline-grid .pos
+							    neighbour, which drops the POS chip under the name. */}
+							<div class="avail-row__player-body">
+								<span class="avail-row__rank-chip mono"><AvailRowRank Sort={props.Data.pool_sort} HasHouseRank={player.HasHouseRank} HouseRank={player.HouseRank} Rank={player.Rank}></AvailRowRank></span>
+								<strong>{player.Name}</strong> <small>· {player.Detail}</small>
+							</div>
 						</td>
 						<td class={"pos pos-" + player.Position}>{player.Position}</td>
 						<td class="num">{player.Projection}</td>
@@ -2762,14 +2770,14 @@ func Page() Node {
 		<If cond={data.live_mode == "target"}>
 		<header class="draft-command" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:clock draft:seat draft:state">
 			<If cond={data.draft.started}><h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
-			<If cond={data.draft.started == false}><h1 class="draft-command__title">Draft room · opens {data.draft.date} · {data.draft.time}</h1></If>
+			<If cond={data.draft.started == false}><h1 class="draft-command__title">Draft room · {data.draft.opens_label}</h1></If>
 			<DraftCommandBar {...data.command}></DraftCommandBar>
 		</header>
 		</If>
 		<If cond={data.live_mode != "target"}>
 		<header class="draft-command">
 			<If cond={data.draft.started}><h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
-			<If cond={data.draft.started == false}><h1 class="draft-command__title">Draft room · opens {data.draft.date} · {data.draft.time}</h1></If>
+			<If cond={data.draft.started == false}><h1 class="draft-command__title">Draft room · {data.draft.opens_label}</h1></If>
 			<div data-gosx-region data-gosx-region-url="/draft/fragment/command" data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:pick draft:undo draft:clock draft:state">
 				<DraftCommandBar {...data.command}></DraftCommandBar>
 			</div>

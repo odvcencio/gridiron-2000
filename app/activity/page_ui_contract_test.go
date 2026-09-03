@@ -29,11 +29,11 @@ func TestActivityItemTimeColumnFitsRelativeText(t *testing.T) {
 		t.Error("activity-item retained the old 3.5rem (56px) time column that clipped RelativeTime's suffix")
 	}
 
-	// styles.css reuses the "@media (max-width: 38rem)" condition across
+	// styles.css reuses the "@media (width <= 38rem)" condition across
 	// several separate blocks (one per feature area, not one consolidated
 	// block), so this checks the rule exists at all rather than assuming
 	// it lives in any one particular occurrence.
-	if !strings.Contains(style, "@media (max-width: 38rem)") {
+	if !strings.Contains(style, "@media (width <= 38rem)") {
 		t.Fatal("38rem mobile breakpoint is missing from styles.css")
 	}
 	if !strings.Contains(style, ".activity-item {\n    grid-template-columns: 1fr;\n  }") {

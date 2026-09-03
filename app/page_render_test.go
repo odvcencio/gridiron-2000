@@ -199,7 +199,7 @@ func TestPublicEntrySourceKeepsNarrowAndMotionContracts(t *testing.T) {
 	stylesheet := string(css)
 	for _, want := range []string{
 		"@media (max-width: 20rem)",
-		"@media (max-width: 38rem)",
+		"@media (width <= 38rem)",
 		"@media (prefers-reduced-motion: reduce)",
 		".home-action-center",
 		".home-action-center__task",

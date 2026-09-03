@@ -5,7 +5,24 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+Scope: a phone-first pass over every route (anonymous, manager, commissioner)
+in the seated, live-draft, and season states, plus the stylesheet and font
+delivery path. No schema change.
+
+### Changed
+- The three type families are self-hosted under `public/fonts` and preloaded; the stylesheet no longer imports fonts.googleapis.com, and the Content Security Policy drops both Google font hosts.
+- The server serves `styles.css` with its source comments stripped and its font URLs content-addressed (about 39 KB gzipped instead of 135 KB); the `?v=` hash now covers the served bytes.
+- The anonymous header reads "Guide" and "Sign in" on one row at phone width, and public pages no longer reserve space for a fixed bar they never render, so the landing's sign-in action sits in the first phone viewport.
+- Mastheads on phones lead with less space above the eyebrow, drop the second-eyebrow reserve, and set their lede at body size, so each route's first state card lands in the first viewport.
+
+### Fixed
+- Draft-room pool rows at phone width show the full player name instead of three characters: the rank chip carries only the active-sort rank and the detail line moves under the name.
+- The phone action bar shows on the same tier as the tab bar, so tablet widths between 609 px and 899 px no longer reserve 56 px of empty bottom padding.
+- Compact density keeps the 13 px small-text floor on touch widths.
+- The pre-draft room title reads "opens TBD" instead of "opens TBD ·".
+- The trade desk's veto policy sentence reads at text size instead of scorebug size.
+- The matchup status chip hides until a live state has text, instead of rendering an empty pill in the preseason.
+- The dead `--rail-breakpoint` token is gone.
 
 ## [release-2026.09.03-1828a8e-sweep6] — 2026-09-03
 

@@ -1,4 +1,36 @@
-@import url("https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@600&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap");
+/* Self-hosted type (2026-09-03 mobile pass — sequoia): the three families
+   used to arrive through an @import of fonts.googleapis.com at the top of
+   this render-blocking sheet — a serial chain of stylesheet -> Google's
+   CSS -> fonts.gstatic.com woff2 before the first styled paint, two extra
+   DNS/TLS hops on a phone, and a hard dependency on a third party for a
+   league room that may run on a private network. The latin subsets now
+   live under public/fonts (see that directory's README for licenses); the
+   server content-addresses these URLs when it prepares the stylesheet
+   (stylesheet_asset.go) and preloads the display and body faces. */
+@font-face {
+  font-family: "Archivo Black";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/fonts/archivo-black-400.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(/fonts/ibm-plex-mono-600.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url(/fonts/plus-jakarta-sans.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 
 :root {
   --font-display: "Archivo Black", "Arial Black", sans-serif;
@@ -110,7 +142,6 @@
   --shadow-signal: 0 0 2rem var(--color-accent-haze);
   --content-width: 88rem;
   --rail-width: 15.5rem;
-  --rail-breakpoint: 56.25rem;
   --mobile-bar-height: 3.75rem;
 
   /* UI pass 2026-08-30 (P1-4): tokens the stylesheet referenced but never
@@ -1224,11 +1255,15 @@ button.access-link {
       overflow: hidden;
     }
 
-    html[data-gosx-navigation-state] .site-frame {
+    /* Scoped to a document that actually renders the fixed enhanced bar
+       (2026-09-03 mobile pass — sequoia): the anonymous shell renders
+       header.minimal-bar in flow instead, so this reserve was 84px of
+       dead space under every public page's header at phone width. */
+    html[data-gosx-navigation-state] body:has(.mobile-navigation-enhanced) .site-frame {
       padding-top: calc(var(--mobile-bar-height) + var(--space-lg));
     }
 
-    html[data-gosx-navigation-state] .announcement-banner + .site-frame {
+    html[data-gosx-navigation-state] body:has(.mobile-navigation-enhanced) .announcement-banner + .site-frame {
       padding-top: var(--space-lg);
     }
 
@@ -1390,7 +1425,11 @@ button.access-link {
   display: none;
 }
 
-@media (max-width: 38rem) {
+@media (max-width: 56.1875rem) {
+  /* Same tier as .app-tabbar (2026-09-03 mobile pass — sequoia): the
+     .site-frame reserve for this bar lives in the 56.1875rem tier, so
+     showing the bar only at 38rem left 56px of dead bottom padding on
+     every opted-in route between 609px and 899px. */
   .page-action-bar {
     display: flex;
     align-items: center;
@@ -16536,5 +16575,179 @@ a.skip-link {
   body:has(.page-action-bar) .team-page .team-command-strip span,
   body:has(.page-action-bar) .team-page .team-command-strip strong {
     line-height: 1.1;
+  }
+}
+
+/* comb — sequoia (2026-09-03 mobile pass) ---------------------------------
+   File-scoped block, appended after every other rule per the shared append
+   convention; range syntax per the house rule for blocks after the wave-7
+   marker. Evidence: a 390x844 / 360x740 / 844x390 / 768x1024 screenshot
+   and DOM-metrics matrix over every route in the seated, live-draft, and
+   season states (temporary uxshot rig, not committed).
+
+   1. Anonymous shell: header.minimal-bar wrapped its two links under the
+      brand (~130px tall) and the fixed-bar reserve above (~1226, now scoped)
+      added 84px of dead space, so the landing's primary action sat at
+      y≈935 at 390px — below the fold. One row, no reserve.
+   2. Landing hero: --type-display's 52px floor set "EVERY FRANCHISE SEAT
+      IS TAKEN." on four lines at phone width; ~12.5vw fits it on three.
+   3. Masthead lead on phones: --masthead-lead, the second-eyebrow-line
+      reserve, --space-xl page padding, and the collapsed grid's
+      --space-3xl column gap (a row gap once stacked) put every route's
+      first card at y≈430-460 at 390px under 176px of fixed chrome. The
+      phone tokens trade the level-title guarantee for content in the
+      first viewport; the kicker wraps to two lines instead of losing its
+      tail to an ellipsis.
+   4. Draft pool rows at phone width: the RK column hides and the inline
+      rank chip ("001 H001") took ~70px of a ~120px PLAYER cell, so names
+      ellipsized after three characters ("Ja'…"). The chip now carries the
+      active-sort rank only, the cell is a two-line grid (rank + name, then
+      the detail line), and cell padding tightens by 4px a side.
+   5. The trade desk's veto sentence rendered at the scorebug value size
+      (two lines of ~40px mono); a sentence reads at text size.
+   6. The matchup status chip rendered as an empty pill before any live
+      state bound (preseason: live_state is ""); it hides until it has text.
+   7. Compact density set --type-xs to 12px on every viewport, under the
+      13px floor touch_and_type_floor_contract_test.go pins for the default
+      density; touch widths keep the floor and the toggle stays a desktop
+      affordance. */
+@media (width <= 38rem) {
+  .minimal-bar {
+    flex-wrap: nowrap;
+    padding: var(--space-xs) 0;
+    gap: var(--space-sm);
+  }
+  .minimal-bar .site-brand {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .minimal-bar .brand-copy strong {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .minimal-actions {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    gap: var(--space-xs);
+  }
+  .minimal-actions .access-link {
+    padding-inline: var(--space-xs);
+    white-space: nowrap;
+  }
+  .minimal-actions .access-link .signal-mark {
+    display: none;
+  }
+
+  .display--hero {
+    font-size: clamp(2.5rem, 12.5vw, 3.25rem);
+  }
+  .hero-deck {
+    font-size: var(--type-base);
+  }
+  .hero-command,
+  .page-masthead,
+  .draft-masthead,
+  .login-stage {
+    gap: var(--space-lg);
+  }
+  .page {
+    padding-top: var(--space-md);
+  }
+  /* Reading order on a phone follows the public-entry contract (identity,
+     headline, state, primary action, then secondary explanation): the two
+     explanatory paragraphs move under the actions so SIGN IN WITH GOOGLE
+     lands inside a 740px viewport. Source order (and the tab order that
+     follows it) is unchanged; only the visual order moves. */
+  .hero-command__copy {
+    display: flex;
+    flex-direction: column;
+  }
+  .hero-command__copy > .entry-note,
+  .hero-command__copy > .entry-policy-detail,
+  .hero-command__copy > .demo-message {
+    order: 1;
+  }
+  .hero-command__copy > .entry-note {
+    margin-top: var(--space-md);
+  }
+
+  :root {
+    --masthead-lead: var(--space-sm);
+    --masthead-eyebrow-reserve: 0rem;
+  }
+  .page-masthead > div > p,
+  .draft-masthead__copy > p,
+  .guide-lede {
+    font-size: var(--type-base);
+  }
+  .page-masthead > div > .signal-label + .page-kicker {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+    text-overflow: clip;
+  }
+
+  .avail-row > * {
+    padding-inline: var(--space-xs);
+  }
+  .avail-row__player-body {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "name name"
+      "rank detail";
+    column-gap: var(--space-xs);
+    align-items: baseline;
+    white-space: nowrap;
+  }
+  .avail-row__player-body > strong {
+    grid-area: name;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .avail-row__player-body > small {
+    grid-area: detail;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .avail-row__rank-chip {
+    grid-area: rank;
+    margin-right: 0;
+  }
+  .avail-row__rank-chip .house-rank {
+    display: none;
+  }
+}
+
+/* The player cell's inner block carries the cell's own one-line
+   ellipsis contract at every width (a block child is not clipped by the
+   td's text-overflow); at phone width the block above becomes the grid. */
+.avail-row__player-body {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.draft-clock-panel--sentence > strong {
+  font-size: var(--type-lg);
+  line-height: 1.3;
+  letter-spacing: 0;
+}
+
+.matchup-status-line .state-chip:has(> b:empty) {
+  display: none;
+}
+
+@media (width <= 56.1875rem) {
+  body[data-density="compact"] {
+    --type-xs: clamp(0.8125rem, 0.78rem + 0.16vw, 0.875rem);
+    --type-2xs: var(--type-xs);
+    --type-sm: clamp(0.875rem, 0.86rem + 0.10vw, 0.9375rem);
   }
 }

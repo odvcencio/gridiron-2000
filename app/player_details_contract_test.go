@@ -135,7 +135,7 @@ func TestPlayerDetailsUseNativeDisclosureAcrossSurfaces(t *testing.T) {
 		`.stat-tip[open] > .stat-tip__panel`,
 		`.stat-tip__summary:focus-visible`,
 		`touch-action: manipulation;`,
-		`@media (max-width: 38rem)`,
+		`@media (width <= 38rem)`,
 		`min-height: 2.75rem;`,
 	} {
 		if !strings.Contains(styles, want) {

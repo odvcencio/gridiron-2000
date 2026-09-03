@@ -763,7 +763,8 @@ func TestNativeDocumentShellPreservesLanguageHeartbeatAndCSPNonce(t *testing.T) 
 		"'strict-dynamic'",
 		"'wasm-unsafe-eval'",
 		"form-action 'self' https://accounts.google.com",
-		"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+		"style-src 'self' 'unsafe-inline'",
+		"font-src 'self'",
 		"img-src 'self' data: https://a.espncdn.com",
 		"frame-ancestors 'none'",
 	} {

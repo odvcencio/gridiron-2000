@@ -184,7 +184,7 @@ func TestGuideStylesCoverInformationAndNarrowNavigation(t *testing.T) {
 		".guide-compare",
 		".guide-callout--alert",
 		".guide-formula",
-		"@media (max-width: 38rem)",
+		"@media (width <= 38rem)",
 		"@media (max-width: 20rem)",
 		".minimal-actions .access-link",
 	} {

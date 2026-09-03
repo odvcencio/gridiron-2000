@@ -3883,6 +3883,10 @@ func (s *Service) draftSummaryForState(now time.Time, state PersistedState) map[
 		"event_label":     "LEAGUE DRAFT",
 		"date":            strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day()),
 		"time":            local.Format("3:04 PM MST"),
+		// opens_label is the pre-draft room title's own clause ("opens
+		// <date> · <time>"), composed here so an unpublished date renders
+		// "opens TBD" rather than "opens TBD · " with a dangling separator.
+		"opens_label":     "opens " + strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day()) + " · " + local.Format("3:04 PM MST"),
 		"timezone":        FriendlyTimezoneLabel(timezone),
 		"long_date":       local.Format("Monday, January 2, 2006"),
 		"format":          s.draftFormatLabel(),
@@ -3920,6 +3924,7 @@ func (s *Service) draftSummaryForState(now time.Time, state PersistedState) map[
 			startedLocal := state.DraftStartedAt.In(location)
 			summary["date"] = strings.ToUpper(startedLocal.Format("Mon · Jan")) + " " + strconv.Itoa(startedLocal.Day())
 			summary["time"] = startedLocal.Format("3:04 PM MST")
+			summary["opens_label"] = "opened " + summary["date"].(string) + " · " + summary["time"].(string)
 			summary["long_date"] = startedLocal.Format("Monday, January 2, 2006")
 		case state.DraftStarted || complete:
 			// Started/complete with no recorded start time (a fixture or
@@ -3928,10 +3933,12 @@ func (s *Service) draftSummaryForState(now time.Time, state PersistedState) map[
 			// rather than contradict it.
 			summary["date"] = ""
 			summary["time"] = ""
+			summary["opens_label"] = ""
 			summary["long_date"] = ""
 		default:
 			summary["date"] = "TBD"
 			summary["time"] = ""
+			summary["opens_label"] = "opens TBD"
 			summary["long_date"] = "Draft time not published yet"
 			summary["status_label"] = "NOT SCHEDULED"
 			summary["status_note"] = "Draft time is not published yet. The commissioner sets it in League settings."

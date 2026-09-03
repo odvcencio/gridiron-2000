@@ -13,7 +13,7 @@ func Page() Node {
 					<strong>Make your move.</strong> Propose, counter, and settle trades with the rest of the league. Every executed deal posts to the transaction feed.
 				</p>
 			</div>
-			<div class="draft-clock-panel">
+			<div class="draft-clock-panel draft-clock-panel--sentence">
 				<strong class="mono">{data.veto_policy_label}</strong>
 				<div class="draft-clock-meta">
 					<div class="trades-veto-links">

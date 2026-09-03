@@ -204,9 +204,9 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 					<span class="user-chip mono">{props.Initials}</span>
 					<span class="user-name">Rehearsal seat</span>
 				</div>
-				<a href="/login" data-gosx-link class="access-link" aria-label="League access">
+				<a href="/login" data-gosx-link class="access-link">
 					<span class="signal-mark" aria-hidden="true"></span>
-					League access
+					Sign in
 				</a>
 			</If>
 		</div>
@@ -515,10 +515,10 @@ func Layout() Node {
 					</span>
 				</a>
 				<nav class="minimal-actions" aria-label="Public navigation">
-					<a href="/guide" data-gosx-link class="access-link access-link--guide">Manager guide</a>
-					<a href="/login" data-gosx-link class="access-link" aria-label="League access">
+					<a href="/guide" data-gosx-link class="access-link access-link--guide">Guide</a>
+					<a href="/login" data-gosx-link class="access-link">
 						<span class="signal-mark" aria-hidden="true"></span>
-						League access
+						Sign in
 					</a>
 				</nav>
 			</header>

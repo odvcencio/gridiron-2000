@@ -147,7 +147,14 @@ func buildSetupAppWithTokenSink(cfg AppConfig, store *league.Store, tokenSink fu
 	// app_build.go) — SETUP serves the identical public/styles.css file
 	// through the identical GoSX servePublic handler, so it gets the same
 	// fix rather than shipping the old "max-age=0, must-revalidate" href.
-	stylesheetHref := hashedPublicAssetHref(cfg.Root, "styles.css")
+	// Same processed stylesheet, same hashed href, same middleware as
+	// BuildApp (stylesheet_asset.go) — the setup pages and the configured
+	// app share one cached asset across the restart between them.
+	stylesheet, stylesheetErr := loadStylesheetAsset(cfg.Root)
+	stylesheetHref := server.AssetURL(stylesheetPublicName)
+	if stylesheetErr == nil {
+		stylesheetHref = stylesheet.href
+	}
 
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
@@ -167,6 +174,7 @@ func buildSetupAppWithTokenSink(cfg AppConfig, store *league.Store, tokenSink fu
 
 	app := server.New()
 	app.EnableSecurityPolicy(gridironSecurityPolicy())
+	app.Use(stylesheet.middleware)
 	app.Use(sessions.Middleware)
 	app.Use(sessions.Protect)
 	app.SetPublicDir(filepath.Join(cfg.Root, "public"))

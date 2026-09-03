@@ -1049,7 +1049,18 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	// deploy time, and BuildApp already runs once per process (see its own
 	// doc comment). See hashedPublicAssetHref's doc comment for why this is
 	// a query-string hash rather than a literal "/styles.<hash>.css" path.
-	stylesheetHref := hashedPublicAssetHref(root, "styles.css")
+	// The served stylesheet is the comment-stripped, font-versioned form
+	// (stylesheet_asset.go); its href hashes the served bytes. A missing
+	// or unreadable file degrades to the unversioned public href exactly as
+	// hashedPublicAssetHref does, so a packaging error still renders.
+	stylesheet, stylesheetErr := loadStylesheetAsset(root)
+	stylesheetHref := server.AssetURL(stylesheetPublicName)
+	if stylesheetErr == nil {
+		stylesheetHref = stylesheet.href
+	} else {
+		log.Printf("stylesheet: %v; serving public/styles.css unprocessed", stylesheetErr)
+	}
+	fontPreloads := fontPreloadLinks(root)
 	// PWA basics (wave 7b mobile-foundation audit, item 10 — larch): the
 	// manifest and the apple-touch-icon are both deploy-time-static public
 	// files (public/manifest.webmanifest names the fixed product identity
@@ -1072,10 +1083,10 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
 		ctx.SetLanguage("en")
 		ctx.SetMetadata(server.Metadata{
-			Links: []server.LinkTag{
+			Links: append([]server.LinkTag{
 				{Rel: "stylesheet", Href: stylesheetHref},
 				{Rel: "icon", Href: "/favicon.svg", Type: "image/svg+xml"},
-			},
+			}, fontPreloads...),
 			ThemeColor: []server.ThemeColor{{Color: "#070A16"}},
 			// PWA basics (item 10): Manifest renders <link rel="manifest">;
 			// Icons.Apple renders <link rel="apple-touch-icon"> (both via
@@ -1212,6 +1223,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	// instant this app builds — see the comment beside that call.
 	app.EnableSecurityPolicy(gridironSecurityPolicy())
 	app.EnableGzip()
+	app.Use(stylesheet.middleware)
 	app.Use(dropFeatureHubPreload)
 	app.Use(runtimeAssetCORS)
 	app.Use(avatarMultipartEnvelopeLimit)

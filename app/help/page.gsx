@@ -11,7 +11,7 @@ func Page() Node {
 				<form class="help-search" method="get" action="/help">
 					<label for="help-query">Search help</label>
 					<div class="help-search__row">
-						<input id="help-query" name="q" type="search" value={data.query} placeholder="Try: draft queue, waiver budget, live data" autocomplete="off"></input>
+						<input id="help-query" name="q" type="search" value={data.query} placeholder="Try: waiver budget, draft queue" autocomplete="off"></input>
 						<button class="button button--primary" type="submit">Search</button>
 					</div>
 					<small>Search is deterministic: query text, not recency or personal history, sets the order.</small>
