@@ -95,47 +95,34 @@ func TestPlayersPageRendersRehearsalModeDisclosure(t *testing.T) {
 	}
 }
 
-// TestWaiverDeskExplainerMatchesBetweenServerRenderAndFragment is item
-// 10's own regression test (2026-08-31 post-wave audit): Page()'s full
-// initial render and WaiverDeskRegion's 4s-interval fragment each carry
-// their own hand-duplicated copy of the "waiver-desk-explainer"
-// paragraph (page.gsx) — before this fix they read different sentences
-// ("controls which requests run first" in the fragment vs "controls
-// which of your requests runs first" in the full page), so a manager
-// watching the panel refresh saw the explanation change under them. Both
-// occurrences must be byte-for-byte identical.
-func TestWaiverDeskExplainerMatchesBetweenServerRenderAndFragment(t *testing.T) {
+// TestWaiverDeskExplainerHasExactlyOneSourceOfTruth is item 10's own
+// regression test (2026-08-31 post-wave audit), updated for item 1's
+// root-cause fix (2026-09-02 route-crawl finding — rowan): the
+// "waiver-desk-explainer" paragraph used to be hand-duplicated between
+// Page() and WaiverDeskRegion(), and the two copies drifted apart
+// ("controls which requests run first" vs "controls which of your
+// requests runs first"). Page() now embeds
+// <WaiverDeskRegion></WaiverDeskRegion> directly instead of duplicating
+// its markup, so the paragraph has exactly one definition in page.gsx —
+// drift between the initial render and the 4s-interval fragment poll is
+// now structurally impossible, not just tested for.
+func TestWaiverDeskExplainerHasExactlyOneSourceOfTruth(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {
 		t.Fatal(err)
 	}
 	pattern := regexp.MustCompile(`<p class="scoring-note waiver-desk-explainer">([\s\S]*?)</p>`)
 	matches := pattern.FindAllStringSubmatch(string(source), -1)
-	if len(matches) != 2 {
-		t.Fatalf("found %d waiver-desk-explainer paragraphs, want exactly 2 (Page() and WaiverDeskRegion())", len(matches))
+	if len(matches) != 1 {
+		t.Fatalf("found %d waiver-desk-explainer paragraphs, want exactly 1 (WaiverDeskRegion() only; Page() embeds it)", len(matches))
 	}
-	// normalize collapses whitespace runs to one space, then drops any
-	// space directly touching a tag boundary (<...> / </...>): pretty-
-	// printed markup and its minified duplicate can legitimately differ
-	// in ONLY that source-formatting whitespace (a newline before <If>
-	// versus none) without differing in rendered text, since the
-	// meaningful word-separating space already lives inside the <If> tag
-	// itself in both copies. Only a real wording difference should fail
-	// this check.
+	if !strings.Contains(string(source), "<WaiverDeskRegion></WaiverDeskRegion>") {
+		t.Fatal("page.gsx no longer embeds <WaiverDeskRegion></WaiverDeskRegion> from Page() — the region and the fragment can drift again")
+	}
 	whitespace := regexp.MustCompile(`\s+`)
-	tagBoundary := regexp.MustCompile(`\s*(<[^>]*>)\s*`)
-	normalize := func(text string) string {
-		text = whitespace.ReplaceAllString(text, " ")
-		text = tagBoundary.ReplaceAllString(text, "$1")
-		return strings.TrimSpace(text)
-	}
-	first := normalize(matches[0][1])
-	second := normalize(matches[1][1])
-	if first != second {
-		t.Fatalf("waiver-desk-explainer text diverged between the server render and the fragment:\n  Page():           %q\n  WaiverDeskRegion: %q", first, second)
-	}
-	if !strings.Contains(first, "controls which of your requests runs first") {
-		t.Fatalf("waiver-desk-explainer = %q, want the \"of your requests\" phrasing in both", first)
+	normalized := strings.TrimSpace(whitespace.ReplaceAllString(matches[0][1], " "))
+	if !strings.Contains(normalized, "controls which of your requests runs first") {
+		t.Fatalf("waiver-desk-explainer = %q, want the \"of your requests\" phrasing", normalized)
 	}
 }
 

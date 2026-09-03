@@ -6,6 +6,17 @@ import (
 	"testing"
 )
 
+// TestPlayersIrreversibleActionsExposeNativeConfirmation is a whole-file
+// source check: it proves the confirmation markup exists SOMEWHERE in
+// page.gsx, but (before item 1's root-cause fix, 2026-09-02 route-crawl
+// finding — rowan) it could not tell PlayerPoolRegion() from Page() and
+// so stayed green while the fragment's own hand-duplicated copy silently
+// dropped the guard. Page() now embeds PlayerPoolRegion() directly, so
+// there is only one copy of this markup to find — and
+// region_parity_test.go's TestPlayersPageEmbedsTheSameRegionComponentsAsTheFragmentHandlers
+// renders both "Page" and "PlayerPoolRegion" and asserts the guard is
+// present in the actual rendered HTML bytes of each, which this
+// source-only check cannot do.
 func TestPlayersIrreversibleActionsExposeNativeConfirmation(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {

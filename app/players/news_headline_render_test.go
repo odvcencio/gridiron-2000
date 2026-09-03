@@ -133,29 +133,30 @@ func TestPlayersPoolFragmentNewsIconOpensItsOwnPanelFixtureProcess(t *testing.T)
 	}
 }
 
-// TestPlayersPageGSXNewsIconCoversBothPoolRowTemplates is a source
-// contract check (mirrors the app package's own
-// player_details_contract_test.go convention): players/page.gsx renders
-// its pool row twice — the full initial page and PlayerPoolRegion's own
-// authoritative fragment (see that file's own doc comment) — and both
-// must carry the has_news-gated stat-tip--news newspaper-icon markup,
-// each wrapped in its own .pool-player-cell.
-func TestPlayersPageGSXNewsIconCoversBothPoolRowTemplates(t *testing.T) {
+// TestPlayersPageGSXNewsIconCoversThePoolRowTemplate is a source contract
+// check (mirrors the app package's own player_details_contract_test.go
+// convention): players/page.gsx's pool row must carry the has_news-gated
+// stat-tip--news newspaper-icon markup, wrapped in its own
+// .pool-player-cell. Page() embeds PlayerPoolRegion() directly (item 1's
+// root-cause fix, 2026-09-02 route-crawl finding — rowan) instead of
+// hand-duplicating the pool row template, so this markup now has exactly
+// one definition, not two.
+func TestPlayersPageGSXNewsIconCoversThePoolRowTemplate(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := string(source)
-	if got := strings.Count(body, "stat-tip--news"); got != 2 {
-		t.Fatalf(`stat-tip--news count = %d, want 2 (initial page + PlayerPoolRegion fragment)`, got)
+	if got := strings.Count(body, "stat-tip--news"); got != 1 {
+		t.Fatalf(`stat-tip--news count = %d, want 1 (PlayerPoolRegion())`, got)
 	}
-	if got := strings.Count(body, `class="pool-player-cell"`); got != 2 {
-		t.Fatalf(`pool-player-cell wrapper count = %d, want 2`, got)
+	if got := strings.Count(body, `class="pool-player-cell"`); got != 1 {
+		t.Fatalf(`pool-player-cell wrapper count = %d, want 1`, got)
 	}
-	if got := strings.Count(body, "player.has_news"); got != 2 {
-		t.Fatalf(`player.has_news gate count = %d, want 2 (one per pool-row template)`, got)
+	if got := strings.Count(body, "player.has_news"); got != 1 {
+		t.Fatalf(`player.has_news gate count = %d, want 1`, got)
 	}
-	if got := strings.Count(body, "📰"); got != 2 {
-		t.Fatalf("newspaper glyph count = %d, want 2", got)
+	if got := strings.Count(body, "📰"); got != 1 {
+		t.Fatalf("newspaper glyph count = %d, want 1", got)
 	}
 }
