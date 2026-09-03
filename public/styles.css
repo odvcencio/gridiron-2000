@@ -16038,6 +16038,19 @@ a.skip-link {
   }
 }
 
+/* hotfix — draft-preflight, round 5 (geometry check at f01d3d5): once the
+   open strip left the flow, the panes auto-placed into the vacated
+   max-content first row and grew to their content height (4,072px), so
+   the page scrolled. Reserve the first row at the summary's height in
+   BOTH states and pin every pane to the second row explicitly; the
+   overlay then floats over a grid whose geometry never changes. */
+.draft-panes:has(> .draft-preflight) {
+  grid-template-rows: 2.75rem minmax(0, 1fr);
+}
+.draft-panes:has(> .draft-preflight) > .draft-pane {
+  grid-row: 2;
+}
+
 /* comb — oleander */
 
 /* Item 1 (2026-09-02 audit): the available pane's client-side search
