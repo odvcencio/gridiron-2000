@@ -16154,3 +16154,119 @@ a.skip-link {
     display: none;
   }
 }
+
+/* Item 4 (2026-09-02 audit): the pool-status notice banner
+   (.demo-message.draft-command__banner, page.gsx — "CACHED SNAPSHOT:",
+   "OFFLINE PLAYER LIST:", etc.) is label + a full detail sentence +
+   (when known) a second "LAST SUCCESS · <time>" line — real content, not
+   filler. The phone-width 2-line mask clamp above (12766) was tuned for
+   the OTHER banner variant (a single short sentence with a title=
+   tooltip as its only phone fallback); against THIS variant's longer
+   text it cut the detail sentence off mid-word ("...while") before
+   reaching LAST SUCCESS at all, with no way to read the rest on a
+   device with no hover. .draft-command__banner-line is now the one
+   guaranteed visible line (ellipsized, not faded, so a truncated line
+   reads as truncated); .draft-command__banner-details holds the same
+   detail sentence in full plus LAST SUCCESS, closed by default behind
+   an explicit tap-to-open "Details" — real disclosure, not a hover a
+   phone cannot reach. Two classes beats the shared rule's one on
+   specificity, so this wins without touching that rule's own, still-
+   correct behavior for the plain single-sentence banner. */
+.demo-message.draft-command__banner {
+  /* width: 100% (not the base rule's implicit shrink-to-fit) is load-
+     bearing, not cosmetic: .draft-command__inner is a wrapping flex row,
+     and the base .draft-command__banner rule never needed an explicit
+     width of its own because its ONLY content used white-space: normal
+     — wrapping content's own shrink-to-fit calculation already resolves
+     to the available row width whenever its unwrapped preferred width
+     exceeds it. .draft-command__banner-line's white-space: nowrap
+     (below) breaks that: a nowrap child's min-content and max-content
+     are equal (the full unwrapped line), so the flex item's own shrink-
+     to-fit size follows that child to the SAME width, undoing the
+     child's own overflow: hidden/text-overflow: ellipsis entirely (the
+     line never gets its own clipping width to obey) and pushing the
+     whole page 1344px wide at 390px. An explicit 100% here gives every
+     descendant a real, definite containing block to clip against. */
+  width: 100%;
+  max-height: none;
+  overflow: visible;
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+/* .draft-command__banner-row keeps the summary line and the "Details"
+   toggle on one row while closed (flex-wrap: wrap plus the [open] rule
+   below is what lets Details claim its own full-width row once opened,
+   instead of squeezing its paragraph content into a narrow column
+   beside the summary line). */
+.draft-command__banner-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs);
+  width: 100%;
+}
+
+.draft-command__banner-line {
+  /* flex-basis 0, not auto (the same "one true elastic track" pattern
+     .draft-command__turn uses, above): auto would use the nowrap text's
+     own full UNWRAPPED width as its hypothetical size for the wrapping
+     row's own line-fitting pass, which already exceeds the whole row on
+     its own — the row then gave this item the entire first line by
+     itself (shrunk to fit) and pushed .draft-command__banner-details to
+     a second line with nothing left to share. Basis 0 starts this item
+     at zero and lets flex-grow claim only the space .draft-command__
+     banner-details (flex: 0 0 auto) does not need, keeping both on one
+     line while closed. */
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.draft-command__banner-details {
+  flex: 0 0 auto;
+}
+
+/* Open: the summary alone no longer describes the box's content, so it
+   drops to its own full-width row (flex-basis: 100% inside the wrapping
+   row above) and its paragraph/LAST SUCCESS content lays out at the
+   banner's own full width instead of a narrow column next to the line. */
+.draft-command__banner-details[open] {
+  flex: 1 1 100%;
+}
+
+.draft-command__banner-details summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+}
+
+.draft-command__banner-details summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 0.25rem;
+}
+
+.draft-command__banner-details p {
+  margin: var(--space-xs) 0;
+}
+
+/* The extreme-aspect landscape query (width <= 56.1875rem, height <=
+   28rem — 844x390 measured, the same breakpoint item 1's Search button
+   fix above already trims) squeezes the banner into the SAME 44px row
+   as the pill (.draft-command__banner's own flex: 1 1 auto, above), no
+   room of its own at all. The Details toggle's touch-target floor
+   (.site-frame summary, 44px) does not fit that budget twice over; the
+   one summary line stays (still real information, still readable), and
+   Details — real, but genuinely optional at this extreme aspect — is
+   the one piece dropped, the same trade-off item 1's Search button and
+   the base preflight/legend rules already made at this exact query. */
+@media (width <= 56.1875rem) and (height <= 28rem) {
+  .draft-command__banner-details {
+    display: none;
+  }
+}

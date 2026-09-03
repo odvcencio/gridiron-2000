@@ -1407,16 +1407,37 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 		    rehearsal-mode copy, service.go's own banner switch) still
 		    falls back to the old one-line shape for every OTHER reason a
 		    banner shows, since those carry no label/last-success pair of
-		    their own. */}
+		    their own.
+
+		    comb — oleander, item 4: the phone-width query below used to
+		    clamp this whole block to 2.6em (34px measured live) — not
+		    enough room for the label, the full detail sentence, AND the
+		    "LAST SUCCESS ·" line after it, so a 390px visitor saw the
+		    detail sentence cut off mid-word ("...while") with no LAST
+		    SUCCESS line at all. .draft-command__banner-row keeps the
+		    ellipsized summary line and the "Details" toggle on ONE row
+		    (matching the old rule's own single-line footprint almost
+		    exactly) when closed; everything else — the same detail
+		    sentence in full, plus LAST SUCCESS — sits behind that toggle,
+		    which a manager can open with no data lost. The outer element
+		    is a <div>, not a <p>, since <details> is not phrasing content
+		    a <p> can legally contain. */}
 		<If cond={props.Data.pool_status.has_notice}>
-			<p class="demo-message draft-command__banner">
-				<strong>{props.Data.pool_status.label}:</strong>
-				{props.Data.pool_status.detail}
-				<If cond={props.Data.pool_status.has_last_success}>
-					<br></br>
-					<span class="mono">LAST SUCCESS · {props.Data.pool_status.last_success} · {props.Data.pool_status.last_success_relative}</span>
-				</If>
-			</p>
+			<div class="demo-message draft-command__banner">
+				<div class="draft-command__banner-row">
+					<p class="draft-command__banner-line">
+						<strong>{props.Data.pool_status.label}:</strong>
+						{props.Data.pool_status.detail}
+					</p>
+					<details class="draft-command__banner-details">
+						<summary>Details</summary>
+						<p>{props.Data.pool_status.detail}</p>
+						<If cond={props.Data.pool_status.has_last_success}>
+							<span class="mono">LAST SUCCESS · {props.Data.pool_status.last_success} · {props.Data.pool_status.last_success_relative}</span>
+						</If>
+					</details>
+				</div>
+			</div>
 		</If>
 		<If cond={props.Data.pool_status.has_notice == false && props.Data.banner != ""}>
 			<p class="draft-command__banner mono" title={props.Data.banner}>{props.Data.banner}</p>
