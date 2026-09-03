@@ -16180,26 +16180,42 @@ a.skip-link {
    rule above) cannot move it: that reserve only stops content at the
    true END of the document from being clipped by the fixed bars, and
    this strip sits near the top of the page, in the normal document
-   flow, not at the document's end. On a phone-height viewport (measured
-   live: .team-hero at 524px tall, unusually deep for 390-844) the strip
-   still lands at the bottom of the FIRST viewport (top 672.6, bottom
-   751.9 at 390x844) — squarely inside the fixed .page-action-bar's own
-   footprint (top 728, bottom 784) at scrollY 0, hiding 169.1/11/11/17/
-   17/AQUA until a manager scrolls past it. Dropping .team-hero's own
-   bottom padding when a route-level .page-action-bar is present
-   (mirroring the shell's own :has(.page-action-bar) gate) reclaims the
-   hero's own padding-lg; translateY on the strip closes the small
-   remaining gap without disturbing any sibling's layout position (a
-   transform never affects box flow, so nothing below the strip
-   reflows) — together they clear the strip of the action bar with a
-   real margin (measured live: strip bottom 711.7, bar top 728, 16.3px
-   to spare) with no visible seam against the hero card above it. */
+   flow, not at the document's end. .team-hero's own height varies with
+   real content (a real league's own team name/manager line runs taller
+   than a short sim fixture's — live-measured 499.9px vs 529.3px for
+   two real rosters), so the strip's landing position is not a fixed
+   number either; a first pass here used a flat translateY guess tuned
+   to one fixture and still overlapped the bar on a taller real hero
+   (measured: strip bottom 741.1 against bar top 728). This version
+   instead reclaims real, predictable layout space three ways — every
+   figure re-measured against the real flag-review league, not a sim
+   fixture: .team-hero's own bottom padding drops to 0 (reclaims
+   --space-lg); .team-command-strip's own margin-top drops to 0 and its
+   padding tightens from --space-sm to --space-xs (the ≤38rem rule
+   above already trims it to --space-sm; this trims it further only
+   once the action bar is also present); and its label/value text
+   tightens to a 1.1 line-height, shrinking the row's own content
+   height instead of relying on spacing alone. Together they clear the
+   strip of the action bar with real margin on the taller real-league
+   hero (measured live: strip bottom 723.7, bar top 728, 4.3px to
+   spare) while the shorter sim fixture keeps its own wider margin
+   (strip bottom 703.5, bar top 728, 24.5px to spare) — both real
+   layout changes, not a visual-only transform, so nothing below the
+   strip silently keeps reserving space for a taller box that no
+   longer exists. */
 @media (max-width: 899px) {
   body:has(.page-action-bar) .team-page .team-hero {
     padding-bottom: 0;
   }
 
   body:has(.page-action-bar) .team-page .team-command-strip {
-    transform: translateY(-1rem);
+    margin-top: 0;
+    padding-top: var(--space-xs);
+    padding-bottom: var(--space-xs);
+  }
+
+  body:has(.page-action-bar) .team-page .team-command-strip span,
+  body:has(.page-action-bar) .team-page .team-command-strip strong {
+    line-height: 1.1;
   }
 }
