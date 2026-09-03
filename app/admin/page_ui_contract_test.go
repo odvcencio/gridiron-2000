@@ -673,3 +673,52 @@ func TestResponsiveConsoleContainmentContract(t *testing.T) {
 		}
 	}
 }
+
+// TestInvitePreviewPreWrapsInsteadOfOverflowing is item 6's decisive
+// stylesheet proof (2026-09-02 audit): the invite preview's <pre> body
+// used the browser default white-space (pre), so a long line refused to
+// wrap at all — 1830px of scrollWidth inside a 458px card, pushing the
+// document 719px past the viewport at 390px width.
+func TestInvitePreviewPreWrapsInsteadOfOverflowing(t *testing.T) {
+	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(styles)
+	ruleStart := strings.Index(css, ".admin-grid details pre {")
+	if ruleStart < 0 {
+		t.Fatal("stylesheet missing .admin-grid details pre rule")
+	}
+	ruleEnd := strings.Index(css[ruleStart:], "}")
+	rule := css[ruleStart : ruleStart+ruleEnd]
+	for _, want := range []string{"white-space: pre-wrap", "overflow-wrap: anywhere", "overflow-x: auto"} {
+		if !strings.Contains(rule, want) {
+			t.Errorf(".admin-grid details pre must set %q: %s", want, rule)
+		}
+	}
+}
+
+// TestMinimalActionsLinksMeetTouchBaselineAtPhoneWidth is item 9's
+// decisive stylesheet proof (2026-09-02 audit): header.minimal-bar (the
+// anonymous shell, app/layout.gsx) renders as a sibling of .site-frame,
+// so the shared touch-target floor query never reached its own two
+// links — both measured 20px tall at 390px width, on every anonymous
+// page.
+func TestMinimalActionsLinksMeetTouchBaselineAtPhoneWidth(t *testing.T) {
+	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(styles)
+	ruleStart := strings.Index(css, ".minimal-actions a {")
+	if ruleStart < 0 {
+		t.Fatal("stylesheet missing a .minimal-actions a touch-target rule")
+	}
+	ruleEnd := strings.Index(css[ruleStart:], "}")
+	rule := css[ruleStart : ruleStart+ruleEnd]
+	for _, want := range []string{"min-width: 2.75rem", "min-height: 2.75rem"} {
+		if !strings.Contains(rule, want) {
+			t.Errorf(".minimal-actions a must set %q (the 44px touch floor): %s", want, rule)
+		}
+	}
+}

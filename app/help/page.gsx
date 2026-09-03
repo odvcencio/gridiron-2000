@@ -113,7 +113,7 @@ func Page() Node {
 			</div>
 		</section>
 
-		<footer class="guide-next"><div><span class="section-index">CORPUS RECEIPT</span><h2>Verified vocabulary, live rules.</h2><p>Corpus {data.corpus_version} · source {data.source_sha}. {data.runtime.runtime_note}</p></div><div class="guide-actions"><a href="/guide" data-gosx-link class="button button--primary">Open manager guide →</a><a href="/scoring" data-gosx-link class="button button--ghost">Open live rules →</a></div></footer>
+		<footer class="guide-next"><div><span class="section-index">CORPUS RECEIPT</span><h2>Verified vocabulary, live rules.</h2><p>Corpus {data.corpus_version} · source <span title={data.source_sha}>{data.source_sha_short}</span>. {data.runtime.runtime_note}</p></div><div class="guide-actions"><a href="/guide" data-gosx-link class="button button--primary">Open manager guide →</a><a href="/scoring" data-gosx-link class="button button--ghost">Open live rules →</a></div></footer>
 		<a class="access-link back-to-top-link" href="#main-content">↑ Back to top</a>
 	</main>
 }

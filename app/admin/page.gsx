@@ -216,7 +216,7 @@ func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
 					<div class="commissioner-hq__attention-copy">
 						<span class="section-index">{seat.Abbreviation} · {seat.Name}</span>
 						<strong><If cond={seat.Claimed}>CLAIMED</If><If cond={seat.Claimed == false}>OPEN</If> · <If cond={seat.Ready}>READY</If><If cond={seat.Ready == false}>NOT READY</If></strong>
-						<span>{seat.PresenceLabel} · {seat.PresenceDetail} · board {seat.BoardCount}</span>
+						<span class="seat-presence">{seat.PresenceLabel} · {seat.PresenceDetail} · board {seat.BoardCount}</span>
 					</div>
 					<If cond={seat.BoardGap}><span class="position-chip">BOARD GAP</span></If>
 				</div>

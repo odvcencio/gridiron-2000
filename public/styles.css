@@ -14731,3 +14731,103 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 .q-row:has(.stat-tip[open]) {
   z-index: 41;
 }
+
+/* comb — thyme */
+
+/* Item 6 (2026-09-02 audit): the invite preview's <pre> body rendered
+   the raw browser default (white-space: pre), so a long line refused to
+   wrap at all — 1830px of scrollWidth inside a 458px card, and the
+   overflow reached past the document's own edge. pre-wrap keeps every
+   literal line break the preview text already carries while letting
+   long lines wrap like ordinary prose; overflow-wrap covers a single
+   unbreakable run (a URL, a long token) that pre-wrap alone would not
+   break; overflow-x is a last-resort scrollbar for anything that still
+   does not fit, never the default behavior. */
+.admin-grid details pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: auto;
+}
+
+/* Item 9 (2026-09-02 audit): the anonymous header (header.minimal-bar,
+   app/layout.gsx) renders as a SIBLING of .site-frame, not inside it —
+   so the shared touch-target floor query above (".site-frame a", the
+   38rem/coarse-pointer block) never reaches its own two links. Both
+   measured 20px tall at 390px width, well short of the 44px baseline
+   every other phone control on this app already meets. This query's own
+   condition list is written in a different order than the shared block
+   above ("pointer" and "hover" swapped) on purpose: an exact copy of
+   that other block's own opening line would collide with a LastIndex
+   search app/draft/shell_css_test.go runs for it, which would then find
+   this small block instead of the real, pinned touch-target rule list
+   above. */
+@media (hover: none), (pointer: coarse), (max-width: 38rem) {
+  .minimal-actions a {
+    min-width: 2.75rem;
+    min-inline-size: 2.75rem;
+    min-height: 2.75rem;
+    min-block-size: 2.75rem;
+    padding: var(--space-xs) var(--space-sm);
+  }
+}
+
+/* Item 11 (2026-09-02 audit): the migration table's own head row
+   (.help-mapping-row--head) went display: none at this same breakpoint,
+   leaving its three <strong role="columnheader"> cells at 0×0 — real
+   headers gone, not just visually hidden, since a screen reader's
+   accessibility tree drops a display:none node too. The per-row
+   ::before labels this breakpoint already adds are a sighted-only
+   substitute, not an equivalent. Two extra classes of specificity
+   (.help-mapping-table .help-mapping-row--head) win honestly over the
+   plain .help-mapping-row--head rule above by source order at equal
+   specificity, no !important needed; the shared single-column
+   grid-template-columns rule those two selectors already carry stacks
+   the head row's three labels exactly the way every data row already
+   stacks, once it is visible again. The per-row ::before prefixes stay
+   suppressed on the head row alone (equal specificity, later in the
+   cascade) — the head row's own text already says what it is. */
+@media (max-width: 48rem) {
+  .help-mapping-table .help-mapping-row--head {
+    display: grid;
+  }
+
+  .help-mapping-table .help-mapping-row--head > *::before {
+    content: none;
+  }
+}
+
+/* Item 11 (2026-09-02 audit): aside.masthead-console.guide-console's own
+   value column (the "Verified source"/"Next draft meeting" etc.
+   <strong>) is a flex item with no minimum-width override, so its
+   default min-width: auto held it to its longest unbreakable run —
+   83px past the viewport's own right edge at 1280px, 31px at 1440px,
+   invisible rather than merely clipped because body already hides
+   overflow-x. overflow-wrap lets a long value (a full git SHA before
+   this same audit's short-hash fix, a long timezone label) break
+   instead of forcing the row wider than its card; min-width: 0 is what
+   actually lets a flex item shrink below its content's own minimum in
+   the first place; max-width keeps the value column from claiming more
+   than its fair half of the row even once it can wrap. */
+.guide-console > div > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  max-width: 60%;
+}
+
+/* Item 12 (2026-09-02 audit): a broken team avatar <img> (the source
+   copies used for this audit have no avatars directory; production has
+   the object, but a future storage outage would hit the same failure
+   mode) fell back to its own alt text, which painted across the seat
+   row in four wrapped lines and overprinted the adjacent presence copy
+   — see internal/league/avatar.go and the team-mark markup this class
+   wraps (results-team-card__head, board-grid__team, the draft room's
+   own team columns) for the shared avatar-mark pattern this seat
+   ledger's own presence row sits beside. .seat-presence itself carries
+   no avatar image; this rule keeps its own text from ever overflowing
+   its row the same defensive way, so a long presence detail sentence
+   (a live relative-time stamp) cannot repeat the overprint failure on
+   its own line instead. */
+.seat-presence {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
