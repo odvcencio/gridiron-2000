@@ -636,6 +636,46 @@ func TestPlayersDataPositionFilterAndSearch(t *testing.T) {
 	}
 }
 
+// TestPlayersDataSearchQueryIsCapped is item 6's own regression test
+// (2026-09-02 route-crawl finding — rowan): the raw "q" query value
+// echoes back into the rendered page more than a dozen times (the input's
+// own value, both pagination hrefs, and one hidden field per pool-row
+// action form), so an unbounded value multiplied a 16,000-character
+// query into a response hundreds of kilobytes larger than any real
+// search term could need. PlayersData now trims, then truncates "q" to
+// playerSearchQueryMaxLength runes before it ever reaches "query" (used
+// for matching) or the echoed "query"/href values in data.
+func TestPlayersDataSearchQueryIsCapped(t *testing.T) {
+	svc, _ := newPlayersTestService(t)
+
+	oversized := strings.Repeat("a", playerSearchQueryMaxLength*10)
+	request, _ := http.NewRequest(http.MethodGet, "/players?q="+oversized, nil)
+	data := svc.PlayersData(request)
+
+	query, _ := data["query"].(string)
+	if len(query) != playerSearchQueryMaxLength {
+		t.Fatalf("data[\"query\"] length = %d, want %d", len(query), playerSearchQueryMaxLength)
+	}
+	if query != strings.Repeat("a", playerSearchQueryMaxLength) {
+		t.Fatalf("data[\"query\"] = %q, want the first %d characters of the oversized input", query, playerSearchQueryMaxLength)
+	}
+
+	for _, key := range []string{"pool_previous_href", "pool_next_href"} {
+		href, _ := data[key].(string)
+		if strings.Contains(href, oversized) {
+			t.Fatalf("data[%q] still carries the untruncated query: %s", key, href)
+		}
+	}
+
+	// Whitespace-padded input trims first, then truncates — a query that
+	// is short after trimming must not be cut down further.
+	request, _ = http.NewRequest(http.MethodGet, "/players?q=%20%20locked%20%20", nil)
+	data = svc.PlayersData(request)
+	if got, _ := data["query"].(string); got != "locked" {
+		t.Fatalf("data[\"query\"] = %q, want the trimmed value %q", got, "locked")
+	}
+}
+
 // TestPlayersDataPositionFilterPunterRankOrder checks /players?pos=P:
 // punters render ordered by projection (pool order — PlayersData never
 // re-sorts, it only filters, matching mergePool/normalizePool's existing
