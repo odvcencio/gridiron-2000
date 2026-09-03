@@ -190,7 +190,7 @@ func Page() Node {
 				<div class="wire-filters" aria-label="Filter signals">
 					<Each of={data.filters} as="filter">
 						<If cond={filter.active}>
-							<a class="wire-filter is-active" href={filter.href}>{filter.label}</a>
+							<a class="wire-filter is-active" href={filter.href} aria-current="true">{filter.label}</a>
 						</If>
 						<If cond={filter.active == false}>
 							<a class="wire-filter" href={filter.href}>{filter.label}</a>
@@ -237,8 +237,13 @@ func Page() Node {
 					<div class="wire-system-row">
 						<span class="signal-mark signal-mark--hot" aria-hidden="true"></span>
 						<div>
-							<strong>{data.season} player ledger</strong>
-							<small>{data.player_state} · {data.player_rows} players · {data.player_updated}</small>
+							<strong>{data.season} player stat ledger</strong>
+							<If cond={data.player_rows > 0}>
+								<small>{data.player_state} · {data.player_rows} players · {data.player_updated}</small>
+							</If>
+							<If cond={data.player_rows == 0}>
+								<small>{data.player_state} · {data.player_updated}</small>
+							</If>
 						</div>
 					</div>
 					<div class="wire-system-row">
