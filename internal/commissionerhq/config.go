@@ -151,11 +151,6 @@ func normalizeOrigin(raw string) (*url.URL, string, error) {
 	return &url.URL{Scheme: scheme, Host: host}, normalized, nil
 }
 
-func safePublicURL(raw string) bool {
-	_, _, err := normalizeOrigin(raw)
-	return err == nil
-}
-
 func normalizedPublicURL(raw string) (string, error) {
 	_, normalized, err := normalizeOrigin(raw)
 	return normalized, err

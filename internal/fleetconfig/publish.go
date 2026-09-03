@@ -396,43 +396,6 @@ func writeAll(file publicationFile, data []byte) error {
 	return nil
 }
 
-func (p *Publisher) removeTree(path string) error {
-	parentPath := filepath.Dir(path)
-	name := filepath.Base(path)
-	parentInfo, err := p.fs.Lstat(parentPath)
-	if err != nil {
-		return fmt.Errorf("fleetconfig: inspect transaction parent %q: %w", parentPath, err)
-	}
-	if parentInfo.Mode()&os.ModeSymlink != 0 || !parentInfo.IsDir() {
-		return fmt.Errorf("fleetconfig: transaction parent %q is not a directory", parentPath)
-	}
-	parent, err := p.fs.OpenDir(parentPath)
-	if err != nil {
-		return fmt.Errorf("fleetconfig: open transaction parent %q: %w", parentPath, err)
-	}
-	if err := verifyOpenedDirectory(parentPath, parentInfo, parent); err != nil {
-		_ = parent.Close()
-		return err
-	}
-	if err := p.requireParentStable(parentPath, parentInfo); err != nil {
-		_ = parent.Close()
-		return err
-	}
-	removeErr := p.removeEntry(parent, name, path)
-	stableErr := p.requireParentStable(parentPath, parentInfo)
-	closeErr := parent.Close()
-	if removeErr != nil {
-		return joinPublicationErrors(removeErr, joinPublicationErrors(stableErr, closeErr))
-	}
-	if stableErr != nil {
-		return joinPublicationErrors(stableErr, closeErr)
-	}
-	if closeErr != nil {
-		return fmt.Errorf("fleetconfig: close transaction parent %q: %w", parentPath, closeErr)
-	}
-	return nil
-}
-
 func (p *Publisher) removeEntry(parent publicationDir, name, display string) error {
 	info, err := parent.Lstat(name)
 	if err != nil {

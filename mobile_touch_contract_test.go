@@ -115,11 +115,8 @@ func findMobileRule(rules []mobileCSSRule, selector string) (mobileCSSRule, bool
 }
 
 func TestMobileContentControlsKeepTouchBaseline(t *testing.T) {
-	styles, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	rules, err := mobileRules(string(styles))
+	styles := readStylesheet(t)
+	rules, err := mobileRules(styles)
 	if err != nil {
 		t.Fatalf("parse 38rem mobile rules: %v", err)
 	}

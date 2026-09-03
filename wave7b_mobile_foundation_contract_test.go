@@ -15,11 +15,7 @@ import (
 // rendered/measured half of the same items.
 func wave7bStyles(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	return string(data)
+	return readStylesheet(t)
 }
 
 // TestTouchFloorQueryCoversCoarsePointerAndHoverNone covers item 1: the

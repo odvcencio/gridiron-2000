@@ -15,7 +15,7 @@ import (
 func TestWizardStepValidationErrorPreservesSubmittedValues(t *testing.T) {
 	h := newWizardE2EHarness(t)
 	status, body := h.postStep(t, "identity", url.Values{
-		"name": {""}, // league.name is required
+		"name":       {""}, // league.name is required
 		"short_code": {"TL"}, "tagline": {"Kept on redisplay"},
 		"mode_label": {"DYNASTY"}, "url": {"https://example.com"},
 		"timezone": {"America/New_York"}, "season": {"2026"},

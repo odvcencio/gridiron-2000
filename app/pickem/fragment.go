@@ -10,8 +10,6 @@ import (
 	"m31labs.dev/gosx/route"
 )
 
-const pickemStateSignal = "$pickem.state.refresh"
-
 // PickemFragmentHandler serves the smallest authoritative Pick'em surface:
 // the selected week's counters, per-game market/pick/lock/result state, and
 // both scoring boards. It uses the read-only service projection so polling

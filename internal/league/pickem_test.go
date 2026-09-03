@@ -655,6 +655,40 @@ func TestPickemStreakMostRecentBackward(t *testing.T) {
 	}
 }
 
+// TestPickemStreakLabeledBreakStopsAtLossOrMissedLoss pins pickemStreak's
+// loop-exit behavior after replacing the switch's own ineffective break
+// (it exited only the switch, never the loop) with a labeled break on the
+// enclosing loop. The streak result was already correct either way — a
+// redundant check after the switch also stopped the loop — but this test
+// locks in that a wrong pick (loss) and an unpicked final game (missed
+// loss) both still stop the count at the first one hit, walking
+// most-recent-first.
+func TestPickemStreakLabeledBreakStopsAtLossOrMissedLoss(t *testing.T) {
+	now := time.Now()
+	lossGames := []GameInfo{
+		{ID: "g1", Week: 1, Kickoff: now.Add(-48 * time.Hour), Away: "AAA", Home: "BBB", AwayScore: 10, HomeScore: 20, Final: true, ScoresPresent: true}, // winner BBB
+		{ID: "g2", Week: 1, Kickoff: now.Add(-24 * time.Hour), Away: "CCC", Home: "DDD", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true}, // winner CCC
+	}
+	lossPicks := map[string]string{
+		"g1": "AAA", // wrong — loss, breaks the streak
+		"g2": "CCC", // correct, most recent
+	}
+	if got := pickemStreak(lossGames, frozenPickemMarkets(lossGames), lossPicks, lossGames[0].Kickoff.Add(-time.Hour), now); got != 1 {
+		t.Fatalf("streak with trailing loss = %d, want 1 (g2 correct; g1 loss breaks it)", got)
+	}
+
+	missedGames := []GameInfo{
+		{ID: "g1", Week: 1, Kickoff: now.Add(-48 * time.Hour), Away: "AAA", Home: "BBB", AwayScore: 10, HomeScore: 20, Final: true, ScoresPresent: true},
+		{ID: "g2", Week: 1, Kickoff: now.Add(-24 * time.Hour), Away: "CCC", Home: "DDD", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true},
+	}
+	missedPicks := map[string]string{
+		"g2": "CCC", // correct, most recent; g1 left unpicked — missed loss
+	}
+	if got := pickemStreak(missedGames, frozenPickemMarkets(missedGames), missedPicks, missedGames[0].Kickoff.Add(-time.Hour), now); got != 1 {
+		t.Fatalf("streak with trailing missed pick = %d, want 1 (g2 correct; g1 missed-loss breaks it)", got)
+	}
+}
+
 // TestPickemStreakNoFinalsYet pins the explicit edge case: with no final
 // games at all, the streak is 0, not an error or a panic on empty input.
 func TestPickemStreakNoFinalsYet(t *testing.T) {
@@ -701,7 +735,7 @@ func TestPickemStreakDeterministicOnSimultaneousKickoffs(t *testing.T) {
 	}
 }
 
-// TestPickemStreakMissedLaterGameBreaks verifies the season-entry rule: once
+// TestPickemStreakSkipsUnpickedFinalGame verifies the season-entry rule: once
 // entered, an unpicked gradeable kickoff is a missed loss and breaks the
 // streak before the latest correct pick, leaving only that latest run counted.
 func TestPickemStreakSkipsUnpickedFinalGame(t *testing.T) {

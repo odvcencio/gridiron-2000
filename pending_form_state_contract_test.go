@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -15,11 +14,7 @@ import (
 // button dims, stops accepting further clicks, and gains a "Saving…"
 // suffix.
 func TestPendingFormStateIsVisible(t *testing.T) {
-	styles, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	css := string(styles)
+	css := readStylesheet(t)
 
 	stateSelector := `form[data-gosx-form-state="pending"] button[type="submit"]`
 	stateIndex := strings.Index(css, stateSelector+" {")

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -23,11 +22,7 @@ import (
 // an exact literal count is unambiguous regardless of which numbered
 // occurrence it is.
 func TestStylesheetDropsRedundantMediaQueryReasserts(t *testing.T) {
-	raw, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatal(err)
-	}
-	css := string(raw)
+	css := readStylesheet(t)
 
 	for _, tt := range []struct {
 		name string

@@ -607,7 +607,7 @@ func (s *Service) rulesTradesMap() map[string]any {
 // standings.go), computed rather than retyped, so a future reorder of
 // that chain updates this section with no template change. Open-to-every-
 // member and the kickoff lock are stable engine behavior (pickem.go's
-// boardOwner/PickemSet), described in prose.
+// pickemOwner/PickemSet), described in prose.
 func (s *Service) rulesPickemMap() map[string]any {
 	rank := 0
 	for index, rule := range DefaultTiebreakChain {
