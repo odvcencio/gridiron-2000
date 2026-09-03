@@ -14686,3 +14686,48 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   border-bottom-style: solid;
   border-bottom-color: var(--color-accent-cyan);
 }
+
+/* .avail-row__player/.q-row__player (item 1 follow-up: the LIVE draft-room
+   pool/queue rows, DraftAvailable/DraftMyTeam, app/draft/page.gsx) hold
+   plain inline content (a <strong> name and a <small> detail line), not
+   the flex .pool-player-cell wrapper /board and /players use — .stat-tip
+   itself defaults to display: block (this file's stat-tip stacking model
+   block), which would otherwise drop the news icon onto its own new
+   line and grow the row. inline-block keeps it flowing beside the name/
+   detail text on the SAME line, matching this row's existing plain-text
+   layout. */
+.avail-row__player .stat-tip--news,
+.q-row__player .stat-tip--news {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: var(--space-xs);
+}
+
+/* .avail-row/.q-row need their own position: relative for the news
+   panel's position: absolute to anchor against the ROW (this file's
+   stat-tip stacking model doc comment, above): neither row carried a
+   .stat-tip descendant before this news icon, so neither needed it
+   until now. Matches .board-row/.pool-row/.roster-row/.pickem-row's own
+   existing rule exactly. The bottom-anchor flip for the last few rows
+   mirrors .pool-row/.board-row/.roster-row/.pickem-row's own
+   :nth-last-child(-n+3) rule so a news panel near the end of either
+   list never runs off the bottom of the pane. */
+.avail-row,
+.q-row {
+  position: relative;
+}
+
+.avail-row:nth-last-child(-n+3) .stat-tip__panel,
+.q-row:nth-last-child(-n+3) .stat-tip__panel {
+  top: auto;
+  bottom: calc(100% + 0.4rem);
+}
+
+/* Raise the row with an open news panel above its later siblings, same
+   reason and mechanism as .pool-row/.board-row/.roster-row/.pickem-row's
+   own :has(.stat-tip[open]) rule above (z-index alone, not isolation:
+   isolate — that doc comment explains why). */
+.avail-row:has(.stat-tip[open]),
+.q-row:has(.stat-tip[open]) {
+  z-index: 41;
+}
