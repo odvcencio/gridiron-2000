@@ -580,6 +580,51 @@ func TestCommissionerAttentionReadOnlyGeneratedAtSplitsDisplayISOAndRelative(t *
 	}
 }
 
+// TestCommissionerAttentionReadOnlyExposesFriendlyDraftDateAndPresence
+// is the item 5 data-layer proof (2026-09-02 audit): the live readout's
+// own "draft" block used to carry only the raw RFC3339 "at" instant, and
+// each seat carried only the raw snake_case presence enum with no
+// human-readable counterpart — /admin's own AdminAttentionReadout
+// component (fragment.go) had no friendly value to bind for either.
+func TestCommissionerAttentionReadOnlyExposesFriendlyDraftDateAndPresence(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	meetingAt := now.Add(4 * 24 * time.Hour).Format("2006-01-02T15:04")
+	if err := service.AdminRescheduleDraft(request, meetingAt); err != nil {
+		t.Fatalf("reschedule draft: %v", err)
+	}
+
+	data := service.CommissionerAttentionDataReadOnly(request)
+	draft, ok := data["draft"].(map[string]any)
+	if !ok {
+		t.Fatalf("draft = %#v, want a map", data["draft"])
+	}
+	wantSummary := service.draftSummaryForState(now, service.store.Snapshot())
+	if draft["date"] != wantSummary["date"] || draft["time"] != wantSummary["time"] || draft["published"] != wantSummary["published"] {
+		t.Fatalf("draft date/time/published = %+v, want date=%v time=%v published=%v", draft, wantSummary["date"], wantSummary["time"], wantSummary["published"])
+	}
+	if at, _ := draft["date"].(string); at == "" || strings.Contains(at, "T") {
+		t.Errorf("draft date = %q, want a league-local formatted date, not a raw RFC3339 fragment", at)
+	}
+
+	seats, ok := data["seats"].([]map[string]any)
+	if !ok || len(seats) == 0 {
+		t.Fatalf("seats = %#v, want a non-empty slice", data["seats"])
+	}
+	for _, seat := range seats {
+		presence, _ := seat["presence"].(string)
+		label, _ := seat["presence_label"].(string)
+		if want := presenceReadableLabel(presence); label != want {
+			t.Errorf("seat %v presence_label = %q, want %q (for presence %q)", seat["id"], label, want, presence)
+		}
+		if label == "" || strings.Contains(label, "_") {
+			t.Errorf("seat %v presence_label = %q, must be plain words, not a snake_case enum", seat["id"], label)
+		}
+	}
+}
+
 // TestPendingInviteCountExcludesAlreadySeatedInvitees is the item 4
 // decisive proof (2026-09-02 audit): an invite stays "pending" only
 // until its own email claims a seat. CommissionerAttentionDataReadOnly's

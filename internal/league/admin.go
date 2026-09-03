@@ -101,6 +101,28 @@ func pendingInviteCount(state PersistedState) int {
 	return pending
 }
 
+// presenceReadableLabel maps s.teamPresence's own state word into plain
+// words for a sighted reader (item 5, 2026-09-02 audit): the seat
+// ledger used to print the bare snake_case enum itself ("not_seen")
+// straight into the page as if it were prose. The machine-readable enum
+// stays available separately (each seat's own "presence" key, and the
+// commissioner-hq__attention element's data-presence attribute) for any
+// CSS/JS hook that still wants it.
+func presenceReadableLabel(state string) string {
+	switch state {
+	case "here":
+		return "In the room"
+	case "idle":
+		return "Seen, idle"
+	case "away":
+		return "Seen, stepped away"
+	case "unclaimed":
+		return "Seat open"
+	default:
+		return "Not seen yet"
+	}
+}
+
 // CommissionerAttentionDataReadOnly is the small commissioner-operations
 // projection used by the live admin region. It reads one persisted snapshot,
 // includes presence/readiness/board-gap facts, and deliberately omits the
@@ -141,6 +163,7 @@ func (s *Service) CommissionerAttentionDataReadOnly(_ *http.Request) map[string]
 		seats = append(seats, map[string]any{
 			"id": configured.ID, "name": team.Name, "abbreviation": team.Abbreviation,
 			"claimed": isClaimed, "ready": isReady, "presence": presence,
+			"presence_label":  presenceReadableLabel(presence),
 			"presence_detail": detail, "presence_seen_at": formatClockInstant(seenAt),
 			"board_count": boardCount, "board_gap": boardGap,
 		})
@@ -165,6 +188,15 @@ func (s *Service) CommissionerAttentionDataReadOnly(_ *http.Request) map[string]
 		"phase": phase, "draft": map[string]any{
 			"status": draft["status_label"], "at": draft["at"], "started": draft["started"],
 			"complete": draft["complete"], "window_reached": draft["window_reached"],
+			// date/time/published (item 5, 2026-09-02 audit): the live
+			// readout used to print "at"'s own raw RFC3339 instant
+			// ("2026-09-06T16:05:00-04:00") where every other draft-date
+			// fact on this same page already reads through
+			// draftSummaryForState's own league-local formatter
+			// (data.draft.date/time, this page's own masthead and runbook
+			// both use it). date/time carry that identical formatting,
+			// including its TBD/started-with-no-recorded-time fallbacks.
+			"date": draft["date"], "time": draft["time"], "published": draft["published"],
 		}, "schedule": map[string]any{
 			"status": schedule["status"], "has_schedule": schedule["has_schedule"],
 			"week": schedule["start_week"], "close": close,
