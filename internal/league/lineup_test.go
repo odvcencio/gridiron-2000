@@ -911,8 +911,32 @@ func TestLineupAutoOmitsEmptySlotWarningWhenEveryStarterFills(t *testing.T) {
 // the starters count for as long as the slot stays empty — not just at the
 // moment of the action. newLineupTestService's fixture leaves K, TE, DST,
 // and RB2 empty even with no action taken at all.
+//
+// F17 gates this per-slot detail on the draft actually being complete
+// (teamStartersEmptyLabel): before completion, "Sign from the Player
+// Pool." names an action the manager cannot yet take, so the warning
+// collapses to one honest line instead. newLineupTestService's own
+// fixture only makes team-1's five targeted picks (interspersed with
+// filler picks for every other team's turn) and never finishes the
+// remaining rounds, so this test completes the rest of the draft with
+// harmless, pool-unresolvable filler picks — team-1's own roster
+// composition (and so its empty slots) is unaffected, since
+// rosterForTeam silently skips a pick whose player ID the pool does not
+// carry — to reach the post-draft state this warning's own per-slot
+// detail is scoped to.
 func TestTeamDataWarnsWhenAStartingSlotStaysEmpty(t *testing.T) {
-	svc, _, _ := newLineupTestService(t)
+	svc, _, now := newLineupTestService(t)
+	total := len(svc.Teams()) * CurrentDraftRounds()
+	for number := len(svc.store.Snapshot().Picks) + 1; number <= total; number++ {
+		teamID := teamOnClock(nil, number)
+		if _, err := svc.store.MakePick(teamID, fmt.Sprintf("lineup-filler-%d", number), "manager", now, time.Time{}); err != nil {
+			t.Fatalf("complete pick %d (%s): %v", number, teamID, err)
+		}
+	}
+	if !draftComplete(svc.store.Snapshot()) {
+		t.Fatal("fixture did not reach draft-complete")
+	}
+
 	request, _ := http.NewRequest(http.MethodGet, "/team", nil)
 	data := svc.TeamData(request)
 
@@ -924,6 +948,28 @@ func TestTeamDataWarnsWhenAStartingSlotStaysEmpty(t *testing.T) {
 		if !strings.Contains(label, want) {
 			t.Fatalf("starters_empty_label = %q, missing %q", label, want)
 		}
+	}
+}
+
+// TestTeamDataCollapsesStartersWarningBeforeDraftCompletes is
+// TestTeamDataWarnsWhenAStartingSlotStaysEmpty's own pre-draft
+// counterpart (F17): newLineupTestService's fixture, used exactly as it
+// ships (no completion), leaves the draft short of every team's full
+// round count, so the same empty slots must report the one-line
+// collapsed warning instead of the per-slot detail.
+func TestTeamDataCollapsesStartersWarningBeforeDraftCompletes(t *testing.T) {
+	svc, _, _ := newLineupTestService(t)
+	if draftComplete(svc.store.Snapshot()) {
+		t.Fatal("fixture unexpectedly reached draft-complete without completion")
+	}
+	request, _ := http.NewRequest(http.MethodGet, "/team", nil)
+	data := svc.TeamData(request)
+
+	if data["starters_empty"] != true {
+		t.Fatalf("starters_empty = %#v, want true (RB2/TE/FLEX/DST/K are all empty)", data["starters_empty"])
+	}
+	if got := data["starters_empty_label"]; got != "Your starters fill in on draft night." {
+		t.Fatalf("pre-draft starters_empty_label = %q, want the collapsed line", got)
 	}
 }
 

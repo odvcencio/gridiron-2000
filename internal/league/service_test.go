@@ -1238,6 +1238,44 @@ func TestViewerReportsCoManagerRoleWithoutMarkingThePrimary(t *testing.T) {
 	}
 }
 
+// TestTeamNameIsSeedPlaceholder (F9) pins the predicate the Action
+// Center's rename card and the /team checklist's item 01 both key on: a
+// team still at its compiled seed name (never touched), and a team
+// carrying this league's own known-bad literal name ("Placeholder go
+// here" — a real, persisted rename to a value that never got replaced,
+// not a compiled default; see unpersonalizedTeamName's own doc comment
+// for why the seed comparison alone cannot catch it) both count as
+// unpersonalized. A genuine custom name does not.
+func TestTeamNameIsSeedPlaceholder(t *testing.T) {
+	service := newTestService(t, false)
+	teamID := service.Teams()[0].ID
+	seedName := service.Teams()[0].Name
+
+	if !service.TeamNameIsSeedPlaceholder(teamID) {
+		t.Fatalf("team at its untouched seed name %q reported personalized", seedName)
+	}
+
+	if err := service.store.SetTeamName(teamID, "Antonio's Aces"); err != nil {
+		t.Fatal(err)
+	}
+	if service.TeamNameIsSeedPlaceholder(teamID) {
+		t.Fatal("a genuinely custom team name reported unpersonalized")
+	}
+
+	if err := service.store.SetTeamName(teamID, "Placeholder go here"); err != nil {
+		t.Fatal(err)
+	}
+	if !service.TeamNameIsSeedPlaceholder(teamID) {
+		t.Fatal("the known-bad literal placeholder name reported personalized")
+	}
+	if err := service.store.SetTeamName(teamID, "PLACEHOLDER GO HERE"); err != nil {
+		t.Fatal(err)
+	}
+	if !service.TeamNameIsSeedPlaceholder(teamID) {
+		t.Fatal("the known-bad placeholder name in a different case reported personalized")
+	}
+}
+
 // TestPlayerMapEmitsBreakdownJerseyAndHistKeys checks the frontend contract:
 // jersey, has_breakdown, breakdown, breakdown_total, has_hist, and hist all
 // appear on the rendered player map, with jersey prefixed "#" only when set.

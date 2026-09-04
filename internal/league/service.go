@@ -5364,12 +5364,23 @@ func (s *Service) TeamLabel(id string) string {
 	return team.Name
 }
 
+// unpersonalizedTeamName is a known-bad literal name this league's own
+// production data carries for one seat (F9: "Antonio's team is literally
+// named 'Placeholder go here'"). It was set through the ordinary rename
+// action at some point in the past — a real, persisted state.TeamNames
+// override, not a compiled default — so comparing only against the
+// seat's configured seed name (below) never catches it: the seed name
+// for that seat is "Aqua 4", a different string entirely. Matched
+// case-insensitively so a differently-cased retype still counts.
+const unpersonalizedTeamName = "Placeholder go here"
+
 // TeamNameIsSeedPlaceholder reports whether teamID's live display name
 // (s.teamByID, which applies any Store.RenameTeam override) still equals
-// its configured seed name from s.Teams() (F9: nothing prompted a manager
-// to rename a franchise still called, for example, "Placeholder go
-// here" — the Action Center never mentioned it, and the /team checklist
-// marked personalization complete on seat claim alone).
+// its configured seed name from s.Teams(), or the known-bad literal name
+// above (F9: nothing prompted a manager to rename a franchise still
+// called, for example, "Placeholder go here" — the Action Center never
+// mentioned it, and the /team checklist marked personalization complete
+// on seat claim alone).
 func (s *Service) TeamNameIsSeedPlaceholder(teamID string) bool {
 	teamID = strings.TrimSpace(teamID)
 	if teamID == "" {
@@ -5378,6 +5389,9 @@ func (s *Service) TeamNameIsSeedPlaceholder(teamID string) bool {
 	live := strings.TrimSpace(s.teamByID(teamID).Name)
 	if live == "" {
 		return false
+	}
+	if strings.EqualFold(live, unpersonalizedTeamName) {
+		return true
 	}
 	for _, team := range s.Teams() {
 		if team.ID == teamID {
