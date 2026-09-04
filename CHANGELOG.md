@@ -5,7 +5,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- `/settings` states a category's ON/OFF wording honestly: an OFF category now says it will not send even after email is set up, instead of claiming it still sends.
+- `/settings` states "email is not configured" at most twice instead of fourteen times, and adds one link asking the commissioner to turn on email.
+- Saving a notification category on `/settings` returns you to that category, not the top of the page, and names the category and its new state in the confirmation.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 
