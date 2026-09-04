@@ -8,6 +8,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - A practice draft at `/draft/practice`: a seated manager takes a few picks on the clock in a private copy of the draft room, in their real seat, against the other seats played by bots that draft from each seat's real Big Board. It uses the real pool, draft order, and pick clock, starts from round 1, 5, 10, or 15, runs three rounds, and saves nothing. Entry points sit on the home page, in the pre-draft checklist, and in /help.
 
+### Fixed
+- The commissioner drawer's seat coverage grid no longer squeezes into four overlapping columns at desktop width; it stays one column inside the drawer at every viewport.
+- On a phone, the commissioner drawer's "Force current pick now" and "Undo last pick" controls no longer sit off-screen in hidden side columns.
+
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 
 Scope: GoSX v0.55.2 adoption, plus a phone-first pass over every route (anonymous, manager, commissioner)

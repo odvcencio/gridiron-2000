@@ -16861,3 +16861,36 @@ a.skip-link {
   grid-column: 2;
   color: var(--color-text-secondary);
 }
+
+/* comb — elm (2026-09-04 UX pass) */
+
+/* F1: .draft-seat-controls' own base rule (line ~4804) keys its 4-column
+   grid off the VIEWPORT width, with a one-column override only inside
+   the (width <= 38rem) breakpoint. The commissioner drawer is a fixed
+   28rem panel at every desktop width, so at 1440px the drawer rendered
+   four ~100px columns of the same seat-coverage grid the "By team" pane
+   shows at full page width, overlapping every line of text inside it.
+   Scoping to .draft-drawer keeps the wide-page grid untouched and always
+   collapses the drawer's own copy to one column, regardless of the
+   viewport it happens to render at. */
+.draft-drawer .draft-seat-controls {
+  grid-template-columns: 1fr;
+}
+
+.draft-drawer .draft-seat-controls__intro {
+  grid-column: auto;
+}
+
+/* F2: the phone breakpoint's own .clock-controls override (line ~7982)
+   sets flex-direction: column but never resets the base rule's
+   flex-wrap: wrap. A wrapping COLUMN flex container lays out overflow
+   items into new columns to the right instead of new rows below, which
+   pushed "Force current pick now" and "Undo last pick" off the right
+   edge of a 390px phone with no visible way to reach them. Reusing the
+   exact same breakpoint text keeps this a same-range override, not a
+   fourth spelling of it. */
+@media (width <= 38rem) {
+  .clock-controls {
+    flex-wrap: nowrap;
+  }
+}

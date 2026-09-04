@@ -1628,7 +1628,7 @@ func DraftCommissionerDrawer(props DraftCommandBarProps) Node {
 				{/* comb — oleander, item 7: same plain-language rewrite as
 				    the "By Team" panel's own copy above — see that
 				    location's doc comment for the full rationale. */}
-				<p class="draft-drawer__help">Seat presence is informational; autopick runs from the seat's own setting. Seats get two minutes after a restart before they count as unseen for the short backup clock. Turn on AUTO for a seat you know will be away; it then drafts from that seat's own Big Board.</p>
+				<p class="draft-seat-controls__intro">Seat presence is informational; autopick runs from the seat's own setting. Seats get two minutes after a restart before they count as unseen for the short backup clock. Turn on AUTO for a seat you know will be away; it then drafts from that seat's own Big Board.</p>
 				<Each of={props.Data.seat_controls} as="seat"><DraftSeatControl {...seat}></DraftSeatControl></Each>
 			</section>
 		</div>
