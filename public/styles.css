@@ -16751,3 +16751,20 @@ a.skip-link {
     --type-sm: clamp(0.875rem, 0.86rem + 0.10vw, 0.9375rem);
   }
 }
+
+/* comb — juniper (2026-09-04 UX pass): F1/F2 (app/help/page.server.go) made
+   the migration table's third column render real prose for the first time
+   (it used to reach the template as an empty struct field). One row's
+   difference text carries an unbroken slash-joined run ("Provisional/
+   stale/degraded/final/corrected") with no space or hyphen for the browser
+   to break on; .help-mapping-row > * already sets min-width: 0 for normal
+   wrapping, but that does not stop one unbreakable token from overflowing
+   its cell and, since nothing on this row clips it, bleeding out to
+   document.documentElement.scrollWidth (TestBrowserRailBandNoHorizontalOverflow
+   caught it at the 900/960px rail band). overflow-wrap lets a cell break an
+   unbreakable run as a last resort, matching the audit's own "wrap, never
+   sideways-scroll" contract (see the wave 7b — ash block above) instead of
+   letting the row scroll or the page overflow. */
+.help-mapping-row > * {
+  overflow-wrap: break-word;
+}
