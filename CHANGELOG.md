@@ -9,6 +9,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `/settings` states a category's ON/OFF wording honestly: an OFF category now says it will not send even after email is set up, instead of claiming it still sends.
 - `/settings` states "email is not configured" at most twice instead of fourteen times, and adds one link asking the commissioner to turn on email.
 - Saving a notification category on `/settings` returns you to that category, not the top of the page, and names the category and its new state in the confirmation.
+- The session-expired page after a stale form submission now says the form expired, not the session, and names the page its back link returns to. A form posted to a page that does not accept one gets its own short 405 page instead of the same message.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 
