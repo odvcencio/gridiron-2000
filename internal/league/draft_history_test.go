@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -65,6 +66,52 @@ func TestDraftLedgerIsAscendingAndUntinted(t *testing.T) {
 		if pick.PlayerName == "" || pick.TeamName == "" {
 			t.Fatalf("ledger[%d] missing identity: %+v", index, pick)
 		}
+	}
+}
+
+// TestTapePickAttributionLineMatchesMadeBy pins F3's tape half (gap-audit
+// J2): the tape already tags an auto/commissioner pick with its AUTO/COMM
+// chip (IsAuto/IsCommissioner), but carried no plain-language sentence —
+// AttributionLine is that sentence, empty for a manager's own pick since
+// the ordinary team/manager line already says who picked.
+func TestTapePickAttributionLineMatchesMadeBy(t *testing.T) {
+	service := newTestService(t, true)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return testPool(5), 1, "test" })
+	state := PersistedState{
+		Picks: []DraftPick{
+			{Number: 1, Round: 1, TeamID: "team-1", PlayerID: "pool-001", MadeBy: "manager"},
+			{Number: 2, Round: 1, TeamID: "team-2", PlayerID: "pool-002", MadeBy: "auto"},
+			{Number: 3, Round: 1, TeamID: "team-3", PlayerID: "pool-003", MadeBy: "commissioner"},
+		},
+	}
+	history := service.DraftHistory(state, "")
+	if len(history.Picks) != 3 {
+		t.Fatalf("len(history.Picks) = %d, want 3", len(history.Picks))
+	}
+	manager, auto, commissioner := history.Picks[0], history.Picks[1], history.Picks[2]
+
+	if manager.AttributionLine != "" {
+		t.Fatalf("manager pick AttributionLine = %q, want empty", manager.AttributionLine)
+	}
+
+	if !auto.IsAuto || auto.IsCommissioner {
+		t.Fatalf("auto pick tags = IsAuto:%v IsCommissioner:%v, want IsAuto only", auto.IsAuto, auto.IsCommissioner)
+	}
+	if want := "Autopick for " + auto.TeamName + " (" + auto.TeamAbbr + ")"; !strings.HasPrefix(auto.AttributionLine, want) {
+		t.Fatalf("auto pick AttributionLine = %q, want prefix %q", auto.AttributionLine, want)
+	}
+	if !strings.Contains(auto.AttributionLine, "selects") {
+		t.Fatalf("auto pick AttributionLine = %q, want %q", auto.AttributionLine, "selects")
+	}
+
+	if !commissioner.IsCommissioner || commissioner.IsAuto {
+		t.Fatalf("commissioner pick tags = IsAuto:%v IsCommissioner:%v, want IsCommissioner only", commissioner.IsAuto, commissioner.IsCommissioner)
+	}
+	if !strings.HasPrefix(commissioner.AttributionLine, "Commissioner picks ") {
+		t.Fatalf("commissioner pick AttributionLine = %q, want prefix %q", commissioner.AttributionLine, "Commissioner picks ")
+	}
+	if want := "for " + commissioner.TeamName + " (" + commissioner.TeamAbbr + ")"; !strings.Contains(commissioner.AttributionLine, want) {
+		t.Fatalf("commissioner pick AttributionLine = %q, want suffix %q", commissioner.AttributionLine, want)
 	}
 }
 

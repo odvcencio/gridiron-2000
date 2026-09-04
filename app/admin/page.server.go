@@ -572,15 +572,38 @@ func init() {
 				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("danger"), "Draft reset: draft-scoped state cleared; league topology and configuration preserved.")
 				return nil
 			},
+			// draft-undo is posted from two places: this page's own Danger
+			// Zone card, and the draft room's commissioner drawer
+			// (app/draft/page.gsx, since the room's action module has no
+			// draft-scoped destructive actions of its own). The two forms
+			// disagree on where "back" means, so a plain fallback of
+			// adminSectionTarget("danger") threw the room's own commissioner
+			// out of the live room and onto the console (gap-audit F5). The
+			// room's form alone carries a hidden "origin=draft" field; this
+			// reads it directly (not GoSX's own reserved __gosx_return_to,
+			// which RedirectBackWithNotice's managed path always ignores in
+			// favor of its fallback argument — see that function's doc
+			// comment) so both a JS-managed submit and a plain POST land
+			// back on the page that actually posted the form.
 			"draft-undo": func(ctx *action.Context) error {
 				if ctx.FormData["confirm"] != "UNDO" {
 					message := "type UNDO to confirm"
 					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
 				}
-				if err := league.Default().AdminUndoPick(ctx.Request, ctx.FormData["previous_pick_token"]); err != nil {
+				pick, player, team, err := league.Default().AdminUndoPick(ctx.Request, ctx.FormData["previous_pick_token"])
+				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("danger"), "Last pick undone; the slot is open again.")
+				target := adminSectionTarget("danger")
+				if strings.TrimSpace(ctx.FormData["origin"]) == "draft" {
+					// F24: also reopen the drawer undo was confirmed from,
+					// same as the drawer's other clock/seat actions.
+					target = "/draft?commissioner=open"
+				}
+				// F25: name the pick undo actually removed, matching the
+				// forced-autopick toast's own "Pick %d: %s ..." shape, instead
+				// of the old undifferentiated "Last pick undone."
+				actionui.RedirectBackWithNotice(ctx, target, fmt.Sprintf("Undid pick %d: %s / %s.", pick.Number, team.Name, player.Name))
 				return nil
 			},
 			"league-reset": func(ctx *action.Context) error {
@@ -658,7 +681,10 @@ func init() {
 			"clock-extend": func(ctx *action.Context) error {
 				secs, err := strconv.Atoi(strings.TrimSpace(ctx.FormData["seconds"]))
 				if err != nil {
-					message := "enter seconds as a whole number"
+					// F22 (gap-audit J2): named the field and gave a concrete
+					// example instead of the bare "enter seconds as a whole
+					// number", matching the room drawer's own reworded copy.
+					message := "Type how many seconds to add to the seconds field, for example 60."
 					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
 				}
 				if err := league.Default().AdminExtendClock(ctx.Request, secs, ctx.FormData["current_pick_token"]); err != nil {

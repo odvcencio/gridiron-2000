@@ -967,6 +967,21 @@ func (s *Service) teamPresence(state PersistedState, teamID string, now time.Tim
 	}
 }
 
+// FriendlyPresenceDetail (F19, gap-audit J2) softens teamPresence's own
+// raw not_seen detail — "No room heartbeat since this server started." is
+// an implementation fact (a server-uptime clock, not a room fact), and
+// reads as an error on a page a league owner reads, not developer log
+// output. The draft room's own commissioner drawer already carries this
+// exact rewrite (friendlyPresenceDetail, app/draft/page.server.go, D15
+// spruce audit); exported here so /admin's own readiness rows read the
+// identical plain sentence instead of a second, drifted copy.
+func FriendlyPresenceDetail(detail string) string {
+	if detail == "No room heartbeat since this server started." {
+		return "No manager has opened the room yet."
+	}
+	return detail
+}
+
 func presenceAgeLabel(age time.Duration) string {
 	if age < 0 {
 		age = 0
@@ -3310,80 +3325,81 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 		history = s.DraftHistory(state, viewerTeam)
 	}
 	return map[string]any{
-		"viewer":               viewer,
-		"public_entry":         publicEntryData(publicEntry),
-		"draft":                s.draftSummary(now),
-		"history":              history,
-		"has_adp":              hasADP,
-		"teams":                teamMaps,
-		"picks":                s.pickMaps(state, pool.byID, scoringValues),
-		"available":            availableMaps,
-		"board":                boardPanel,
-		"board_count":          len(boardPanel),
-		"pool_status":          poolStatusMap,
-		"pool_count":           len(pool.players),
-		"available_count":      len(available),
-		"pool_query":           rawQuery,
-		"pool_position":        pos,
-		"pool_sort":            activeSort,
-		"pool_total":           pagination.Total,
-		"pool_page":            pagination.Page,
-		"pool_pages":           pagination.Pages,
-		"pool_page_size":       pagination.PageSize,
-		"pool_page_start":      pagination.Start + 1,
-		"pool_page_end":        pagination.End,
-		"pool_has_previous":    pagination.HasPrevious,
-		"pool_has_next":        pagination.HasNext,
-		"pool_previous_href":   draftPoolPageHref(roomPath, pos, rawQuery, activeSort, pagination.Page-1),
-		"pool_next_href":       draftPoolPageHref(roomPath, pos, rawQuery, activeSort, pagination.Page+1),
-		"pool_all_href":        draftPoolPageHref(roomPath, "", rawQuery, activeSort, 1),
-		"pool_rb_href":         draftPoolPageHref(roomPath, "RB", rawQuery, activeSort, 1),
-		"pool_wr_href":         draftPoolPageHref(roomPath, "WR", rawQuery, activeSort, 1),
-		"pool_qb_href":         draftPoolPageHref(roomPath, "QB", rawQuery, activeSort, 1),
-		"pool_te_href":         draftPoolPageHref(roomPath, "TE", rawQuery, activeSort, 1),
-		"pool_k_href":          draftPoolPageHref(roomPath, "K", rawQuery, activeSort, 1),
-		"pool_dst_href":        draftPoolPageHref(roomPath, "DST", rawQuery, activeSort, 1),
-		"pool_p_href":          draftPoolPageHref(roomPath, "P", rawQuery, activeSort, 1),
-		"on_clock":             onClockMap,
-		"on_clock_id":          onClockID,
-		"pick_number":          displayPickNumber,
-		"picks_empty":          len(state.Picks) == 0,
-		"round":                round,
-		"can_pick":             canPick,
-		"draft_complete":       complete,
-		"demo_mode":            s.demoMode,
-		"ready_count":          readyManagerCount,
-		"manager_count":        managerCount,
-		"viewer_ready":         viewerTeam != "" && state.Ready[viewerTeam],
-		"viewer_autopick":      viewerTeam != "" && state.Autopick[viewerTeam],
-		"order_randomized":     len(state.DraftOrder) > 0,
-		"league_mode":          s.cfg.ModeLabel,
-		"season_start_week":    s.seasonStartWeek(),
-		"clock":                s.clockView(state, now),
-		"current_pick_token":   draftCurrentPickToken(state),
-		"previous_pick_token":  draftPreviousPickToken(state),
-		"league":               s.leagueMapForViewer(r),
-		"matchup_source_label": matchupLabel,
-		"has_matchup_source":   hasMatchupLabel,
-		"picks_total":          picksTotal,
-		"snake_direction":      snakeDirection(activeTeamCount(state.DraftOrder), nextNumber),
-		"next_team":            nextTeamMap,
-		"after_next_team":      afterNextTeamMap,
-		"viewer_on_clock":      viewerTeam != "" && viewerTeam == onClockID,
-		"your_pick_in":         yourPickIn,
-		"here_count":           hereCount,
-		"auto_count":           autoCount,
-		"banner":               banner,
-		"queue":                queuePanel,
-		"queue_empty":          len(queuePanel) == 0,
-		"next_queued":          nextQueued,
-		"roster_needs":         rosterNeeds,
-		"room_path":            roomPath,
-		"live_src":             roomPath + "/live.json",
-		"live_hub":             liveHub,
-		"fragment_base":        roomPath + "/fragment",
-		"queue_move_url":       "POST " + roomPath + "/queue",
-		"practice":             PracticeInactiveMap(s.practiceAvailabilityForState(r, state)),
+		"viewer":                viewer,
+		"public_entry":          publicEntryData(publicEntry),
+		"draft":                 s.draftSummary(now),
+		"history":               history,
+		"has_adp":               hasADP,
+		"teams":                 teamMaps,
+		"picks":                 s.pickMaps(state, pool.byID, scoringValues),
+		"available":             availableMaps,
+		"board":                 boardPanel,
+		"board_count":           len(boardPanel),
+		"pool_status":           poolStatusMap,
+		"pool_count":            len(pool.players),
+		"available_count":       len(available),
+		"pool_query":            rawQuery,
+		"pool_position":         pos,
+		"pool_sort":             activeSort,
+		"pool_total":            pagination.Total,
+		"pool_page":             pagination.Page,
+		"pool_pages":            pagination.Pages,
+		"pool_page_size":        pagination.PageSize,
+		"pool_page_start":       pagination.Start + 1,
+		"pool_page_end":         pagination.End,
+		"pool_has_previous":     pagination.HasPrevious,
+		"pool_has_next":         pagination.HasNext,
+		"pool_previous_href":    draftPoolPageHref(roomPath, pos, rawQuery, activeSort, pagination.Page-1),
+		"pool_next_href":        draftPoolPageHref(roomPath, pos, rawQuery, activeSort, pagination.Page+1),
+		"pool_all_href":         draftPoolPageHref(roomPath, "", rawQuery, activeSort, 1),
+		"pool_rb_href":          draftPoolPageHref(roomPath, "RB", rawQuery, activeSort, 1),
+		"pool_wr_href":          draftPoolPageHref(roomPath, "WR", rawQuery, activeSort, 1),
+		"pool_qb_href":          draftPoolPageHref(roomPath, "QB", rawQuery, activeSort, 1),
+		"pool_te_href":          draftPoolPageHref(roomPath, "TE", rawQuery, activeSort, 1),
+		"pool_k_href":           draftPoolPageHref(roomPath, "K", rawQuery, activeSort, 1),
+		"pool_dst_href":         draftPoolPageHref(roomPath, "DST", rawQuery, activeSort, 1),
+		"pool_p_href":           draftPoolPageHref(roomPath, "P", rawQuery, activeSort, 1),
+		"on_clock":              onClockMap,
+		"on_clock_id":           onClockID,
+		"pick_number":           displayPickNumber,
+		"picks_empty":           len(state.Picks) == 0,
+		"round":                 round,
+		"can_pick":              canPick,
+		"draft_complete":        complete,
+		"demo_mode":             s.demoMode,
+		"ready_count":           readyManagerCount,
+		"manager_count":         managerCount,
+		"viewer_ready":          viewerTeam != "" && state.Ready[viewerTeam],
+		"viewer_autopick":       viewerTeam != "" && state.Autopick[viewerTeam],
+		"order_randomized":      len(state.DraftOrder) > 0,
+		"league_mode":           s.cfg.ModeLabel,
+		"season_start_week":     s.seasonStartWeek(),
+		"clock":                 s.clockView(state, now),
+		"previous_pick_summary": s.previousPickSummary(state),
+		"current_pick_token":    draftCurrentPickToken(state),
+		"previous_pick_token":   draftPreviousPickToken(state),
+		"league":                s.leagueMapForViewer(r),
+		"matchup_source_label":  matchupLabel,
+		"has_matchup_source":    hasMatchupLabel,
+		"picks_total":           picksTotal,
+		"snake_direction":       snakeDirection(activeTeamCount(state.DraftOrder), nextNumber),
+		"next_team":             nextTeamMap,
+		"after_next_team":       afterNextTeamMap,
+		"viewer_on_clock":       viewerTeam != "" && viewerTeam == onClockID,
+		"your_pick_in":          yourPickIn,
+		"here_count":            hereCount,
+		"auto_count":            autoCount,
+		"banner":                banner,
+		"queue":                 queuePanel,
+		"queue_empty":           len(queuePanel) == 0,
+		"next_queued":           nextQueued,
+		"roster_needs":          rosterNeeds,
+		"room_path":             roomPath,
+		"live_src":              roomPath + "/live.json",
+		"live_hub":              liveHub,
+		"fragment_base":         roomPath + "/fragment",
+		"queue_move_url":        "POST " + roomPath + "/queue",
+		"practice":              PracticeInactiveMap(s.practiceAvailabilityForState(r, state)),
 	}
 }
 
@@ -3407,7 +3423,14 @@ func (s *Service) clockView(state PersistedState, now time.Time) map[string]any 
 		effective, reason = s.effectiveDeadline(state, now)
 	}
 	remaining := 0
-	if !deadline.IsZero() && !state.ClockPaused {
+	switch {
+	case state.ClockPaused:
+		// F9 (gap-audit J2): the drawer's own "Paused · 1:44 left" state
+		// line needs the frozen remaining time, not zero. ClockRemainingSec
+		// (model.go) is exactly that: the countdown pause froze, restored
+		// verbatim on resume.
+		remaining = state.ClockRemainingSec
+	case !deadline.IsZero():
 		remaining = int(effective.Sub(now).Seconds())
 		if remaining < 0 {
 			remaining = 0
@@ -3423,20 +3446,39 @@ func (s *Service) clockView(state PersistedState, now time.Time) map[string]any 
 	canResume := state.DraftStarted && !draftComplete(state) && (clockState == "PAUSED" || clockState == "NOT RUNNING")
 	canExtend := canPause
 	return map[string]any{
-		"armed":              armed,
-		"paused":             state.ClockPaused,
-		"state":              clockState,
-		"can_pause":          canPause,
-		"can_resume":         canResume,
-		"can_extend":         canExtend,
-		"deadline":           formatClockInstant(deadline),
-		"effective_deadline": formatClockInstant(effective),
-		"reason":             clockReasonLabel(reason),
-		"remaining_seconds":  remaining,
-		"remaining_label":    countdownMMSSLabel(remaining),
-		"duration_seconds":   int(s.pickClock(state).Seconds()),
-		"duration_label":     countdownMMSSLabel(int(s.pickClock(state).Seconds())),
-		"server_now":         now.UTC().Format(time.RFC3339),
+		"armed":      armed,
+		"paused":     state.ClockPaused,
+		"state":      clockState,
+		"can_pause":  canPause,
+		"can_resume": canResume,
+		"can_extend": canExtend,
+		"deadline":   formatClockInstant(deadline),
+		// deadline_display/deadline_relative (F16, gap-audit J2): the
+		// console printed this exact RFC3339 UTC instant
+		// ("2026-09-04T10:00:03Z") straight into the page, on the one row
+		// that matters during a live pick, breaking the README's
+		// league-local-time-with-zone promise every other timestamp on
+		// this page already keeps (the "generated_at"/"_iso"/"_relative"
+		// triad above, Commissioner HQ's own timestamps). deadline itself
+		// stays RFC3339 for a <time datetime> attribute; these two are the
+		// visible text.
+		"deadline_display":  s.leagueAbsoluteTimeStamp(deadline),
+		"deadline_relative": relativeTimeOrEmpty(now, deadline),
+		// F4 (gap-audit J2): reason ("clock", "paused", "unarmed",
+		// "autopick", "not_seen") only ever reached the room as this
+		// display LABEL, never the raw token, so the room's own "of 2:00"
+		// countdown caption had no way to tell a normal pick clock from
+		// the 20s not-seen safety cap it was actually showing —
+		// short_clock is that missing signal.
+		"effective_deadline":  formatClockInstant(effective),
+		"reason":              clockReasonLabel(reason),
+		"short_clock":         reason == "not_seen",
+		"short_clock_seconds": int(NotSeenClock.Seconds()),
+		"remaining_seconds":   remaining,
+		"remaining_label":     countdownMMSSLabel(remaining),
+		"duration_seconds":    int(s.pickClock(state).Seconds()),
+		"duration_label":      countdownMMSSLabel(int(s.pickClock(state).Seconds())),
+		"server_now":          now.UTC().Format(time.RFC3339),
 		// These opaque values are form contracts, not authorization
 		// credentials. current_pick_token covers the on-clock seat and
 		// deadline; previous_pick_token covers the exact last pick for undo.
@@ -3464,6 +3506,21 @@ func clockReasonLabel(reason string) string {
 		return label
 	}
 	return "ON THE CLOCK"
+}
+
+// previousPickSummary names the exact pick draft-undo would remove
+// ("pick 42: In Shedeur Time / Bucky Irving"), gap-audit F25: the room's
+// own undo confirm panel used to ask for a destructive confirmation with
+// no way to see what it targeted. Empty before the first pick, matching
+// draftPreviousPickToken's own empty-draft case.
+func (s *Service) previousPickSummary(state PersistedState) string {
+	if len(state.Picks) == 0 {
+		return ""
+	}
+	pick := state.Picks[len(state.Picks)-1]
+	team := s.teamByID(pick.TeamID)
+	player := s.pool().byID[pick.PlayerID]
+	return fmt.Sprintf("pick %d: %s / %s", pick.Number, team.Name, player.Name)
 }
 
 // formatClockInstant renders t as RFC3339 UTC, or "" for the zero value
@@ -4687,6 +4744,17 @@ func (s *Service) leagueAbsoluteTimeStamp(t time.Time) string {
 // action, a not-yet-elapsed lock, anything fed through this one shared
 // helper with then ahead of now silently claimed to have already
 // happened. d < 0 is now its own branch, checked first.
+// relativeTimeOrEmpty is relativeTime for an optional instant — "" for
+// the zero value (deadline_relative, F16: an unarmed clock's deadline is
+// zero, and "in 55 years" relative to the zero instant is worse than no
+// relative phrase at all).
+func relativeTimeOrEmpty(now, then time.Time) string {
+	if then.IsZero() {
+		return ""
+	}
+	return relativeTime(now, then)
+}
+
 func relativeTime(now, then time.Time) string {
 	d := now.Sub(then)
 	if d < 0 {
@@ -5825,6 +5893,40 @@ func (s *Service) zoneOccupantRows(players []Player, scoringValues map[string]fl
 	return rows
 }
 
+// draftPickActivityLine builds the /activity feed's team/action/player
+// text for one draft pick, attributing MadeBy honestly (gap-audit F3): a
+// no-show's autopick and a commissioner's forced pick used to read
+// exactly like an ordinary manager pick ("Los Delfines del Norte (AQ2)
+// drafts Jaxon Smith-Njigba (WR)"), with nothing anywhere marking the
+// pick's true origin. teamDisplay is the pick's own resolved "Name
+// (ABBR)" team label (activityTeamDisplay); playerLabel already carries
+// the pick's "— R# · P#" suffix. Callers render the three return values
+// as "{team} {action} {player}"; madeBy "" (pre-provenance state,
+// model.go) reads as "manager". Also builds the room's own pick-tape
+// attribution line (draft_history.go's TapePick.AttributionLine) so both
+// surfaces share one rule.
+func draftPickActivityLine(madeBy, teamDisplay, playerLabel string) (team, action, player string) {
+	switch madeBy {
+	case "auto":
+		return "Autopick for " + teamDisplay, "selects", playerLabel
+	case "commissioner":
+		return "Commissioner", "picks", playerLabel + " for " + teamDisplay
+	default:
+		return teamDisplay, "drafts", playerLabel
+	}
+}
+
+// draftPickAttributionSentence renders draftPickActivityLine's three parts
+// as the one flowing sentence the room's own pick tape shows for an
+// auto or commissioner pick (draft_history.go's TapePick.AttributionLine):
+// "Autopick for Los Delfines del Norte (AQ2) selects Jaxon Smith-Njigba
+// (WR) — R1 · P8" or "Commissioner picks Bucky Irving — R1 · P7 for In
+// Shedeur Time (AQ1)".
+func draftPickAttributionSentence(madeBy, teamName, playerLabel string) string {
+	team, action, player := draftPickActivityLine(madeBy, teamName, playerLabel)
+	return team + " " + action + " " + player
+}
+
 // activityActorClassCommissioner marks a feed row as a commissioner-actor
 // event ("kind") rather than an ordinary team roster move — /activity's
 // template uses this to render the "COMMISSIONER · <name> <summary>"
@@ -5848,6 +5950,7 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 	type entry struct {
 		at         time.Time
 		teamIDs    []string
+		teamLabel  string // non-empty overrides the shared team-display text below (draft-pick provenance rows only)
 		action     string
 		player     string
 		kind       string // "" for an ordinary team move, activityActorClassCommissioner for a commissioner event
@@ -5866,7 +5969,9 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 		// (adds/drops/trades) never sets this suffix, so it stays specific
 		// to a draft pick's own row.
 		label = fmt.Sprintf("%s — R%d · P%d", label, pick.Round, pick.Number)
-		entries = append(entries, entry{at: pick.MadeAt, teamIDs: []string{pick.TeamID}, action: "drafts", player: label})
+		teamName, _, _ := s.activityTeamDisplay(state, []string{pick.TeamID})
+		teamLabel, action, player := draftPickActivityLine(pick.MadeBy, teamName, label)
+		entries = append(entries, entry{at: pick.MadeAt, teamIDs: []string{pick.TeamID}, teamLabel: teamLabel, action: action, player: player})
 	}
 	for _, txn := range state.Transactions {
 		action, player := activityLine(txn)
@@ -5908,6 +6013,13 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 			// template renders ahead of it.
 			teamDisplay = e.actorName
 			teamSearch = append(teamSearch, "commissioner", e.actorName, e.actorEmail)
+		} else if e.teamLabel != "" {
+			// F3 (gap-audit J2): a draft pick's own leading label carries its
+			// MadeBy provenance (draftPickActivityLine) — "Autopick for ..."
+			// or "Commissioner" — while teamIDs/teamAbbreviations/teamNames
+			// above stay the real team's, so filtering by team code still
+			// finds the row.
+			teamDisplay = e.teamLabel
 		}
 		out = append(out, map[string]any{
 			"time":                  e.at.In(location).Format("Jan 2, 3:04 PM MST"),

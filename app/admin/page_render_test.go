@@ -814,6 +814,24 @@ func TestAdminDraftNightHeadingDropsPlaceholderDateButKeepsPublishedForm(t *test
 	if !strings.HasSuffix(text, "runbook") || text == "runbook" {
 		t.Errorf("published draft heading missing its date-prefixed runbook title: %q", text)
 	}
+
+	// F30 (gap-audit J2): runbook step 04 put the interpolated draft time
+	// on its own source line, so the newline before the following comma
+	// rendered as a visible space in a browser's own whitespace-collapsed
+	// display text — "At 4:05 PM EDT , confirm everyone is present" — even
+	// though the raw markup carries a newline, not a literal space, before
+	// the comma. Collapsing every whitespace run to one space (a plain
+	// stand-in for the CSS white-space: normal collapsing a real browser
+	// applies) reproduces exactly what a sighted reader or a screen
+	// reader's flattened text sees.
+	step04 := regexp.MustCompile(`(?s)checklist-mark mono">04<.*?</strong>`).FindString(body)
+	if step04 == "" {
+		t.Fatalf("published-draft fixture missing runbook step 04: %s", body)
+	}
+	collapsed := regexp.MustCompile(`\s+`).ReplaceAllString(step04, " ")
+	if strings.Contains(collapsed, " ,") {
+		t.Errorf("runbook step 04 still reads with a space before its comma once whitespace collapses: %q", collapsed)
+	}
 }
 
 // TestAdminDraftNightHeadingPublishedFixtureProcess is
@@ -1629,7 +1647,7 @@ func TestAdminUnpublishedDraftHasNoDanglingSeparatorOrFabricatedPrefill(t *testi
 	if strings.Contains(body, `value="2098-12-31T19:00"`) {
 		t.Error("reschedule datetime-local control is still prefilled with the fabricated placeholder instant")
 	}
-	if !strings.Contains(body, `id="admin-draft-meeting-at" class="scoring-input" type="datetime-local" name="meeting_at" value=""`) {
+	if !strings.Contains(body, `id="admin-draft-meeting-at" class="scoring-input admin-datetime-input" type="datetime-local" name="meeting_at" value=""`) {
 		t.Error("reschedule datetime-local control is not empty for an unpublished draft date")
 	}
 }

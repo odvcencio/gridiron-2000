@@ -1652,6 +1652,124 @@ func TestClockViewIncludesRemainingLabel(t *testing.T) {
 	}
 }
 
+// TestClockViewPausedRemainingLabelReadsTheFrozenCountdown pins F9
+// (gap-audit J2): the drawer's state line reads "Paused · 1:44 left", but
+// clockView always answered remaining_label with "0:00" while paused
+// because it never consulted ClockRemainingSec (the countdown pause
+// freezes there, model.go), only the live deadline math it deliberately
+// skips while paused.
+func TestClockViewPausedRemainingLabelReadsTheFrozenCountdown(t *testing.T) {
+	service := newTestService(t, false)
+	now := time.Now()
+
+	paused := service.clockView(PersistedState{
+		ClockDeadline:     now.Add(90 * time.Second),
+		ClockPaused:       true,
+		ClockRemainingSec: 104,
+	}, now)
+	if paused["remaining_label"] != "1:44" {
+		t.Fatalf("paused remaining_label = %v, want 1:44 (remaining_seconds=%v)", paused["remaining_label"], paused["remaining_seconds"])
+	}
+	if paused["remaining_seconds"] != 104 {
+		t.Fatalf("paused remaining_seconds = %v, want 104", paused["remaining_seconds"])
+	}
+}
+
+// TestClockViewShortClockFlagsTheNotSeenSafetyCap pins F4 (gap-audit J2):
+// clockView exposed the not-seen reason only as its already-mapped
+// display label ("NOT SEEN — SHORT SAFETY CLOCK"), so the room's "of
+// 2:00" caption had no machine-readable way to tell a normal pick clock
+// from the 20s not-seen safety cap it was silently showing instead.
+// short_clock/short_clock_seconds are that signal; every other reason
+// must read short_clock == false.
+func TestClockViewShortClockFlagsTheNotSeenSafetyCap(t *testing.T) {
+	draftAt := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+	// newClockTestService seeds the presence tracker 24h before start, well
+	// past NotSeenBootGrace, matching TestNotSeenClockCap's own setup:
+	// this test cares about the not_seen classification itself, not the
+	// boot-grace edge that test already pins.
+	service, _ := newClockTestService(t, false, draftAt, draftAt)
+	if _, _, err := service.store.AssignMember("a@example.com", "A"); err != nil { // team-1
+		t.Fatal(err)
+	}
+	if err := service.store.ArmClock(draftAt.Add(90 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	state := service.store.Snapshot()
+	now := draftAt.Add(5 * time.Second)
+
+	// No heartbeat ever recorded for a@example.com: not_seen.
+	notSeen := service.clockView(state, now)
+	if notSeen["reason"] != clockReasonLabels["not_seen"] {
+		t.Fatalf("precondition: reason = %v, want %q", notSeen["reason"], clockReasonLabels["not_seen"])
+	}
+	if notSeen["short_clock"] != true {
+		t.Fatalf("not-seen clockView short_clock = %v, want true", notSeen["short_clock"])
+	}
+	if notSeen["short_clock_seconds"] != int(NotSeenClock.Seconds()) {
+		t.Fatalf("short_clock_seconds = %v, want %d", notSeen["short_clock_seconds"], int(NotSeenClock.Seconds()))
+	}
+
+	running := service.clockView(PersistedState{ClockDeadline: now.Add(90 * time.Second)}, now)
+	if running["short_clock"] != false {
+		t.Fatalf("running clockView short_clock = %v, want false", running["short_clock"])
+	}
+
+	paused := service.clockView(PersistedState{ClockDeadline: now.Add(90 * time.Second), ClockPaused: true}, now)
+	if paused["short_clock"] != false {
+		t.Fatalf("paused clockView short_clock = %v, want false", paused["short_clock"])
+	}
+}
+
+// TestClockViewDeadlineDisplayIsLeagueLocalNotRawUTC pins F16 (gap-audit
+// J2): the console printed the pick deadline as a raw RFC3339 UTC
+// instant ("2026-09-04T10:00:03Z"), four hours off the league's own
+// clock and unlike every other timestamp on the page. deadline_display/
+// deadline_relative mirror the "generated_at"/"_iso"/"_relative" triad
+// already used elsewhere on /admin; deadline itself is untouched (still
+// RFC3339, for a <time datetime> attribute).
+func TestClockViewDeadlineDisplayIsLeagueLocalNotRawUTC(t *testing.T) {
+	service := newTestService(t, false)
+	now := time.Date(2026, 9, 4, 14, 0, 3, 0, time.UTC) // 10:00:03 AM EDT
+
+	armed := service.clockView(PersistedState{ClockDeadline: now.Add(90 * time.Second)}, now)
+	if got, _ := armed["deadline"].(string); got != "2026-09-04T14:01:33Z" {
+		t.Fatalf("deadline = %q, want the unchanged RFC3339 instant", got)
+	}
+	if display, _ := armed["deadline_display"].(string); display == "" || strings.Contains(display, "2026-09-04T") {
+		t.Fatalf("deadline_display = %q, want a league-local formatted string, not raw RFC3339", display)
+	}
+	if relative, _ := armed["deadline_relative"].(string); !strings.Contains(relative, "in ") {
+		t.Fatalf("deadline_relative = %q, want a forward-looking relative phrase", relative)
+	}
+
+	unarmed := service.clockView(PersistedState{}, now)
+	if unarmed["deadline"] != "" || unarmed["deadline_display"] != "" || unarmed["deadline_relative"] != "" {
+		t.Fatalf("unarmed clock deadline fields = %+v, want all empty", unarmed)
+	}
+}
+
+// TestPreviousPickSummaryNamesTheRemovedPick pins F25 (gap-audit J2): the
+// undo confirm panel and its logged commissioner event used to say only
+// "the last pick" / "undid the last pick" — no pick number, team, or
+// player. previousPickSummary is the shared line both now read.
+func TestPreviousPickSummaryNamesTheRemovedPick(t *testing.T) {
+	service := newTestService(t, true)
+	if got := service.previousPickSummary(PersistedState{}); got != "" {
+		t.Fatalf("previousPickSummary on an empty draft = %q, want empty", got)
+	}
+
+	team := teamOnClock(nil, 1)
+	state := PersistedState{Picks: []DraftPick{{Number: 1, TeamID: team, PlayerID: "p-01"}}}
+	summary := service.previousPickSummary(state)
+	wantTeam := service.teamByID(team).Name
+	wantPlayer := service.pool().byID["p-01"].Name
+	want := fmt.Sprintf("pick 1: %s / %s", wantTeam, wantPlayer)
+	if summary != want {
+		t.Fatalf("previousPickSummary = %q, want %q", summary, want)
+	}
+}
+
 func TestIdentityUnavailableViewsFailClosedForAllPickers(t *testing.T) {
 	service := newTestService(t, true)
 	service.store.mu.Lock()

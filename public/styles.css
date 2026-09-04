@@ -17596,3 +17596,141 @@ a.skip-link {
 #board-pool {
   scroll-margin-top: var(--mobile-bar-height);
 }
+/* comb — elm (2026-09-04 UX pass) */
+
+/* F1: .draft-seat-controls' own base rule (line ~4804) keys its 4-column
+   grid off the VIEWPORT width, with a one-column override only inside
+   the (width <= 38rem) breakpoint. The commissioner drawer is a fixed
+   28rem panel at every desktop width, so at 1440px the drawer rendered
+   four ~100px columns of the same seat-coverage grid the "By team" pane
+   shows at full page width, overlapping every line of text inside it.
+   Scoping to .draft-drawer keeps the wide-page grid untouched and always
+   collapses the drawer's own copy to one column, regardless of the
+   viewport it happens to render at. */
+.draft-drawer .draft-seat-controls {
+  grid-template-columns: 1fr;
+}
+
+.draft-drawer .draft-seat-controls__intro {
+  grid-column: auto;
+}
+
+/* F2: the phone breakpoint's own .clock-controls override (line ~7982)
+   sets flex-direction: column but never resets the base rule's
+   flex-wrap: wrap. A wrapping COLUMN flex container lays out overflow
+   items into new columns to the right instead of new rows below, which
+   pushed "Force current pick now" and "Undo last pick" off the right
+   edge of a 390px phone with no visible way to reach them. Reusing the
+   exact same breakpoint text keeps this a same-range override, not a
+   fourth spelling of it. */
+@media (width <= 38rem) {
+  .clock-controls {
+    flex-wrap: nowrap;
+  }
+}
+
+/* F4: the drawer's not-seen safety-clock sentence is a warning, not the
+   neutral state line above it. */
+.draft-drawer__note--warning {
+  color: var(--color-warning);
+}
+
+/* F22: the client runtime already tags every managed-action toast with
+   data-gosx-toast-kind="error"/"success" and a matching .gsx-toast--
+   error/--success class (gosx client runtime, navigation.ts), but this
+   stylesheet never styled either class — an error toast ("enter seconds
+   as a whole number") rendered in the exact same unstyled, colourless
+   panel as a success toast ("Pick clock resumed."), with no colour,
+   border, or capital letter telling the two apart. Deliberately declared
+   here rather than editing .toast-stack (positioning only, F23's own
+   concern): these are new class names this file never claimed. */
+.gsx-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel-deep);
+  color: var(--color-text-primary);
+  font-size: var(--type-sm);
+  pointer-events: auto;
+}
+
+.gsx-toast--success {
+  border-color: var(--color-accent-cyan);
+  background: var(--color-cyan-haze);
+}
+
+.gsx-toast--error {
+  border-color: var(--color-danger);
+  background: var(--color-hot-haze);
+}
+
+.gsx-toast--error .gsx-toast__message::before {
+  content: "Error: ";
+  font-weight: 700;
+  color: var(--color-danger);
+}
+
+.gsx-toast__message {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gsx-toast__dismiss {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: var(--type-md);
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* F3: the tape row's attribution sentence (auto/commissioner picks only)
+   sits under the muted "who" line inside .tape-row__body's own flex
+   column, which truncates to one line by design (see that rule's own
+   doc comment) — this one wraps instead of truncating, since it is the
+   one sentence on the row that must stay fully readable. */
+.tape-row__attribution {
+  margin: 0;
+  font-size: .8125rem;
+  color: var(--color-text-secondary);
+  white-space: normal;
+}
+
+/* F6 + F19: the "who is not checked in" plain-language line on /admin's
+   own Attention and readiness card. */
+.admin-attention-not-checked-in {
+  margin: var(--space-sm) 0 0;
+  padding: var(--space-sm) var(--space-md);
+  border-left: 3px solid var(--color-warning);
+  background: var(--color-hot-haze);
+  font-size: var(--type-sm);
+}
+
+/* F10: #admin-draft-meeting-at is a datetime-local input carrying only
+   .scoring-input's own 6rem width (line ~6308), sized for a short
+   numeric confirm field — a full "MM/DD/YYYY, HH:MM AM/PM" value
+   clipped to "09/06" with the year, time, and AM/PM all cut off. Wins
+   the cascade over .scoring-input's width at equal specificity by
+   coming later in the file. */
+.admin-datetime-input {
+  width: 15rem;
+}
+
+/* F31: .commissioner-hq__masthead h1 (line ~9367) clamps to
+   var(--type-display)'s own 5.96rem (95.36px) maximum at desktop widths
+   — wide enough that "COMMISSIONER" alone does not fit its own line
+   inside the masthead's ~700px column, so overflow-wrap: anywhere broke
+   it after "COMMISSION" even with room below to wrap the whole word.
+   Lowering this heading's own maximum (unlike var(--type-display),
+   shared sitewide) to 4.5rem lets "Commissioner HQ" wrap at the space
+   between the two words instead of splitting the first one; break-word
+   only breaks a word as a last resort, when it still would not fit
+   alone on its own line. */
+.commissioner-hq__masthead h1 {
+  font-size: clamp(2.25rem, 6vw, 4.5rem);
+  overflow-wrap: break-word;
+}

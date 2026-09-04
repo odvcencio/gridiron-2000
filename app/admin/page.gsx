@@ -210,11 +210,19 @@ func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
 				</If>
 			</span>
 		</div>
+		{/* F6 + F19 (gap-audit J2): "READY 4 / 8" named no one and gave the
+		    commissioner nothing to act on — the ready toggle exists only in
+		    the draft room's own drawer. This names the claimed-but-not-
+		    ready seats by their manager's own first name, in plain words,
+		    next to a link straight into the room where the toggle lives. */}
+		<If cond={props.HasNotCheckedIn}>
+			<p class="admin-attention-not-checked-in">Not checked in: {props.NotCheckedInSummary} · <a href="/draft" data-gosx-link>Open the draft room</a></p>
+		</If>
 		<div class="commissioner-hq__ledger" aria-label="Seat readiness and presence">
 			<Each of={props.Seats} as="seat">
 				<div class="commissioner-hq__attention" data-presence={seat.Presence}>
 					<div class="commissioner-hq__attention-copy">
-						<span class="section-index">{seat.Abbreviation} · {seat.Name}</span>
+						<span class="section-index">{seat.Abbreviation} · {seat.Name}<If cond={seat.Manager != ""}> · {seat.Manager}</If></span>
 						<strong><If cond={seat.Claimed}>CLAIMED</If><If cond={seat.Claimed == false}>OPEN</If> · <If cond={seat.Ready}>READY</If><If cond={seat.Ready == false}>NOT READY</If></strong>
 						<span class="seat-presence">{seat.PresenceLabel} · {seat.PresenceDetail} · board {seat.BoardCount}</span>
 					</div>
@@ -585,8 +593,8 @@ func Page() Node {
 								<If cond={data.draft.time != ""}>
 									<strong>
 										At
-										{data.draft.time}
-										, confirm everyone is present and start the draft
+										{data.draft.time},
+										confirm everyone is present and start the draft
 									</strong>
 								</If>
 								<If cond={data.draft.time == ""}>
@@ -647,7 +655,7 @@ func Page() Node {
 						</div>
 						<label class="roster-shape-field" for="admin-draft-meeting-at">
 							<span class="mono">NEW MEETING · {data.draft.timezone}</span>
-							<input id="admin-draft-meeting-at" class="scoring-input" type="datetime-local" name="meeting_at" value={data.draft_reschedule.meeting_at} required="required"></input>
+							<input id="admin-draft-meeting-at" class="scoring-input admin-datetime-input" type="datetime-local" name="meeting_at" value={data.draft_reschedule.meeting_at} required="required"></input>
 						</label>
 						<button class="button button--primary" type="submit">Save meeting time</button>
 					</form>
@@ -1033,6 +1041,13 @@ func Page() Node {
 						</If>
 					</div>
 					<div class="order-list">
+						{/* F29 (gap-audit J2): "who picks seventh?" is the
+						    week's most common question; the order used to
+						    list eight teams with a division chip and no
+						    ordinal at all. Pick numbers here name the real
+						    draft slot, not a seat index — Commissioner HQ's
+						    own numbered order (a different card) already
+						    used seat indexes and stays unchanged. */}
 						<Each of={data.draft_order} as="team">
 							<article class="order-row">
 								<span class={"team-mark tone-" + team.tone}>
@@ -1044,9 +1059,12 @@ func Page() Node {
 									</If>
 								</span>
 								<div class="seat-identity">
-									<strong>{team.name}</strong>
+									<strong><span class="mono">Pick {team.pick_number} ·</span> {team.name}</strong>
 									<small>{team.manager}</small>
 									<span class="position-chip">{team.division}</span>
+									<If cond={team.id == data.viewer.team_id}>
+										<span class="position-chip">YOUR SEAT</span>
+									</If>
 								</div>
 							</article>
 						</Each>
@@ -1189,7 +1207,18 @@ func Page() Node {
 						</div>
 						<div class="pool-stat">
 							<span>Deadline</span>
-							<b class="mono">{data.clock.deadline}</b>
+							{/* F16 (gap-audit J2): this printed the raw RFC3339 UTC
+							    instant ("2026-09-04T10:00:03Z") on the one row that
+							    matters during a live pick, four hours off the
+							    league's own clock and unlike every other timestamp
+							    on this page. Mirrors the READ AT row's own display/
+							    ISO/relative split above. */}
+							<If cond={data.clock.deadline != ""}>
+								<b class="mono"><time datetime={data.clock.deadline}>{data.clock.deadline_display}<If cond={data.clock.deadline_relative != ""}> · {data.clock.deadline_relative}</If></time></b>
+							</If>
+							<If cond={data.clock.deadline == ""}>
+								<b class="mono"></b>
+							</If>
 						</div>
 						<div class="pool-stat">
 							<span>Duration</span>
@@ -1239,7 +1268,7 @@ func Page() Node {
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="current_pick_token" value={data.current_pick_token}></input>
 								<label for="admin-clock-extend-seconds" class="visually-hidden">Seconds to add to the running pick</label>
-								<input id="admin-clock-extend-seconds" class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
+								<input id="admin-clock-extend-seconds" class="scoring-input" type="number" name="seconds" value="60" min="1" max="600"></input>
 								<button class="button" type="submit">Extend running pick</button>
 							</form>
 						</If>

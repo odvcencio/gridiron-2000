@@ -207,6 +207,18 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 	if panesAt, mineAt, readyAt := strings.Index(pre, `class="draft-panes"`), strings.Index(pre, `draft-pane--mine`), strings.Index(pre, `id="ready-toggle"`); panesAt < 0 || mineAt < 0 || readyAt < 0 || readyAt < panesAt || readyAt < mineAt {
 		t.Errorf("pre-draft shell: ready-toggle (%d) must render inside the Room tab (draft-panes at %d, draft-pane--mine at %d)", readyAt, panesAt, mineAt)
 	}
+	// F28 (gap-audit J2): the pre-draft checklist was manager-only and
+	// never pointed the commissioner (shellCommissioner here: seatless,
+	// COMMISSIONER_EMAILS-only) to the runbook. A commissioner viewing the
+	// room before it opens must see a checklist item into the runbook; a
+	// manager (the "pre" render above) must not.
+	preCommissioner := renderDraftForUser(t, handler, shellCommissioner)
+	if !strings.Contains(preCommissioner, "Run the draft-night runbook") || !strings.Contains(preCommissioner, `href="/admin?section=draft-control"`) {
+		t.Errorf("pre-draft commissioner shell missing the runbook checklist item")
+	}
+	if strings.Contains(pre, "Run the draft-night runbook") {
+		t.Error("pre-draft manager shell must not render the commissioner-only runbook checklist item")
+	}
 	postDraftAction(t, handler, shellCommissioner, "draft-start", url.Values{"confirm": {"START"}})
 	live := renderDraftForUser(t, handler, seated)
 	check("live", live)
@@ -251,7 +263,7 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 	// comb — oleander, item 7: "NOT SEEN may receive the short safety
 	// clock only after the two-minute boot grace" is now plain language
 	// — see page.gsx's own doc comment at the rewritten copy.
-	for _, want := range []string{`id="draft-commissioner"`, `data-gosx-disclosure-modal`, `role="dialog"`, `aria-modal="true"`, `data-gosx-disclosure-target="#draft-commissioner"`, `data-gosx-disclosure-close="#draft-commissioner"`, `data-gosx-disclosure-initial-focus`, `value="60"`, `value="90"`, `value="120"`, `value="180"`, `value="300"`, `max="600"`, "Draft is running", "FORCE CURRENT PICK", "draft-undo", "previous_pick_token", "Seats get two minutes after a restart before they count as unseen for the short backup clock."} {
+	for _, want := range []string{`id="draft-commissioner"`, `data-gosx-disclosure-modal`, `role="dialog"`, `aria-modal="true"`, `data-gosx-disclosure-target="#draft-commissioner"`, `data-gosx-disclosure-close="#draft-commissioner"`, `data-gosx-disclosure-initial-focus`, `value="60"`, `value="90"`, `value="120"`, `value="180"`, `value="300"`, `max="600"`, "Running. The clock controls below are live.", "FORCE CURRENT PICK", "draft-undo", "previous_pick_token", "Seats get two minutes after a restart before they count as unseen for the short backup clock."} {
 		if !strings.Contains(drawer, want) {
 			t.Errorf("commissioner drawer missing %q", want)
 		}

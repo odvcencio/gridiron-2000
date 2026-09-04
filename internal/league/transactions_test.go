@@ -135,6 +135,120 @@ func TestActivityMapsDraftRowCarriesRoundAndPick(t *testing.T) {
 	}
 }
 
+// TestActivityMapsAttributesAutoAndCommissionerPicksHonestly is the
+// end-to-end half of F3 (gap-audit J2): activityMaps must route a real
+// DraftPick's MadeBy through draftPickActivityLine, not just build the
+// "drafts" default. A no-show's autopick and a commissioner's forced pick
+// must never enter the permanent record indistinguishable from a manual
+// pick.
+func TestActivityMapsAttributesAutoAndCommissionerPicksHonestly(t *testing.T) {
+	svc := newTestService(t, true)
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return testPool(5), 1, "test" })
+	base := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	state := PersistedState{
+		Picks: []DraftPick{
+			{Number: 1, Round: 1, TeamID: "team-1", PlayerID: "pool-001", MadeAt: base, MadeBy: "manager"},
+			{Number: 2, Round: 1, TeamID: "team-2", PlayerID: "pool-002", MadeAt: base.Add(time.Minute), MadeBy: "auto"},
+			{Number: 3, Round: 1, TeamID: "team-3", PlayerID: "pool-003", MadeAt: base.Add(2 * time.Minute), MadeBy: "commissioner"},
+		},
+	}
+	rows := svc.activityMaps(state, 0)
+	if len(rows) != 3 {
+		t.Fatalf("len(rows) = %d, want 3", len(rows))
+	}
+	team1, _, _ := svc.activityTeamDisplay(state, []string{"team-1"})
+	team2, _, _ := svc.activityTeamDisplay(state, []string{"team-2"})
+	team3, _, _ := svc.activityTeamDisplay(state, []string{"team-3"})
+
+	// Newest first: commissioner (P3), auto (P2), manager (P1).
+	if got, want := rows[0]["team"], "Commissioner"; got != want {
+		t.Fatalf("commissioner pick team = %q, want %q", got, want)
+	}
+	if got, want := rows[0]["action"], "picks"; got != want {
+		t.Fatalf("commissioner pick action = %q, want %q", got, want)
+	}
+	if got, want := rows[0]["player"], "Pool Player 003 (WR) — R1 · P3 for "+team3; got != want {
+		t.Fatalf("commissioner pick player = %q, want %q", got, want)
+	}
+
+	if got, want := rows[1]["team"], "Autopick for "+team2; got != want {
+		t.Fatalf("auto pick team = %q, want %q", got, want)
+	}
+	if got, want := rows[1]["action"], "selects"; got != want {
+		t.Fatalf("auto pick action = %q, want %q", got, want)
+	}
+
+	if got, want := rows[2]["team"], team1; got != want {
+		t.Fatalf("manager pick team = %q, want %q", got, want)
+	}
+	if got, want := rows[2]["action"], "drafts"; got != want {
+		t.Fatalf("manager pick action = %q, want %q", got, want)
+	}
+	// Team filtering (team_search) still finds the auto/commissioner rows
+	// under the real team's own code — the attribution prefix only
+	// changes what renders, never who a "team=AQ2" filter matches.
+	if search, _ := rows[1]["team_search"].(string); !strings.Contains(search, "team-2") {
+		t.Fatalf("auto pick team_search = %q, missing team-2", search)
+	}
+	if search, _ := rows[0]["team_search"].(string); !strings.Contains(search, "team-3") {
+		t.Fatalf("commissioner pick team_search = %q, missing team-3", search)
+	}
+}
+
+// TestDraftPickActivityLineAttributesByMadeBy pins F3 (gap-audit J2): a
+// no-show's autopick and a commissioner's forced pick used to enter
+// /activity as "<team> drafts <player>", identical to a manual pick, with
+// nothing telling a manager or the commissioner apart from the machine or
+// each other. This is the shared line builder both /activity
+// (activityMaps) and the room's own pick tape (draftPickAttributionSentence,
+// TapePick.AttributionLine) read.
+func TestDraftPickActivityLineAttributesByMadeBy(t *testing.T) {
+	const team = "Los Delfines del Norte (AQ2)"
+	const player = "Jaxon Smith-Njigba (WR) — R1 · P8"
+
+	for _, tc := range []struct {
+		madeBy                           string
+		wantTeam, wantAction, wantPlayer string
+	}{
+		{"manager", team, "drafts", player},
+		{"", team, "drafts", player}, // pre-provenance state (model.go) reads as manager
+		{"auto", "Autopick for " + team, "selects", player},
+		{"commissioner", "Commissioner", "picks", player + " for " + team},
+	} {
+		t.Run("MadeBy="+tc.madeBy, func(t *testing.T) {
+			gotTeam, gotAction, gotPlayer := draftPickActivityLine(tc.madeBy, team, player)
+			if gotTeam != tc.wantTeam || gotAction != tc.wantAction || gotPlayer != tc.wantPlayer {
+				t.Fatalf("draftPickActivityLine(%q) = (%q, %q, %q), want (%q, %q, %q)",
+					tc.madeBy, gotTeam, gotAction, gotPlayer, tc.wantTeam, tc.wantAction, tc.wantPlayer)
+			}
+		})
+	}
+}
+
+// TestDraftPickAttributionSentenceMatchesTheActivityLine proves the room's
+// own tape sentence (TapePick.AttributionLine) reads as the exact
+// concatenation of the same three parts the activity feed renders as
+// separate team/action/player columns, so the two surfaces never drift.
+func TestDraftPickAttributionSentenceMatchesTheActivityLine(t *testing.T) {
+	const team = "In Shedeur Time (AQ1)"
+	const player = "Bucky Irving (RB) — R1 · P7"
+
+	for _, tc := range []struct {
+		madeBy string
+		want   string
+	}{
+		{"manager", "In Shedeur Time (AQ1) drafts Bucky Irving (RB) — R1 · P7"},
+		{"auto", "Autopick for In Shedeur Time (AQ1) selects Bucky Irving (RB) — R1 · P7"},
+		{"commissioner", "Commissioner picks Bucky Irving (RB) — R1 · P7 for In Shedeur Time (AQ1)"},
+	} {
+		t.Run("MadeBy="+tc.madeBy, func(t *testing.T) {
+			if got := draftPickAttributionSentence(tc.madeBy, team, player); got != tc.want {
+				t.Fatalf("draftPickAttributionSentence(%q) = %q, want %q", tc.madeBy, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestActivityMapsOrderingAndLimit checks activityMaps merges Picks and
 // Transactions newest-first and honors the row limit (the dashboard's
 // "newest five" contract, section 8.4).

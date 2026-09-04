@@ -90,6 +90,27 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A franchise still named its configured default gets an Action Center card prompting a rename, and the setup checklist stops marking personalization done until it is renamed.
 - The team page's pre-draft empty-starter warning collapses to one line instead of naming each empty slot and telling the manager to sign a player before the draft has run.
 
+### Fixed
+- The commissioner drawer's seat coverage grid no longer squeezes into four overlapping columns at desktop width; it stays one column inside the drawer at every viewport.
+- On a phone, the commissioner drawer's "Force current pick now" and "Undo last pick" controls no longer sit off-screen in hidden side columns.
+- Undoing a pick from the draft room's commissioner drawer returns to the room instead of throwing the commissioner onto the console's Danger Zone.
+- The activity feed and the pick tape name who actually made a pick: an autopick reads "Autopick for `<team>` selects `<player>`" and a commissioner's forced pick reads "Commissioner picks `<player>` for `<team>`", instead of both reading like the manager's own pick.
+- A seat on the 20-second not-seen safety clock shows why its clock is short, in the room's command bar and in the commissioner drawer, instead of the room implying the seat still has the full two minutes.
+- The commissioner drawer states the clock's true state ("Paused · 1:44 left" or "Running") instead of always claiming the draft is running, and makes the one action actually available (Pause or Resume) the bright button, with the other disabled and its reason named.
+- Extend Pick defaults to 60 seconds instead of an empty field, and its error names the seconds field with a worked example instead of a bare lowercase sentence. Error toasts now read with a distinct color and an "Error:" label instead of matching a success toast's plain panel.
+- The commissioner drawer's clock and seat actions return with the drawer already open, instead of closing it after every action.
+- The undo record names the pick it removed ("undid pick 42: In Shedeur Time / Bucky Irving") instead of only "undid the last pick," and the drawer's own undo confirmation names the pick before asking for the typed confirmation.
+- The console's reschedule-the-draft time field shows its full value instead of clipping to "09/06" with the year, hour, and AM/PM cut off.
+- The console's readiness card names who has not checked in, by first name and team, with a link that opens the draft room to check them in, instead of reporting a bare ready count with no way to act.
+- The console's readiness rows show each manager's own name and a plain-language presence sentence instead of a bare seat code and "no room heartbeat since this server started."
+- The console's outreach control sends an already-seated manager a "please check in for the draft" reminder with the room link, instead of inviting them to a seat they already hold.
+- The commissioner's own pre-draft task ("Start the draft Sunday · N of 8 checked in · open the runbook") now leads the home page's Action Center while the draft has not started, instead of a manager's own pick'em review.
+- The console shows the live pick deadline in league-local time with a relative phrase, instead of a raw UTC timestamp.
+- The draft-night runbook's fourth step reads without a stray space before its comma.
+- Commissioner HQ's heading wraps between "Commissioner" and "HQ" instead of splitting "Commissioner" itself mid-word.
+- The draft room's pre-draft checklist points commissioners to the draft-night runbook.
+- The console's published draft order shows each seat's real pick number and marks the viewer's own seat.
+
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 
 Scope: GoSX v0.55.2 adoption, plus a phone-first pass over every route (anonymous, manager, commissioner)

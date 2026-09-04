@@ -309,14 +309,14 @@ func TestCommissionerDraftConsequencesUseCurrentClockDuration(t *testing.T) {
 	if err := service.AdminSetClockSeconds(request, 60); err != nil {
 		t.Fatalf("set 60-second duration: %v", err)
 	}
-	if err := service.AdminUndoPick(request, staleUndoToken); !errors.Is(err, errAdminActionStale) {
+	if _, _, _, err := service.AdminUndoPick(request, staleUndoToken); !errors.Is(err, errAdminActionStale) {
 		t.Fatalf("undo with token rendered before duration change = %v, want stale", err)
 	}
 	if got := len(service.store.Snapshot().Picks); got != 1 {
 		t.Fatalf("stale undo changed pick count to %d", got)
 	}
 	freshUndoToken := draftPreviousPickToken(service.store.Snapshot())
-	if err := service.AdminUndoPick(request, freshUndoToken); err != nil {
+	if _, _, _, err := service.AdminUndoPick(request, freshUndoToken); err != nil {
 		t.Fatalf("fresh undo after duration change: %v", err)
 	}
 	if got, want := service.store.Snapshot().ClockDeadline, now.Add(60*time.Second); !got.Equal(want) {

@@ -361,7 +361,7 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 		// this true, role-appropriate sentence, with the season read from
 		// cfg.Season rather than retyped.
 		"manager_lock_note": fmt.Sprintf("These rules are final for the %d season once week 1 kicks off.", s.cfg.Season),
-		"league":          s.leagueMapForViewer(r),
+		"league":            s.leagueMapForViewer(r),
 		// Every section below renders THIS instance's live ruleset: config
 		// (s.cfg), the runtime roster/draft accessors (CurrentRoster,
 		// CurrentDraftRounds), the scoring values store, and each system's
