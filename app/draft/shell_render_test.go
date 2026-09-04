@@ -188,7 +188,7 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 	panes := []string{`draft-pane--available`, `draft-pane--mine`, `data-gosx-region-url="/draft/fragment/available?pos={value}&amp;sort=adp"`, `data-gosx-region-url="/draft/fragment/queue"`, `data-gosx-set="$draft.available.pos"`}
 	pre := renderDraftForUser(t, handler, seated)
 	check("pre", pre)
-	for _, want := range append([]string{"Build your big board", "Check in now ↑", `id="ready-toggle"`, `id="autopick-toggle"`}, panes...) {
+	for _, want := range append([]string{"Build your big board", "Check in for the draft", `id="ready-toggle"`, `id="autopick-toggle"`}, panes...) {
 		if !strings.Contains(pre, want) {
 			t.Errorf("pre-draft shell missing %q", want)
 		}

@@ -16751,3 +16751,17 @@ a.skip-link {
     --type-sm: clamp(0.875rem, 0.86rem + 0.10vw, 0.9375rem);
   }
 }
+
+/* comb — maple (2026-09-04 UX pass) */
+
+/* F1: the checklist's own check-in/autopick controls (app/draft/page.gsx,
+   DraftPreflight) now post a real <form> instead of a #ready-toggle/
+   #autopick-toggle fragment link into the Room tab's own pane, hidden at
+   every desktop width. .checklist-item > .board-button already holds its
+   own width against the flexible label column beside it (D16/D17 fix,
+   above); the form wrapper needs the same treatment now that a <form>,
+   not the button itself, is the direct flex child of .checklist-item. */
+.checklist-item > .checklist-item__form {
+  flex: 0 0 auto;
+}
+

@@ -89,7 +89,7 @@ func TestDraftCommandPillMarkupIsPresentAndSheetControlsAreReachableFixtureProce
 	}
 	sheet := html[sheetStart : sheetStart+sheetEnd]
 	for _, want := range []string{
-		"Mark me ready",
+		"Check in for the draft",
 		"Turn autopick on",
 		`aria-label="Open league navigation" aria-controls="primary-navigation-dialog" aria-expanded="false" data-gosx-disclosure-target="#primary-navigation-dialog"`,
 		`data-gosx-disclosure-target="#draft-commissioner"`,

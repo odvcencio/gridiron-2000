@@ -236,6 +236,18 @@ type draftCommandView struct {
 	StatusSummary string
 }
 
+// draftPreflightView backs the pre-draft "get your seat ready" checklist
+// (DraftPreflight, page.gsx). It carries Actions/CSRF (comb — maple, F1,
+// 2026-09-04) so the checklist's own check-in item can post the real
+// toggle-ready form the Room tab's control already uses, instead of a
+// fragment link to an element a collapsed radio pane hides at every
+// desktop width.
+type draftPreflightView struct {
+	Data    map[string]any
+	CSRF    string
+	Actions map[string]string
+}
+
 // draftHistoryView backs the pick-tape pane's Tape/Board/Teams tabs (D4):
 // the same field set page.gsx's DraftHistoryProps declares, so this one
 // value renders through either "DraftHistory" (fragment.go's
@@ -1084,6 +1096,7 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 		Data: viewData, Queue: typedQueue,
 		QueueRemoveAction: draftActionPath("queue-remove"), QueueMoveAction: draftActionPath("queue-move"), Actions: actions,
 	}
+	output["preflight"] = draftPreflightView{Data: viewData, Actions: actions}
 	return output
 }
 
@@ -1139,12 +1152,14 @@ func attachDraftRequestState(data map[string]any, request *http.Request) map[str
 	command, _ := data["command"].(draftCommandView)
 	available, _ := data["available"].(draftAvailableView)
 	queue, _ := data["queue"].(draftQueueView)
+	preflight, _ := data["preflight"].(draftPreflightView)
 	token := session.Token(request)
 	room.CSRF = token
 	workspace.CSRF = token
 	command.CSRF = token
 	available.CSRF = token
 	queue.CSRF = token
+	preflight.CSRF = token
 	seats, _ := room.Data["seat_controls"].([]DraftSeatControlCard)
 	for i := range seats {
 		seats[i].CSRF = token
@@ -1156,6 +1171,7 @@ func attachDraftRequestState(data map[string]any, request *http.Request) map[str
 	data["command"] = command
 	data["available"] = available
 	data["queue"] = queue
+	data["preflight"] = preflight
 	return data
 }
 

@@ -5,7 +5,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- The draft room's pre-draft checklist checks a manager in directly; the check-in and autopick items post the same controls the Room tab uses, at every width, instead of a link to a hidden panel.
+- One name for the draft check-in everywhere it appears: "Check in for the draft" to act, "Undo check-in" to reverse it.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 
