@@ -18,6 +18,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Extend Pick defaults to 60 seconds instead of an empty field, and its error names the seconds field with a worked example instead of a bare lowercase sentence. Error toasts now read with a distinct color and an "Error:" label instead of matching a success toast's plain panel.
 - The commissioner drawer's clock and seat actions return with the drawer already open, instead of closing it after every action.
 - The undo record names the pick it removed ("undid pick 42: In Shedeur Time / Bucky Irving") instead of only "undid the last pick," and the drawer's own undo confirmation names the pick before asking for the typed confirmation.
+- The console's reschedule-the-draft time field shows its full value instead of clipping to "09/06" with the year, hour, and AM/PM cut off.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 

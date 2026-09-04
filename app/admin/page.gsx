@@ -647,7 +647,7 @@ func Page() Node {
 						</div>
 						<label class="roster-shape-field" for="admin-draft-meeting-at">
 							<span class="mono">NEW MEETING · {data.draft.timezone}</span>
-							<input id="admin-draft-meeting-at" class="scoring-input" type="datetime-local" name="meeting_at" value={data.draft_reschedule.meeting_at} required="required"></input>
+							<input id="admin-draft-meeting-at" class="scoring-input admin-datetime-input" type="datetime-local" name="meeting_at" value={data.draft_reschedule.meeting_at} required="required"></input>
 						</label>
 						<button class="button button--primary" type="submit">Save meeting time</button>
 					</form>
