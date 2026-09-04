@@ -6119,6 +6119,10 @@ func (s *Service) actionCenterDataForSnapshot(r *http.Request, state PersistedSt
 				runAt = processedRun
 			}
 		}
+		// DeskNextRun (J3 F9) is set unconditionally, not only when the
+		// viewer already has a claim filed, so the home page can say
+		// waivers are open and name the next run for an idle manager too.
+		facts.Waivers.DeskNextRun, facts.Waivers.HasDeskNextRun = runAt, true
 		for _, claim := range state.WaiverClaims {
 			if claim.TeamID != teamID {
 				continue

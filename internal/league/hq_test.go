@@ -218,6 +218,83 @@ func TestBuildActionCenterWaiverResolutionTruth(t *testing.T) {
 	}
 }
 
+// TestBuildActionCenterAnnouncesOpenWaiverDeskWithNoClaims pins J3 F9: a
+// manager with zero claims filed still needs to hear waivers are open and
+// when they next run — before this fix waiverAction returned nil unless
+// OpenClaims > 0, so the home page never mentioned waivers at all until a
+// claim already existed.
+func TestBuildActionCenterAnnouncesOpenWaiverDeskWithNoClaims(t *testing.T) {
+	now := time.Date(2026, 9, 15, 8, 0, 0, 0, time.UTC)
+	nextRun := now.Add(9 * time.Hour)
+	facts := ActionCenterFacts{
+		Now: now, Location: time.UTC, Admitted: true, HasSeat: true, DraftComplete: true,
+		SeasonPhase: PhaseRegularSeason,
+		Waivers:     ActionCenterWaiverFacts{OpenClaims: 0, DeskNextRun: nextRun, HasDeskNextRun: true},
+	}
+	action, ok := findAction(BuildActionCenter(facts).Actions, "waiver-open")
+	if !ok {
+		t.Fatalf("waiver-open action missing with an open desk and no claims filed")
+	}
+	if action.Href != "/players" {
+		t.Fatalf("waiver-open href = %q, want /players", action.Href)
+	}
+	if !strings.Contains(action.Detail, "Waivers run") || !strings.Contains(action.Detail, "in 9 hours") {
+		t.Fatalf("waiver-open detail = %q, want the run time and a relative phrase", action.Detail)
+	}
+
+	// A claim already filed keeps the existing waiver-claims card, not a
+	// duplicate waiver-open card.
+	facts.Waivers.OpenClaims = 1
+	if _, ok := findAction(BuildActionCenter(facts).Actions, "waiver-open"); ok {
+		t.Fatalf("waiver-open action present alongside a filed claim; want waiver-claims only")
+	}
+}
+
+// TestActionCenterDataWiresWaiverDeskFromThePerfPriorityConfig pins the
+// service-level wiring for J3 F9 against the league's real perf-priority
+// waiver config (DefaultConfig's mode and 09:00 process time): a seated
+// manager with no claim filed still gets a waiver-open card naming the
+// desk's next scheduled run.
+func TestActionCenterDataWiresWaiverDeskFromThePerfPriorityConfig(t *testing.T) {
+	svc := newTestService(t, false)
+	if svc.cfg.Waivers.Mode != "perf-priority" {
+		t.Fatalf("test fixture waivers mode = %q, want perf-priority", svc.cfg.Waivers.Mode)
+	}
+	teamID := svc.Teams()[0].ID
+	email := "manager@example.com"
+	now := time.Date(2026, 9, 15, 8, 0, 0, 0, time.UTC)
+
+	state := svc.store.Snapshot()
+	state.Members[email] = Member{Email: email, Name: "Manager", TeamID: teamID}
+	total := len(defaultTeams()) * CurrentDraftRounds()
+	for i := 0; i < total; i++ {
+		state.Picks = append(state.Picks, DraftPick{Number: i + 1, TeamID: defaultTeamIDs()[i%len(defaultTeamIDs())]})
+	}
+	viewer := map[string]any{"signed_in": true, "email": email, "has_seat": true, "team_id": teamID}
+	request, err := http.NewRequest(http.MethodGet, "/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := svc.actionCenterDataForSnapshot(request, state, viewer, map[string]any{}, now)
+	actions, _ := data["actions"].([]map[string]any)
+	var open map[string]any
+	for _, action := range actions {
+		if action["id"] == "waiver-open" {
+			open = action
+		}
+	}
+	if open == nil {
+		t.Fatalf("actions = %#v, want a waiver-open card with no claims filed", actions)
+	}
+	if open["href"] != "/players" {
+		t.Fatalf("waiver-open href = %v, want /players", open["href"])
+	}
+	detail, _ := open["detail"].(string)
+	if !strings.Contains(detail, "Waivers run") {
+		t.Fatalf("waiver-open detail = %q, want it to open with \"Waivers run\"", detail)
+	}
+}
+
 func TestBuildActionCenterCommissionerAnchorsAndPostseasonCopy(t *testing.T) {
 	predraft := BuildActionCenter(ActionCenterFacts{
 		Now: time.Now(), Admitted: true, HasSeat: true, Commissioner: true,

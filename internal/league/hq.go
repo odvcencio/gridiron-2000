@@ -97,6 +97,12 @@ type ActionCenterWaiverFacts struct {
 	OpenClaims int
 	NextRun    time.Time
 	HasNextRun bool
+	// DeskNextRun/HasDeskNextRun (J3 F9) is the waiver desk's own next
+	// scheduled processing instant, populated whenever waivers are open
+	// (draft complete) whether or not the viewer has a claim filed, so the
+	// home page can name the run even for a manager with nothing pending.
+	DeskNextRun    time.Time
+	HasDeskNextRun bool
 }
 
 // ActionCenterFacts is the service-to-pure-model boundary. BuildActionCenter
@@ -385,7 +391,7 @@ func tradeActions(f ActionCenterFacts) []ActionCenterAction {
 
 func waiverAction(f ActionCenterFacts) *ActionCenterAction {
 	if f.Waivers.OpenClaims <= 0 {
-		return nil
+		return waiverOpenAction(f)
 	}
 	detail := fmt.Sprintf("%d open waiver claim", f.Waivers.OpenClaims) + pluralSuffix(f.Waivers.OpenClaims) + " are filed for your team."
 	priority, priorityLabel := ActionCenterPriorityStable, actionCenterLabelOnTrack
@@ -404,6 +410,22 @@ func waiverAction(f ActionCenterFacts) *ActionCenterAction {
 		}
 	}
 	return &ActionCenterAction{ID: "waiver-claims", Priority: priority, PriorityLabel: priorityLabel, Label: "Review waiver claims", Detail: detail, Href: "/players", DueAt: f.Waivers.NextRun, HasDueAt: f.Waivers.HasNextRun, DueLabel: "WAIVER PROCESSING", Urgent: urgent}
+}
+
+// waiverOpenAction (J3 F9) tells a manager with no claim filed that the
+// waiver desk is open and names the next run — before this fix the home
+// page never mentioned waivers until a claim already existed.
+func waiverOpenAction(f ActionCenterFacts) *ActionCenterAction {
+	if !f.DraftComplete || !f.Waivers.HasDeskNextRun || resolveActionCenterStage(f) == ActionCenterSeasonComplete {
+		return nil
+	}
+	location := f.Location
+	if location == nil {
+		location = time.UTC
+	}
+	when := f.Waivers.DeskNextRun.In(location).Format("Mon Jan 2 · 3:04 PM MST")
+	detail := fmt.Sprintf("Waivers run %s · %s. File a claim from the Player Pool.", when, relativeTime(f.Now, f.Waivers.DeskNextRun))
+	return &ActionCenterAction{ID: "waiver-open", Priority: ActionCenterPriorityInfo, PriorityLabel: "WAIVERS OPEN", Label: "Waivers are open", Detail: detail, Href: "/players", DueAt: f.Waivers.DeskNextRun, HasDueAt: true, DueLabel: "WAIVER PROCESSING"}
 }
 
 func preparationActions(f ActionCenterFacts) []ActionCenterAction {
