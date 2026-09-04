@@ -98,7 +98,7 @@ func Page() Node {
 				</div>
 			</If>
 		</section>
-		<div class="notice-stack" aria-live="polite">
+		<div class="notice-stack">
 			<If cond={data.has_notice && (data.notice_count < 2 || data.notice_first_kind == "flash")}>
 				<p class="flash-message">{data.notice}</p>
 			</If>

@@ -34,7 +34,9 @@ func TestIdentityEditorKeepsLocalFeedbackAndFocusHooks(t *testing.T) {
 	}
 	page := string(pageBytes)
 	for _, want := range []string{
-		`<div class="notice-stack" aria-live="polite">`,
+		// J3 F27: the notice-stack wrapper dropped aria-live — the
+		// framework's own toast host is the page's one live region now.
+		`<div class="notice-stack">`,
 		`id="team-identity"`,
 		`role="alert"`,
 	} {

@@ -112,7 +112,7 @@ func Page() Node {
 			</div>
 		</section>
 
-		<div class="notice-stack" aria-live="polite">
+		<div class="notice-stack">
 			<p class="notification-settings-delivery" role="status">{data.delivery_message}</p>
 			<If cond={data.has_notice}>
 				<p class="flash-message">{data.notice}</p>

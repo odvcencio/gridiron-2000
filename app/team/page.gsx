@@ -244,7 +244,7 @@ func Page() Node {
 			</section>
 		</If>
 		<If cond={data.has_seat}>
-		<div class="notice-stack" aria-live="polite">
+		<div class="notice-stack">
 			<If cond={data.has_notice}>
 				<p class="flash-message">{data.notice}</p>
 			</If>
