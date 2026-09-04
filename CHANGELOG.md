@@ -11,6 +11,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The trade inbox's offer text no longer prints over the Accept and Decline buttons on a phone.
 - A long player name on the team page shows in full at phone width instead of clipping to a few characters.
 - Opening the player pool's phone filter panel no longer jumps the page or draws the panel outside its card.
+- The player pool's roster-full error names the player you tried to add or claim.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 

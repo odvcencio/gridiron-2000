@@ -1353,7 +1353,7 @@ func TestFileClaimRosterFullRequiresDrop(t *testing.T) {
 	svc, _ := newWaiversTestService(t)
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
 	_, err := svc.FileClaim(request, "team-1", "wv-open", "", 0) // team-1 is at cap (3 of 3)
-	want := "your roster is full; choose a player to drop"
+	want := "your roster is full; choose a player to drop for Waived Wideout"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
 	}
@@ -1964,7 +1964,7 @@ func TestProcessWaiversRosterFullWithNoDropFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "your roster is full; choose a player to drop"
+	want := "your roster is full; choose a player to drop for Wire One"
 	if len(results) != 1 || results[0].Outcome != "failed" || results[0].Reason != want {
 		t.Fatalf("results = %+v, want one failure with %q", results, want)
 	}
