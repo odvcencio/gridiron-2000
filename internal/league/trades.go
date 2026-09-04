@@ -100,6 +100,44 @@ func tradeVetoPolicyLabel(veto string) string {
 	}
 }
 
+// tradeVetoSummarySentence is F20's fix (comb audit J3): the Trade Desk
+// masthead used to show only the bare "Veto policy: ..." fragment above
+// the composer, naming neither the review window nor what happens once
+// it closes. One plain sentence, built from the same two config knobs
+// (Trades.Veto, Trades.ReviewHours) tradeAcceptConsequenceSentence reads,
+// so the two copies can never disagree with each other or with the
+// league's real settings.
+func tradeVetoSummarySentence(veto string, reviewHours int) string {
+	switch veto {
+	case "commissioner":
+		return fmt.Sprintf("Trades are reviewed by the commissioner for %d hours after acceptance, then execute.", reviewHours)
+	case "vote":
+		return fmt.Sprintf("Trades are open to a league veto vote for %d hours after acceptance, then execute.", reviewHours)
+	case "both":
+		return fmt.Sprintf("Trades are reviewed by the commissioner and open to a league veto vote for %d hours after acceptance, then execute.", reviewHours)
+	default:
+		return "Trades execute immediately once both managers accept."
+	}
+}
+
+// tradeAcceptConsequenceSentence is F19's fix: the accept gate used to
+// hedge ("This either opens the league review window or executes
+// immediately, depending on league policy") even though the league's own
+// veto policy is a fixed, known setting at the moment a manager reads the
+// gate. Names the actual outcome instead.
+func tradeAcceptConsequenceSentence(veto string, reviewHours int) string {
+	switch veto {
+	case "commissioner":
+		return fmt.Sprintf("Accept: the trade goes to commissioner review for %d hours, then executes.", reviewHours)
+	case "vote":
+		return fmt.Sprintf("Accept: the trade goes to a league veto vote for %d hours, then executes.", reviewHours)
+	case "both":
+		return fmt.Sprintf("Accept: the trade goes to commissioner review and a league veto vote for %d hours, then executes.", reviewHours)
+	default:
+		return "Accept: the trade executes immediately."
+	}
+}
+
 // tradeSectionIndexLabels resolves the trade desk's three trailing
 // section-index chips (COMMISSIONER REVIEW, LEAGUE VOTE, HISTORY) as
 // "%02d" strings, counting only the sections that actually render for
@@ -1091,6 +1129,7 @@ type TradeOfferRow struct {
 	AlreadyVoted            bool
 	HasReviewDeadline       bool
 	ReviewDeadline          string
+	ReviewDeadlineRelative  string
 	HasExpiry               bool
 	Expiry                  string
 	ExpiryRelative          string
@@ -1174,8 +1213,10 @@ func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string
 		row.ExpiryRelative = deadlineRelativeTime(s.clock(), expiry)
 	}
 	if offer.Status == TradeStatusAccepted {
+		reviewAt := offer.AcceptedAt.Add(time.Duration(s.cfg.Trades.ReviewHours) * time.Hour)
 		row.HasReviewDeadline = true
-		row.ReviewDeadline = formatResolvesAt(s.cfg, offer.AcceptedAt.Add(time.Duration(s.cfg.Trades.ReviewHours)*time.Hour))
+		row.ReviewDeadline = formatResolvesAt(s.cfg, reviewAt)
+		row.ReviewDeadlineRelative = deadlineRelativeTime(s.clock(), reviewAt)
 	}
 	return row
 }
@@ -1388,6 +1429,8 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 		"is_commissioner":           isCommissioner,
 		"veto_mode":                 s.cfg.Trades.Veto,
 		"veto_policy_label":         tradeVetoPolicyLabel(s.cfg.Trades.Veto),
+		"veto_summary_sentence":     tradeVetoSummarySentence(s.cfg.Trades.Veto, s.cfg.Trades.ReviewHours),
+		"trade_accept_consequence":  tradeAcceptConsequenceSentence(s.cfg.Trades.Veto, s.cfg.Trades.ReviewHours),
 		"trade_deadline_configured": deadlineConfigured,
 		"trade_deadline_passed":     deadlinePassed,
 		"trade_deadline":            deadlineLabel,

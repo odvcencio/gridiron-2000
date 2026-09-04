@@ -6,6 +6,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- An accepted trade in a commissioner-veto league now says the commissioner is reviewing it, with the review deadline, instead of a league-vote count that never applies.
+- The trade desk states the veto rule and review window above the offer form, and the accept confirmation names the actual outcome instead of hedging between two policies.
 - The player pool's position filter chips show and work at desktop width; the phone filter rail still collapses to one row.
 - The player pool's add-and-drop confirmation panel no longer overlaps the row's status chip at desktop width.
 - The trade inbox's offer text no longer prints over the Accept and Decline buttons on a phone.
