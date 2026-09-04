@@ -13,6 +13,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The home Action Center sorts cards by time remaining to their deadline, so the nearer event leads regardless of its priority label.
 - The rail's attention chip wraps to two clean lines instead of three, with no stray separator on its own line.
 - The draft room tells a member with no seat "You are watching this draft" and, once a seat cannot be claimed, "Ask your commissioner for a seat" instead of "Get your seat ready."
+- Signing in with a saved destination names the destination ("the Draft room") instead of "the page you requested."
+- An unconfigured Google sign-in reads "Google sign-in is not set up on this server yet" instead of "Sign-in is not open yet," which read as a league policy.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 

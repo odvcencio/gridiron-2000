@@ -3456,17 +3456,18 @@ func (s *Service) LoginData(r *http.Request, configured bool) map[string]any {
 		next = navigation.SafeReturnPath(r.URL.Query().Get("next"))
 	}
 	return map[string]any{
-		"viewer":          viewer,
-		"public_entry":    s.PublicEntryDataForViewer(r, viewer),
-		"configured":      configured,
-		"demo_mode":       s.demoMode,
-		"seats":           len(s.Teams()),
-		"seat_numbers":    seatNumbers(len(s.Teams())),
-		"league":          s.leagueMapForViewer(r),
-		"draft":           s.draftSummary(s.clock()),
-		"oauth_start":     navigation.OAuthStartPath(next),
-		"return_path":     next,
-		"has_return_path": next != navigation.DefaultReturnPath,
+		"viewer":            viewer,
+		"public_entry":      s.PublicEntryDataForViewer(r, viewer),
+		"configured":        configured,
+		"demo_mode":         s.demoMode,
+		"seats":             len(s.Teams()),
+		"seat_numbers":      seatNumbers(len(s.Teams())),
+		"league":            s.leagueMapForViewer(r),
+		"draft":             s.draftSummary(s.clock()),
+		"oauth_start":       navigation.OAuthStartPath(next),
+		"return_path":       next,
+		"has_return_path":   next != navigation.DefaultReturnPath,
+		"return_path_label": navigation.PageLabel(next),
 	}
 }
 
@@ -3877,12 +3878,12 @@ func (s *Service) draftSummaryForState(now time.Time, state PersistedState) map[
 		startedAt = state.DraftStartedAt.Format(time.RFC3339)
 	}
 	summary := map[string]any{
-		"at":              draftAt.Format(time.RFC3339),
-		"overridden":      !state.DraftAtOverride.IsZero(),
-		"input_value":     draftMeetingInputValue(draftAt, location),
-		"event_label":     "LEAGUE DRAFT",
-		"date":            strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day()),
-		"time":            local.Format("3:04 PM MST"),
+		"at":          draftAt.Format(time.RFC3339),
+		"overridden":  !state.DraftAtOverride.IsZero(),
+		"input_value": draftMeetingInputValue(draftAt, location),
+		"event_label": "LEAGUE DRAFT",
+		"date":        strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day()),
+		"time":        local.Format("3:04 PM MST"),
 		// opens_label is the pre-draft room title's own clause ("opens
 		// <date> · <time>"), composed here so an unpublished date renders
 		// "opens TBD" rather than "opens TBD · " with a dangling separator.
