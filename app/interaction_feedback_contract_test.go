@@ -67,7 +67,15 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// "team-name-reset" action (league.Service.ResetTeamName's explicit
 	// counterpart to the now-blank-rejecting "team-rename"), one more
 	// RedirectBackWithNotice call (39 -> 40).
-	const wantRedirects = 11
+	// Practice draft (internal/league/practice.go, 2026-09-04):
+	// app/draft/practice/page.server.go adds four direct
+	// RedirectWithNotice calls — practice-start/restart (one shared
+	// handler), practice-leave, make-pick, and toggle-autopick — each a
+	// native-or-managed 303 into the practice room or back to the real
+	// one (11 -> 15). The practice module deliberately does not reuse
+	// app/draft's own draftActionSuccess (unexported, and its target is
+	// the real room's path).
+	const wantRedirects = 15
 	const wantRedirectBacks = 40
 	redirects := 0
 	redirectBacks := 0

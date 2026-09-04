@@ -276,6 +276,16 @@ func draftRegionView(data map[string]any, region string) (any, string, error) {
 			return nil, "", errInvalidDraftRegion
 		}
 		return view, "DraftMyTeam", nil
+	case practiceRegion:
+		// The practice strip renders from the command view (practice
+		// draft, practice_handlers.go): it reads props.Data.practice,
+		// props.Actions.practice_leave/practice_restart, and props.CSRF —
+		// the same three fields DraftCommandBar already carries.
+		view, ok := data["command"].(draftCommandView)
+		if !ok {
+			return nil, "", errInvalidDraftRegion
+		}
+		return view, "DraftPracticeStrip", nil
 	default:
 		return nil, "", errInvalidDraftRegion
 	}
@@ -374,7 +384,7 @@ func attachDraftFragmentView(data map[string]any, request *http.Request) map[str
 	pos := stringField(data, "pool_position")
 	poolQuery := stringField(data, "pool_query")
 	page := intField(data, "pool_page")
-	history.OlderHref = draftHistoryHref(draftHistoryViewTape, pos, poolQuery, page, map[string]string{draftHistoryRoundsKey: "all"})
+	history.OlderHref = draftHistoryHref(draftRoomPath(data), draftHistoryViewTape, pos, poolQuery, page, map[string]string{draftHistoryRoundsKey: "all"})
 
 	// Item 2 (2026-08-30 review): capTapeRounds runs here, not inside
 	// buildDraftHistoryView, and only for a full render (Since < 0) —
@@ -431,7 +441,7 @@ func attachDraftFragmentView(data map[string]any, request *http.Request) map[str
 	// expanded tape (the "Older rounds ↓" target) survives the same
 	// region refresh instead of silently re-collapsing to the newest
 	// three rounds while the address bar still reads "rounds=all".
-	tapeURL := "/draft/fragment/tape?view=" + history.View
+	tapeURL := draftFragmentBase(data) + "/tape?view=" + history.View
 	if pick := parseDraftHistoryPick(request); pick > 0 {
 		tapeURL += "&" + draftHistoryPickKey + "=" + strconv.Itoa(pick)
 	}
@@ -452,7 +462,7 @@ func attachDraftFragmentView(data map[string]any, request *http.Request) map[str
 	// history_tape_url carries, so an open pick or an expanded "Older
 	// rounds" view survives the region's own draft:pick/draft:undo/
 	// draft:state refresh instead of silently re-collapsing.
-	rowsURL := "/draft/fragment/tape-rows"
+	rowsURL := draftFragmentBase(data) + "/tape-rows"
 	sep := "?"
 	if pick := parseDraftHistoryPick(request); pick > 0 {
 		rowsURL += sep + draftHistoryPickKey + "=" + strconv.Itoa(pick)
@@ -480,9 +490,9 @@ func attachDraftFragmentView(data map[string]any, request *http.Request) map[str
 	// review): the desktop segment's and the phone Picks/Teams tabs' own
 	// navigation targets, carrying the viewer's current pool q/pos/page
 	// so switching sub-views never resets a filtered/paged pool search.
-	data["history_tape_href"] = draftHistoryHref(draftHistoryViewTape, pos, poolQuery, page, nil)
-	data["history_board_href"] = draftHistoryHref(draftHistoryViewBoard, pos, poolQuery, page, nil)
-	data["history_teams_href"] = draftHistoryHref(draftHistoryViewTeams, pos, poolQuery, page, nil)
+	data["history_tape_href"] = draftHistoryHref(draftRoomPath(data), draftHistoryViewTape, pos, poolQuery, page, nil)
+	data["history_board_href"] = draftHistoryHref(draftRoomPath(data), draftHistoryViewBoard, pos, poolQuery, page, nil)
+	data["history_teams_href"] = draftHistoryHref(draftRoomPath(data), draftHistoryViewTeams, pos, poolQuery, page, nil)
 	return data
 }
 
@@ -552,7 +562,7 @@ func attachDraftFragmentPick(data map[string]any, request *http.Request) map[str
 	pos := stringField(data, "pool_position")
 	poolQuery := stringField(data, "pool_query")
 	page := intField(data, "pool_page")
-	closeHref := draftHistoryHref(draftHistoryViewTape, pos, poolQuery, page, nil)
+	closeHref := draftHistoryHref(draftRoomPath(data), draftHistoryViewTape, pos, poolQuery, page, nil)
 	for ri := range history.Rounds {
 		for pi := range history.Rounds[ri].Picks {
 			if history.Rounds[ri].Picks[pi].Number != number {

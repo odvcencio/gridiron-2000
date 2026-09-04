@@ -16,6 +16,7 @@ func TestCorpusValidatesAndContainsStableTopicInventory(t *testing.T) {
 		"roles-primary-co-manager-and-commissioner",
 		"draft-order-readiness-and-clock",
 		"big-board-and-autopick",
+		"practice-draft",
 		"lineups-locks-matchups-and-scoring",
 		"players-free-agents-waivers-and-faab",
 		"trades-review-and-processing",

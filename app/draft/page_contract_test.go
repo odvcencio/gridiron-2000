@@ -101,7 +101,10 @@ func TestDraftAvailableFragmentURLCarriesActiveSort(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := string(sourceBytes)
-	want := `data-gosx-region-url={"/draft/fragment/available?pos={value}&sort=" + data.pool_sort}`
+	// fragment_base (practice draft): "/draft/fragment" for the real room,
+	// the practice room's own for a practice; the sort-carrying tail is the
+	// pin.
+	want := `data-gosx-region-url={data.fragment_base + "/available?pos={value}&sort=" + data.pool_sort}`
 	if count := strings.Count(source, want); count != 2 {
 		t.Fatalf("draft-available-list region URL sort-carrying literal found %d times, want 2 (target and fallback live_mode): %q", count, want)
 	}

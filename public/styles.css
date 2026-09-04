@@ -16751,3 +16751,113 @@ a.skip-link {
     --type-sm: clamp(0.875rem, 0.86rem + 0.10vw, 0.9375rem);
   }
 }
+
+/* practice draft — cedar (2026-09-04) ------------------------------------
+   The practice room's own strip (inside header.draft-command, above
+   .draft-command__inner: one wrapping flex row in small type, so the phone
+   pill row keeps its geometry), the read-only Big Board note, and the
+   checklist's disabled practice entry. */
+.draft-practice-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+  margin: var(--space-xs) var(--space-md) 0;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-accent-cyan);
+  border-radius: var(--radius-sm);
+  background: var(--color-cyan-haze);
+  font-size: var(--type-xs);
+}
+
+.draft-practice-strip__tag {
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-sm);
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent-cyan);
+  font-size: var(--type-2xs);
+  letter-spacing: 0.08em;
+}
+
+.draft-practice-strip__text {
+  flex: 1 1 18rem;
+  min-width: 0;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.draft-practice-strip__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.draft-practice-strip__actions form {
+  margin: 0;
+}
+
+.draft-practice-note {
+  margin: 0 0 var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--type-xs);
+}
+
+.board-button--disabled {
+  border-style: dashed;
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: not-allowed;
+}
+
+.practice-start {
+  display: grid;
+  gap: var(--space-md);
+  max-width: 44rem;
+  padding: var(--space-md);
+}
+
+.practice-start__form {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.practice-start__options {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.practice-start__option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-xs) var(--space-sm);
+  align-items: center;
+  min-height: var(--control-h);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-white-faint);
+  cursor: pointer;
+}
+
+.practice-start__option:has(input:checked) {
+  border-color: var(--color-accent);
+  background: var(--color-accent-haze);
+}
+
+.practice-start__label {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  align-items: baseline;
+}
+
+.practice-start__detail {
+  grid-column: 2;
+  color: var(--color-text-secondary);
+}

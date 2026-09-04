@@ -929,6 +929,17 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	draftLiveUpdates.SetRepairView(func() map[string]any { return league.Default().DraftLiveView(nil) })
 	draftLiveUpdates.SetDraftEventSink(league.Default())
 	rt.starters = append(rt.starters, draftLiveUpdates.Start)
+	// Practice draft (internal/league/practice.go): one registry of
+	// per-member sandboxes over the real Service, its own hub (never the
+	// real room's — NewPracticeLive leaves defaultDraftLive untouched), and
+	// one ticker that drives every open practice's bots and clock. Nothing
+	// here installs a sink on league.Default(): a practice emits only to
+	// its own sandbox Service, whose sink the registry routes to the
+	// viewer that owns it.
+	practiceRegistry := league.NewPracticeRegistry(league.Default())
+	practiceLive := draftpage.NewPracticeLive(practiceRegistry)
+	draftpage.InstallPractice(practiceRegistry)
+	rt.starters = append(rt.starters, practiceRegistry.Run)
 	scoresLive := matchupspage.NewScoresLive(liveRuntime.Poller.Version, leagueFingerprint)
 	rt.starters = append(rt.starters, scoresLive.Start)
 	// lockerLive (GC-4) runs no Start ticker of its own — see LockerLive's
@@ -1414,6 +1425,16 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	// comment. appVersion is the same release marker /api/health reports.
 	app.Mount("GET /admin/backup.tar.gz", adminpage.BackupDownloadHandler(league.Default(), appVersion))
 	app.Mount(draftpage.DraftLiveHubPath, draftLiveUpdates.Handler(league.Default()))
+	// Practice room endpoints: the same regions the real room serves, each
+	// rendered from the viewer's own sandbox, plus the strip region, the
+	// practice live.json, the drag-reorder refusal, and the practice hub.
+	// The page itself is the file module at app/draft/practice.
+	for _, region := range draftpage.PracticeRegions() {
+		app.Mount("GET "+league.PracticeRoomPath+"/fragment/"+region, draftpage.PracticeFragmentHandler(region, league.Default(), practiceRegistry))
+	}
+	app.Mount("GET "+league.PracticeRoomPath+"/live.json", draftpage.PracticeLiveViewHandler(league.Default(), practiceRegistry))
+	app.Mount("POST "+league.PracticeRoomPath+"/queue", draftpage.PracticeQueueRefusalHandler())
+	app.Mount(draftpage.PracticeLiveHubPath, practiceLive.Handler(league.Default()))
 	app.Mount(matchupspage.ScoresLiveHubPath, scoresLive.Handler(league.Default()))
 	app.Mount(lockerpage.LockerLiveHubPath, lockerLive.Handler(league.Default()))
 	// Player-pool/waiver and transaction regions are read-only projections.
