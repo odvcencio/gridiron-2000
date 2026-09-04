@@ -2007,7 +2007,7 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 	livePoll := live.State != MatchupStateFinal && live.State != MatchupStatePreseason
 	return map[string]any{
 		"viewer":                viewer,
-		"practice":              PracticeInactiveMap(s.PracticeAvailability(r)),
+		"practice":              PracticeInactiveMap(s.practiceAvailabilityForState(r, state)),
 		"public_entry":          s.publicEntryDataForViewerState(r, viewer, state),
 		"playoff_truth":         s.playoffTruthMap(state, now, s.IsCommissioner(r)),
 		"has_seat":              hasSeat,
@@ -3376,7 +3376,7 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 		"live_hub":             liveHub,
 		"fragment_base":        roomPath + "/fragment",
 		"queue_move_url":       "POST " + roomPath + "/queue",
-		"practice":             PracticeInactiveMap(s.PracticeAvailability(r)),
+		"practice":             PracticeInactiveMap(s.practiceAvailabilityForState(r, state)),
 	}
 }
 

@@ -123,13 +123,20 @@ func (a PracticeAvailability) Map() map[string]any {
 // league: a seat is required, and the real draft must not have started or
 // completed (a live draft is the real thing; practice would only confuse).
 func (s *Service) PracticeAvailability(r *http.Request) PracticeAvailability {
+	return s.practiceAvailabilityForState(r, s.store.Snapshot())
+}
+
+// practiceAvailabilityForState is PracticeAvailability over a snapshot the
+// caller already holds — draftData and DashboardData read it on every
+// render, and a second whole-state clone per request is draft-night cost
+// for nothing.
+func (s *Service) practiceAvailabilityForState(r *http.Request, state PersistedState) PracticeAvailability {
 	user, signedIn := s.CurrentUser(r)
 	out := PracticeAvailability{SignedIn: signedIn}
 	if !signedIn {
 		out.Reason = "Sign in to practice."
 		return out
 	}
-	state := s.store.Snapshot()
 	member, ok := memberByEmail(state.Members, user.Email)
 	teamID := strings.TrimSpace(member.TeamID)
 	if !ok || teamID == "" || !knownTeam(teamID) {
@@ -211,24 +218,42 @@ func (p *PracticeRegistry) Start(r *http.Request, round int) (*PracticeDraft, er
 	round = clampPracticeStartRound(round)
 	now := p.base.clock()
 
+	// Cap check first, then build OUTSIDE the lock: newPracticeDraft's
+	// fast-forward can run (start round - 1) x teams autopick walks, and
+	// every other session's tick and page load would otherwise wait on it.
+	// The viewer's own open session does not count against the cap: a
+	// restart replaces it.
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	if existing := p.sessions[key]; existing != nil {
-		existing.close()
-		delete(p.sessions, key)
-	}
 	p.sweepLocked(now)
-	if len(p.sessions) >= p.max {
-		return nil, errors.New("Too many practice drafts are open right now. Try again in a few minutes.")
-	}
+	_, replacing := p.sessions[key]
 	sink := p.sink
+	full := !replacing && len(p.sessions) >= p.max
+	p.mu.Unlock()
+	if full {
+		return nil, errPracticeRegistryFull
+	}
 	session, err := newPracticeDraft(p.base, key, availability.TeamID, round, now, sink)
 	if err != nil {
+		// The viewer's in-progress practice, if any, is untouched: a
+		// failed build never costs them the session they had.
 		return nil, err
 	}
+	p.mu.Lock()
+	previous := p.sessions[key]
+	if previous == nil && len(p.sessions) >= p.max {
+		p.mu.Unlock()
+		session.close()
+		return nil, errPracticeRegistryFull
+	}
 	p.sessions[key] = session
+	p.mu.Unlock()
+	if previous != nil {
+		previous.close()
+	}
 	return session, nil
 }
+
+var errPracticeRegistryFull = errors.New("Too many practice drafts are open right now. Try again in a few minutes.")
 
 // Current returns the viewer's open session, touching its idle timer.
 func (p *PracticeRegistry) Current(r *http.Request) (*PracticeDraft, bool) {
@@ -550,6 +575,13 @@ func (d *PracticeDraft) Tick(now time.Time) {
 	if d.done {
 		return
 	}
+	// The real draft going live ends every practice: the manager's real
+	// clock is what matters now, and the strip says so (real_started,
+	// practiceMap) with a link to the real room.
+	if d.base.store.draftStartedQuick() {
+		d.finishLocked(d.svc.store.Snapshot(), now)
+		return
+	}
 	d.recordPresence(now)
 	state := d.svc.store.Snapshot()
 	if d.overLocked(state) {
@@ -580,7 +612,7 @@ func (d *PracticeDraft) Tick(now time.Time) {
 		d.finishLocked(state, now)
 		return
 	}
-	total := draftTeamCount() * CurrentDraftRounds()
+	total := activeTeamCount(state.DraftOrder) * CurrentDraftRounds()
 	nextDeadline := time.Time{}
 	if number < total {
 		nextDeadline = now.Add(d.svc.pickClock(state))
@@ -669,7 +701,8 @@ func (d *PracticeDraft) Data(r *http.Request) map[string]any {
 	if viewer, ok := data["viewer"].(map[string]any); ok {
 		viewer["is_commissioner"] = false
 	}
-	if complete {
+	realStarted := d.base.store.draftStartedQuick()
+	if complete || realStarted {
 		data["can_pick"] = false
 		data["viewer_on_clock"] = false
 	}
@@ -682,15 +715,22 @@ func (d *PracticeDraft) Data(r *http.Request) map[string]any {
 	if complete {
 		round = d.endRound
 	}
-	data["practice"] = d.practiceMap(now, round, complete)
-	data["banner"] = ""
+	data["practice"] = d.practiceMap(now, round, complete, realStarted)
+	// region_interval (practice_handlers.go / page.gsx): the practice room's
+	// fallback regions also poll, so a refused hub connection (the hub's
+	// MaxClients, a proxy that drops the upgrade) degrades to a slower
+	// room, never a silent one. The real room stamps "" and never polls.
+	data["region_interval"] = practicePollInterval
 	return data
 }
+
+// practicePollInterval is the practice room's region poll (see Data).
+const practicePollInterval = "8s"
 
 // practiceMap is the "practice" key: active, the round window, the real
 // draft's own scheduled start in league-local time with its relative
 // phrase, and the viewer's seat.
-func (d *PracticeDraft) practiceMap(now time.Time, round int, complete bool) map[string]any {
+func (d *PracticeDraft) practiceMap(now time.Time, round int, complete bool, realStarted bool) map[string]any {
 	real := d.base.store.Snapshot()
 	summary := d.base.draftSummaryForState(now, real)
 	realAt := d.base.EffectiveDraftAt(real)
@@ -727,13 +767,22 @@ func (d *PracticeDraft) practiceMap(now time.Time, round int, complete bool) map
 	if label != "" {
 		realDraft = " · the real draft starts " + label + " (" + relative + ")"
 	}
-	short := fmt.Sprintf("picks don't count · round %d of %d", position, span)
+	// The phone line carries no round: the h1 and the pill already say
+	// it, and at 360-390 px the chip, the line, Details, and Leave must
+	// share one row.
+	short := "Picks don't count"
 	full := "Practice draft · picks here do not count · " + rounds + realDraft + "."
 	if complete {
-		short = "complete · " + rounds + " · nothing saved"
+		short = "Practice complete"
 		full = "Practice complete · you drafted " + rounds + " · nothing was saved" + realDraft + "."
 	}
+	if realStarted {
+		short = "The real draft has started"
+		full = "The real draft has started · this practice is over · nothing was saved."
+	}
 	return map[string]any{
+		"real_started":        realStarted,
+		"real_room_href":      "/draft",
 		"active":              true,
 		"complete":            complete,
 		"round":               round,
@@ -824,4 +873,13 @@ func practiceOptionMaps() []map[string]any {
 // PICK_CLOCK default) — the practice lobby names it beside the round count.
 func (s *Service) PickClockLabel() string {
 	return countdownMMSSLabel(int(s.pickClock(s.store.Snapshot()).Seconds()))
+}
+
+// draftStartedQuick reads DraftStarted under the read lock without cloning
+// the whole state: the practice ticker asks every second for every open
+// session, and practiceMap asks on every practice render.
+func (s *Store) draftStartedQuick() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state.DraftStarted
 }

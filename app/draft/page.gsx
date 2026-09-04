@@ -1497,7 +1497,10 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 // data-gosx-managed): Leave must navigate the whole document back to the
 // real room, the same full-navigation rule the sign-out form follows.
 func DraftPracticeStrip(props DraftCommandBarProps) Node {
-	return <div class="draft-practice-strip" role="status" data-practice-complete={props.Data.practice.complete}>
+	return <div class="draft-practice-strip" role="status" data-practice-complete={props.Data.practice.complete} data-real-started={props.Data.practice.real_started}>
+		<If cond={props.Data.practice.real_started}>
+			<p class="draft-practice-strip__alert" role="alert"><strong>The real draft has started.</strong> <a href={props.Data.practice.real_room_href}>Go to the real draft room →</a></p>
+		</If>
 		<span class="draft-practice-strip__tag mono">PRACTICE</span>
 		<p class="draft-practice-strip__text">{props.Data.practice.summary_full}</p>
 		<p class="draft-practice-strip__line mono">{props.Data.practice.summary_short}</p>
@@ -2805,7 +2808,7 @@ func DraftPreflight(props DraftPreflightProps) Node {
 			</If>
 			<If cond={props.Data.viewer.has_seat == false && props.Data.public_entry.can_claim}>
 				<div class="checklist-item">
-					<span class="checklist-mark mono">03</span>
+					<span class="checklist-mark mono">02</span>
 					<div class="checklist-item__text">
 						<strong>Claim a franchise</strong>
 						<small>{props.Data.public_entry.detail}</small>
@@ -2815,7 +2818,7 @@ func DraftPreflight(props DraftPreflightProps) Node {
 			</If>
 			<If cond={props.Data.viewer.has_seat == false && props.Data.public_entry.can_claim == false}>
 				<div class="checklist-item">
-					<span class="checklist-mark mono">03</span>
+					<span class="checklist-mark mono">02</span>
 					<div class="checklist-item__text">
 						<strong>{props.Data.public_entry.state_label}</strong>
 						<small>{props.Data.public_entry.detail}</small>
@@ -2830,7 +2833,8 @@ func DraftPreflight(props DraftPreflightProps) Node {
 				</div>
 			</If>
 			<div class="checklist-item">
-				<span class="checklist-mark mono">04</span>
+				<If cond={props.Data.viewer.has_seat}><span class="checklist-mark mono">04</span></If>
+				<If cond={props.Data.viewer.has_seat == false}><span class="checklist-mark mono">03</span></If>
 				<div class="checklist-item__text">
 					<strong>Keep this tab open with sound on</strong>
 					<small>Sound is already on. Click anywhere on the page once so your browser allows the on-clock chime to play.</small>
@@ -2862,7 +2866,7 @@ func Page() Node {
 			<If cond={data.practice.active == false && data.draft.started}><h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
 			<If cond={data.practice.active == false && data.draft.started == false}><h1 class="draft-command__title">Draft room · {data.draft.opens_label}</h1></If>
 			<If cond={data.practice.active}>
-				<div class="draft-practice-region" data-gosx-region data-gosx-region-url={data.fragment_base + "/practice"} data-gosx-region-on="draft:pick draft:undo draft:clock draft:state">
+				<div class="draft-practice-region" data-gosx-region data-gosx-region-url={data.fragment_base + "/practice"} data-gosx-region-on="draft:pick draft:undo draft:clock draft:state" data-gosx-region-interval={data.region_interval}>
 					<DraftPracticeStrip {...data.command}></DraftPracticeStrip>
 				</div>
 			</If>
@@ -2875,11 +2879,11 @@ func Page() Node {
 			<If cond={data.practice.active == false && data.draft.started}><h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
 			<If cond={data.practice.active == false && data.draft.started == false}><h1 class="draft-command__title">Draft room · {data.draft.opens_label}</h1></If>
 			<If cond={data.practice.active}>
-				<div class="draft-practice-region" data-gosx-region data-gosx-region-url={data.fragment_base + "/practice"} data-gosx-region-on="draft:pick draft:undo draft:clock draft:state">
+				<div class="draft-practice-region" data-gosx-region data-gosx-region-url={data.fragment_base + "/practice"} data-gosx-region-on="draft:pick draft:undo draft:clock draft:state" data-gosx-region-interval={data.region_interval}>
 					<DraftPracticeStrip {...data.command}></DraftPracticeStrip>
 				</div>
 			</If>
-			<div data-gosx-region data-gosx-region-url={data.fragment_base + "/command"} data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:pick draft:undo draft:clock draft:state">
+			<div data-gosx-region data-gosx-region-url={data.fragment_base + "/command"} data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:pick draft:undo draft:clock draft:state" data-gosx-region-interval={data.region_interval}>
 				<DraftCommandBar {...data.command}></DraftCommandBar>
 			</div>
 		</header>
@@ -2897,7 +2901,7 @@ func Page() Node {
 				</div>
 				</If>
 				<If cond={data.live_mode != "target"}>
-				<div class="draft-pane__body" data-gosx-region data-gosx-region-url={data.history_tape_url} data-gosx-region-on="draft:pick draft:undo draft:state">
+				<div class="draft-pane__body" data-gosx-region data-gosx-region-url={data.history_tape_url} data-gosx-region-on="draft:pick draft:undo draft:state" data-gosx-region-interval={data.region_interval}>
 					<DraftHistory {...data.history}></DraftHistory>
 				</div>
 				</If>
@@ -2912,7 +2916,7 @@ func Page() Node {
 				</div>
 				</If>
 				<If cond={data.live_mode != "target"}>
-				<div id="draft-available-list" class="draft-pane__body" data-gosx-region data-gosx-region-url={data.fragment_base + "/available?pos={value}&sort=" + data.pool_sort} data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty data-gosx-region-on="draft:pick draft:undo draft:state">
+				<div id="draft-available-list" class="draft-pane__body" data-gosx-region data-gosx-region-url={data.fragment_base + "/available?pos={value}&sort=" + data.pool_sort} data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty data-gosx-region-on="draft:pick draft:undo draft:state" data-gosx-region-interval={data.region_interval}>
 					<DraftAvailable {...data.available}></DraftAvailable>
 				</div>
 				</If>
@@ -2926,7 +2930,7 @@ func Page() Node {
 				</div>
 				</If>
 				<If cond={data.live_mode != "target"}>
-				<div class="draft-pane__body" data-gosx-region data-gosx-region-url={data.fragment_base + "/queue"} data-gosx-region-on="draft:pick draft:undo draft:state draft:seat">
+				<div class="draft-pane__body" data-gosx-region data-gosx-region-url={data.fragment_base + "/queue"} data-gosx-region-on="draft:pick draft:undo draft:state draft:seat" data-gosx-region-interval={data.region_interval}>
 					<DraftMyTeam {...data.queue}></DraftMyTeam>
 				</div>
 				</If>

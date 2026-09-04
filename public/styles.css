@@ -16800,6 +16800,21 @@ a.skip-link {
   gap: var(--space-xs);
 }
 
+/* The real draft went live while a practice was open: one loud line above
+   the rest of the strip, with a plain link (a full navigation, never a
+   soft one) to the real room. */
+.draft-practice-strip__alert {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--color-accent);
+  font-size: var(--type-sm);
+}
+
+.draft-practice-strip__alert a {
+  color: inherit;
+  font-weight: 700;
+}
+
 .draft-practice-strip__actions form {
   margin: 0;
 }
@@ -16891,14 +16906,16 @@ a.skip-link {
   }
 
   .draft-practice-strip__line {
-    display: block;
+    display: -webkit-box;
     flex: 1 1 0;
     min-width: 0;
     margin: 0;
     overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    white-space: normal;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     font-size: var(--type-xs);
+    line-height: 1.3;
   }
 
   .draft-practice-strip__details {

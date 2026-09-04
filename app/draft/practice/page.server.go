@@ -111,10 +111,12 @@ func init() {
 			practice, open := practiceSession(ctx.Request)
 			if !open {
 				data := lobbyData(ctx.Request, base)
-				if view, ok := ctx.ActionState("practice-start"); ok {
-					if message := view.Error("round"); message != "" {
-						data["has_error"] = true
-						data["error"] = message
+				for _, name := range []string{"practice-start", "practice-restart"} {
+					if view, ok := ctx.ActionState(name); ok {
+						if message := view.Error("round"); message != "" {
+							data["has_error"] = true
+							data["error"] = message
+						}
 					}
 				}
 				return data, nil
@@ -122,12 +124,22 @@ func init() {
 			ctx.Runtime().EnableBootstrap()
 			ctx.Runtime().BindHub(league.PracticeLiveHubName, draftpage.PracticeLiveHubPath, nil)
 			data := draftpage.PracticePageData(ctx.Request, practice)
-			for _, name := range []string{"make-pick", "toggle-autopick", "queue-add", "queue-remove", "queue-move", "toggle-ready"} {
-				if view, ok := ctx.ActionState(name); ok {
-					if message := view.Error("player_id"); message != "" {
-						data["has_pick_error"] = true
-						data["pick_error"] = message
-					}
+			// Every action this module registers can refuse with a reason;
+			// each one lands in the room's own notice slot, whichever field
+			// the refusal named (the pick surface's player_id, or the
+			// start/restart round).
+			for _, name := range practiceActionNames {
+				view, ok := ctx.ActionState(name)
+				if !ok {
+					continue
+				}
+				message := view.Error("player_id")
+				if message == "" {
+					message = view.Error("round")
+				}
+				if message != "" {
+					data["has_pick_error"] = true
+					data["pick_error"] = message
 				}
 			}
 			return data, nil
@@ -202,6 +214,14 @@ func init() {
 	}); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// practiceActionNames lists every action this module registers, so the
+// room's Load can surface any of their refusals.
+var practiceActionNames = []string{
+	"practice-start", "practice-restart", "practice-leave", "make-pick", "toggle-autopick",
+	"toggle-ready", "queue-add", "queue-remove", "queue-move",
+	"draft-start", "clock-pause", "clock-resume", "clock-extend", "clock-set-duration", "clock-force-autopick", "seat-autopick", "seat-ready",
 }
 
 // startAction opens (or replaces) the viewer's practice at the submitted
