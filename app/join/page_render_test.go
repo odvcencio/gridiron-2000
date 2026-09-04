@@ -1,9 +1,11 @@
 package join
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -185,4 +187,103 @@ func TestJoinPageNonClaimableEntryUsesCanonicalProjection(t *testing.T) {
 	if strings.Contains(page, "/auth/google/start?next=%2Fteam") || strings.Contains(page, "Complete co-manager sign-in") {
 		t.Fatalf("join page hardcodes stale co-manager reauthentication instead of canonical public_entry: %s", page)
 	}
+}
+
+// TestJoinPageH1BindsToHeadlineWhenSeatlessAndFull (F4): the h1 read
+// "CLAIM YOUR FRANCHISE." even for a member the very next sentence told
+// "every configured franchise is currently assigned" — a promise the
+// page immediately withdrew. It forks a subprocess (following
+// app/trades/page_render_test.go's own
+// TestTradesSeatlessBannerFixtureProcess precedent) because
+// league.Default() is a process-wide singleton: filling every seat in
+// this same test binary would corrupt every sibling test in this package
+// that still expects an open seat.
+func TestJoinPageH1BindsToHeadlineWhenSeatlessAndFull(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestJoinAdmittedSeatlessFullFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"JOIN_SEATLESS_FULL_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=false",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("join seatless-full fixture: %v\n%s", err, output)
+	}
+	body := string(output)
+
+	if !strings.Contains(body, "ADMITTED · WAITING FOR A SEAT.") {
+		t.Fatalf("fixture did not reach the seatless-and-full-league state: %s", body)
+	}
+	h1Start := strings.Index(body, "<h1")
+	if h1Start < 0 {
+		t.Fatalf("could not find an h1: %s", body)
+	}
+	h1End := strings.Index(body[h1Start:], "</h1>")
+	if h1End < 0 {
+		t.Fatalf("could not find the h1's closing tag: %s", body)
+	}
+	h1 := body[h1Start : h1Start+h1End]
+	if strings.Contains(h1, "CLAIM YOUR") {
+		t.Fatalf("h1 still promises a claim the member cannot make: %s", h1)
+	}
+	if !strings.Contains(h1, "ADMITTED") || !strings.Contains(h1, "WAITING FOR A SEAT") {
+		t.Fatalf("h1 did not bind to public_entry.headline: %s", h1)
+	}
+
+	// F16: the same seatless-full fixture's own primary button ("Open
+	// Pick'em HQ →") is the one place action_label's own trailing arrow
+	// was doubled by a redundant <span aria-hidden="true">→</span>.
+	if strings.Count(body, "→") != 1 {
+		t.Fatalf("join page's primary button renders %d arrow glyphs, want exactly 1: %s", strings.Count(body, "→"), body)
+	}
+}
+
+// TestJoinAdmittedSeatlessFullFixtureProcess is
+// TestJoinPageH1BindsToHeadlineWhenSeatlessAndFull's own subprocess body;
+// it never runs under a normal `go test` invocation (the guard below
+// skips it), only when the parent test re-execs the test binary with
+// JOIN_SEATLESS_FULL_FIXTURE set.
+func TestJoinAdmittedSeatlessFullFixtureProcess(t *testing.T) {
+	if os.Getenv("JOIN_SEATLESS_FULL_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	service := league.Default()
+	for i, team := range service.Teams() {
+		if _, err := service.AssignManager(fmt.Sprintf("seat-%d@example.com", i), team.Name); err != nil {
+			t.Fatalf("AssignManager seat %d: %v", i, err)
+		}
+	}
+	const seatlessEmail = "join-seatless-full@example.com"
+	if _, err := service.EnsureMember(seatlessEmail, "Full League Applicant"); err != nil {
+		t.Fatalf("EnsureMember seatless viewer: %v", err)
+	}
+
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
+	})
+	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
+		t.Fatalf("AddDir: %v", err)
+	}
+	handler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+	authn := auth.New(nil, auth.Options{
+		Provider: auth.ProviderFunc(func(*http.Request) (auth.User, bool) {
+			return auth.User{ID: seatlessEmail, Email: seatlessEmail, Name: "Full League Applicant"}, true
+		}),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	authn.Middleware(handler).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / (join page, seatless full) = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	fmt.Print(rec.Body.String())
 }

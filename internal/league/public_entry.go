@@ -2,6 +2,7 @@ package league
 
 import (
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -51,6 +52,12 @@ type PublicEntryView struct {
 	IsCoManagerPending bool
 	IsCommissioner     bool
 	OpenSeats          int
+	// CommissionerAsk (F10) is "Ask your commissioner, <first name> (<team
+	// name>)." when COMMISSIONER_EMAILS names a seated, named member, or ""
+	// when no commissioner is seated or named — every surface that
+	// references it falls back to its own existing generic phrase in that
+	// case. Never carries an email address.
+	CommissionerAsk string
 }
 
 // PublicEntryView resolves one finite public-entry state from the same
@@ -66,6 +73,7 @@ func (s *Service) publicEntryViewForViewer(r *http.Request, viewer map[string]an
 
 func (s *Service) publicEntryViewForViewerState(r *http.Request, viewer map[string]any, state PersistedState) PublicEntryView {
 	posture := s.MembershipPosture()
+	commissionerAsk := s.commissionerAskSentence(state)
 	view := PublicEntryView{
 		State:             PublicEntryAnonymous,
 		StateLabel:        "AUTHENTICATION FIRST",
@@ -76,10 +84,11 @@ func (s *Service) publicEntryViewForViewerState(r *http.Request, viewer map[stri
 		CommissionerLabel: "Open Commissioner HQ →",
 		CommissionerHref:  "/commissioner",
 		MembershipLabel:   posture.Label(),
-		MembershipDetail:  posture.Detail(),
+		MembershipDetail:  membershipDetailWithCommissioner(posture, commissionerAsk),
 		FormatBlurb:       s.formatBlurb(),
 		ModeLabel:         s.cfg.ModeLabel,
 		IsCommissioner:    s.IsCommissioner(r),
+		CommissionerAsk:   commissionerAsk,
 	}
 
 	openSeats := len(s.Teams()) - claimedSeatCount(state.Members)
@@ -113,7 +122,12 @@ func (s *Service) publicEntryViewForViewerState(r *http.Request, viewer map[stri
 	view.State = PublicEntryAuthenticatedPending
 	view.StateLabel = "SIGNED IN · MEMBERSHIP NOT RECORDED"
 	view.Headline = "COMPLETE LEAGUE ADMISSION."
-	view.Detail = "This Google account is authenticated, but the league has no persisted membership for it. Ask the commissioner to verify or add this exact identity, then refresh this page."
+	view.Detail = "This Google account is authenticated, but the league has no persisted membership for it."
+	if commissionerAsk != "" {
+		view.Detail += " " + commissionerAsk + " Ask them to verify or add this exact identity, then refresh this page."
+	} else {
+		view.Detail += " Ask the commissioner to verify or add this exact identity, then refresh this page."
+	}
 	view.ActionLabel = "Review admission guidance"
 	view.ActionHref = "/guide#identity"
 
@@ -152,23 +166,7 @@ func (s *Service) publicEntryViewForViewerState(r *http.Request, viewer map[stri
 			view.StateLabel = "ADMITTED · CO-MANAGER"
 			view.Headline = "YOUR SHARED FRANCHISE IS READY."
 			view.RoleLabel = "CO-MANAGER"
-			primary := memberForTeam(state.Members, member.TeamID)
-			if primary.Email == member.Email {
-				primary = Member{}
-				for _, candidate := range teamMembers(state.Members, member.TeamID) {
-					if candidate.Role != "co" {
-						primary = candidate
-						break
-					}
-				}
-			}
-			view.PrimaryName = strings.TrimSpace(primary.Name)
-			if view.PrimaryName == "" {
-				view.PrimaryName = strings.TrimSpace(primary.Email)
-			}
-			if view.PrimaryName == "" {
-				view.PrimaryName = "the primary manager"
-			}
+			view.PrimaryName = primaryNameForTeam(state.Members, member.TeamID, member.Email)
 			view.Detail = "You share " + view.TeamName + " with " + view.PrimaryName + ". The primary manager and co-manager use the same roster, Big Board, and draft controls."
 		} else {
 			view.State = PublicEntryPrimary
@@ -195,7 +193,12 @@ func (s *Service) publicEntryViewForViewerState(r *http.Request, viewer map[stri
 	view.State = PublicEntryAdmittedSeatlessFull
 	view.StateLabel = "ADMITTED · NO FRANCHISE"
 	view.Headline = "ADMITTED · WAITING FOR A SEAT."
-	view.Detail = "You are admitted, but every configured franchise is currently assigned. The commissioner must release a seat before team entry is available; Pick'em remains available while you wait."
+	view.Detail = "You are admitted, but every configured franchise is currently assigned."
+	if commissionerAsk != "" {
+		view.Detail += " " + commissionerAsk + " They must release a seat before team entry is available; Pick'em remains available while you wait."
+	} else {
+		view.Detail += " The commissioner must release a seat before team entry is available; Pick'em remains available while you wait."
+	}
 	view.ActionLabel = "Open Pick'em HQ →"
 	view.ActionHref = "/pickem"
 	return view
@@ -249,6 +252,7 @@ func publicEntryData(v PublicEntryView) map[string]any {
 		"is_co_manager_pending": v.IsCoManagerPending,
 		"is_commissioner":       v.IsCommissioner,
 		"open_seats":            v.OpenSeats,
+		"commissioner_ask":      v.CommissionerAsk,
 	}
 }
 
@@ -261,4 +265,99 @@ func seatCountCopy(open int) string {
 		return "One franchise is open."
 	}
 	return strings.TrimSpace(strings.Join([]string{countWord(open), "franchises are open."}, " "))
+}
+
+// primaryNameForTeam resolves teamID's primary manager's display name from
+// members, so copy that must credit the primary manager never substitutes
+// a co-manager's own name for them. excludeEmail skips a member row that
+// must never stand in for the primary — the viewer's own email in the
+// co-manager PublicEntryView, or a freshly bound co-manager's email right
+// after sign-in (F6: the welcome flash named the invitee as their own
+// primary manager). Falls back to "the primary manager" when no other
+// named row exists.
+func primaryNameForTeam(members map[string]Member, teamID, excludeEmail string) string {
+	primary := memberForTeam(members, teamID)
+	if primary.Email == excludeEmail {
+		primary = Member{}
+		for _, candidate := range teamMembers(members, teamID) {
+			if candidate.Role != "co" {
+				primary = candidate
+				break
+			}
+		}
+	}
+	name := strings.TrimSpace(primary.Name)
+	if name == "" {
+		name = strings.TrimSpace(primary.Email)
+	}
+	if name == "" {
+		name = "the primary manager"
+	}
+	return name
+}
+
+// PrimaryNameForTeam resolves teamID's primary manager's display name from
+// the current snapshot for copy built outside a PublicEntryView (for
+// example the sign-in callback's co-manager welcome flash). excludeEmail
+// keeps a freshly bound co-manager's own row from standing in for the
+// primary; pass "" when no exclusion applies.
+func (s *Service) PrimaryNameForTeam(teamID, excludeEmail string) string {
+	return primaryNameForTeam(s.store.Snapshot().Members, teamID, excludeEmail)
+}
+
+// FirstName returns the first space-separated token of name, for copy that
+// must address someone by their given name alone (F11a's co-manager
+// arrival panel: "with Jordan", never "with Jordan Alexis Rivera").
+// Returns "" for a blank name, and the full trimmed name when it has no
+// separable first token.
+func FirstName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	fields := strings.Fields(name)
+	if len(fields) == 0 {
+		return name
+	}
+	return fields[0]
+}
+
+// commissionerAskSentence resolves "Ask your commissioner, <first name>
+// (<team name>)." from COMMISSIONER_EMAILS, when the first configured
+// commissioner email is also a seated, named member (F10: "Ask the
+// commissioner" appeared fourteen times with no name and no route). Returns
+// "" when no commissioner is seated or named, so every call site can fall
+// back to its own existing generic phrase — never an email address.
+func (s *Service) commissionerAskSentence(state PersistedState) string {
+	for _, candidate := range splitEmails(os.Getenv("COMMISSIONER_EMAILS")) {
+		email := s.identityResolver.Resolve(candidate)
+		member, ok := state.Members[email]
+		if !ok || strings.TrimSpace(member.TeamID) == "" {
+			continue
+		}
+		first := FirstName(member.Name)
+		if first == "" {
+			continue
+		}
+		teamName := strings.TrimSpace(s.teamByID(member.TeamID).Name)
+		if teamName == "" {
+			continue
+		}
+		return "Ask your commissioner, " + first + " (" + teamName + ")."
+	}
+	return ""
+}
+
+// membershipDetailWithCommissioner substitutes the named commissioner-ask
+// sentence for MembershipPosture.Detail's own generic "Ask the commissioner
+// for access." (its only invite-only-mode sentence that references the
+// commissioner at all) when ask is known. The domain-or-invite and
+// open-after-sign-in modes never mention the commissioner, so they pass
+// through unchanged.
+func membershipDetailWithCommissioner(posture MembershipPosture, ask string) string {
+	detail := posture.Detail()
+	if ask == "" || !posture.IsInviteOnly() {
+		return detail
+	}
+	return strings.TrimSuffix(detail, "Ask the commissioner for access.") + ask
 }

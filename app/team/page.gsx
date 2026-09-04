@@ -429,6 +429,7 @@ func Page() Node {
 							<input type="hidden" name={data.team_return_target_field} value={data.team_return_target}></input>
 							<input id="team-name-input" type="text" name="name" value={data.team_name_value} maxlength="40" enterkeyhint="done" aria-invalid={data.has_rename_error} aria-describedby="team-name-error"></input>
 							<p id="team-name-error" class="error-message form-error" data-gosx-field-error="name" role="alert">{data.rename_error}</p>
+							<p id="team-rename-status" class="form-status" role="status" aria-live="polite"></p>
 							<button class="button button--compact" type="submit">Rename</button>
 						</form>
 						<If cond={data.team.has_custom_name}>
@@ -547,10 +548,20 @@ func TeamLineupRegion() Node {
 					</header>
 					<div class="checklist predraft-progress__list">
 						<div class="checklist-item">
-							<span class="checklist-mark checklist-mark--complete mono" aria-hidden="true">✓</span>
+							<If cond={data.team_name_is_seed_placeholder == false}>
+								<span class="checklist-mark checklist-mark--complete mono" aria-hidden="true">✓</span>
+							</If>
+							<If cond={data.team_name_is_seed_placeholder}>
+								<span class="checklist-mark mono" aria-hidden="true">01</span>
+							</If>
 							<div class="checklist-item__text">
 								<strong>Claim and personalize your franchise</strong>
-								<small>Your seat is secured. Team name, image, badge, and co-manager controls live in Customize your team.</small>
+								<If cond={data.team_name_is_seed_placeholder == false}>
+									<small>Your seat is secured. Team name, image, badge, and co-manager controls live in Customize your team.</small>
+								</If>
+								<If cond={data.team_name_is_seed_placeholder}>
+									<small>Your seat is secured, but your team is still called "{data.team.name}". Personalize it below.</small>
+								</If>
 							</div>
 							<a href="/team?identity=edit#team-identity" data-gosx-link class="board-button">Customize team →</a>
 						</div>

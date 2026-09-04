@@ -35,6 +35,13 @@ type PrimaryNavigationProps struct {
 	PickemAttentionText string
 	TradesHot           bool
 	TradesAttentionText string
+	// IsCoManager (F11b) names a shared seat's non-primary manager beside
+	// the team name in every PrimaryNavigation call site (desktop rail,
+	// mobile-enhanced dialog, no-JS static disclosure), from
+	// data.viewer.is_co_manager (Service.Viewer). Deliberately one-sided:
+	// a primary manager never gets a matching "PRIMARY" chip, which the
+	// finding calls out as noise for the common case.
+	IsCoManager bool
 	// DraftComplete (wave 7, item 6) comes from data.league.draft_complete
 	// (leagueMap, internal/league/service.go) — the same "one map every
 	// page's data function already includes" property PickemHot/TradesHot
@@ -83,29 +90,55 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 				</Link>
 			</div>
 			<div class="navigation-group" data-navigation-group="my-team">
-				<p class="navigation-group__label mono">MY TEAM</p>
+				{/* F5 disables Team terminal and Big Board with a "Needs a
+				    franchise seat" reason for a seatless viewer — but never
+				    for a seatless COMMISSIONER (props.Commissioner), who
+				    already has intervention access to any team's terminal
+				    independent of holding a personal seat (the same
+				    props.HasSeat || props.Commissioner gate Trades already
+				    uses below). */}
 				<If cond={props.HasSeat}>
+					<p class="navigation-group__label mono">MY TEAM</p>
+				</If>
+				<If cond={props.HasSeat == false}>
+					<p class="navigation-group__label mono">TEAM</p>
+				</If>
+				<If cond={props.HasSeat || props.Commissioner}>
 					<Link href="/team" class="navigation-link" title="Team terminal">
 						<span class="navigation-link__index mono">04</span>
 						Team terminal
 					</Link>
 				</If>
-				<If cond={props.HasSeat == false && props.SeatsOpen && props.CanClaimSeat}>
+				<If cond={props.HasSeat == false && props.Commissioner == false && props.SeatsOpen && props.CanClaimSeat}>
 					<Link href="/join" class="navigation-link navigation-link--hot" title="Join a team">
 						<span class="navigation-link__index mono">04</span>
 						Join a team
 					</Link>
 				</If>
-				<If cond={props.HasSeat == false && (props.SeatsOpen == false || props.CanClaimSeat == false)}>
-					<Link href="/team" class="navigation-link" title="Team terminal">
-						<span class="navigation-link__index mono">04</span>
-						Team terminal
+				<If cond={props.HasSeat == false && props.Commissioner == false && (props.SeatsOpen == false || props.CanClaimSeat == false)}>
+					<div class="navigation-link navigation-link--disabled" aria-disabled="true" title="Team terminal">
+						<span class="navigation-link__row">
+							<span class="navigation-link__index mono">04</span>
+							Team terminal
+						</span>
+						<small class="navigation-link__reason">Needs a franchise seat</small>
+					</div>
+				</If>
+				<If cond={props.HasSeat || props.Commissioner}>
+					<Link href="/board" class="navigation-link" title="Big Board">
+						<span class="navigation-link__index mono">05</span>
+						Big Board
 					</Link>
 				</If>
-				<Link href="/board" class="navigation-link" title="Big Board">
-					<span class="navigation-link__index mono">05</span>
-					Big Board
-				</Link>
+				<If cond={props.HasSeat == false && props.Commissioner == false}>
+					<div class="navigation-link navigation-link--disabled" aria-disabled="true" title="Big Board">
+						<span class="navigation-link__row">
+							<span class="navigation-link__index mono">05</span>
+							Big Board
+						</span>
+						<small class="navigation-link__reason">Needs a franchise seat</small>
+					</div>
+				</If>
 				<If cond={props.HasSeat || props.SignedIn}>
 					<Link href="/players" class="navigation-link" title="Player pool">
 						<span class="navigation-link__index mono">06</span>
@@ -129,47 +162,47 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 			<div class="navigation-group" data-navigation-group="game-day">
 				<p class="navigation-group__label mono">GAME DAY</p>
 				<Link href="/draft" class="navigation-link" title="Draft">
-					<span class="navigation-link__index mono">08</span>
+					<If cond={props.HasSeat || props.Commissioner}><span class="navigation-link__index mono">08</span></If>
 					Draft
 				</Link>
 				<If cond={props.DraftComplete}>
 					<Link href="/draft/results" class="navigation-link" title="Draft results">
-						<span class="navigation-link__index mono">09</span>
+						<If cond={props.HasSeat || props.Commissioner}><span class="navigation-link__index mono">09</span></If>
 						Draft results
 					</Link>
 				</If>
 				<Link href="/blitz" class="navigation-link" title="Preseason Blitz">
-					<span class="navigation-link__index mono"><If cond={props.DraftComplete}>10</If><If cond={props.DraftComplete == false}>09</If></span>
+					<If cond={props.HasSeat || props.Commissioner}><span class="navigation-link__index mono"><If cond={props.DraftComplete}>10</If><If cond={props.DraftComplete == false}>09</If></span></If>
 					Preseason Blitz
 				</Link>
 			</div>
 			<div class="navigation-group" data-navigation-group="league">
 				<p class="navigation-group__label mono">LEAGUE</p>
 				<Link href="/wire" class="navigation-link" title="Signal Wire">
-					<span class="navigation-link__index mono"><If cond={props.DraftComplete}>11</If><If cond={props.DraftComplete == false}>10</If></span>
+					<If cond={props.HasSeat || props.Commissioner}><span class="navigation-link__index mono"><If cond={props.DraftComplete}>11</If><If cond={props.DraftComplete == false}>10</If></span></If>
 					Signal Wire
 				</Link>
 				<Link href="/activity" class="navigation-link" title="Activity">
-					<span class="navigation-link__index mono"><If cond={props.DraftComplete}>12</If><If cond={props.DraftComplete == false}>11</If></span>
+					<If cond={props.HasSeat || props.Commissioner}><span class="navigation-link__index mono"><If cond={props.DraftComplete}>12</If><If cond={props.DraftComplete == false}>11</If></span></If>
 					Activity
 				</Link>
 				<Link href="/locker" class="navigation-link" title="Locker Room">
-					<span class="navigation-link__index mono"><If cond={props.DraftComplete}>13</If><If cond={props.DraftComplete == false}>12</If></span>
+					<If cond={props.HasSeat || props.Commissioner}><span class="navigation-link__index mono"><If cond={props.DraftComplete}>13</If><If cond={props.DraftComplete == false}>12</If></span></If>
 					Locker Room
 				</Link>
 				<Link href="/scoring" class="navigation-link" title="Rules & scoring">
-					<span class="navigation-link__index mono"><If cond={props.DraftComplete}>14</If><If cond={props.DraftComplete == false}>13</If></span>
+					<If cond={props.HasSeat || props.Commissioner}><span class="navigation-link__index mono"><If cond={props.DraftComplete}>14</If><If cond={props.DraftComplete == false}>13</If></span></If>
 					Rules &amp; scoring
 				</Link>
 			</div>
 			<div class="navigation-group" data-navigation-group="help">
 				<p class="navigation-group__label mono">HELP</p>
 				<Link href="/guide" class="navigation-link navigation-link--guide" title="Manager guide">
-					<span class="navigation-link__index mono"><If cond={props.DraftComplete}>15</If><If cond={props.DraftComplete == false}>14</If></span>
+					<If cond={props.HasSeat || props.Commissioner}><span class="navigation-link__index mono"><If cond={props.DraftComplete}>15</If><If cond={props.DraftComplete == false}>14</If></span></If>
 					Manager guide
 				</Link>
 				<Link href="/help" class="navigation-link navigation-link--guide" title="Help center">
-					<span class="navigation-link__index mono"><If cond={props.DraftComplete}>16</If><If cond={props.DraftComplete == false}>15</If></span>
+					<If cond={props.HasSeat || props.Commissioner}><span class="navigation-link__index mono"><If cond={props.DraftComplete}>16</If><If cond={props.DraftComplete == false}>15</If></span></If>
 					Help center
 				</Link>
 			</div>
@@ -192,6 +225,9 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 				<div class="user-badge">
 					<span class="user-chip mono">{props.Initials}</span>
 					<span class="user-name">{props.TeamName}</span>
+					<If cond={props.IsCoManager}>
+						<span class="user-role-chip mono">CO-MANAGER</span>
+					</If>
 				</div>
 				<Link href="/settings" class="access-link">Notification settings</Link>
 				<form method="post" action="/auth/logout" data-gosx-managed="false">
@@ -363,6 +399,7 @@ func Layout() Node {
 					TradesHot={data.league.attention.trades_hot}
 					TradesAttentionText={data.league.attention.trades_attention_text}
 					DraftComplete={data.league.draft_complete}
+					IsCoManager={data.viewer.is_co_manager}
 				></PrimaryNavigation>
 			</aside>
 			<header class="mobile-navigation-enhanced" data-navigation-surface="mobile-enhanced-bar">
@@ -438,6 +475,7 @@ func Layout() Node {
 					TradesHot={data.league.attention.trades_hot}
 					TradesAttentionText={data.league.attention.trades_attention_text}
 					DraftComplete={data.league.draft_complete}
+					IsCoManager={data.viewer.is_co_manager}
 				></PrimaryNavigation>
 			</aside>
 			<details class="mobile-navigation-static" data-navigation-surface="mobile-static">
@@ -462,6 +500,7 @@ func Layout() Node {
 					TradesHot={data.league.attention.trades_hot}
 					TradesAttentionText={data.league.attention.trades_attention_text}
 					DraftComplete={data.league.draft_complete}
+					IsCoManager={data.viewer.is_co_manager}
 				></PrimaryNavigation>
 			</details>
 			<nav class="app-tabbar" aria-label="Quick navigation" data-navigation-surface="mobile-tabbar">
@@ -486,10 +525,11 @@ func Layout() Node {
 					</Link>
 				</If>
 				<If cond={data.viewer.has_seat == false && (data.league.fantasy_seats_open == false || data.viewer.seat_claim_eligible == false)}>
-					<Link href="/team" class="app-tabbar__tab">
+					<Link href="/team" class="app-tabbar__tab" aria-describedby="app-tabbar-team-reason">
 						<span class="app-tabbar__icon" aria-hidden="true">&#9689;</span>
 						Team
 					</Link>
+					<span id="app-tabbar-team-reason" class="visually-hidden">Needs a franchise seat</span>
 				</If>
 				<Link href="/matchups" class="app-tabbar__tab">
 					<span class="app-tabbar__icon" aria-hidden="true">&#9917;</span>

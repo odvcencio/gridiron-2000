@@ -9,6 +9,7 @@ import (
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
+	"m31labs.dev/gosx/session"
 )
 
 // MatchupTeamCard is the typed spread source for TeamMark's strict props
@@ -60,6 +61,29 @@ type StandingTeamCard struct {
 	Abbreviation   string
 	HasAvatarImage bool
 	AvatarImageURL string
+}
+
+// coManagerWelcomePanel decodes the "co_manager_bound" flash main.go's
+// sign-in callback sets the instant BindCoManagerOnSignIn consumes a
+// co-manager invite (F11a). The generic "notice" flash (F6) tells the
+// invitee who the primary is; it never says what a shared seat actually
+// grants, and it renders on whatever page "next" happens to be rather
+// than reliably on /. This panel is deliberately a plain flash read, not
+// new persisted state: pop-once flash semantics already make it a
+// first-session-only surface with no extra schema to keep truthful.
+func coManagerWelcomePanel(store *session.Store) (shown bool, teamName, primaryFirstName string) {
+	if store == nil {
+		return false, "", ""
+	}
+	flashes := store.Flashes("co_manager_bound")
+	if len(flashes) == 0 {
+		return false, "", ""
+	}
+	payload, ok := flashes[0].(map[string]any)
+	if !ok {
+		return false, "", ""
+	}
+	return true, stringField(payload, "team_name"), stringField(payload, "primary_first_name")
 }
 
 func stringField(m map[string]any, key string) string {
@@ -196,6 +220,10 @@ func init() {
 			data["draft_first_pick_name"] = firstPickName
 			data["draft_first_pick_label"] = firstPickLabel
 			data["draft_first_pick_has"] = hasFirstPick
+			comgrShown, comgrTeamName, comgrPrimaryFirstName := coManagerWelcomePanel(session.Current(ctx.Request))
+			data["co_manager_welcome_shown"] = comgrShown
+			data["co_manager_welcome_team_name"] = comgrTeamName
+			data["co_manager_welcome_primary_first_name"] = comgrPrimaryFirstName
 			if actionCenter, ok := data["action_center"].(map[string]any); ok {
 				card := dashboardActionCenter(actionCenter)
 				isCommissioner, _ := viewer["is_commissioner"].(bool)

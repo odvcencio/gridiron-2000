@@ -1204,6 +1204,78 @@ func TestViewerIncludesIsCommissionerInDemoMode(t *testing.T) {
 	}
 }
 
+// TestViewerReportsCoManagerRoleWithoutMarkingThePrimary (F11b): the rail
+// and phone menu need a truthful "CO-MANAGER" chip beside the team name,
+// and must never show a matching chip for a primary manager (noise the
+// finding explicitly warns against). Viewer()'s is_co_manager field is the
+// one value both PrimaryNavigation call sites read.
+func TestViewerReportsCoManagerRoleWithoutMarkingThePrimary(t *testing.T) {
+	service := newTestService(t, false)
+	primary, _, err := service.store.AssignMember("rail-primary@example.com", "Rail Primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.InviteCoManager(primary.TeamID, "rail-co@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, bound, err := service.BindCoManagerOnSignIn("rail-co@example.com", "Rail Co"); err != nil || !bound {
+		t.Fatalf("co-manager bind = bound %v, err %v", bound, err)
+	}
+
+	var primaryViewer, coViewer map[string]any
+	withPublicEntryRequest(t, service, "rail-primary@example.com", func(r *http.Request) {
+		primaryViewer = service.Viewer(r)
+	})
+	withPublicEntryRequest(t, service, "rail-co@example.com", func(r *http.Request) {
+		coViewer = service.Viewer(r)
+	})
+
+	if primaryViewer["is_co_manager"] != false {
+		t.Fatalf("primary viewer is_co_manager = %v, want false", primaryViewer["is_co_manager"])
+	}
+	if coViewer["is_co_manager"] != true {
+		t.Fatalf("co-manager viewer is_co_manager = %v, want true", coViewer["is_co_manager"])
+	}
+}
+
+// TestTeamNameIsSeedPlaceholder (F9) pins the predicate the Action
+// Center's rename card and the /team checklist's item 01 both key on: a
+// team still at its compiled seed name (never touched), and a team
+// carrying this league's own known-bad literal name ("Placeholder go
+// here" — a real, persisted rename to a value that never got replaced,
+// not a compiled default; see unpersonalizedTeamName's own doc comment
+// for why the seed comparison alone cannot catch it) both count as
+// unpersonalized. A genuine custom name does not.
+func TestTeamNameIsSeedPlaceholder(t *testing.T) {
+	service := newTestService(t, false)
+	teamID := service.Teams()[0].ID
+	seedName := service.Teams()[0].Name
+
+	if !service.TeamNameIsSeedPlaceholder(teamID) {
+		t.Fatalf("team at its untouched seed name %q reported personalized", seedName)
+	}
+
+	if err := service.store.SetTeamName(teamID, "Antonio's Aces"); err != nil {
+		t.Fatal(err)
+	}
+	if service.TeamNameIsSeedPlaceholder(teamID) {
+		t.Fatal("a genuinely custom team name reported unpersonalized")
+	}
+
+	if err := service.store.SetTeamName(teamID, "Placeholder go here"); err != nil {
+		t.Fatal(err)
+	}
+	if !service.TeamNameIsSeedPlaceholder(teamID) {
+		t.Fatal("the known-bad literal placeholder name reported personalized")
+	}
+	if err := service.store.SetTeamName(teamID, "PLACEHOLDER GO HERE"); err != nil {
+		t.Fatal(err)
+	}
+	if !service.TeamNameIsSeedPlaceholder(teamID) {
+		t.Fatal("the known-bad placeholder name in a different case reported personalized")
+	}
+}
+
 // TestPlayerMapEmitsBreakdownJerseyAndHistKeys checks the frontend contract:
 // jersey, has_breakdown, breakdown, breakdown_total, has_hist, and hist all
 // appear on the rendered player map, with jersey prefixed "#" only when set.

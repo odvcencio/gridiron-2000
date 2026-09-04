@@ -83,9 +83,16 @@ func Page() Node {
 					</If>
 					<If cond={data.configured == false}>
 						<div class="setup-note" role="alert">
-							<p id="google-setup-note">
-								Google sign-in is not set up on this server yet. Ask the commissioner.
-							</p>
+							<If cond={data.public_entry.commissioner_ask != ""}>
+								<p id="google-setup-note">
+									Google sign-in is not set up on this server yet. {data.public_entry.commissioner_ask}
+								</p>
+							</If>
+							<If cond={data.public_entry.commissioner_ask == ""}>
+								<p id="google-setup-note">
+									Google sign-in is not set up on this server yet. Ask the commissioner.
+								</p>
+							</If>
 						</div>
 					</If>
 					<If cond={data.configured}>
