@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -332,6 +333,26 @@ func TestMatchupsFreshnessClauseIsVisibleInsideTheStatusLine(t *testing.T) {
 		if strings.Contains(body, hidden) {
 			t.Errorf("freshness span is still visually-hidden: %q", hidden)
 		}
+	}
+
+	// J3 F34: the checkedAt clock must carry league time and zone with no
+	// seconds, plus a relative phrase — before this fix it printed literal
+	// seconds ("9:53:49 PM EDT") and no relative phrase at all.
+	checkedAtStart := strings.Index(statusLine, `data-gosx-live-bind="checkedAt">`)
+	if checkedAtStart < 0 {
+		t.Fatalf("status line missing the checkedAt bind: %s", statusLine)
+	}
+	checkedAtStart += len(`data-gosx-live-bind="checkedAt">`)
+	checkedAtEnd := strings.Index(statusLine[checkedAtStart:], "</span>")
+	if checkedAtEnd < 0 {
+		t.Fatalf("checkedAt span never closes: %s", statusLine)
+	}
+	checkedAt := statusLine[checkedAtStart : checkedAtStart+checkedAtEnd]
+	if regexp.MustCompile(`:\d\d:\d\d [AP]M`).MatchString(checkedAt) {
+		t.Errorf("checkedAt %q still carries literal seconds", checkedAt)
+	}
+	if !regexp.MustCompile(`(just now|\d+ (minute|hour|day)s? ago)$`).MatchString(checkedAt) {
+		t.Errorf("checkedAt %q is missing a trailing relative phrase", checkedAt)
 	}
 }
 

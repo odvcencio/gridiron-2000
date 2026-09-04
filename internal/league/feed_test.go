@@ -239,15 +239,23 @@ func TestLiveFeedProviderFailureIsDegradedFallback(t *testing.T) {
 	}
 }
 
+// TestMatchupUpdateTimestampIncludesDateAndDSTZone also pins J3 F34: the
+// freshness clock must print league time and zone with no seconds, plus
+// a relative phrase (relativeTime, the same pairing poolStatusMap already
+// uses) — before this fix it printed literal seconds that changed on
+// every load and never said how long ago the check happened.
 func TestMatchupUpdateTimestampIncludesDateAndDSTZone(t *testing.T) {
 	location, err := time.LoadLocation("America/New_York")
 	if err != nil {
 		t.Fatal(err)
 	}
+	firstAt := time.Date(2026, 11, 1, 5, 30, 0, 0, time.UTC)
+	secondAt := time.Date(2026, 11, 1, 6, 30, 0, 0, time.UTC)
 	svc := &Service{draftTZ: location, cfg: Config{Timezone: "America/New_York"}}
-	first := svc.formatMatchupUpdate(time.Date(2026, 11, 1, 5, 30, 0, 0, time.UTC))
-	second := svc.formatMatchupUpdate(time.Date(2026, 11, 1, 6, 30, 0, 0, time.UTC))
-	if first != "Sun Nov 1 · 1:30:00 AM EDT" || second != "Sun Nov 1 · 1:30:00 AM EST" {
+	svc.SetClockForTest(func() time.Time { return secondAt })
+	first := svc.formatMatchupUpdate(firstAt)
+	second := svc.formatMatchupUpdate(secondAt)
+	if first != "Sun Nov 1 · 1:30 AM EDT · 1 hour ago" || second != "Sun Nov 1 · 1:30 AM EST · just now" {
 		t.Fatalf("DST labels = %q / %q", first, second)
 	}
 }
