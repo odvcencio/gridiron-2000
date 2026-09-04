@@ -241,6 +241,11 @@ type draftPlayerCardView struct {
 	// them. Sourced from service.go's queuePanel board_can_move_up/down.
 	CanMoveUp   bool
 	CanMoveDown bool
+	// SpecialistEarly (J1 F12): true for a K/P/DST row while more than
+	// three rounds remain — set only for typedPlayers (prepareDraftData),
+	// never for the queue, which never renders the confirm panel this
+	// backs.
+	SpecialistEarly bool
 }
 
 type draftRoomView struct {
@@ -827,6 +832,38 @@ func draftBreakdownProps(raw []map[string]any) []draftBreakdownRowView {
 	return out
 }
 
+// draftSpecialistPositions are the picks a manager rarely wants before
+// the bench rounds (J1 F12's own evidence: a round-2 punter, "the mistake
+// that ends a season and a friendship").
+var draftSpecialistPositions = map[string]bool{"K": true, "P": true, "DST": true}
+
+// draftPlayerNeedsSpecialistWarning reports whether the available pane's
+// row-level confirm panel (page.gsx, J1 F12) should show its "Specialists
+// usually go late" line for position, given the draft is currently in
+// round. totalRounds <= 0 (an unpublished/fixture draft with no round
+// count at all) never warns — there is no "last three rounds" to compare
+// against.
+// draftPickRefusalError wraps MakePick's own refusal text (internal/
+// league/store.go — out of this file's reach, and off limits for a
+// draft-week UX pass regardless: the pick path itself is frozen until
+// after Sunday's real draft) in one plain sentence (J1 F15). Before this
+// wrap, a refusal like "that player has already been drafted" reached
+// the toast as a bare, lower-case fragment with no lead-in and no next
+// step; "That pick is not allowed: <reason>." at least reads as a
+// sentence a manager under a running clock can act on. store.go's own
+// team-ID-bearing refusals ("<id> is on the clock") still need a fix at
+// their own source — a wrapper here cannot rename an ID it never sees.
+func draftPickRefusalError(err error) error {
+	return fmt.Errorf("That pick is not allowed: %s.", err.Error())
+}
+
+func draftPlayerNeedsSpecialistWarning(position string, round, totalRounds int) bool {
+	if totalRounds <= 0 || draftSpecialistPositions[position] == false {
+		return false
+	}
+	return round <= totalRounds-3
+}
+
 func draftPlayerProps(raw []map[string]any) []draftPlayerCardView {
 	out := make([]draftPlayerCardView, 0, len(raw))
 	for _, player := range raw {
@@ -1044,6 +1081,29 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	typedTeams := draftTeamProps(teams)
 	typedPlayers := draftPlayerProps(players)
 	typedQueue := draftPlayerProps(queueRaw)
+	// J1 F12: the row-level confirm panel's specialist warning applies to
+	// the available pool only (the queue never renders that panel — a
+	// player is queued, not drafted, from there), computed once here off
+	// the SAME round/rounds this request's own command bar already reads,
+	// never a second, possibly-stale copy.
+	currentRound := intField(data, "round")
+	totalRounds := league.CurrentDraftRounds()
+	for i := range typedPlayers {
+		typedPlayers[i].SpecialistEarly = draftPlayerNeedsSpecialistWarning(typedPlayers[i].Position, currentRound, totalRounds)
+	}
+	// J2 F34: "not in the room" reads the on-clock seat's own presence
+	// bucket off typedTeams (draftTeamMaps/draftTeamProps already compute
+	// it, real presence-tracker data, for the commissioner drawer's seat
+	// cards) rather than a second presence lookup — a plain match by ID
+	// against data this same request already built.
+	onClockID := stringField(data, "on_clock_id")
+	onClockNotInRoom := false
+	for _, team := range typedTeams {
+		if team.TeamID == onClockID {
+			onClockNotInRoom = team.Presence == "not_seen"
+			break
+		}
+	}
 
 	// viewData is the one map every view's Data field shares (room,
 	// workspace, command, history, available, queue below). It must never
@@ -1065,6 +1125,7 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	// .draft-available[data-has-adp="false"] .avail-row rule) so the
 	// column's grid track drops with it, never an empty cell.
 	viewData["has_adp"] = boolField(data, "has_adp")
+	viewData["on_clock_not_in_room"] = onClockNotInRoom
 	// practice (practice draft, internal/league/practice.go): every render
 	// carries the key, so page.gsx's "practice.active == false" branches
 	// (the real room's board edits, ready check-in, and League button) hold
@@ -1378,7 +1439,7 @@ func init() {
 			"make-pick": func(ctx *action.Context) error {
 				pick, player, team, err := league.Default().MakePick(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
 				if err != nil {
-					return actionui.Validation(ctx, "draft", "player_id", err)
+					return actionui.Validation(ctx, "draft", "player_id", draftPickRefusalError(err))
 				}
 				return draftActionSuccess(ctx, draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), fmt.Sprintf("Pick %d: %s selects %s.", pick.Number, team.Name, player.Name))
 			},
