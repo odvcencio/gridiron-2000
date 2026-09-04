@@ -19,6 +19,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The commissioner drawer's clock and seat actions return with the drawer already open, instead of closing it after every action.
 - The undo record names the pick it removed ("undid pick 42: In Shedeur Time / Bucky Irving") instead of only "undid the last pick," and the drawer's own undo confirmation names the pick before asking for the typed confirmation.
 - The console's reschedule-the-draft time field shows its full value instead of clipping to "09/06" with the year, hour, and AM/PM cut off.
+- The console's readiness card names who has not checked in, by first name and team, with a link that opens the draft room to check them in, instead of reporting a bare ready count with no way to act.
+- The console's readiness rows show each manager's own name and a plain-language presence sentence instead of a bare seat code and "no room heartbeat since this server started."
+- The console's outreach control sends an already-seated manager a "please check in for the draft" reminder with the room link, instead of inviting them to a seat they already hold.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 

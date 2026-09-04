@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
@@ -472,6 +473,57 @@ func TestAdminSendInviteWithSMTPAttemptsSendAndReportsSent(t *testing.T) {
 	}
 	if !service.store.Invited("manager@example.com") {
 		t.Fatal("invite should be recorded even when delivery fails")
+	}
+}
+
+// TestAdminInviteMapNudgesASeatedManagerInsteadOfInviting pins F20
+// (gap-audit J2): the console's only outbound control sent an already-
+// seated manager the exact same "You're invited... you've got a seat
+// waiting" copy it sends someone who has never claimed a seat — the one
+// way to chase a not-ready manager doubled as inviting them to a seat
+// they already hold. Once seated, the mailto must carry no claim
+// language and must link the draft room instead of the join page.
+func TestAdminInviteMapNudgesASeatedManagerInsteadOfInviting(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	if err := service.AdminAddInvite(request, "jorge@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.store.AssignMember("jorge@example.com", "Jorge V"); err != nil {
+		t.Fatal(err)
+	}
+
+	data := service.AdminData(request)
+	invites, _ := data["invites"].([]map[string]any)
+	var seated map[string]any
+	for _, invite := range invites {
+		if invite["email"] == "jorge@example.com" {
+			seated = invite
+		}
+	}
+	if seated == nil {
+		t.Fatalf("invites = %+v, missing jorge@example.com", invites)
+	}
+	if seated["seated"] != true {
+		t.Fatalf("seated flag = %v, want true", seated["seated"])
+	}
+	mailto, _ := seated["mailto"].(string)
+	if !strings.HasPrefix(mailto, "mailto:jorge@example.com?subject=") {
+		t.Fatalf("mailto malformed: %q", mailto)
+	}
+	decoded, err := url.QueryUnescape(mailto)
+	if err != nil {
+		t.Fatalf("decode mailto: %v", err)
+	}
+	for _, notWant := range []string{"invited", "seat waiting", "/join"} {
+		if strings.Contains(strings.ToLower(decoded), strings.ToLower(notWant)) {
+			t.Errorf("nudge mailto still carries claim language %q: %s", notWant, decoded)
+		}
+	}
+	for _, want := range []string{"check in", "/draft"} {
+		if !strings.Contains(strings.ToLower(decoded), strings.ToLower(want)) {
+			t.Errorf("nudge mailto missing %q: %s", want, decoded)
+		}
 	}
 }
 

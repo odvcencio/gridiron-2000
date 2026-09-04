@@ -1629,7 +1629,7 @@ func TestAdminUnpublishedDraftHasNoDanglingSeparatorOrFabricatedPrefill(t *testi
 	if strings.Contains(body, `value="2098-12-31T19:00"`) {
 		t.Error("reschedule datetime-local control is still prefilled with the fabricated placeholder instant")
 	}
-	if !strings.Contains(body, `id="admin-draft-meeting-at" class="scoring-input" type="datetime-local" name="meeting_at" value=""`) {
+	if !strings.Contains(body, `id="admin-draft-meeting-at" class="scoring-input admin-datetime-input" type="datetime-local" name="meeting_at" value=""`) {
 		t.Error("reschedule datetime-local control is not empty for an unpublished draft date")
 	}
 }

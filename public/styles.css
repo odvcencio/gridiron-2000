@@ -16966,6 +16966,16 @@ a.skip-link {
   white-space: normal;
 }
 
+/* F6 + F19: the "who is not checked in" plain-language line on /admin's
+   own Attention and readiness card. */
+.admin-attention-not-checked-in {
+  margin: var(--space-sm) 0 0;
+  padding: var(--space-sm) var(--space-md);
+  border-left: 3px solid var(--color-warning);
+  background: var(--color-hot-haze);
+  font-size: var(--type-sm);
+}
+
 /* F10: #admin-draft-meeting-at is a datetime-local input carrying only
    .scoring-input's own 6rem width (line ~6308), sized for a short
    numeric confirm field — a full "MM/DD/YYYY, HH:MM AM/PM" value

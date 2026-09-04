@@ -97,6 +97,98 @@ func TestAdminAttentionReadoutRendersFriendlyDraftDateAndPresenceWords(t *testin
 	}
 }
 
+// TestAdminAttentionReadoutFromDataNamesManagersAndSummarizesNotCheckedIn
+// pins F6 + F19 (gap-audit J2): a not-ready row named only its seat code
+// and team name, and the console reported "READY 4 / 8" with nowhere to
+// see who that meant or act on it. adminAttentionReadoutFromData now
+// carries each seat's own manager name (plain, not a code) and a
+// precomputed "Not checked in: <first name> (<team>), ..." summary of
+// every claimed-but-not-ready seat.
+func TestAdminAttentionReadoutFromDataNamesManagersAndSummarizesNotCheckedIn(t *testing.T) {
+	data := map[string]any{
+		"seats": []map[string]any{
+			{"name": "In Shedeur Time", "abbreviation": "AQ1", "manager": "Oscar Villavicencio", "claimed": true, "ready": true, "presence": "here"},
+			{"name": "Los Delfines del Norte", "abbreviation": "AQ2", "manager": "Jorge V", "claimed": true, "ready": false, "presence": "not_seen", "presence_detail": "No room heartbeat since this server started."},
+			{"name": "Placeholder go here", "abbreviation": "AQ4", "manager": "", "claimed": false, "ready": false, "presence": "unclaimed"},
+		},
+	}
+	view := adminAttentionReadoutFromData(data)
+	if len(view.Seats) != 3 {
+		t.Fatalf("len(Seats) = %d, want 3", len(view.Seats))
+	}
+
+	ready, notReady, unclaimed := view.Seats[0], view.Seats[1], view.Seats[2]
+	if ready.Manager != "Oscar Villavicencio" {
+		t.Errorf("ready seat Manager = %q, want %q", ready.Manager, "Oscar Villavicencio")
+	}
+	if notReady.Manager != "Jorge V" || notReady.ManagerFirstName != "Jorge" {
+		t.Errorf("not-ready seat Manager/ManagerFirstName = %q/%q, want %q/%q", notReady.Manager, notReady.ManagerFirstName, "Jorge V", "Jorge")
+	}
+	// FriendlyPresenceDetail (F19): "No room heartbeat since this server
+	// started." is developer/server language; the drawer's own plain
+	// rewrite reads "No manager has opened the room yet."
+	if notReady.PresenceDetail != "No manager has opened the room yet." {
+		t.Errorf("not-ready seat PresenceDetail = %q, want the plain-language rewrite", notReady.PresenceDetail)
+	}
+	if unclaimed.Manager != "" || unclaimed.ManagerFirstName != "" {
+		t.Errorf("unclaimed seat Manager/ManagerFirstName = %q/%q, want both empty", unclaimed.Manager, unclaimed.ManagerFirstName)
+	}
+
+	if !view.HasNotCheckedIn {
+		t.Fatal("HasNotCheckedIn = false, want true (one claimed-but-not-ready seat)")
+	}
+	if want := "Jorge (Los Delfines del Norte)"; view.NotCheckedInSummary != want {
+		t.Errorf("NotCheckedInSummary = %q, want %q", view.NotCheckedInSummary, want)
+	}
+}
+
+// TestAdminAttentionReadoutFromDataHasNoNotCheckedInSummaryWhenEveryoneIsReady
+// proves the summary line's own gate: it must not render (or claim a
+// non-empty summary) once every claimed seat is ready.
+func TestAdminAttentionReadoutFromDataHasNoNotCheckedInSummaryWhenEveryoneIsReady(t *testing.T) {
+	data := map[string]any{
+		"seats": []map[string]any{
+			{"name": "In Shedeur Time", "abbreviation": "AQ1", "manager": "Oscar Villavicencio", "claimed": true, "ready": true},
+		},
+	}
+	view := adminAttentionReadoutFromData(data)
+	if view.HasNotCheckedIn {
+		t.Fatalf("HasNotCheckedIn = true, want false (every claimed seat is ready); summary = %q", view.NotCheckedInSummary)
+	}
+	if view.NotCheckedInSummary != "" {
+		t.Errorf("NotCheckedInSummary = %q, want empty", view.NotCheckedInSummary)
+	}
+}
+
+// TestAdminAttentionReadoutRendersNotCheckedInSummaryAndRoomLink is the
+// template-level half of F6: the render must show the summary sentence
+// and a link into the draft room only when there is something to check
+// in for.
+func TestAdminAttentionReadoutRendersNotCheckedInSummaryAndRoomLink(t *testing.T) {
+	props := sampleAdminAttention()
+	props.HasNotCheckedIn = true
+	props.NotCheckedInSummary = "Jorge (Los Delfines del Norte), Kathleen (DeBÍ TiRAR MáS TOUCHDOWNS)"
+	rendered, err := adminAttentionFragmentRender(props)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Not checked in:", "Jorge (Los Delfines del Norte)", `href="/draft"`, "Open the draft room"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("attention readout missing %q: %s", want, rendered)
+		}
+	}
+
+	everyoneReady := sampleAdminAttention()
+	everyoneReady.HasNotCheckedIn = false
+	renderedReady, err := adminAttentionFragmentRender(everyoneReady)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(renderedReady, "Not checked in:") {
+		t.Error("attention readout renders \"Not checked in:\" even though HasNotCheckedIn is false")
+	}
+}
+
 func TestAdminAttentionFragmentETagPrivacyAndMethodBoundary(t *testing.T) {
 	loaded := 0
 	handler := adminAttentionFragmentHandler(

@@ -967,6 +967,21 @@ func (s *Service) teamPresence(state PersistedState, teamID string, now time.Tim
 	}
 }
 
+// FriendlyPresenceDetail (F19, gap-audit J2) softens teamPresence's own
+// raw not_seen detail — "No room heartbeat since this server started." is
+// an implementation fact (a server-uptime clock, not a room fact), and
+// reads as an error on a page a league owner reads, not developer log
+// output. The draft room's own commissioner drawer already carries this
+// exact rewrite (friendlyPresenceDetail, app/draft/page.server.go, D15
+// spruce audit); exported here so /admin's own readiness rows read the
+// identical plain sentence instead of a second, drifted copy.
+func FriendlyPresenceDetail(detail string) string {
+	if detail == "No room heartbeat since this server started." {
+		return "No manager has opened the room yet."
+	}
+	return detail
+}
+
 func presenceAgeLabel(age time.Duration) string {
 	if age < 0 {
 		age = 0

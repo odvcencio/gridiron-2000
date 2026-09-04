@@ -210,11 +210,19 @@ func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
 				</If>
 			</span>
 		</div>
+		{/* F6 + F19 (gap-audit J2): "READY 4 / 8" named no one and gave the
+		    commissioner nothing to act on — the ready toggle exists only in
+		    the draft room's own drawer. This names the claimed-but-not-
+		    ready seats by their manager's own first name, in plain words,
+		    next to a link straight into the room where the toggle lives. */}
+		<If cond={props.HasNotCheckedIn}>
+			<p class="admin-attention-not-checked-in">Not checked in: {props.NotCheckedInSummary} · <a href="/draft" data-gosx-link>Open the draft room</a></p>
+		</If>
 		<div class="commissioner-hq__ledger" aria-label="Seat readiness and presence">
 			<Each of={props.Seats} as="seat">
 				<div class="commissioner-hq__attention" data-presence={seat.Presence}>
 					<div class="commissioner-hq__attention-copy">
-						<span class="section-index">{seat.Abbreviation} · {seat.Name}</span>
+						<span class="section-index">{seat.Abbreviation} · {seat.Name}<If cond={seat.Manager != ""}> · {seat.Manager}</If></span>
 						<strong><If cond={seat.Claimed}>CLAIMED</If><If cond={seat.Claimed == false}>OPEN</If> · <If cond={seat.Ready}>READY</If><If cond={seat.Ready == false}>NOT READY</If></strong>
 						<span class="seat-presence">{seat.PresenceLabel} · {seat.PresenceDetail} · board {seat.BoardCount}</span>
 					</div>

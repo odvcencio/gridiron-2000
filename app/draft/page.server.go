@@ -924,12 +924,11 @@ func draftTeamProps(raw []map[string]any) []DraftTeamCard {
 // heartbeat since this server started." is an implementation fact (a
 // server-uptime clock, not a room fact), and "NOT SEEN" plus that
 // sentence read as an error rather than the plain truth — nobody from
-// that franchise has opened the draft room yet.
+// that franchise has opened the draft room yet. Delegates to
+// league.FriendlyPresenceDetail (F19, gap-audit J2) so /admin's own
+// readiness rows read the identical sentence instead of a drifted copy.
 func friendlyPresenceDetail(detail string) string {
-	if detail == "No room heartbeat since this server started." {
-		return "No manager has opened the room yet."
-	}
-	return detail
+	return league.FriendlyPresenceDetail(detail)
 }
 
 func draftSeatControlProps(raw []map[string]any) []DraftSeatControlCard {
