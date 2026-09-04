@@ -240,10 +240,14 @@ func TestBrowserRoomMeetsRefreshBudgetAndKeepsClockIdentity(t *testing.T) {
 	}
 	signInAsManager(t, ctx, child, league.bots[len(league.bots)-1])
 	mode := evalString(t, ctx, `document.querySelector('.draft-shell').getAttribute('data-draft-live-mode')`)
-	ceilings := map[string]int{"/draft/fragment/command": 2048, "/draft/fragment/tape": 4096, "/draft/fragment/tape-rows": 4096, "/draft/fragment/available": 61440, "/draft/fragment/queue": 4096}
+	// /draft/fragment/pickbar (spruce audit, J1 F1, 2026-09-04): the phone
+	// sticky action strip now refetches on the same events the command bar
+	// already does, in BOTH modes — it never had a region or a bind of its
+	// own before this fix, so this is a new fetch per pick either way.
+	ceilings := map[string]int{"/draft/fragment/command": 2048, "/draft/fragment/tape": 4096, "/draft/fragment/tape-rows": 4096, "/draft/fragment/available": 61440, "/draft/fragment/queue": 4096, "/draft/fragment/pickbar": 2048}
 	expected := map[string]map[string]int{
-		"fallback": {"/draft/fragment/command": 1, "/draft/fragment/tape": 1, "/draft/fragment/available": 1, "/draft/fragment/queue": 1},
-		"target":   {"/draft/fragment/tape-rows": 1, "/draft/fragment/queue": 1},
+		"fallback": {"/draft/fragment/command": 1, "/draft/fragment/tape": 1, "/draft/fragment/available": 1, "/draft/fragment/queue": 1, "/draft/fragment/pickbar": 1},
+		"target":   {"/draft/fragment/tape-rows": 1, "/draft/fragment/queue": 1, "/draft/fragment/pickbar": 1},
 	}[mode]
 	const tag = `(function(){var e=document.querySelector('[data-pick-clock]');e.__id=e.__id||String(Math.random());return e.__id})()`
 	identity := evalString(t, ctx, tag)
@@ -376,11 +380,18 @@ func assertSingleTapeStructure(t *testing.T, ctx context.Context, when string) {
 // region's own full re-render on every draft:pick, never the deleted
 // prepend's growing, key-deduped child list. Exactly one
 // /draft/fragment/tape-rows fetch lands per pick.
+//
+// This is target mode's own tape-rows region specifically (DRAFT_LIVE_MODE
+// now defaults to fallback, draftLiveMode's own doc comment, page.server.go
+// — spruce audit, 2026-09-04); fallback mode fetches the whole-pane
+// /draft/fragment/tape instead, with no separate tape-rows endpoint at
+// all, so this scenario asks for target mode explicitly rather than
+// relying on whatever the default happens to be.
 func TestBrowserTapeHeaderOrderCrossesRoundBoundary(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
 	}
-	child, league, ctx := startBrowserDraft(t)
+	child, league, ctx := startBrowserDraftWith(t, "DRAFT_LIVE_MODE=target")
 	ledger := newFetchLedger()
 	listenLedger(t, ctx, ledger)
 	signInAsManager(t, ctx, child, league.bots[len(league.bots)-1])
@@ -433,11 +444,17 @@ func TestBrowserTapeHeaderOrderCrossesRoundBoundary(t *testing.T) {
 // node count staying stable across every undo — the single plain-replace
 // region can never nest or duplicate itself the way the deleted
 // prepend/undo-region pair once did.
+//
+// Target mode's own nested live-root/region shape specifically (spruce
+// audit, 2026-09-04: DRAFT_LIVE_MODE now defaults to fallback,
+// draftLiveMode's own doc comment) — fallback mode's tape pane carries
+// neither a live root nor a nested region (the whole pane is one plain
+// region instead), so this asks for target mode explicitly.
 func TestBrowserRepeatedUndoReplacesTheTapeWholesale(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
 	}
-	child, league, ctx := startBrowserDraft(t)
+	child, league, ctx := startBrowserDraftWith(t, "DRAFT_LIVE_MODE=target")
 	ledger := newFetchLedger()
 	listenLedger(t, ctx, ledger)
 	signInAsManager(t, ctx, child, league.bots[len(league.bots)-1])
@@ -672,11 +689,19 @@ func TestBrowserRosterNeedsAndAutopickUpdateAcrossARound(t *testing.T) {
 // own room.auto bind (a live bind, zero fetches — never a region) and the
 // my-team pane's Room tab (now a region refetch, finding 4) must both
 // update and end up in agreement.
+//
+// The command bar's "zero fetches, ever" property is target mode's own
+// (spruce audit, 2026-09-04: DRAFT_LIVE_MODE now defaults to fallback,
+// draftLiveMode's own doc comment) — fallback mode's command bar is a
+// region like every other pane and fetches by design (that is the fix for
+// J1 F1/F7 and J2 F7/F8/F15: a stale command bar is exactly what a
+// zero-fetch bind-only bar could not avoid). This scenario asks for
+// target mode explicitly to keep proving ITS OWN zero-fetch guarantee.
 func TestBrowserSeatToggleKeepsCommandAndMyTeamRoomCountsInAgreement(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
 	}
-	child, league, ctx := startBrowserDraft(t)
+	child, league, ctx := startBrowserDraftWith(t, "DRAFT_LIVE_MODE=target")
 	ledger := newFetchLedger()
 	listenLedger(t, ctx, ledger)
 	viewer := league.bots[len(league.bots)-1]

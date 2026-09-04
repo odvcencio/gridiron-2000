@@ -8,6 +8,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - A practice draft at `/draft/practice`: a seated manager takes a few picks on the clock in a private copy of the draft room, in their real seat, against the other seats played by bots that draft from each seat's real Big Board. It uses the real pool, draft order, and pick clock, starts from round 1, 5, 10, or 15, runs three rounds, and saves nothing. Entry points sit on the home page, in the pre-draft checklist, and in /help.
 
+### Fixed
+- The draft room now updates itself while you keep it open: the DRAFT button, the "you're up" pill, the page heading, the paused-clock state, and the phone pick bar all refresh live instead of freezing at the state the page had when you loaded it. Live updates now default to the mode that refetches these regions on every pick, clock change, and state change; the faster fetchless mode stays available as an override for anyone who needs it.
+- The draft room's screen-reader announcement now names the team on the clock ("Los Delfines del Norte on the clock") instead of an internal seat code ("AQ2 on the clock").
+
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 
 Scope: GoSX v0.55.2 adoption, plus a phone-first pass over every route (anonymous, manager, commissioner)
