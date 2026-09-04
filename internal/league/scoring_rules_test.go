@@ -502,3 +502,54 @@ func TestScoringDataFormatSummaryTruthfulForShippedExampleConfig(t *testing.T) {
 		t.Error("format_summary claimed a punter for a preset with no P slot")
 	}
 }
+
+// TestScoringDataManagerLockNoteStatesTheSeasonFromConfig is F24 (2026-09-04
+// UX pass): the "SCORING EDITABLE UNTIL" masthead card carried a
+// commissioner-only deadline but rendered for every viewer (app/scoring's
+// draft-clock-panel gated it on data.locked only, never data.is_commissioner,
+// even though that flag already sits in this same map). A manager gets a
+// true-state sentence instead: "These rules are final for the <season>
+// season once week 1 kicks off.", with season read from cfg.Season, not
+// retyped.
+func TestScoringDataManagerLockNoteStatesTheSeasonFromConfig(t *testing.T) {
+	cfg := rulesFixtureConfig("a")
+	cfg.Season = 2026
+	svc := newRulesTestService(t, cfg, time.Now().Add(48*time.Hour))
+	data := svc.ScoringData(rulesTestRequest(t))
+	want := "These rules are final for the 2026 season once week 1 kicks off."
+	if got := data["manager_lock_note"]; got != want {
+		t.Errorf("manager_lock_note = %q, want %q", got, want)
+	}
+
+	cfg.Season = 2031
+	svc2 := newRulesTestService(t, cfg, time.Now().Add(48*time.Hour))
+	data2 := svc2.ScoringData(rulesTestRequest(t))
+	want2 := "These rules are final for the 2031 season once week 1 kicks off."
+	if got := data2["manager_lock_note"]; got != want2 {
+		t.Errorf("manager_lock_note = %q, want %q (a different season must produce a different sentence)", got, want2)
+	}
+}
+
+// TestScoringDataIsCommissionerReflectsTheViewer proves the flag
+// app/scoring/page.gsx must gate the deadline card on actually varies by
+// viewer, so a render-level regression that hardcodes it true (as demo
+// mode does for every OTHER field) cannot hide silently: demo mode grants
+// commissioner authority to every request, and a live (non-demo) request
+// with no signed-in commissioner does not.
+func TestScoringDataIsCommissionerReflectsTheViewer(t *testing.T) {
+	cfg := rulesFixtureConfig("a")
+
+	commissioner := newRulesTestService(t, cfg, time.Now().Add(48*time.Hour))
+	commissioner.demoMode = true
+	commissionerData := commissioner.ScoringData(rulesTestRequest(t))
+	if commissionerData["is_commissioner"] != true {
+		t.Errorf("is_commissioner = %v, want true in demo mode", commissionerData["is_commissioner"])
+	}
+
+	manager := newRulesTestService(t, cfg, time.Now().Add(48*time.Hour))
+	manager.demoMode = false
+	managerData := manager.ScoringData(rulesTestRequest(t))
+	if managerData["is_commissioner"] != false {
+		t.Errorf("is_commissioner = %v, want false for an unauthenticated non-demo request", managerData["is_commissioner"])
+	}
+}

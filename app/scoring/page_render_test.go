@@ -280,3 +280,47 @@ func TestScoringPageMastheadStatesTheFormatInWords(t *testing.T) {
 		}
 	}
 }
+
+// TestScoringPageCommissionerSeesDeadlineNotManagerSentence is F24's
+// page-render half (2026-09-04 UX pass), commissioner side: this
+// package's tests share one process-wide league.Default() singleton
+// (sync.Once, DEMO_MODE=true from an earlier test in this binary always
+// grants commissioner authority — see internal/league's own
+// TestScoringDataIsCommissionerReflectsTheViewer and
+// TestScoringDataManagerLockNoteStatesTheSeasonFromConfig for the
+// manager-role half of this gate, proven against an isolated *Service
+// that is not subject to the singleton). This test proves the .gsx
+// template actually reads data.is_commissioner: a commissioner sees the
+// "Scoring editable until" masthead card and never the manager-only
+// locked sentence.
+func TestScoringPageCommissionerSeesDeadlineNotManagerSentence(t *testing.T) {
+	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
+	t.Setenv("DEMO_MODE", "true")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
+	})
+	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
+		t.Fatalf("AddDir: %v", err)
+	}
+	handler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / (scoring page) = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Scoring editable until") && !strings.Contains(body, "LOCKED") {
+		t.Error("commissioner's scoring page lost both the editable-until and locked masthead states")
+	}
+	if strings.Contains(body, "kicks off") {
+		t.Error("commissioner's scoring page rendered the manager-only locked sentence")
+	}
+}

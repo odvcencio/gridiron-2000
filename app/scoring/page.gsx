@@ -59,13 +59,19 @@ func Page() Node {
 				</p>
 			</div>
 			<div class="draft-clock-panel">
-				<If cond={data.locked == false}>
-					<span>Scoring editable until</span>
-					<strong class="mono">{data.season_start}</strong>
+				<If cond={data.is_commissioner}>
+					<If cond={data.locked == false}>
+						<span>Scoring editable until</span>
+						<strong class="mono">{data.season_start}</strong>
+					</If>
+					<If cond={data.locked}>
+						<span>Scoring status</span>
+						<strong class="mono">LOCKED</strong>
+					</If>
 				</If>
-				<If cond={data.locked}>
+				<If cond={data.is_commissioner == false}>
 					<span>Scoring status</span>
-					<strong class="mono">LOCKED</strong>
+					<strong class="mono">{data.manager_lock_note}</strong>
 				</If>
 				<div class="draft-clock-meta">
 					<If cond={data.is_commissioner}>

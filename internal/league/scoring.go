@@ -318,6 +318,13 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 		"groups":          groups,
 		"scoring_note":    s.scoringNote(),
 		"format_summary":  s.scoringFormatSummary(),
+		// manager_lock_note (F24, 2026-09-04 UX pass): the "editable until"
+		// deadline is a commissioner-only fact — a manager has no Set
+		// buttons and no Danger zone on this same page — so the masthead
+		// card must not show it to every viewer. A manager instead reads
+		// this true, role-appropriate sentence, with the season read from
+		// cfg.Season rather than retyped.
+		"manager_lock_note": fmt.Sprintf("These rules are final for the %d season once week 1 kicks off.", s.cfg.Season),
 		"league":          s.leagueMapForViewer(r),
 		// Every section below renders THIS instance's live ruleset: config
 		// (s.cfg), the runtime roster/draft accessors (CurrentRoster,
