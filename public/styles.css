@@ -16813,3 +16813,17 @@ a.skip-link {
   letter-spacing: normal;
   text-transform: none;
 }
+
+/* F7: board-move and board-remove now return to #board-rank (the Big
+   Board panel itself) instead of #board-pool (the discovery pool below
+   it), so a phone manager lands back on the list they were reordering.
+   Neither anchor previously carried a scroll-margin-top, so the sticky
+   phone header (--mobile-bar-height, the same idiom #main-content and
+   #wire-feed/#wire-sources/#community-input already use) could still
+   cover the top of the landed panel. Unconditional, like #main-content's
+   own rule: harmless at desktop width, where no fixed header exists to
+   clear. */
+#board-rank,
+#board-pool {
+  scroll-margin-top: var(--mobile-bar-height);
+}

@@ -213,7 +213,7 @@ func Page() Node {
 			</If>
 		</div>
 		<div class="board-workspace">
-			<section class="player-pool">
+			<section class="player-pool" id="board-rank">
 				<div class="pool-toolbar">
 					<div>
 						<span class="section-index">01 // YOUR BOARD</span>
@@ -285,7 +285,7 @@ func Page() Node {
 							RemoveAction={actionPath("board-remove")}
 							CSRF={csrf.token}
 							ReturnTargetField={data.board_return_target_field}
-							ReturnTarget={data.board_return_target}
+							ReturnTarget={data.board_rank_return_target}
 							Position={data.pool_position}
 							Query={data.pool_query}
 							Page={data.pool_page}
