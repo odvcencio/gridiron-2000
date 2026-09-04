@@ -16765,6 +16765,25 @@ a.skip-link {
   flex: 0 0 auto;
 }
 
+/* F15: the rail's "ACTION CENTER · N URGENT" attention chip wrapped to
+   three lines with an orphaned "·" alone on the last line
+   (app/layout.gsx, .rail-head .rail-attention-chip's own white-space:
+   normal, above). Two explicit, non-breaking lines replace the loose,
+   separator-joined text run: "ACTION CENTER" over "N URGENT", each its
+   own nowrap unit, so the chip can wrap at most once, between the lines,
+   never inside one. */
+.rail-head .rail-attention-chip {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+}
+.rail-attention-chip__line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  white-space: nowrap;
+}
+
 /* F3: the anonymous home hero's sign-in button was clipped at the
    1440x900 fold and off-screen entirely at 720x450 (200% zoom) because
    two explanatory paragraphs (.entry-note, .entry-policy-detail) sat
