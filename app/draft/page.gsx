@@ -637,10 +637,19 @@ func DraftRoom(props DraftRoomProps) Node {
 					<div class="checklist-item">
 						<span class="checklist-mark mono">02</span>
 						<div class="checklist-item__text">
-							<strong>Check in as ready</strong>
-							<small>Mark yourself ready after your Big Board is set. Then keep this tab open so the commissioner can also see that you are HERE.</small>
+							<strong>Check in for the draft</strong>
+							<small>Mark yourself checked in after your Big Board is set. Then keep this tab open so the commissioner can also see that you are HERE.</small>
 						</div>
-						<a href="#ready-toggle" class="board-button">Check in now ↑</a>
+						<form method="post" action={props.Actions.toggle_ready} class="checklist-item__form" data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
+							<If cond={props.Data.viewer_ready}>
+								<button class="board-button checklist-item__checkin" type="submit">Undo check-in</button>
+							</If>
+							<If cond={props.Data.viewer_ready == false}>
+								<button class="board-button checklist-item__checkin" type="submit">Check in for the draft</button>
+							</If>
+						</form>
 					</div>
 					</If>
 					<If cond={props.Data.viewer.has_seat == false && props.Data.public_entry.can_claim}>
@@ -683,7 +692,18 @@ func DraftRoom(props DraftRoomProps) Node {
 							<strong>Autopick covers you if you disappear</strong>
 							<small>Turn it on before the draft if you might miss your pick.</small>
 						</div>
-						<a href="#autopick-toggle" class="board-button">Autopick toggle ↑</a>
+						<form method="post" action={props.Actions.toggle_autopick} class="checklist-item__form" data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
+							<If cond={props.Data.viewer_autopick}>
+								<input type="hidden" name="on" value="false"></input>
+								<button class="board-button checklist-item__checkin" type="submit">Turn autopick off</button>
+							</If>
+							<If cond={props.Data.viewer_autopick == false}>
+								<input type="hidden" name="on" value="true"></input>
+								<button class="board-button checklist-item__checkin" type="submit">Turn autopick on</button>
+							</If>
+						</form>
 					</div>
 					</If>
 				</div>
@@ -1399,10 +1419,10 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 							<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
 							<If cond={props.Data.viewer_ready}>
-								<button class="btn btn-sm" type="submit" aria-pressed="true">Undo ready check-in</button>
+								<button class="btn btn-sm" type="submit" aria-pressed="true">Undo check-in</button>
 							</If>
 							<If cond={props.Data.viewer_ready == false}>
-								<button class="btn btn-sm btn-primary" type="submit" aria-pressed="false">Mark me ready</button>
+								<button class="btn btn-sm btn-primary" type="submit" aria-pressed="false">Check in for the draft</button>
 							</If>
 						</form>
 						</If>
@@ -2186,10 +2206,10 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
 						<If cond={props.Data.viewer_ready}>
-							<button class="btn btn-sm" type="submit" aria-pressed="true">Undo ready check-in</button>
+							<button class="btn btn-sm" type="submit" aria-pressed="true">Undo check-in</button>
 						</If>
 						<If cond={props.Data.viewer_ready == false}>
-							<button class="btn btn-sm btn-primary" type="submit" aria-pressed="false">Mark me ready</button>
+							<button class="btn btn-sm btn-primary" type="submit" aria-pressed="false">Check in for the draft</button>
 						</If>
 					</form>
 				</div>
@@ -2802,14 +2822,21 @@ func DraftHistory(props DraftHistoryProps) Node {
 // page controls — the copy now describes it that way instead of
 // contradicting the button.
 type DraftPreflightProps struct {
-	Data map[string]any
+	Data    map[string]any
+	CSRF    string
+	Actions map[string]string
 }
 
 func DraftPreflight(props DraftPreflightProps) Node {
 	return <details class="draft-preflight" aria-labelledby="draft-preflight-title">
 		<summary class="draft-preflight__summary">
 			<span class="section-index">BEFORE THE ROOM OPENS</span>
-			<h2 id="draft-preflight-title">Get your seat ready</h2>
+			<If cond={props.Data.viewer.has_seat}>
+				<h2 id="draft-preflight-title">Get your seat ready</h2>
+			</If>
+			<If cond={props.Data.viewer.has_seat == false}>
+				<h2 id="draft-preflight-title">You are watching this draft</h2>
+			</If>
 			<small class="draft-preflight__hint mono">Open the checklist</small>
 		</summary>
 		<div class="checklist">
@@ -2845,10 +2872,19 @@ func DraftPreflight(props DraftPreflightProps) Node {
 				<div class="checklist-item">
 					<span class="checklist-mark mono">03</span>
 					<div class="checklist-item__text">
-						<strong>Check in as ready</strong>
-						<small>Mark yourself ready after your Big Board is set. Then keep this tab open so the commissioner can also see that you are HERE.</small>
+						<strong>Check in for the draft</strong>
+						<small>Mark yourself checked in after your Big Board is set. Then keep this tab open so the commissioner can also see that you are HERE.</small>
 					</div>
-					<a href="#ready-toggle" class="board-button">Check in now ↑</a>
+					<form method="post" action={props.Actions.toggle_ready} class="checklist-item__form" data-gosx-managed="true">
+						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+						<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
+						<If cond={props.Data.viewer_ready}>
+							<button class="board-button checklist-item__checkin" type="submit">Undo check-in</button>
+						</If>
+						<If cond={props.Data.viewer_ready == false}>
+							<button class="board-button checklist-item__checkin" type="submit">Check in for the draft</button>
+						</If>
+					</form>
 				</div>
 			</If>
 			<If cond={props.Data.viewer.has_seat == false && props.Data.public_entry.can_claim}>
@@ -2866,7 +2902,12 @@ func DraftPreflight(props DraftPreflightProps) Node {
 					<span class="checklist-mark mono">02</span>
 					<div class="checklist-item__text">
 						<strong>{props.Data.public_entry.state_label}</strong>
-						<small>{props.Data.public_entry.detail}</small>
+						<If cond={props.Data.public_entry.admitted && props.Data.public_entry.league_full}>
+							<small>Ask your commissioner for a seat.</small>
+						</If>
+						<If cond={(props.Data.public_entry.admitted && props.Data.public_entry.league_full) == false}>
+							<small>{props.Data.public_entry.detail}</small>
+						</If>
 					</div>
 					<a href={props.Data.public_entry.action_href} data-gosx-link class="board-button">{props.Data.public_entry.action_label}</a>
 					<If cond={props.Data.public_entry.admitted == false}>
@@ -2892,7 +2933,18 @@ func DraftPreflight(props DraftPreflightProps) Node {
 						<strong>Autopick covers you if you disappear</strong>
 						<small>Turn it on before the draft if you might miss your pick.</small>
 					</div>
-					<a href="#autopick-toggle" class="board-button">Autopick toggle ↑</a>
+					<form method="post" action={props.Actions.toggle_autopick} class="checklist-item__form" data-gosx-managed="true">
+						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+						<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
+						<If cond={props.Data.viewer_autopick}>
+							<input type="hidden" name="on" value="false"></input>
+							<button class="board-button checklist-item__checkin" type="submit">Turn autopick off</button>
+						</If>
+						<If cond={props.Data.viewer_autopick == false}>
+							<input type="hidden" name="on" value="true"></input>
+							<button class="board-button checklist-item__checkin" type="submit">Turn autopick on</button>
+						</If>
+					</form>
 				</div>
 			</If>
 		</div>
@@ -2930,7 +2982,7 @@ func Page() Node {
 		<DraftMobileTabs Complete={data.draft.complete} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams} TapeExplicit={data.history_tape_explicit} PicksHref={data.history_tape_href} BoardHref={data.history_board_href} TeamsHref={data.history_teams_href}></DraftMobileTabs>
 		<div class="draft-panes" data-history-board={data.history_view_board}>
 			<If cond={data.draft.started == false}>
-				<DraftPreflight Data={data}></DraftPreflight>
+				<DraftPreflight {...data.preflight}></DraftPreflight>
 			</If>
 			<section class="draft-pane draft-pane--history" aria-labelledby="draft-history-title">
 				<DraftHistoryHead Started={data.draft.started} Complete={data.draft.complete} ShowTape={data.history_view_tape} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams} TapeHref={data.history_tape_href} BoardHref={data.history_board_href} TeamsHref={data.history_teams_href}></DraftHistoryHead>

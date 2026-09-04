@@ -17137,3 +17137,83 @@ a.skip-link {
     width: auto;
   }
 }
+
+/* comb — maple (2026-09-04 UX pass) */
+
+/* F1: the checklist's own check-in/autopick controls (app/draft/page.gsx,
+   DraftPreflight) now post a real <form> instead of a #ready-toggle/
+   #autopick-toggle fragment link into the Room tab's own pane, hidden at
+   every desktop width. .checklist-item > .board-button already holds its
+   own width against the flexible label column beside it (D16/D17 fix,
+   above); the form wrapper needs the same treatment now that a <form>,
+   not the button itself, is the direct flex child of .checklist-item. */
+.checklist-item > .checklist-item__form {
+  flex: 0 0 auto;
+}
+
+/* F15: the rail's "ACTION CENTER · N URGENT" attention chip wrapped to
+   three lines with an orphaned "·" alone on the last line
+   (app/layout.gsx, .rail-head .rail-attention-chip's own white-space:
+   normal, above). Two explicit, non-breaking lines replace the loose,
+   separator-joined text run: "ACTION CENTER" over "N URGENT", each its
+   own nowrap unit, so the chip can wrap at most once, between the lines,
+   never inside one. */
+.rail-head .rail-attention-chip {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+}
+.rail-attention-chip__line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  white-space: nowrap;
+}
+
+/* F3: the anonymous home hero's sign-in button was clipped at the
+   1440x900 fold and off-screen entirely at 720x450 (200% zoom) because
+   two explanatory paragraphs (.entry-note, .entry-policy-detail) sat
+   ABOVE .hero-actions in visual order at every width except phone. The
+   phone-only reorder (.hero-command__copy, width<=38rem block above) is
+   now unconditional: .hero-actions renders right after the short
+   .entry-status line at every width, the same order the phone layout
+   already proved out. Source order (and the tab order that follows it)
+   is unchanged; only the visual order moves. */
+.hero-command__copy {
+  display: flex;
+  flex-direction: column;
+}
+.hero-command__copy > .entry-note,
+.hero-command__copy > .entry-policy-detail,
+.hero-command__copy > .demo-message {
+  order: 1;
+}
+.hero-command__copy > .entry-note {
+  margin-top: var(--space-md);
+}
+
+/* F3: a short-but-wide viewport landing between the two existing
+   .display--hero overrides (the width<=38rem phone rule and the
+   max-height:520px short-viewport rule, both above) still sized the
+   headline by viewport WIDTH alone, so it could still consume a
+   disproportionate share of a short window's height. This adds a
+   viewport-height ceiling for exactly that gap, without touching either
+   pinned rule. */
+@media (width > 38rem) and (height > 520px) {
+  .display--hero {
+    font-size: min(var(--type-display), 12vh);
+  }
+}
+
+/* F3: at 720x450 (200% zoom), the headline cap and the .hero-actions
+   reorder above still left the sign-in button's bottom edge ~13px past
+   the fold — .hero-deck's own --space-lg bottom margin, tuned for a full-
+   height viewport, was the remaining slack. Reusing the same short-
+   viewport gate .display--hero's own max-height:520px rule already
+   applies (above) keeps this change scoped to exactly the viewports that
+   need it. */
+@media (max-height: 520px) {
+  .hero-deck {
+    margin-bottom: var(--space-sm);
+  }
+}

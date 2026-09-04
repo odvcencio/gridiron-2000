@@ -3507,17 +3507,18 @@ func (s *Service) LoginData(r *http.Request, configured bool) map[string]any {
 		next = navigation.SafeReturnPath(r.URL.Query().Get("next"))
 	}
 	return map[string]any{
-		"viewer":          viewer,
-		"public_entry":    s.PublicEntryDataForViewer(r, viewer),
-		"configured":      configured,
-		"demo_mode":       s.demoMode,
-		"seats":           len(s.Teams()),
-		"seat_numbers":    seatNumbers(len(s.Teams())),
-		"league":          s.leagueMapForViewer(r),
-		"draft":           s.draftSummary(s.clock()),
-		"oauth_start":     navigation.OAuthStartPath(next),
-		"return_path":     next,
-		"has_return_path": next != navigation.DefaultReturnPath,
+		"viewer":            viewer,
+		"public_entry":      s.PublicEntryDataForViewer(r, viewer),
+		"configured":        configured,
+		"demo_mode":         s.demoMode,
+		"seats":             len(s.Teams()),
+		"seat_numbers":      seatNumbers(len(s.Teams())),
+		"league":            s.leagueMapForViewer(r),
+		"draft":             s.draftSummary(s.clock()),
+		"oauth_start":       navigation.OAuthStartPath(next),
+		"return_path":       next,
+		"has_return_path":   next != navigation.DefaultReturnPath,
+		"return_path_label": navigation.PageLabel(next),
 	}
 }
 

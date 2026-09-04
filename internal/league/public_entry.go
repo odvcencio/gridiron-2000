@@ -92,12 +92,16 @@ func (s *Service) publicEntryViewForViewerState(r *http.Request, viewer map[stri
 	signedIn, _ := viewer["signed_in"].(bool)
 	if !signedIn {
 		// A full league must not promise an anonymous viewer a seat that does
-		// not exist. Sign-in still gets them admission and, while every
-		// franchise is assigned, the waitlist/spectator posture the signed-in
-		// admitted_seatless_full state below already describes — Pick'em and
-		// spectator access, not a franchise claim.
+		// not exist, but it also must not replace the one instruction every
+		// anonymous visitor needs (sign in) with a rejection notice aimed at
+		// a person the runtime has not identified yet (comb — maple, F2,
+		// 2026-09-04: the headline used to flip to "EVERY FRANCHISE SEAT IS
+		// TAKEN.", which read as a locked door to a seated manager arriving
+		// to sign in). The headline stays "SIGN IN TO ENTER." at every seat
+		// count; the full-league truth lives in the detail line below (and
+		// the seat meter), where a seated manager reads it as background
+		// fact rather than a headline about them.
 		if view.LeagueFull {
-			view.Headline = "EVERY FRANCHISE SEAT IS TAKEN."
 			view.Detail = "Sign in with your Google account to confirm admission. Every configured franchise is currently assigned; Pick'em and spectator access stay open for admitted managers while a seat opens."
 		}
 		return view

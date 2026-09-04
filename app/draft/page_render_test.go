@@ -145,21 +145,31 @@ func TestDraftPageSeatlessOmitsControlsButKeepsOnboardingFixtureProcess(t *testi
 
 	seated := renderDraftForUser(t, handler, seatedEmail)
 	for _, want := range []string{
-		"#ready-toggle",
-		"#autopick-toggle",
 		"toggle-ready",
 		"toggle-autopick",
 		"make-pick",
 		"Check in once your Big Board is set.",
-		"Mark me ready",
+		"Check in for the draft",
 		`class="btn btn-sm btn-primary"`,
 		`data-ready="false"`,
 		`data-on-clock="false"`,
 		`aria-pressed="false"`,
-		"Check in now ↑",
+		// F1 (comb — maple, 2026-09-04 UX pass): the checklist's own
+		// check-in and autopick items now post the real toggle forms
+		// (same action/fields the Room tab's own controls use) instead of
+		// a fragment link to an element a collapsed radio pane hides at
+		// every desktop width.
+		`class="checklist-item__form" data-gosx-form`,
 	} {
 		if !strings.Contains(seated, want) {
 			t.Errorf("seated draft page missing %q: %s", want, seated)
+		}
+	}
+	// F13: one vocabulary everywhere this action appears — the old names
+	// must not render anywhere on the page.
+	for _, forbidden := range []string{"Mark me ready", "Check in as ready", "Undo ready check-in", "Check in now ↑", "Autopick toggle ↑"} {
+		if strings.Contains(seated, forbidden) {
+			t.Errorf("seated draft page rendered retired check-in vocabulary %q: %s", forbidden, seated)
 		}
 	}
 }

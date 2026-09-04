@@ -102,7 +102,11 @@ func TestLoginGoogleControlDisabledWithAlertNoteWhenUnconfigured(t *testing.T) {
 	if alertIndex < 0 {
 		t.Fatalf("unconfigured login console has no role=\"alert\" note: %s", html)
 	}
-	if !strings.Contains(html, "Sign-in is not open yet") {
+	// F25 (comb — maple, 2026-09-04 UX pass): "Sign-in is not open yet"
+	// read as a league policy ("the commissioner has not opened sign-in
+	// yet") when the real fault is an unconfigured deployment. The note
+	// now names the actual cause.
+	if !strings.Contains(html, "Google sign-in is not set up on this server yet") {
 		t.Fatalf("unconfigured login console omitted the setup note: %s", html)
 	}
 	buttonIndex := strings.Index(html, `class="google-button"`)

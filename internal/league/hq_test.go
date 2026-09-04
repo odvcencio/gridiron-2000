@@ -101,6 +101,42 @@ func TestActionCenterUsesRescheduledDraftMeeting(t *testing.T) {
 	t.Fatalf("no predraft action in %#v", actions)
 }
 
+// TestBuildActionCenterOrdersByNearestDeadlineNotFixedPriority is F12
+// (comb — maple, 2026-09-04 UX pass): a Wednesday Pick'em lock used to sort
+// ahead of a Sunday draft meeting because "deadline" was a fixed-rank
+// priority ahead of "preparation", regardless of which one the calendar
+// actually put first. The draft is Sunday here, three days before the
+// Wednesday Pick'em lock; the draft cards must lead.
+func TestBuildActionCenterOrdersByNearestDeadlineNotFixedPriority(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)             // Thursday
+	sunday := time.Date(2026, 9, 6, 16, 5, 0, 0, time.UTC)          // draft meeting
+	wednesday := time.Date(2026, 9, 9, 20, 20, 0, 0, time.UTC)      // pick'em lock
+	got := BuildActionCenter(ActionCenterFacts{
+		Now: now, Location: time.UTC, Admitted: true, HasSeat: true,
+		DraftAt: sunday, BoardCount: 0, Ready: false,
+		Pickem: ActionCenterPickemFacts{Week: 1, GameCount: 16, OpenUnpicked: 16, HasNextOpenLock: true, NextOpenLock: wednesday},
+	})
+	var order []string
+	for _, action := range got.Actions {
+		order = append(order, action.ID)
+	}
+	index := func(id string) int {
+		for i, want := range order {
+			if want == id {
+				return i
+			}
+		}
+		return -1
+	}
+	pickemAt, boardAt, readyAt := index("pickem-open"), index("draft-board"), index("draft-ready")
+	if pickemAt < 0 || boardAt < 0 || readyAt < 0 {
+		t.Fatalf("expected draft-board, draft-ready, and pickem-open all present: %v", order)
+	}
+	if boardAt > pickemAt || readyAt > pickemAt {
+		t.Fatalf("draft cards (Sunday, nearer) must sort before the pick'em card (Wednesday, later): %v", order)
+	}
+}
+
 func TestBuildActionCenterSeasonCompleteSuppressesWeeklyTasks(t *testing.T) {
 	got := BuildActionCenter(ActionCenterFacts{
 		Now:      time.Date(2026, 12, 1, 12, 0, 0, 0, time.UTC),

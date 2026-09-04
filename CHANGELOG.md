@@ -49,6 +49,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A long player name on the team page shows in full at phone width instead of clipping to a few characters.
 - Opening the player pool's phone filter panel no longer jumps the page or draws the panel outside its card.
 - The player pool's roster-full error names the player you tried to add or claim.
+### Fixed
+- The draft room's pre-draft checklist checks a manager in directly; the check-in and autopick items post the same controls the Room tab uses, at every width, instead of a link to a hidden panel.
+- One name for the draft check-in everywhere it appears: "Check in for the draft" to act, "Undo check-in" to reverse it.
+- The anonymous landing page keeps "Sign in to enter." as its headline at every seat count; a full league states the fact in the detail line instead of the headline.
+- The home page's sign-in button sits above the two explanatory paragraphs at every width, and the headline never grows taller than the viewport allows.
+- The home Action Center sorts cards by time remaining to their deadline, so the nearer event leads regardless of its priority label.
+- The rail's attention chip wraps to two clean lines instead of three, with no stray separator on its own line.
+- The draft room tells a member with no seat "You are watching this draft" and, once a seat cannot be claimed, "Ask your commissioner for a seat" instead of "Get your seat ready."
+- Signing in with a saved destination names the destination ("the Draft room") instead of "the page you requested."
+- An unconfigured Google sign-in reads "Google sign-in is not set up on this server yet" instead of "Sign-in is not open yet," which read as a league policy.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 

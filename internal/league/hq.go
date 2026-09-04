@@ -509,17 +509,39 @@ func weekCloseAction(f ActionCenterFacts) *ActionCenterAction {
 	}
 }
 
+// actionCenterSortBucket groups actions for sortActionCenterActions (comb —
+// maple, F12, 2026-09-04). Entry/on-clock actions describe something the
+// viewer must resolve right now, unrelated to a calendar deadline, so they
+// always lead. Every other action with a real due date sorts by how much
+// time is actually left before it (bucket 1): a Sunday draft meeting reads
+// before a Wednesday Pick'em lock even though "deadline" outranked
+// "preparation" as a fixed label before this fix — the priority word stays
+// as a chip, not a sort key. Actions with no due date at all (a reviewed
+// lineup, an open trade inbox) have no clock to compare, so they fall back
+// to the old fixed priority order, last.
+func actionCenterSortBucket(a ActionCenterAction) int {
+	switch a.Priority {
+	case ActionCenterPriorityEntry, ActionCenterPriorityOnClock:
+		return 0
+	}
+	if a.HasDueAt {
+		return 1
+	}
+	return 2
+}
+
 func sortActionCenterActions(actions []ActionCenterAction) {
 	sort.SliceStable(actions, func(i, j int) bool {
+		bi, bj := actionCenterSortBucket(actions[i]), actionCenterSortBucket(actions[j])
+		if bi != bj {
+			return bi < bj
+		}
+		if bi == 1 && !actions[i].DueAt.Equal(actions[j].DueAt) {
+			return actions[i].DueAt.Before(actions[j].DueAt)
+		}
 		ri, rj := actionCenterPriorityRank(actions[i].Priority), actionCenterPriorityRank(actions[j].Priority)
 		if ri != rj {
 			return ri < rj
-		}
-		if actions[i].HasDueAt != actions[j].HasDueAt {
-			return actions[i].HasDueAt
-		}
-		if actions[i].HasDueAt && !actions[i].DueAt.Equal(actions[j].DueAt) {
-			return actions[i].DueAt.Before(actions[j].DueAt)
 		}
 		return actions[i].ID < actions[j].ID
 	})
