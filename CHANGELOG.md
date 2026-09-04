@@ -29,6 +29,24 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The draft room now updates itself while you keep it open: the DRAFT button, the "you're up" pill, the page heading, the paused-clock state, and the phone pick bar all refresh live instead of freezing at the state the page had when you loaded it. Live updates now default to the mode that refetches these regions on every pick, clock change, and state change; the faster fetchless mode stays available as an override for anyone who needs it.
 - The draft room's screen-reader announcement now names the team on the clock ("Los Delfines del Norte on the clock") instead of an internal seat code ("AQ2 on the clock").
 
+### Fixed
+- On a phone, a live draft no longer tells you the room has not opened yet: the pick bar now shows your own on-clock prompt while the draft is live, and a link to results once it is complete.
+- The draft pool's player names stay readable once the draft goes live, on both phone and desktop, instead of collapsing to one or two characters once the value-versus-ADP column appears.
+- The phone pick bar's Draft button no longer breaks its own label into three stacked letters.
+- "Your pick in N" is reachable from the phone MENU sheet even when you are not on the clock.
+- The MENU control's own label no longer renders upside down while its sheet is open.
+- The paused pick clock reads "Paused · 2:00 left" instead of "PAUSED OF 2:00".
+- A pick's confirmation toast no longer covers the pick bar on a phone or the room's own status line on desktop.
+- The Big Board rail keeps player names readable at 1280 and 1440 instead of collapsing them to one or two characters.
+- Drafting a player from the pool now asks you to confirm before it posts: the button opens to "Confirm <player>" on the first tap and posts on the second. Drafting a kicker, punter, or defense before the last three rounds also asks "Specialists usually go late. Draft anyway?"
+- The Teams and Draft grid panels in the room now show their own heading instead of "Pick history" on every tab.
+- The pick tape no longer breaks a pick number across two lines.
+- The room's Draft and Add-to-board buttons now announce the player's name to a screen reader instead of a bare "Draft"/"+ RANK" repeated on every row.
+- A refused pick now reads as a plain sentence ("That pick is not allowed: <reason>.") instead of a raw, lower-case error fragment.
+- `/board` rows keep the same shape from row to row, and the move-up/move-down buttons meet the 44px touch-target floor on a phone.
+- The room's pick-history tabs ("Picks", "Draft grid", "Teams") stay on one line at desktop width instead of wrapping one letter per line.
+- The room flags the on-clock team as "Not in the room" when that seat has not been seen recently.
+
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 
 Scope: GoSX v0.55.2 adoption, plus a phone-first pass over every route (anonymous, manager, commissioner)
