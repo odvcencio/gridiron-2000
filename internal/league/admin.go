@@ -1683,15 +1683,22 @@ func draftStartReadiness(pool playerPool, demo bool, required int) error {
 // re-arm while the clock is paused, so this always passes a computed
 // deadline; it is simply unused in that case (see AdminResumeClock for
 // the same "state, then one store call" shape).
-func (s *Service) AdminUndoPick(r *http.Request, expectedToken string) error {
+//
+// It returns the removed pick and its resolved player/team (gap-audit
+// F25): the caller builds "undid pick 42: In Shedeur Time / Bucky Irving"
+// for both the commissioner-event log (the /activity record a manager
+// asking "what did the commissioner undo?" reads) and the drawer's own
+// confirm-panel consequence sentence, matching the shape
+// AdminForceAutopick already returns for the same reason.
+func (s *Service) AdminUndoPick(r *http.Request, expectedToken string) (DraftPick, Player, Team, error) {
 	if err := s.requireCommissioner(r); err != nil {
-		return err
+		return DraftPick{}, Player{}, Team{}, err
 	}
 	now := s.clock()
 	state := s.store.Snapshot()
 	token := strings.TrimSpace(expectedToken)
 	if token == "" || token != draftPreviousPickToken(state) {
-		return errAdminActionStale
+		return DraftPick{}, Player{}, Team{}, errAdminActionStale
 	}
 	// draftPreviousPickToken returns "" for zero picks (confirmations.go),
 	// which the check above already rejects (token == "" fails it before
@@ -1699,11 +1706,11 @@ func (s *Service) AdminUndoPick(r *http.Request, expectedToken string) error {
 	// assertion, not dead code: a future change to that token function must
 	// not turn a stale-token rejection into an index panic on the next line.
 	if len(state.Picks) == 0 {
-		return errors.New("no picks to undo")
+		return DraftPick{}, Player{}, Team{}, errors.New("no picks to undo")
 	}
 	removed := state.Picks[len(state.Picks)-1]
 	if err := s.store.UndoLastPickIfCurrent(now, s.pickClock(state), token); err != nil {
-		return err
+		return DraftPick{}, Player{}, Team{}, err
 	}
 	snapshot := s.store.Snapshot()
 	s.emitDraftUndo(snapshot, removed, now)
@@ -1715,10 +1722,13 @@ func (s *Service) AdminUndoPick(r *http.Request, expectedToken string) error {
 		s.draftCompleteEmitted.Store(false)
 		s.emitDraftState(snapshot, now, true, false)
 	}
-	if _, err := s.RecordCommissionerEvent(r, "draft.undo_pick", "undid the last pick", CommissionerEventRefs{TeamID: removed.TeamID, PlayerID: removed.PlayerID}); err != nil {
+	player := s.pool().byID[removed.PlayerID]
+	team := s.teamByID(removed.TeamID)
+	summary := fmt.Sprintf("undid pick %d: %s / %s", removed.Number, team.Name, player.Name)
+	if _, err := s.RecordCommissionerEvent(r, "draft.undo_pick", summary, CommissionerEventRefs{TeamID: removed.TeamID, PlayerID: removed.PlayerID}); err != nil {
 		log.Printf("commissioner event: draft.undo_pick: %v", err)
 	}
-	return nil
+	return removed, player, team, nil
 }
 
 // AdminExtendClock adds secs to the running deadline, clamped to

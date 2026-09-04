@@ -243,7 +243,7 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 	// comb — oleander, item 7: "NOT SEEN may receive the short safety
 	// clock only after the two-minute boot grace" is now plain language
 	// — see page.gsx's own doc comment at the rewritten copy.
-	for _, want := range []string{`id="draft-commissioner"`, `data-gosx-disclosure-modal`, `role="dialog"`, `aria-modal="true"`, `data-gosx-disclosure-target="#draft-commissioner"`, `data-gosx-disclosure-close="#draft-commissioner"`, `data-gosx-disclosure-initial-focus`, `value="60"`, `value="90"`, `value="120"`, `value="180"`, `value="300"`, `max="600"`, "Draft is running", "FORCE CURRENT PICK", "draft-undo", "previous_pick_token", "Seats get two minutes after a restart before they count as unseen for the short backup clock."} {
+	for _, want := range []string{`id="draft-commissioner"`, `data-gosx-disclosure-modal`, `role="dialog"`, `aria-modal="true"`, `data-gosx-disclosure-target="#draft-commissioner"`, `data-gosx-disclosure-close="#draft-commissioner"`, `data-gosx-disclosure-initial-focus`, `value="60"`, `value="90"`, `value="120"`, `value="180"`, `value="300"`, `max="600"`, "Running. The clock controls below are live.", "FORCE CURRENT PICK", "draft-undo", "previous_pick_token", "Seats get two minutes after a restart before they count as unseen for the short backup clock."} {
 		if !strings.Contains(drawer, want) {
 			t.Errorf("commissioner drawer missing %q", want)
 		}

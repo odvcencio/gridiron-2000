@@ -11,6 +11,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - The commissioner drawer's seat coverage grid no longer squeezes into four overlapping columns at desktop width; it stays one column inside the drawer at every viewport.
 - On a phone, the commissioner drawer's "Force current pick now" and "Undo last pick" controls no longer sit off-screen in hidden side columns.
+- Undoing a pick from the draft room's commissioner drawer returns to the room instead of throwing the commissioner onto the console's Danger Zone.
+- The activity feed and the pick tape name who actually made a pick: an autopick reads "Autopick for `<team>` selects `<player>`" and a commissioner's forced pick reads "Commissioner picks `<player>` for `<team>`", instead of both reading like the manager's own pick.
+- A seat on the 20-second not-seen safety clock shows why its clock is short, in the room's command bar and in the commissioner drawer, instead of the room implying the seat still has the full two minutes.
+- The commissioner drawer states the clock's true state ("Paused · 1:44 left" or "Running") instead of always claiming the draft is running, and makes the one action actually available (Pause or Resume) the bright button, with the other disabled and its reason named.
+- Extend Pick defaults to 60 seconds instead of an empty field, and its error names the seconds field with a worked example instead of a bare lowercase sentence. Error toasts now read with a distinct color and an "Error:" label instead of matching a success toast's plain panel.
+- The commissioner drawer's clock and seat actions return with the drawer already open, instead of closing it after every action.
+- The undo record names the pick it removed ("undid pick 42: In Shedeur Time / Bucky Irving") instead of only "undid the last pick," and the drawer's own undo confirmation names the pick before asking for the typed confirmation.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 

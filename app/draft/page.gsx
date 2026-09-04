@@ -767,7 +767,8 @@ func DraftRoom(props DraftRoomProps) Node {
 					<form method="post" action={props.Actions.clock_extend} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="current_pick_token" value={props.Data.current_pick_token}></input>
-						<input class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
+						<label class="visually-hidden" for="draft-team-extend-seconds">Seconds to add to the running pick</label>
+						<input id="draft-team-extend-seconds" class="scoring-input" type="number" name="seconds" value="60" min="1" max="600"></input>
 						<button class="button button--compact" type="submit">Extend pick</button>
 					</form>
 					<form method="post" action={props.Actions.clock_duration} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
@@ -958,6 +959,7 @@ type TapePick struct {
 	AvatarImageURL                                 string
 	PlayerID, PlayerName, Position, NFLTeam        string
 	MadeBy                                         string
+	AttributionLine                                string
 	IsAuto, IsCommissioner, Mine                   bool
 	TimeToPickSec                                  int
 	TimeToPick                                     string
@@ -1354,7 +1356,15 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 				<If cond={props.Data.draft.complete}>
 					<strong class="pick-clock mono" data-pick-clock data-gosx-countdown-format="mm:ss" aria-live="off">FINAL</strong>
 				</If>
-				<If cond={props.Data.draft.complete == false}>
+				{/* F4 (gap-audit J2): a seat on the 20s not-seen safety clock
+				    showed "0:16 of 2:00", implying the full pick clock still
+				    applied. The commissioner and every manager in the room
+				    read the wrong deadline; this names the real cap and why
+				    it applies instead. */}
+				<If cond={props.Data.draft.complete == false && props.Data.clock.short_clock}>
+					<span class="idx">Short clock: {props.Data.on_clock.name} is not in the room ({props.Data.clock.short_clock_seconds} s)</span>
+				</If>
+				<If cond={props.Data.draft.complete == false && props.Data.clock.short_clock == false}>
 					<span class="idx">of <span data-gosx-live-bind="clock.duration_label">{props.Data.clock.duration_label}</span></span>
 				</If>
 			</If>
@@ -1536,10 +1546,19 @@ func DraftPracticeStrip(props DraftCommandBarProps) Node {
 // leaves the clock untouched), so keeping it up costs nothing and saves a
 // commissioner from a dead end if the room ever needs a manual restart.
 func DraftCommissionerDrawer(props DraftCommandBarProps) Node {
-	return <aside id="draft-commissioner" class="draft-drawer" data-gosx-disclosure data-gosx-disclosure-modal hidden role="dialog" aria-modal="true" aria-labelledby="draft-commissioner-title">
+	return <aside id="draft-commissioner" class="draft-drawer" data-gosx-disclosure data-gosx-disclosure-modal hidden={props.Data.commissioner_drawer_open == false} role="dialog" aria-modal="true" aria-labelledby="draft-commissioner-title">
 		<header class="draft-drawer__head">
 			<h2 id="draft-commissioner-title">Commissioner</h2>
-			<button type="button" class="btn btn-sm" aria-label="Close commissioner controls" data-gosx-disclosure-close="#draft-commissioner" data-gosx-disclosure-initial-focus>✕</button>
+			{/* F24 (gap-audit J2): a real href, not just a JS-only button.
+			    Every commissioner action inside this drawer re-renders the
+			    page through a soft navigation that re-opens the drawer from
+			    server-rendered state below (commissioner_drawer_open), with
+			    no client-side disclosure "record" left from the original
+			    open click — closing normally re-focuses that record's saved
+			    trigger, which no longer exists. A plain link back to the
+			    room works whether or not one does, in exactly the no-JS
+			    case this app already promises to support everywhere else. */}
+			<a href="/draft" class="btn btn-sm" aria-label="Close commissioner controls" data-gosx-disclosure-close="#draft-commissioner" data-gosx-disclosure-initial-focus>✕</a>
 		</header>
 		<div class="draft-drawer__body">
 			<If cond={props.Data.draft.complete == false && props.Data.draft.started == false}>
@@ -1551,22 +1570,55 @@ func DraftCommissionerDrawer(props DraftCommandBarProps) Node {
 				</form>
 			</If>
 			<If cond={props.Data.draft.complete == false && props.Data.draft.started}>
-				<p class="mono draft-drawer__note">Draft is running. The clock controls below are live.</p>
+				{/* F9 (gap-audit J2): this line used to read "Draft is
+				    running" unconditionally, even while paused — the
+				    commissioner read a false state and reached for the
+				    wrong button under time pressure. It now names the
+				    clock's own two true states. */}
+				<If cond={props.Data.clock.paused}>
+					<p class="mono draft-drawer__note">Paused · {props.Data.clock.remaining_label} left. The clock controls below are live.</p>
+				</If>
+				<If cond={props.Data.clock.paused == false}>
+					<p class="mono draft-drawer__note">Running. The clock controls below are live.</p>
+				</If>
+				{/* F4 (gap-audit J2): the on-clock seat's 20s not-seen safety
+				    cap had no room-visible label at all; the commissioner
+				    read "of 2:00" and believed the full clock still applied. */}
+				<If cond={props.Data.clock.short_clock}>
+					<p class="mono draft-drawer__note draft-drawer__note--warning">Short clock: {props.Data.on_clock.name} is not in the room ({props.Data.clock.short_clock_seconds} s)</p>
+				</If>
 			</If>
 			<If cond={props.Data.draft.started && props.Data.draft.complete == false}>
 				<div class="clock-controls">
-					<form method="post" action={props.Actions.clock_pause} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
-						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-						<button class="button button--compact" type="submit">Pause clock</button>
-					</form>
-					<form method="post" action={props.Actions.clock_resume} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
-						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-						<button class="button button--compact button--primary" type="submit">Resume clock</button>
-					</form>
+					{/* F9: the ONE action actually available now is the bright
+					    button; the other names its reason, matching /admin's
+					    own established disabled-with-reason pattern
+					    (app/admin/page.gsx's "Pause unavailable - clock is
+					    {state}") instead of leaving Resume permanently bright
+					    even while the clock was already running. */}
+					<If cond={props.Data.clock.can_pause}>
+						<form method="post" action={props.Actions.clock_pause} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<button class="button button--compact button--primary" type="submit">Pause clock</button>
+						</form>
+					</If>
+					<If cond={props.Data.clock.can_pause == false}>
+						<button class="button button--compact" type="button" disabled="disabled">Pause unavailable - clock is {props.Data.clock.state}</button>
+					</If>
+					<If cond={props.Data.clock.can_resume}>
+						<form method="post" action={props.Actions.clock_resume} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<button class="button button--compact button--primary" type="submit">Resume clock</button>
+						</form>
+					</If>
+					<If cond={props.Data.clock.can_resume == false}>
+						<button class="button button--compact" type="button" disabled="disabled">Resume unavailable - {props.Data.clock.state}</button>
+					</If>
 					<form method="post" action={props.Actions.clock_extend} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="current_pick_token" value={props.Data.current_pick_token}></input>
-						<input class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
+						<label class="visually-hidden" for="draft-drawer-extend-seconds">Seconds to add to the running pick</label>
+						<input id="draft-drawer-extend-seconds" class="scoring-input" type="number" name="seconds" value="60" min="1" max="600"></input>
 						<button class="button button--compact" type="submit">Extend pick</button>
 					</form>
 					<div class="draft-drawer__presets" aria-label="Pick clock presets">
@@ -1617,6 +1669,17 @@ func DraftCommissionerDrawer(props DraftCommandBarProps) Node {
 						<form method="post" action="/admin/__actions/draft-undo" data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 							<input type="hidden" name="previous_pick_token" value={props.Data.previous_pick_token}></input>
+							{/* origin=draft (F5): draft-undo's own handler
+							    (app/admin/page.server.go) is shared with the
+							    console's Danger Zone form, which posts no such
+							    field and keeps landing on /admin's own danger
+							    section — this is the one signal that tells the
+							    handler the commissioner submitted this from
+							    inside the live room and must stay there. */}
+							<input type="hidden" name="origin" value="draft"></input>
+							{/* F25: name the exact pick this removes before asking
+							    for the destructive confirmation. */}
+							<p>This removes {props.Data.previous_pick_summary} and re-arms the clock for that slot.</p>
 							<label class="mono" for="draft-undo-confirm">TYPE UNDO //</label>
 							<input id="draft-undo-confirm" class="scoring-input" name="confirm" autocomplete="off" placeholder="UNDO" required="required"></input>
 							<button class="button button--compact button--ghost" type="submit">Confirm undo</button>
@@ -2343,6 +2406,14 @@ func DraftPickDetail(props TapePick) Node {
 						<If cond={props.TimeToPickSec > 0}> · {props.TimeToPick}</If>
 					</small>
 				</div>
+				{/* F3 (gap-audit J2): the AUTO/COMM chip above marks the fact;
+				    this states it in the plain sentence a manager who never
+				    learned the chip meaning can still read -- a no-show's
+				    autopick must never look like their own pick. Empty (no
+				    render) for an ordinary manager pick. */}
+				<If cond={props.AttributionLine != ""}>
+					<p class="tape-row__attribution">{props.AttributionLine}</p>
+				</If>
 			</div>
 			<div class="tape-row__meta">
 				<span class="mono">#{props.Number}</span>

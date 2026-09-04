@@ -16894,3 +16894,74 @@ a.skip-link {
     flex-wrap: nowrap;
   }
 }
+
+/* F4: the drawer's not-seen safety-clock sentence is a warning, not the
+   neutral state line above it. */
+.draft-drawer__note--warning {
+  color: var(--color-warning);
+}
+
+/* F22: the client runtime already tags every managed-action toast with
+   data-gosx-toast-kind="error"/"success" and a matching .gsx-toast--
+   error/--success class (gosx client runtime, navigation.ts), but this
+   stylesheet never styled either class — an error toast ("enter seconds
+   as a whole number") rendered in the exact same unstyled, colourless
+   panel as a success toast ("Pick clock resumed."), with no colour,
+   border, or capital letter telling the two apart. Deliberately declared
+   here rather than editing .toast-stack (positioning only, F23's own
+   concern): these are new class names this file never claimed. */
+.gsx-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel-deep);
+  color: var(--color-text-primary);
+  font-size: var(--type-sm);
+  pointer-events: auto;
+}
+
+.gsx-toast--success {
+  border-color: var(--color-accent-cyan);
+  background: var(--color-cyan-haze);
+}
+
+.gsx-toast--error {
+  border-color: var(--color-danger);
+  background: var(--color-hot-haze);
+}
+
+.gsx-toast--error .gsx-toast__message::before {
+  content: "Error: ";
+  font-weight: 700;
+  color: var(--color-danger);
+}
+
+.gsx-toast__message {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gsx-toast__dismiss {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: var(--type-md);
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* F3: the tape row's attribution sentence (auto/commissioner picks only)
+   sits under the muted "who" line inside .tape-row__body's own flex
+   column, which truncates to one line by design (see that rule's own
+   doc comment) — this one wraps instead of truncating, since it is the
+   one sentence on the row that must stay fully readable. */
+.tape-row__attribution {
+  margin: 0;
+  font-size: .8125rem;
+  color: var(--color-text-secondary);
+  white-space: normal;
+}

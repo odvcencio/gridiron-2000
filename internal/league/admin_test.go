@@ -1037,7 +1037,7 @@ func TestAdminUndoPickRequiresCommissioner(t *testing.T) {
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
 	t.Setenv("COMMISSIONER_EMAILS", "boss@example.com")
 
-	if err := service.AdminUndoPick(request, ""); err == nil {
+	if _, _, _, err := service.AdminUndoPick(request, ""); err == nil {
 		t.Fatal("a non-commissioner request must be rejected")
 	}
 }
@@ -1151,7 +1151,7 @@ func TestAdminUndoPickRearmsClockWithInjectedClock(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := service.AdminUndoPick(request, draftPreviousPickToken(service.store.Snapshot())); err != nil {
+	if _, _, _, err := service.AdminUndoPick(request, draftPreviousPickToken(service.store.Snapshot())); err != nil {
 		t.Fatalf("AdminUndoPick: %v", err)
 	}
 	state := service.store.Snapshot()
@@ -1170,7 +1170,7 @@ func TestAdminUndoPickEmptyDraft(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
 
-	err := service.AdminUndoPick(request, "")
+	_, _, _, err := service.AdminUndoPick(request, "")
 	if err == nil {
 		t.Fatal("expected a stale-token error when undoing an empty draft")
 	}

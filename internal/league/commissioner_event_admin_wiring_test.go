@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -137,12 +138,18 @@ func TestAdminUndoPickRecordsCommissionerEvent(t *testing.T) {
 	if _, err := service.store.MakePick(team, "p-01", "manager", service.clock(), time.Time{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.AdminUndoPick(request, draftPreviousPickToken(service.store.Snapshot())); err != nil {
+	if _, _, _, err := service.AdminUndoPick(request, draftPreviousPickToken(service.store.Snapshot())); err != nil {
 		t.Fatal(err)
 	}
 	events := service.store.Snapshot().CommissionerEvents
 	if len(events) != 1 || events[0].Kind != "draft.undo_pick" || events[0].Refs.TeamID != team || events[0].Refs.PlayerID != "p-01" {
 		t.Fatalf("commissioner events = %+v, want one draft.undo_pick row for %s/p-01", events, team)
+	}
+	// F25: the logged summary must name the removed pick's number, team,
+	// and player — "undid the last pick" told a manager asking "what did
+	// the commissioner undo?" nothing.
+	if got, want := events[0].Summary, "undid pick 1: "; !strings.HasPrefix(got, want) {
+		t.Fatalf("undo summary = %q, want prefix %q", got, want)
 	}
 }
 

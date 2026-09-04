@@ -21,13 +21,19 @@ type TapePick struct {
 	AvatarImageURL                                string
 	PlayerID, PlayerName, Position, NFLTeam       string
 	MadeBy                                        string
-	IsAuto, IsCommissioner, Mine                  bool
-	TimeToPickSec                                 int
-	TimeToPick                                    string // "0:49"
-	HasValue                                      bool
-	Value                                         int
-	ValueLabel                                    string // "+8", "−4"
-	MadeAt                                        string // RFC 3339 UTC
+	// AttributionLine names who actually made this pick (gap-audit F3):
+	// "" for a manager's own pick (IsAuto and IsCommissioner both false
+	// already carry that fact via the AUTO/COMM tag); "Autopick for <team>
+	// selects <player>" or "Commissioner picks <player> for <team>"
+	// otherwise, so a no-show's autopick never reads like a manual pick.
+	AttributionLine              string
+	IsAuto, IsCommissioner, Mine bool
+	TimeToPickSec                int
+	TimeToPick                   string // "0:49"
+	HasValue                     bool
+	Value                        int
+	ValueLabel                   string // "+8", "−4"
+	MadeAt                       string // RFC 3339 UTC
 }
 
 // TapeRound groups every pick made in one round, newest pick first. First
@@ -195,6 +201,22 @@ func (s *Service) DraftHistory(state PersistedState, viewer string) DraftHistory
 		if madeBy == "" {
 			madeBy = "manager"
 		}
+		// AttributionLine (F3): the tape already tags an auto/commissioner
+		// row with its AUTO/COMM chip; this adds the same plain-language
+		// sentence activityMaps logs for the identical pick, off the same
+		// draftPickAttributionSentence rule, so a no-show's autopick never
+		// reads as a manual pick on either surface. Empty for a manager's
+		// own pick — the ordinary team/manager line below already says who
+		// picked.
+		attributionLine := ""
+		if madeBy == "auto" || madeBy == "commissioner" {
+			teamDisplay := stringAny(teamMapView, "name")
+			if abbr := stringAny(teamMapView, "abbreviation"); abbr != "" && teamDisplay != "" {
+				teamDisplay = teamDisplay + " (" + abbr + ")"
+			}
+			playerLabel := fmt.Sprintf("%s (%s) — R%d · P%d", player.Name, player.Position, pick.Round, pick.Number)
+			attributionLine = draftPickAttributionSentence(madeBy, teamDisplay, playerLabel)
+		}
 		label := pickLabel(pick.Number, teamCount)
 		timeToPickSec := timeToPickSeconds(state, index)
 		hasValue := false
@@ -213,7 +235,7 @@ func (s *Service) DraftHistory(state PersistedState, viewer string) DraftHistory
 			Manager:        stringAny(teamMapView, "manager"),
 			HasAvatarImage: boolAny(teamMapView, "has_avatar_image"), AvatarImageURL: stringAny(teamMapView, "avatar_image_url"),
 			PlayerID: pick.PlayerID, PlayerName: player.Name, Position: player.Position, NFLTeam: player.NFLTeam,
-			MadeBy: madeBy, IsAuto: madeBy == "auto", IsCommissioner: madeBy == "commissioner",
+			MadeBy: madeBy, AttributionLine: attributionLine, IsAuto: madeBy == "auto", IsCommissioner: madeBy == "commissioner",
 			Mine:          viewer != "" && pick.TeamID == viewer,
 			TimeToPickSec: timeToPickSec,
 			TimeToPick:    formatMMSS(time.Duration(timeToPickSec) * time.Second),

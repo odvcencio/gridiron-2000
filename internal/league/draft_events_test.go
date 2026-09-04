@@ -486,7 +486,7 @@ func TestAdminUndoPickReopeningACompletedDraftEmitsLifecycleState(t *testing.T) 
 	t.Setenv("COMMISSIONER_EMAILS", "boss@example.com")
 	commish := authenticatedJourneyRequest(t, "boss@example.com", "Commissioner", "/admin")
 	token := draftPreviousPickToken(service.store.Snapshot())
-	if err := service.AdminUndoPick(commish, token); err != nil {
+	if _, _, _, err := service.AdminUndoPick(commish, token); err != nil {
 		t.Fatal(err)
 	}
 

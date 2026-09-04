@@ -1239,7 +1239,7 @@ func Page() Node {
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="current_pick_token" value={data.current_pick_token}></input>
 								<label for="admin-clock-extend-seconds" class="visually-hidden">Seconds to add to the running pick</label>
-								<input id="admin-clock-extend-seconds" class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
+								<input id="admin-clock-extend-seconds" class="scoring-input" type="number" name="seconds" value="60" min="1" max="600"></input>
 								<button class="button" type="submit">Extend running pick</button>
 							</form>
 						</If>

@@ -181,6 +181,19 @@ func draftActionSuccess(ctx *action.Context, target, message string) error {
 	return nil
 }
 
+// draftCommissionerDrawerTarget (F24, gap-audit J2) is the redirect target
+// for every clock/seat action the commissioner drawer itself renders a
+// form for. The real draft-night sequence is pause, then extend, then
+// resume, or force one seat's autopick, then check another — the drawer
+// used to close on every one of those, costing a fresh "Commissioner"
+// click and a re-scroll each time. prepareDraftData reads the
+// "commissioner=open" query back and renders the drawer already open on
+// the response this redirects to (see commissioner_drawer_open there).
+// draft-start (a one-time action, not part of that repeat sequence) and
+// draft-undo (app/admin/page.server.go, shared with the console's own
+// Danger Zone form) are handled on their own terms instead.
+const draftCommissionerDrawerTarget = "/draft?commissioner=open"
+
 type draftBreakdownRowView struct {
 	Scored bool
 	Label  string
@@ -363,6 +376,7 @@ type draftTapePickView struct {
 	AvatarImageURL                                string
 	PlayerID, PlayerName, Position, NFLTeam       string
 	MadeBy                                        string
+	AttributionLine                               string
 	IsAuto, IsCommissioner, Mine                  bool
 	TimeToPickSec                                 int
 	TimeToPick                                    string
@@ -517,7 +531,7 @@ func tapePickProps(pick league.TapePick) draftTapePickView {
 		TeamName: pick.TeamName, TeamAbbr: pick.TeamAbbr, TeamTone: pick.TeamTone, Manager: tapeRowManager(pick.TeamName, pick.Manager),
 		HasAvatarImage: pick.HasAvatarImage, AvatarImageURL: pick.AvatarImageURL,
 		PlayerID: pick.PlayerID, PlayerName: pick.PlayerName, Position: pick.Position, NFLTeam: pick.NFLTeam,
-		MadeBy: pick.MadeBy, IsAuto: pick.IsAuto, IsCommissioner: pick.IsCommissioner, Mine: pick.Mine,
+		MadeBy: pick.MadeBy, AttributionLine: pick.AttributionLine, IsAuto: pick.IsAuto, IsCommissioner: pick.IsCommissioner, Mine: pick.Mine,
 		TimeToPickSec: pick.TimeToPickSec, TimeToPick: pick.TimeToPick,
 		HasValue: pick.HasValue, Value: pick.Value, ValueLabel: pick.ValueLabel, MadeAt: pick.MadeAt,
 	}
@@ -1056,6 +1070,16 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	for key, value := range data {
 		viewData[key] = value
 	}
+	// commissioner_drawer_open (F24, gap-audit J2): every commissioner
+	// action inside the drawer used to close it on its own re-render — the
+	// server always rendered <aside ... hidden>, with no memory of "the
+	// commissioner had this open." The drawer's own action forms
+	// (draft-start, clock-pause/resume/extend/set-duration/force-autopick,
+	// seat-autopick, seat-ready) redirect to "/draft?commissioner=open",
+	// which this reads back to render the drawer already open on the very
+	// next response — real sequences like pause, then extend, then
+	// resume no longer cost three re-opens under a clock.
+	viewData["commissioner_drawer_open"] = request != nil && request.URL.Query().Get("commissioner") == "open"
 	viewData["teams"] = typedTeams
 	viewData["seat_controls"] = draftSeatControlProps(teams)
 	// has_adp gates the available pane's whole VS ADP column, header and
@@ -1327,31 +1351,36 @@ func init() {
 				if err := league.Default().AdminPauseClock(ctx.Request); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				return draftActionSuccess(ctx, "/draft", "Pick clock paused.")
+				return draftActionSuccess(ctx, draftCommissionerDrawerTarget, "Pick clock paused.")
 			},
 			"clock-resume": func(ctx *action.Context) error {
 				if err := league.Default().AdminResumeClock(ctx.Request); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				return draftActionSuccess(ctx, "/draft", "Pick clock resumed.")
+				return draftActionSuccess(ctx, draftCommissionerDrawerTarget, "Pick clock resumed.")
 			},
 			"clock-force-autopick": func(ctx *action.Context) error {
 				pick, player, team, err := league.Default().AdminForceAutopick(ctx.Request, ctx.FormData["confirm"], ctx.FormData["current_pick_token"])
 				if err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("Pick %d: %s auto-selects %s.", pick.Number, team.Name, player.Name))
+				return draftActionSuccess(ctx, draftCommissionerDrawerTarget, fmt.Sprintf("Pick %d: %s auto-selects %s.", pick.Number, team.Name, player.Name))
 			},
 			"clock-extend": func(ctx *action.Context) error {
 				secs, err := strconv.Atoi(strings.TrimSpace(ctx.FormData["seconds"]))
 				if err != nil {
-					message := "enter seconds as a whole number"
+					// F22 (gap-audit J2): named the field and gave a concrete
+					// example instead of the bare, lowercase "enter seconds as
+					// a whole number" — a sentence identical in weight and
+					// styling to a success toast, with nothing marking it an
+					// error (see the new .gsx-toast--error rule, styles.css).
+					message := "Type how many seconds to add to the seconds field, for example 60."
 					return action.Validation(message, map[string]string{"player_id": message}, ctx.FormData)
 				}
 				if err := league.Default().AdminExtendClock(ctx.Request, secs, ctx.FormData["current_pick_token"]); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("Clock extended by %d seconds.", secs))
+				return draftActionSuccess(ctx, draftCommissionerDrawerTarget, fmt.Sprintf("Clock extended by %d seconds.", secs))
 			},
 			"clock-set-duration": func(ctx *action.Context) error {
 				secs, err := strconv.Atoi(strings.TrimSpace(ctx.FormData["seconds"]))
@@ -1362,7 +1391,7 @@ func init() {
 				if err := league.Default().AdminSetClockSeconds(ctx.Request, secs); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("Pick clock set to %d seconds.", secs))
+				return draftActionSuccess(ctx, draftCommissionerDrawerTarget, fmt.Sprintf("Pick clock set to %d seconds.", secs))
 			},
 			"toggle-ready": func(ctx *action.Context) error {
 				ready, teamName, err := league.Default().ToggleReady(ctx.Request, ctx.FormData["team_id"])
@@ -1444,7 +1473,7 @@ func init() {
 				if on {
 					status = "AUTO mode enabled"
 				}
-				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("%s for %s.", status, league.Default().TeamLabel(teamID)))
+				return draftActionSuccess(ctx, draftCommissionerDrawerTarget, fmt.Sprintf("%s for %s.", status, league.Default().TeamLabel(teamID)))
 			},
 			// seat-ready sets a claimed seat's Ready flag on the commissioner's
 			// own authority (compare toggle-ready, the manager's own path).
@@ -1464,7 +1493,7 @@ func init() {
 				if on {
 					status = "locked in"
 				}
-				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("%s is %s for draft night.", league.Default().TeamLabel(teamID), status))
+				return draftActionSuccess(ctx, draftCommissionerDrawerTarget, fmt.Sprintf("%s is %s for draft night.", league.Default().TeamLabel(teamID), status))
 			},
 		},
 	}); err != nil {
