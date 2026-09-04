@@ -12,6 +12,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The Help Center glossary shows its 75 terms, definitions, and topic links instead of 75 blank cards linking to a 404.
 - The Help Center's "coming from another app" table shows its nine rows instead of nine blank rows.
 - /scoring's "editable until" deadline shows only to the commissioner; a manager reads a true sentence about when the rules become final instead.
+- /scoring and /matchups now name the same season-opening kickoff instead of disagreeing by a day; scoring locks at the earlier of the configured start and the schedule's real week-1 kickoff.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 

@@ -84,6 +84,29 @@ func seasonStartWeekForSchedule(schedule *SeasonSchedule) int {
 	return defaultSeasonStartWeek
 }
 
+// earliestKickoffForWeek returns the earliest real NFL kickoff among
+// week's games in the attached schedule source (s.schedule(), the live
+// NFL game feed — distinct from the persisted fantasy SeasonSchedule
+// above), when at least one game for that week carries a known kickoff.
+// Both /matchups' weekly masthead (feed.go's weekState) and /scoring's
+// season-start derivation (scheduleWeek1Kickoff, scoring.go) share this
+// one lookup, so neither page can compute a different answer for the
+// same week (F29, 2026-09-04 UX pass).
+func (s *Service) earliestKickoffForWeek(week int) (time.Time, bool) {
+	var earliest time.Time
+	found := false
+	for _, game := range s.schedule() {
+		if game.Week != week || game.Kickoff.IsZero() {
+			continue
+		}
+		if !found || game.Kickoff.Before(earliest) {
+			earliest = game.Kickoff
+			found = true
+		}
+	}
+	return earliest, found
+}
+
 // maxNFLWeek is the latest NFL week a schedule may reach (section 7,
 // season.finalWeek's validated maximum).
 const maxNFLWeek = 18

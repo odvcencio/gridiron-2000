@@ -553,3 +553,88 @@ func TestScoringDataIsCommissionerReflectsTheViewer(t *testing.T) {
 		t.Errorf("is_commissioner = %v, want false for an unauthenticated non-demo request", managerData["is_commissioner"])
 	}
 }
+
+// TestScoringLockAtIsTheEarlierOfConfigAndScheduleKickoff is F29
+// (2026-09-04 UX pass): /scoring's masthead read only the configured
+// season_start_at ("Thursday, September 10") while /matchups read the
+// schedule feed's real week-1 kickoff ("Wednesday, September 9") for the
+// SAME milestone, and scoring stayed editable a full day past when the
+// schedule said week 1 actually kicked off. scoringLockAt must resolve to
+// the earlier of the two, so scoring can never remain editable past
+// whichever candidate happens first.
+func TestScoringLockAtIsTheEarlierOfConfigAndScheduleKickoff(t *testing.T) {
+	newScheduleTestService := func(t *testing.T) *Service {
+		t.Helper()
+		svc := newTestService(t, true)
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		if _, err := svc.AdminGenerateSchedule(request, 14, 1, 42); err != nil {
+			t.Fatalf("AdminGenerateSchedule: %v", err)
+		}
+		return svc
+	}
+
+	t.Run("schedule earlier than config", func(t *testing.T) {
+		t.Setenv("SEASON_START_AT", "2026-09-10T20:20:00-04:00")
+		svc := newScheduleTestService(t)
+		scheduleKickoff := time.Date(2026, 9, 9, 20, 20, 0, 0, time.UTC)
+		svc.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{Week: 1, Kickoff: scheduleKickoff}}
+		})
+		if got := svc.scoringLockAt(); !got.Equal(scheduleKickoff) {
+			t.Errorf("scoringLockAt() = %v, want the earlier schedule kickoff %v", got, scheduleKickoff)
+		}
+	})
+
+	t.Run("no schedule falls back to config", func(t *testing.T) {
+		t.Setenv("SEASON_START_AT", "2026-09-10T20:20:00-04:00")
+		svc := newTestService(t, true) // no AdminGenerateSchedule call: state.Schedule stays nil
+		svc.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{Week: 1, Kickoff: time.Date(2026, 9, 9, 20, 20, 0, 0, time.UTC)}}
+		})
+		want := seasonStartAt()
+		if got := svc.scoringLockAt(); !got.Equal(want) {
+			t.Errorf("scoringLockAt() = %v, want the configured season start %v (no schedule loaded)", got, want)
+		}
+	})
+
+	t.Run("config earlier than schedule", func(t *testing.T) {
+		t.Setenv("SEASON_START_AT", "2026-09-09T20:20:00-04:00")
+		svc := newScheduleTestService(t)
+		svc.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{Week: 1, Kickoff: time.Date(2026, 9, 10, 20, 20, 0, 0, time.UTC)}}
+		})
+		want := seasonStartAt()
+		if got := svc.scoringLockAt(); !got.Equal(want) {
+			t.Errorf("scoringLockAt() = %v, want the earlier configured start %v", got, want)
+		}
+	})
+}
+
+// TestScoringPageAndMatchupsAgreeOnTheSeasonStart is F29's cross-page
+// proof: /scoring's masthead ("editable until") and /matchups' masthead
+// ("Fantasy scoring begins") must print the identical instant once a
+// schedule resolves a week-1 kickoff that disagrees with the configured
+// season_start_at.
+func TestScoringPageAndMatchupsAgreeOnTheSeasonStart(t *testing.T) {
+	t.Setenv("SEASON_START_AT", "2026-09-10T20:20:00-04:00")
+	svc := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	if _, err := svc.AdminGenerateSchedule(request, 14, 1, 42); err != nil {
+		t.Fatalf("AdminGenerateSchedule: %v", err)
+	}
+	scheduleKickoff := time.Date(2026, 9, 9, 20, 20, 0, 0, time.UTC) // Wed, not the configured Thu
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: 1, Kickoff: scheduleKickoff}}
+	})
+
+	// /matchups' own masthead derivation (feed.go's weekState) for week 1.
+	provider := scheduleProvider{svc: svc}
+	_, matchupsStatus, _, _ := provider.weekState(1, nil, scheduleKickoff.Add(-24*time.Hour))
+	if !strings.Contains(matchupsStatus, "Wed") {
+		t.Fatalf("matchups week-1 status = %q, want it to name the Wednesday schedule kickoff", matchupsStatus)
+	}
+
+	if got := svc.scoringLockAt(); !got.Equal(scheduleKickoff) {
+		t.Errorf("scoringLockAt() = %v, want the same Wednesday kickoff /matchups shows: %v", got, scheduleKickoff)
+	}
+}
