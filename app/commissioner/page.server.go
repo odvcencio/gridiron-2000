@@ -125,7 +125,16 @@ func commissionerPageDataWithReader(request *http.Request, isCommissioner bool, 
 	readout = withHQV1Portfolio(request, readout, isCommissioner)
 	return map[string]any{
 		"viewer": league.Default().Viewer(request), "is_commissioner": isCommissioner,
-		"fleet": readout,
+		// league (J4 F15) is the same leagueMapForViewer map every other
+		// page passes through (AdminData, service.go, does the same
+		// thing) — app/layout.gsx's PrimaryNavigation reads
+		// data.league.draft_complete to gate the "Draft results" link and
+		// every numbered index after it. Without this key both of that
+		// component's <If cond={props.DraftComplete}> branches evaluated
+		// false: "Draft results" disappeared and the rest of the sidebar
+		// printed an empty index span.
+		"league": league.Default().LeagueIdentityForViewer(request),
+		"fleet":  readout,
 	}
 }
 

@@ -98,7 +98,7 @@ func Page() Node {
 				</div>
 			</If>
 		</section>
-		<div class="notice-stack" aria-live="polite">
+		<div class="notice-stack">
 			<If cond={data.has_notice && (data.notice_count < 2 || data.notice_first_kind == "flash")}>
 				<p class="flash-message">{data.notice}</p>
 			</If>
@@ -628,6 +628,10 @@ func WaiverDeskRegion() Node {
 							<If cond={claim.resolution_state == "overdue"}>
 								<span class="position-chip position-chip--warn">RESOLUTION OVERDUE</span>
 								<small>{claim.resolution_at} ({claim.resolution_relative})</small>
+							</If>
+							<If cond={claim.resolution_state == "pending"}>
+								<span class="position-chip">LOCKED UNTIL WAIVERS RUN</span>
+								<small>{claim.resolution_label}</small>
 							</If>
 							<If cond={claim.resolution_state == "degraded"}>
 								<span class="position-chip position-chip--warn">RESOLUTION DEGRADED</span>

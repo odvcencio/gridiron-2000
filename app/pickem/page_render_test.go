@@ -103,6 +103,11 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 	if _, err := league.Default().PickemSet(pickReq, "g-final", "BUF"); err != nil {
 		t.Fatalf("seed pick: %v", err)
 	}
+	// J3 F25: g-open stays open (its kickoff has not passed), so it exercises
+	// the unlocked pick branch below.
+	if _, err := league.Default().PickemSet(pickReq, "g-open", "KC"); err != nil {
+		t.Fatalf("seed open pick: %v", err)
+	}
 	games[1].Kickoff = now.Add(-72 * time.Hour)
 	games[1].Final = true
 	games[1].ScoresPresent = true
@@ -215,5 +220,21 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 	neighborRow := body[neighborStart : neighborStart+neighborEnd]
 	if !strings.Contains(neighborRow, `method="post"`) || !strings.Contains(neighborRow, `name="game_id"`) {
 		t.Fatalf("valid neighboring game lost its active pick forms: %s", neighborRow)
+	}
+	// J3 F25: an OPEN (not yet locked) picked game must carry the same
+	// visible "✓ YOUR PICK" text the locked branch already carries, not
+	// only a color-only aria-pressed/CSS state. g-open's seeded pick is KC
+	// (the away team).
+	if got := strings.Count(neighborRow, "pickem-your-pick"); got != 1 {
+		t.Fatalf("open, picked row must carry the YOUR PICK glyph exactly once (the picked side only), got %d: %s", got, neighborRow)
+	}
+	if !strings.Contains(neighborRow, "✓ YOUR PICK") {
+		t.Fatalf("open, picked row is missing the visible YOUR PICK glyph: %s", neighborRow)
+	}
+	openPickedButtonStart := strings.Index(neighborRow, `aria-pressed="true"`)
+	openYourPickStart := strings.Index(neighborRow, "pickem-your-pick")
+	openPickedButtonEnd := strings.Index(neighborRow[openPickedButtonStart:], "</button>")
+	if openPickedButtonStart < 0 || openYourPickStart < 0 || openPickedButtonEnd < 0 || openYourPickStart > openPickedButtonStart+openPickedButtonEnd {
+		t.Fatalf("open row's YOUR PICK glyph must render inside the picked (aria-pressed=true) button: %s", neighborRow)
 	}
 }

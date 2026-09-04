@@ -35,7 +35,7 @@ func Page() Node {
 				</div>
 			</div>
 		</section>
-		<div class="notice-stack" aria-live="polite">
+		<div class="notice-stack">
 			<If cond={data.demo_mode}>
 				<p class="demo-message">
 					<strong>REHEARSAL MODE:</strong>

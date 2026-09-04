@@ -444,6 +444,33 @@ func TestTeamMatchupRankGlossaryIsADetailsBesideTheLineup(t *testing.T) {
 	}
 }
 
+// TestTeamHouseRankLegendExplainsTheCode pins J3 F18: /team prints the
+// "H###" house-rank code on every lineup and bench row but, before this
+// fix, never defined it anywhere on the page — /players and /board both
+// carry a <details class="pool-legend"> disclosure explaining it. /team
+// must carry the same disclosure, directly under the lineup heading.
+func TestTeamHouseRankLegendExplainsTheCode(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+
+	if strings.Count(page, `<details class="pool-legend">`) != 1 {
+		t.Fatal("page.gsx must render exactly one house-rank pool-legend disclosure")
+	}
+	if !strings.Contains(page, "house rank") {
+		t.Error("page.gsx's legend never explains H### as house rank")
+	}
+
+	headingAt := strings.Index(page, `<span class="section-index">01 // STARTING LINEUP</span>`)
+	legendAt := strings.Index(page, `<details class="pool-legend">`)
+	slotListAt := strings.Index(page, `<div class="lineup-slot-list">`)
+	if headingAt < 0 || legendAt < 0 || slotListAt < 0 || !(headingAt < legendAt && legendAt < slotListAt) {
+		t.Fatal("the house-rank legend must render directly under the lineup heading, before the slot list")
+	}
+}
+
 func TestCommissionerLineupInterventionContracts(t *testing.T) {
 	pageBytes, err := os.ReadFile("page.gsx")
 	if err != nil {

@@ -5117,8 +5117,15 @@ func (s *Service) matchupLocation() *time.Location {
 	return location
 }
 
+// formatMatchupUpdate (J3 F34) is the canonical league-local-time-plus-
+// relative-phrase pairing poolStatusMap (service.go, "lastSync") already
+// uses — league time, zone, and a relative phrase, no seconds. Before
+// this fix the freshness clock on /matchups printed literal seconds
+// ("9:53:49 PM EDT") that changed on every load and never said how long
+// ago the check happened.
 func (s *Service) formatMatchupUpdate(value time.Time) string {
-	return value.In(s.matchupLocation()).Format("Mon Jan 2 · 3:04:05 PM MST")
+	loc := s.matchupLocation()
+	return value.In(loc).Format("Mon Jan 2 · 3:04 PM MST") + " · " + relativeTime(s.clock(), value)
 }
 
 func (s *Service) formatMatchupUpdateOrUnavailable(value time.Time) string {
@@ -6208,6 +6215,10 @@ func (s *Service) actionCenterDataForSnapshot(r *http.Request, state PersistedSt
 				runAt = processedRun
 			}
 		}
+		// DeskNextRun (J3 F9) is set unconditionally, not only when the
+		// viewer already has a claim filed, so the home page can say
+		// waivers are open and name the next run for an idle manager too.
+		facts.Waivers.DeskNextRun, facts.Waivers.HasDeskNextRun = runAt, true
 		for _, claim := range state.WaiverClaims {
 			if claim.TeamID != teamID {
 				continue

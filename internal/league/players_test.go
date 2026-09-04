@@ -807,6 +807,11 @@ func TestPlayersDataOnWaiversRowRendersClaimNotAdd(t *testing.T) {
 // the same deadline showed "(in 2 days)" via the same deadlineRelativeTime
 // helper (lineup_deadline.go). The pool row must append " · " plus that same
 // helper's output, so the two surfaces never disagree.
+//
+// J3 F17 folds this same absolute-plus-relative pairing into
+// waiverResolutionPhrase's one shared sentence ("Resolves <time> ·
+// <relative>."), the same helper /team's Signal Watch and the MY CLAIMS
+// card now call too, so all three surfaces render identical text.
 func TestPlayersDataWaiverResolvesAppendsRelativeTime(t *testing.T) {
 	svc, now := newWaiversTestService(t)
 	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
@@ -829,9 +834,9 @@ func TestPlayersDataWaiverResolvesAppendsRelativeTime(t *testing.T) {
 	if status.Reason == "kickoff" {
 		t.Fatal("this fixture's wv-open must resolve on the plain waiver-window path, not the kickoff estimate — the appended-relative-time claim doesn't apply to that branch")
 	}
-	want := formatResolvesAt(svc.cfg, status.ResolvesAt) + " · " + deadlineRelativeTime(now, status.ResolvesAt)
+	want := "Resolves " + formatResolvesAt(svc.cfg, status.ResolvesAt) + " · " + deadlineRelativeTime(now, status.ResolvesAt) + "."
 	if resolves != want {
-		t.Fatalf("waiver_resolves = %q, want %q (the absolute time plus the shared relative-time suffix)", resolves, want)
+		t.Fatalf("waiver_resolves = %q, want %q (the shared waiverResolutionPhrase sentence)", resolves, want)
 	}
 }
 
@@ -1268,8 +1273,11 @@ func TestPlayersDataKickoffLockedResolveTimeAgreesBetweenPoolRowAndMyClaims(t *t
 	if poolResolves != claims[0]["resolution_label"] {
 		t.Fatalf("pool row waiver_resolves = %q, MY CLAIMS resolution_label = %q; the two surfaces must agree", poolResolves, claims[0]["resolution_label"])
 	}
-	if poolResolves != waiverKickoffPendingLabel {
-		t.Fatalf("waiver_resolves = %q, want the shared kickoff-pending label %q", poolResolves, waiverKickoffPendingLabel)
+	resolves, _ := poolResolves.(string)
+	for _, want := range []string{"Resolves after the PIT game ends, at the next waiver run", "·"} {
+		if !strings.Contains(resolves, want) {
+			t.Fatalf("waiver_resolves = %q, want it to contain %q", resolves, want)
+		}
 	}
 }
 
@@ -1320,16 +1328,23 @@ func TestPlayersDataClaimResolutionStates(t *testing.T) {
 		t.Fatalf("deferred claim resolution = %+v, want no invented time", unknown)
 	}
 
-	degradedSvc, degradedNow := newWaiversTestService(t)
-	if err := degradedSvc.store.FileClaim(WaiverClaim{ID: "degraded-claim", TeamID: "team-1", AddID: "fa-open", FiledAt: degradedNow}); err != nil {
-		t.Fatalf("seed degraded claim: %v", err)
+	// J3 F15: a claim locked on a normal kickoff is "pending", not
+	// "degraded" — DEGRADED is reserved for a real processor fault, which
+	// this ordinary kickoff-lock case is not.
+	pendingSvc, pendingNow := newWaiversTestService(t)
+	if err := pendingSvc.store.FileClaim(WaiverClaim{ID: "pending-claim", TeamID: "team-1", AddID: "fa-open", FiledAt: pendingNow}); err != nil {
+		t.Fatalf("seed pending claim: %v", err)
 	}
-	degradedSvc.SetScheduleSource(func() []GameInfo {
-		return []GameInfo{{ID: "in-progress", Week: 1, Kickoff: degradedNow.Add(-time.Hour), Away: "PIT", Home: "NYJ"}}
+	pendingSvc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "in-progress", Week: 1, Kickoff: pendingNow.Add(-time.Hour), Away: "PIT", Home: "NYJ"}}
 	})
-	degraded := claimRow(degradedSvc)
-	if degraded == nil || degraded["resolution_state"] != "degraded" || degraded["resolution_at"] != "" || degraded["resolution_relative"] != "" {
-		t.Fatalf("degraded claim resolution = %+v, want explicit degraded state", degraded)
+	pending := claimRow(pendingSvc)
+	if pending == nil || pending["resolution_state"] != "pending" || pending["resolution_at"] != "" || pending["resolution_relative"] != "" {
+		t.Fatalf("kickoff-locked claim resolution = %+v, want explicit pending state, not degraded", pending)
+	}
+	pendingLabel, _ := pending["resolution_label"].(string)
+	if !strings.Contains(pendingLabel, "Resolves after the PIT game ends, at the next waiver run") {
+		t.Fatalf("pending claim resolution_label = %q, want the shared kickoff-resolution phrase", pending["resolution_label"])
 	}
 }
 

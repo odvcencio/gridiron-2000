@@ -166,7 +166,11 @@ func (s *Service) teamTerminalRadar(state PersistedState, phase TeamTerminalPhas
 		if status.State == AvailabilityOnWaivers {
 			statusLabel = "ON WAIVERS"
 			hasResolution = true
-			resolution = "Resolves " + formatResolvesAt(s.cfg, status.ResolvesAt)
+			// J3 F17: the same sentence /players' pool row and MY CLAIMS
+			// card render (waiverResolutionPhrase) — Signal Watch used to
+			// print a bare exact clock time straight off the kickoff-lock
+			// estimate with no relative phrase, disagreeing with /players.
+			resolution = waiverResolutionPhrase(s.cfg, player.NFLTeam, status, now)
 		}
 		out = append(out, map[string]any{
 			"position":       player.Position,

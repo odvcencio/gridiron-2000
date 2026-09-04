@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -168,6 +169,34 @@ func TestMatchupsPageWeekBrowserRoute(t *testing.T) {
 	}
 }
 
+// TestMatchupsWeekBrowserArrowsHaveAccessibleNames pins J3 F33: the week
+// browser's previous/next controls rendered as a bare "◀"/"▶" glyph with
+// no accessible name beyond the character itself — a screen reader
+// announced only "link ▶". Week 2 of a 14-week schedule has both a
+// previous and a next week, so both arrows render here.
+func TestMatchupsWeekBrowserArrowsHaveAccessibleNames(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMatchupsPageFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"MATCHUPS_RENDER_FIXTURE=scheduled",
+		"MATCHUPS_RENDER_QUERY=?week=2",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fixture process: %v\n%s", err, output)
+	}
+	body := string(output)
+	for _, want := range []string{
+		`aria-label="Previous week" rel="prev">◀`,
+		`aria-label="Next week" rel="next">▶`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("week browser missing %q: %s", want, body)
+		}
+	}
+}
+
 // TestMatchupsLiveFixtureIsSummaryFirstWithOneStatusLine covers Task 11a:
 // the "live" render fixture (a real in-progress BAL@BUF frame from the
 // replay harness) proves the page renders the summary-first layout — the
@@ -304,6 +333,26 @@ func TestMatchupsFreshnessClauseIsVisibleInsideTheStatusLine(t *testing.T) {
 		if strings.Contains(body, hidden) {
 			t.Errorf("freshness span is still visually-hidden: %q", hidden)
 		}
+	}
+
+	// J3 F34: the checkedAt clock must carry league time and zone with no
+	// seconds, plus a relative phrase — before this fix it printed literal
+	// seconds ("9:53:49 PM EDT") and no relative phrase at all.
+	checkedAtStart := strings.Index(statusLine, `data-gosx-live-bind="checkedAt">`)
+	if checkedAtStart < 0 {
+		t.Fatalf("status line missing the checkedAt bind: %s", statusLine)
+	}
+	checkedAtStart += len(`data-gosx-live-bind="checkedAt">`)
+	checkedAtEnd := strings.Index(statusLine[checkedAtStart:], "</span>")
+	if checkedAtEnd < 0 {
+		t.Fatalf("checkedAt span never closes: %s", statusLine)
+	}
+	checkedAt := statusLine[checkedAtStart : checkedAtStart+checkedAtEnd]
+	if regexp.MustCompile(`:\d\d:\d\d [AP]M`).MatchString(checkedAt) {
+		t.Errorf("checkedAt %q still carries literal seconds", checkedAt)
+	}
+	if !regexp.MustCompile(`(just now|\d+ (minute|hour|day)s? ago)$`).MatchString(checkedAt) {
+		t.Errorf("checkedAt %q is missing a trailing relative phrase", checkedAt)
 	}
 }
 

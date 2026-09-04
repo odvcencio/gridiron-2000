@@ -28,6 +28,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - The draft room now updates itself while you keep it open: the DRAFT button, the "you're up" pill, the page heading, the paused-clock state, and the phone pick bar all refresh live instead of freezing at the state the page had when you loaded it. Live updates now default to the mode that refetches these regions on every pick, clock change, and state change; the faster fetchless mode stays available as an override for anyone who needs it.
 - The draft room's screen-reader announcement now names the team on the clock ("Los Delfines del Norte on the clock") instead of an internal seat code ("AQ2 on the clock").
+### Fixed
+- The home page marks a waiting trade offer URGENT, matching the count the attention chip already shows.
+- The home page tells a manager waivers are open and names the next run, even before a claim is filed.
+- A waiver claim locked on a normal kickoff reads "Locked until waivers run" instead of "Resolution degraded."
+- Every page that names a waiver's resolve time — the team page, the player pool, and the claim card — now prints the same sentence: the event, the league-local run time, the zone, and a relative phrase.
+- The team page explains the "H###" house-rank code the same way the player pool and Big Board already do.
+- Pick'em marks your own pick with the words "Your pick," not color alone, on an open game as well as a locked one.
+- A saved lineup, a filed claim, and every other result message announce once instead of twice.
+- The matchups page's previous/next week arrows carry a real accessible name.
+- The matchups page's freshness clock drops literal seconds and adds a relative phrase.
+- League HQ's sidebar numbers every destination and shows "Draft results," matching the league settings console.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 
