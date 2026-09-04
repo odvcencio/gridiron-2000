@@ -618,6 +618,10 @@ func TeamLineupRegion() Node {
 					<If cond={data.has_week_notice}>
 						<p class="error-message lineup-week-notice" role="status">{data.week_notice}</p>
 					</If>
+					<details class="pool-legend">
+						<summary>What does H### mean?</summary>
+						<p>H### — house rank: this league's own superflex-aware value order (your scoring and roster rules), shown beside every lineup and bench slot. <a href="/help#glossary" data-gosx-link>More terms in the glossary →</a></p>
+					</details>
 					<section class="lineup-deadline" aria-live="polite" aria-label="Lineup lock timing">
 						<div class="lineup-deadline__heading">
 							<span class="section-index">WEEK {data.lineup_deadline.week} // LOCK WINDOW</span>
