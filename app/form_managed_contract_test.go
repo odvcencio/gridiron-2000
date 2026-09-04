@@ -53,6 +53,14 @@ func managedFormTag(tag string) bool {
 func intentionalNativeTeamForm(path, tag string) bool {
 	switch filepath.ToSlash(path) {
 	case "admin/page.gsx", "team/page.gsx":
+	case "draft/page.gsx", "draft/practice/page.gsx":
+		// Practice draft (internal/league/practice.go): Leave practice must
+		// navigate the whole document back to the real room (the practice
+		// room's own hub and regions must not survive the leave), and
+		// Start/Practice again must land on a freshly bound practice room
+		// — the same full-navigation rule the sign-out form below follows.
+		return regexp.MustCompile("(?i)\\bdata-gosx-managed\\s*=\\s*[\"']false[\"']").MatchString(tag) &&
+			regexp.MustCompile("\\baction=\\{(props\\.Actions\\.practice_(leave|restart)|data\\.start_action)\\}").MatchString(tag)
 	case "layout.gsx", "login/page.gsx":
 		// Both the shell's sign-out form and /login's own copy of it must be
 		// native document navigations: /auth/logout answers a plain 303 and

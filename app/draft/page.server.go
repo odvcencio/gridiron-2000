@@ -110,7 +110,38 @@ func mapField(m map[string]any, key string) map[string]any {
 
 func draftActionPath(name string) string { return "/draft/__actions/" + name }
 
+// draftRoomPath, draftFragmentBase, and draftActionPathFor read the room
+// the data was built FOR (practice draft, internal/league/practice.go):
+// service.go's draftData stamps room_path/fragment_base as "/draft" and
+// "/draft/fragment" on the real Service and as the practice room's own
+// paths on the sandbox, so every href, region URL, and action path this
+// file builds follows the Service that rendered the data. A data map with
+// neither key (every fixture-only test) resolves to the real room's
+// literals, byte for byte what this file emitted before the practice room
+// existed.
+func draftRoomPath(data map[string]any) string {
+	if path := stringField(data, "room_path"); path != "" {
+		return path
+	}
+	return "/draft"
+}
+
+func draftFragmentBase(data map[string]any) string {
+	if base := stringField(data, "fragment_base"); base != "" {
+		return base
+	}
+	return "/draft/fragment"
+}
+
+func draftActionPathFor(roomPath, name string) string { return roomPath + "/__actions/" + name }
+
 func draftRedirectTarget(pos, query, page string) string {
+	return draftRedirectTargetFor("/draft", pos, query, page)
+}
+
+// draftRedirectTargetFor is draftRedirectTarget for any room path (the
+// practice room's own actions redirect under PracticeRoomPath).
+func draftRedirectTargetFor(roomPath, pos, query, page string) string {
 	values := url.Values{}
 	if pos != "" {
 		values.Set("pos", pos)
@@ -122,9 +153,9 @@ func draftRedirectTarget(pos, query, page string) string {
 		values.Set("page", strconv.Itoa(parsed))
 	}
 	if encoded := values.Encode(); encoded != "" {
-		return "/draft?" + encoded
+		return roomPath + "?" + encoded
 	}
-	return "/draft"
+	return roomPath
 }
 
 // draftActionSuccess always redirects, for both native and GoSX-managed
@@ -301,6 +332,13 @@ type draftHistoryView struct {
 	// full-replace region (DRAFT_LIVE_MODE=fallback).
 	TapeURL    string
 	TargetMode bool
+	// RoomPath/LiveSrc/LiveHub mirror DraftHistoryProps' own (page.gsx):
+	// the room this pane belongs to, from data's room_path/live_src/
+	// live_hub (service.go's draftData; the real room's literals when a
+	// fixture carries none).
+	RoomPath string
+	LiveSrc  string
+	LiveHub  string
 	// detail resolves one pick's full accordion content on demand (item 1,
 	// 2026-08-30 review): attachDraftFragmentPick (fragment.go) calls this
 	// exactly once, for the single pick number a "?pick=" query names, and
@@ -512,7 +550,7 @@ func bestAvailableProps(items []league.BestAvailablePick) []draftBestAvailableVi
 // rounds link all resolve through this one function, so the pool state
 // — and, for a row's own link, the open pick — travels with every one of
 // them, never silently dropped by a link built ad hoc.
-func draftHistoryHref(view, pos, query string, page int, extra map[string]string) string {
+func draftHistoryHref(roomPath, view, pos, query string, page int, extra map[string]string) string {
 	values := url.Values{}
 	values.Set(draftHistoryViewQueryKey, view)
 	if pos != "" {
@@ -529,7 +567,7 @@ func draftHistoryHref(view, pos, query string, page int, extra map[string]string
 			values.Set(key, value)
 		}
 	}
-	return "/draft?" + values.Encode()
+	return roomPath + "?" + values.Encode()
 }
 
 // tapeRoundsProps converts league's newest-first rounds into their
@@ -539,13 +577,13 @@ func draftHistoryHref(view, pos, query string, page int, extra map[string]string
 // (fragment.go) hydrates the single "?pick="-named row after the fact —
 // so every row's own struct build stays O(1), not one Detail lookup per
 // row on every render regardless of whether a viewer ever opens it.
-func tapeRoundsProps(rounds []league.TapeRound, pos, query string, page int) []draftTapeRoundView {
+func tapeRoundsProps(roomPath string, rounds []league.TapeRound, pos, query string, page int) []draftTapeRoundView {
 	out := make([]draftTapeRoundView, 0, len(rounds))
 	for _, round := range rounds {
 		picks := make([]draftTapePickView, 0, len(round.Picks))
 		for _, pick := range round.Picks {
 			card := tapePickProps(pick)
-			card.Href = draftHistoryHref(draftHistoryViewTape, pos, query, page, map[string]string{draftHistoryPickKey: strconv.Itoa(pick.Number)})
+			card.Href = draftHistoryHref(roomPath, draftHistoryViewTape, pos, query, page, map[string]string{draftHistoryPickKey: strconv.Itoa(pick.Number)})
 			picks = append(picks, card)
 		}
 		roundKey := strconv.Itoa(round.Round)
@@ -704,7 +742,7 @@ func buildDraftHistoryView(data map[string]any, liveMode string) draftHistoryVie
 		// itself, once it knows whether this is a full render (Since < 0)
 		// or a "?since=" poll — see capTapeRounds' own doc comment for why
 		// the old unconditional cap here lost picks on a since-poll.
-		Rounds: tapeRoundsProps(history.Rounds, pos, query, page), Board: boardViewProps(history.Board), Teams: teamColumnsProps(history.Teams),
+		Rounds: tapeRoundsProps(draftRoomPath(data), history.Rounds, pos, query, page), Board: boardViewProps(history.Board), Teams: teamColumnsProps(history.Teams),
 		// Complete comes from data["draft"]["complete"] (the same signal
 		// draftRoomStatus/DraftCommandBar already read), not history.Complete:
 		// a fixture that never sets data["history"] (every non-league test
@@ -725,8 +763,27 @@ func buildDraftHistoryView(data map[string]any, liveMode string) draftHistoryVie
 		OnClockHasAvatarImage: boolField(onClock, "has_avatar_image"), OnClockAvatarImageURL: stringField(onClock, "avatar_image_url"),
 		RoundsEmpty: len(history.Rounds) == 0,
 		TargetMode:  liveMode == "target",
+		RoomPath:    draftRoomPath(data),
+		LiveSrc:     draftLiveSrc(data),
+		LiveHub:     draftLiveHub(data),
 		detail:      history.Detail,
 	}
+}
+
+// draftLiveSrc and draftLiveHub read the live source and hub name the data
+// was built for (see draftRoomPath), defaulting to the real room's own.
+func draftLiveSrc(data map[string]any) string {
+	if src := stringField(data, "live_src"); src != "" {
+		return src
+	}
+	return "/draft/live.json"
+}
+
+func draftLiveHub(data map[string]any) string {
+	if hub := stringField(data, "live_hub"); hub != "" {
+		return hub
+	}
+	return "draft-live"
 }
 
 // draftAvailableView backs the available-players pane: the pool list plus
@@ -952,7 +1009,7 @@ func draftSortHref(data map[string]any, sort string) string {
 		values.Set("page", strconv.Itoa(page))
 	}
 	values.Set("sort", sort)
-	return "/draft?" + values.Encode()
+	return draftRoomPath(data) + "?" + values.Encode()
 }
 
 // draftSortOptions is the ADP/HOUSE toggle (D9): two entries, Active
@@ -1008,6 +1065,15 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	// .draft-available[data-has-adp="false"] .avail-row rule) so the
 	// column's grid track drops with it, never an empty cell.
 	viewData["has_adp"] = boolField(data, "has_adp")
+	// practice (practice draft, internal/league/practice.go): every render
+	// carries the key, so page.gsx's "practice.active == false" branches
+	// (the real room's board edits, ready check-in, and League button) hold
+	// for a fixture-only data map that never went through draftData — a
+	// missing map chain does not compare equal to false in a .gsx
+	// expression, so the real room would otherwise lose those controls.
+	if _, ok := viewData["practice"].(map[string]any); !ok {
+		viewData["practice"] = league.PracticeInactiveMap(league.PracticeAvailability{})
+	}
 	// pool_sort/pool_position_chips/pool_sort_options (D7/D9, spruce
 	// audit): built here, off this ONE viewData map, so the available
 	// pane's RK-column ordering and the head's chip/sort rows (both read
@@ -1033,12 +1099,20 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	// safe here.
 	viewData["yourpick_bind_key"] = "yourpick." + stringField(mapField(data, "viewer"), "team_id") + ".label"
 
+	// roomPath (practice draft): the real room's actions post to
+	// /draft/__actions/<name>; the practice room's own module registers the
+	// same action NAMES under PracticeRoomPath, so one template serves both
+	// rooms with nothing but this base changing.
+	roomPath := draftRoomPath(data)
+	actionPath := func(name string) string { return draftActionPathFor(roomPath, name) }
 	actions := map[string]string{
-		"draft_start": draftActionPath("draft-start"), "toggle_ready": draftActionPath("toggle-ready"),
-		"toggle_autopick": draftActionPath("toggle-autopick"), "clock_pause": draftActionPath("clock-pause"),
-		"clock_resume": draftActionPath("clock-resume"), "clock_extend": draftActionPath("clock-extend"),
-		"clock_duration": draftActionPath("clock-set-duration"), "clock_autopick": draftActionPath("clock-force-autopick"),
-		"seat_autopick": draftActionPath("seat-autopick"), "seat_ready": draftActionPath("seat-ready"),
+		"draft_start": actionPath("draft-start"), "toggle_ready": actionPath("toggle-ready"),
+		"toggle_autopick": actionPath("toggle-autopick"), "clock_pause": actionPath("clock-pause"),
+		"clock_resume": actionPath("clock-resume"), "clock_extend": actionPath("clock-extend"),
+		"clock_duration": actionPath("clock-set-duration"), "clock_autopick": actionPath("clock-force-autopick"),
+		"seat_autopick": actionPath("seat-autopick"), "seat_ready": actionPath("seat-ready"),
+		"practice_leave": actionPath("practice-leave"), "practice_restart": actionPath("practice-restart"),
+		"practice_start": actionPath("practice-start"),
 	}
 	room := draftRoomView{Data: viewData, Actions: actions}
 	room.StatusSummary = draftRoomStatus(viewData)
@@ -1049,7 +1123,7 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	}
 	output["room"] = room
 	output["workspace"] = draftWorkspaceView{
-		Data: viewData, Players: typedPlayers, MakePickAction: draftActionPath("make-pick"),
+		Data: viewData, Players: typedPlayers, MakePickAction: actionPath("make-pick"),
 	}
 	// live_mode/shell_modifier drive the shell root's own attributes
 	// (data-draft-live-mode, the --final class variant). Task 8 pins
@@ -1066,6 +1140,15 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	// this same page.gsx for that env, gated by <If cond={data.live_mode
 	// == "target"}> pairs rather than a second template.
 	liveMode := draftLiveMode()
+	// A practice room (practice draft, internal/league/practice.go) always
+	// renders in fallback mode: every pane is a plain region that refetches
+	// from the practice's own fragment endpoints on each draft:pick/
+	// draft:clock/draft:state the practice hub pushes, so the pick controls,
+	// the clock, and the strip are server-authoritative on every bot pick
+	// with no per-field bind coverage to maintain for a second room.
+	if boolField(mapField(data, "practice"), "active") {
+		liveMode = "fallback"
+	}
 	output["live_mode"] = liveMode
 	output["shell_modifier"] = ""
 	if complete, _ := mapField(data, "draft")["complete"].(bool); complete {
@@ -1078,11 +1161,11 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	output["history"] = buildDraftHistoryView(data, liveMode)
 	output["available"] = draftAvailableView{
 		Data: viewData, Players: typedPlayers,
-		MakePickAction: draftActionPath("make-pick"), QueueAddAction: draftActionPath("queue-add"), Actions: actions,
+		MakePickAction: actionPath("make-pick"), QueueAddAction: actionPath("queue-add"), Actions: actions,
 	}
 	output["queue"] = draftQueueView{
 		Data: viewData, Queue: typedQueue,
-		QueueRemoveAction: draftActionPath("queue-remove"), QueueMoveAction: draftActionPath("queue-move"), Actions: actions,
+		QueueRemoveAction: actionPath("queue-remove"), QueueMoveAction: actionPath("queue-move"), Actions: actions,
 	}
 	return output
 }
@@ -1099,9 +1182,9 @@ func draftWorkspaceFragmentURL(data map[string]any) string {
 		values.Set("page", strconv.Itoa(page))
 	}
 	if encoded := values.Encode(); encoded != "" {
-		return "/draft/fragment/workspace?" + encoded
+		return draftFragmentBase(data) + "/workspace?" + encoded
 	}
-	return "/draft/fragment/workspace"
+	return draftFragmentBase(data) + "/workspace"
 }
 
 // draftRoomStatus builds the sole text of the draft shell's own visually-

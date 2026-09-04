@@ -373,14 +373,22 @@ func autopickHouseWalk(pool playerPool, picked map[string]bool, filter func(stri
 // display, the commissioner force-pick, and every other "best available"
 // consumer keep reading pool.players/byADP (market ADP) untouched.
 func (s *Service) autopickChoice(state PersistedState, teamID string) (string, bool) {
+	return autopickChoiceWith(state, s.pool(), s.Teams(), s.boardKeyForTeam(state, teamID), teamID)
+}
+
+// autopickChoiceWith is autopickChoice's store-free core (practice draft,
+// practice.go): every Service-owned input — the pool, the team list, and
+// the seat's board key — arrives as an argument, so the same strategy can
+// run for a sandbox seat exactly as it runs for the real clock. The
+// wrapper above is what clockTick calls; nothing about its behavior moved.
+func autopickChoiceWith(state PersistedState, pool playerPool, teams []Team, boardKey, teamID string) (string, bool) {
 	picked := make(map[string]bool, len(state.Picks))
 	for _, pick := range state.Picks {
 		picked[pick.PlayerID] = true
 	}
-	pool := s.pool()
 	preset := CurrentRoster()
-	otherTeamIDs := make([]string, 0, len(s.Teams()))
-	for _, team := range s.Teams() {
+	otherTeamIDs := make([]string, 0, len(teams))
+	for _, team := range teams {
 		if team.ID != teamID {
 			otherTeamIDs = append(otherTeamIDs, team.ID)
 		}
@@ -428,7 +436,7 @@ func (s *Service) autopickChoice(state PersistedState, teamID string) (string, b
 		}
 		return draftCandidateKeepsRosterViable(state, pool.byID, teamID, playerID) && !scarce(player.Position)
 	}
-	key := s.boardKeyForTeam(state, teamID)
+	key := boardKey
 	for _, id := range state.Boards[key] {
 		if picked[id] {
 			continue

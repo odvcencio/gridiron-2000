@@ -110,6 +110,21 @@ type Service struct {
 	poolMu     sync.Mutex
 	poolSource PlayerSource
 	poolCache  playerPool
+	// poolOverride, when set, is the whole pool() answer: the practice
+	// sandbox (practice.go) installs a closure over ONE snapshot of the
+	// real Service's pool so the practice room drafts from exactly the
+	// board the real room shows, frozen for the session. nil on the real
+	// Service and in every test literal — pool() then runs its normal
+	// source/freeze/rebuild path.
+	poolOverride func() playerPool
+	// roomPath and liveHub name the draft room this Service renders: "" on
+	// the real Service ("/draft" and "draft-live", the defaults RoomPath and
+	// LiveHubName resolve), PracticeRoomPath/PracticeLiveHubName on the
+	// practice sandbox. Every pool href, fragment URL, live source, and hub
+	// name draftData hands the template reads them, so the practice room
+	// never links, polls, or listens on the real room's endpoints.
+	roomPath string
+	liveHub  string
 	// poolFrozenLoggedVersion/poolFrozenLoggedSet de-duplicate the pool()
 	// freeze log line (rules-audit item 1): a started, incomplete draft
 	// can see hundreds of pool() calls before the next resync, and every
@@ -1330,6 +1345,9 @@ func (s *Service) poolStatusMap() map[string]any {
 // source version changes. The demo fixtures remain reachable by ID so picks
 // recorded during rehearsals keep resolving after the live pool arrives.
 func (s *Service) pool() playerPool {
+	if s.poolOverride != nil {
+		return s.poolOverride()
+	}
 	s.poolMu.Lock()
 	defer s.poolMu.Unlock()
 	if s.poolSource == nil {
@@ -1989,6 +2007,7 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 	livePoll := live.State != MatchupStateFinal && live.State != MatchupStatePreseason
 	return map[string]any{
 		"viewer":                viewer,
+		"practice":              PracticeInactiveMap(s.PracticeAvailability(r)),
 		"public_entry":          s.publicEntryDataForViewerState(r, viewer, state),
 		"playoff_truth":         s.playoffTruthMap(state, now, s.IsCommissioner(r)),
 		"has_seat":              hasSeat,
@@ -2996,13 +3015,31 @@ func ResolveDraftPoolSort(r *http.Request) string {
 // callers, /players and /board, carry no sort concept at all, so this
 // stays local to the draft room rather than growing poolPageHref's own
 // shared signature.
-func draftPoolPageHref(pos, query, activeSort string, page int) string {
-	href := poolPageHref("/draft", pos, query, page)
+func draftPoolPageHref(base, pos, query, activeSort string, page int) string {
+	href := poolPageHref(base, pos, query, page)
 	separator := "?"
 	if strings.Contains(href, "?") {
 		separator = "&"
 	}
 	return href + separator + "sort=" + url.QueryEscape(activeSort)
+}
+
+// RoomPath is the route this Service's draft room renders under: "/draft"
+// for the real league, PracticeRoomPath for a practice sandbox.
+func (s *Service) RoomPath() string {
+	if s.roomPath != "" {
+		return s.roomPath
+	}
+	return "/draft"
+}
+
+// LiveHubName is the hub the room's live binds and regions listen on:
+// "draft-live" for the real league, PracticeLiveHubName for a sandbox.
+func (s *Service) LiveHubName() string {
+	if s.liveHub != "" {
+		return s.liveHub
+	}
+	return "draft-live"
 }
 
 func (s *Service) DraftData(r *http.Request) map[string]any {
@@ -3229,6 +3266,14 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 		}
 	}
 	poolStatusMap := s.poolFreshnessMap(pool)
+	// roomPath/liveHub (practice draft, practice.go): the route and hub
+	// THIS Service's room lives on. The real Service renders "/draft" and
+	// "draft-live" — byte-identical to the literals page.gsx carried before
+	// the practice room existed — and the practice sandbox renders its own,
+	// so every pool href, fragment region URL, live source, and hub binding
+	// the template emits follows the Service that built the data.
+	roomPath := s.RoomPath()
+	liveHub := s.LiveHubName()
 	// banner is the command bar's one-line status strip: paused takes
 	// priority over rehearsal, which takes priority over an honest pool
 	// freshness notice, so a manager never sees more than one competing
@@ -3282,16 +3327,16 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 		"pool_page_end":        pagination.End,
 		"pool_has_previous":    pagination.HasPrevious,
 		"pool_has_next":        pagination.HasNext,
-		"pool_previous_href":   draftPoolPageHref(pos, rawQuery, activeSort, pagination.Page-1),
-		"pool_next_href":       draftPoolPageHref(pos, rawQuery, activeSort, pagination.Page+1),
-		"pool_all_href":        draftPoolPageHref("", rawQuery, activeSort, 1),
-		"pool_rb_href":         draftPoolPageHref("RB", rawQuery, activeSort, 1),
-		"pool_wr_href":         draftPoolPageHref("WR", rawQuery, activeSort, 1),
-		"pool_qb_href":         draftPoolPageHref("QB", rawQuery, activeSort, 1),
-		"pool_te_href":         draftPoolPageHref("TE", rawQuery, activeSort, 1),
-		"pool_k_href":          draftPoolPageHref("K", rawQuery, activeSort, 1),
-		"pool_dst_href":        draftPoolPageHref("DST", rawQuery, activeSort, 1),
-		"pool_p_href":          draftPoolPageHref("P", rawQuery, activeSort, 1),
+		"pool_previous_href":   draftPoolPageHref(roomPath, pos, rawQuery, activeSort, pagination.Page-1),
+		"pool_next_href":       draftPoolPageHref(roomPath, pos, rawQuery, activeSort, pagination.Page+1),
+		"pool_all_href":        draftPoolPageHref(roomPath, "", rawQuery, activeSort, 1),
+		"pool_rb_href":         draftPoolPageHref(roomPath, "RB", rawQuery, activeSort, 1),
+		"pool_wr_href":         draftPoolPageHref(roomPath, "WR", rawQuery, activeSort, 1),
+		"pool_qb_href":         draftPoolPageHref(roomPath, "QB", rawQuery, activeSort, 1),
+		"pool_te_href":         draftPoolPageHref(roomPath, "TE", rawQuery, activeSort, 1),
+		"pool_k_href":          draftPoolPageHref(roomPath, "K", rawQuery, activeSort, 1),
+		"pool_dst_href":        draftPoolPageHref(roomPath, "DST", rawQuery, activeSort, 1),
+		"pool_p_href":          draftPoolPageHref(roomPath, "P", rawQuery, activeSort, 1),
 		"on_clock":             onClockMap,
 		"on_clock_id":          onClockID,
 		"pick_number":          displayPickNumber,
@@ -3326,6 +3371,12 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 		"queue_empty":          len(queuePanel) == 0,
 		"next_queued":          nextQueued,
 		"roster_needs":         rosterNeeds,
+		"room_path":            roomPath,
+		"live_src":             roomPath + "/live.json",
+		"live_hub":             liveHub,
+		"fragment_base":        roomPath + "/fragment",
+		"queue_move_url":       "POST " + roomPath + "/queue",
+		"practice":             PracticeInactiveMap(s.PracticeAvailability(r)),
 	}
 }
 
@@ -3877,12 +3928,12 @@ func (s *Service) draftSummaryForState(now time.Time, state PersistedState) map[
 		startedAt = state.DraftStartedAt.Format(time.RFC3339)
 	}
 	summary := map[string]any{
-		"at":              draftAt.Format(time.RFC3339),
-		"overridden":      !state.DraftAtOverride.IsZero(),
-		"input_value":     draftMeetingInputValue(draftAt, location),
-		"event_label":     "LEAGUE DRAFT",
-		"date":            strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day()),
-		"time":            local.Format("3:04 PM MST"),
+		"at":          draftAt.Format(time.RFC3339),
+		"overridden":  !state.DraftAtOverride.IsZero(),
+		"input_value": draftMeetingInputValue(draftAt, location),
+		"event_label": "LEAGUE DRAFT",
+		"date":        strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day()),
+		"time":        local.Format("3:04 PM MST"),
 		// opens_label is the pre-draft room title's own clause ("opens
 		// <date> · <time>"), composed here so an unpublished date renders
 		// "opens TBD" rather than "opens TBD · " with a dangling separator.
