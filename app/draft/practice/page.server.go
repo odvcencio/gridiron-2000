@@ -75,6 +75,7 @@ func lobbyData(r *http.Request, base *league.Service) map[string]any {
 	data := base.StaticPageData(r)
 	data[practiceLobbyKey] = true
 	data["practice"] = league.PracticeInactiveMap(availability)
+	data["real_draft"] = base.PracticeLobby(r)
 	data["practice_team_name"] = base.TeamLabel(availability.TeamID)
 	data["practice_span"] = league.PracticeRoundSpan
 	data["rounds"] = league.CurrentDraftRounds()

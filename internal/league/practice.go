@@ -697,12 +697,41 @@ func (d *PracticeDraft) practiceMap(now time.Time, round int, complete bool) map
 	label := ""
 	relative := ""
 	if published, _ := summary["published"].(bool); published {
-		label = fmt.Sprintf("%s · %s", summary["date"], summary["time"])
+		location := d.base.draftTZ
+		if location == nil {
+			location = time.UTC
+		}
+		label = realAt.In(location).Format(practiceTimeLayout)
 		relative = relativeTime(now, realAt)
 	}
 	roundsLeft := d.endRound - round + 1
 	if roundsLeft < 0 || complete {
 		roundsLeft = 0
+	}
+	span := d.endRound - d.startRound + 1
+	position := round - d.startRound + 1
+	if position < 1 {
+		position = 1
+	}
+	if position > span {
+		position = span
+	}
+	// summary_short is the phone strip's one line; summary_full is the
+	// desktop sentence and the phone Details body. Both are built here so
+	// the room's own template carries no copy of its own for either.
+	rounds := fmt.Sprintf("rounds %d to %d", d.startRound, d.endRound)
+	if span == 1 {
+		rounds = fmt.Sprintf("round %d", d.startRound)
+	}
+	realDraft := ""
+	if label != "" {
+		realDraft = " · the real draft starts " + label + " (" + relative + ")"
+	}
+	short := fmt.Sprintf("picks don't count · round %d of %d", position, span)
+	full := "Practice draft · picks here do not count · " + rounds + realDraft + "."
+	if complete {
+		short = "complete · " + rounds + " · nothing saved"
+		full = "Practice complete · you drafted " + rounds + " · nothing was saved" + realDraft + "."
 	}
 	return map[string]any{
 		"active":              true,
@@ -711,15 +740,62 @@ func (d *PracticeDraft) practiceMap(now time.Time, round int, complete bool) map
 		"start_round":         d.startRound,
 		"end_round":           d.endRound,
 		"rounds_left":         roundsLeft,
-		"span":                d.endRound - d.startRound + 1,
+		"span":                span,
+		"position":            position,
 		"team_id":             d.teamID,
 		"team_name":           d.svc.teamByID(d.teamID).Name,
 		"real_draft_label":    label,
 		"real_draft_relative": relative,
 		"real_draft_known":    label != "",
+		"summary_short":       short,
+		"summary_full":        full,
 		"room_href":           "/draft",
 		"href":                PracticeRoomPath,
 	}
+}
+
+// practiceTimeLayout is the league's canonical league-local time label
+// (the same "Mon Jan 2 · 3:04 PM MST" every kickoff, waiver run, and
+// pick'em lock already renders with).
+const practiceTimeLayout = "Mon Jan 2 · 3:04 PM MST"
+
+// PracticeLobby is the lobby's own "real draft" card: the real draft's
+// league-local date, time, zone, and relative phrase from the canonical
+// summary, plus the viewer's own check-in state and seat, so the lobby
+// answers "when is the real thing, and am I ready for it" beside the
+// practice choice.
+func (s *Service) PracticeLobby(r *http.Request) map[string]any {
+	now := s.clock()
+	state := s.store.Snapshot()
+	summary := s.draftSummaryForState(now, state)
+	published, _ := summary["published"].(bool)
+	at := s.EffectiveDraftAt(state)
+	location := s.draftTZ
+	if location == nil {
+		location = time.UTC
+	}
+	availability := s.PracticeAvailability(r)
+	checkedIn := availability.HasSeat && state.Ready[availability.TeamID]
+	out := map[string]any{
+		"published":  published,
+		"date":       summary["date"],
+		"time":       summary["time"],
+		"timezone":   summary["timezone"],
+		"long_date":  summary["long_date"],
+		"label":      "",
+		"relative":   "",
+		"started":    state.DraftStarted,
+		"complete":   draftComplete(state),
+		"has_seat":   availability.HasSeat,
+		"checked_in": checkedIn,
+		"team_name":  s.TeamLabel(availability.TeamID),
+		"room_href":  "/draft",
+	}
+	if published {
+		out["label"] = at.In(location).Format(practiceTimeLayout)
+		out["relative"] = relativeTime(now, at)
+	}
+	return out
 }
 
 // PracticeInactiveMap is the "practice" key every REAL room render carries:
