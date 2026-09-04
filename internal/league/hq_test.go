@@ -68,6 +68,44 @@ func TestBuildActionCenterEntryAndPredraftMeetingTruth(t *testing.T) {
 	}
 }
 
+// TestBuildActionCenterNamesAPlaceholderTeam (F9): nothing prompted a
+// manager to rename a franchise still called its configured seed name
+// ("Placeholder go here" in the audited copy) — the Action Center never
+// mentioned it, and the /team checklist marked personalization complete
+// on seat claim alone. A pre-draft manager whose team name still equals
+// its seed name now gets a preparation card naming it.
+func TestBuildActionCenterNamesAPlaceholderTeam(t *testing.T) {
+	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+
+	placeholder := BuildActionCenter(ActionCenterFacts{
+		Now: now, Location: time.UTC, Admitted: true, HasSeat: true,
+		BoardCount: 3, Ready: true, TeamName: "Placeholder go here",
+		TeamNameIsSeedPlaceholder: true,
+	})
+	action, ok := findAction(placeholder.Actions, "rename-placeholder")
+	if !ok {
+		t.Fatalf("placeholder team got no rename card: %+v", placeholder.Actions)
+	}
+	if action.Priority != ActionCenterPriorityPreparation {
+		t.Fatalf("rename-placeholder priority = %q, want preparation", action.Priority)
+	}
+	if action.Href != "/team?identity=edit#team-identity" {
+		t.Fatalf("rename-placeholder href = %q", action.Href)
+	}
+	if !strings.Contains(action.Detail, `"Placeholder go here"`) {
+		t.Fatalf("rename-placeholder detail = %q, want the team's own placeholder name quoted", action.Detail)
+	}
+
+	renamed := BuildActionCenter(ActionCenterFacts{
+		Now: now, Location: time.UTC, Admitted: true, HasSeat: true,
+		BoardCount: 3, Ready: true, TeamName: "Antonio's Aces",
+		TeamNameIsSeedPlaceholder: false,
+	})
+	if _, ok := findAction(renamed.Actions, "rename-placeholder"); ok {
+		t.Fatalf("renamed team still got the placeholder-rename card: %+v", renamed.Actions)
+	}
+}
+
 func TestActionCenterUsesRescheduledDraftMeeting(t *testing.T) {
 	service := newTestService(t, false)
 	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)

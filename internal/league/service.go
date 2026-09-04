@@ -2330,20 +2330,21 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	// visitor of /team).
 	if hasSeat, _ := viewer["has_seat"].(bool); !hasSeat && !lineupTarget.Intervention {
 		return map[string]any{
-			"viewer":               viewer,
-			"public_entry":         publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),
-			"playoff_truth":        s.playoffTruthMap(state, s.clock(), s.IsCommissioner(r)),
-			"has_seat":             false,
-			"predraft_visible":     false,
-			"predraft_has_board":   false,
-			"predraft_board_count": 0,
-			"predraft_ready":       false,
-			"league":               s.leagueMapForViewer(r),
-			"league_mode":          s.cfg.ModeLabel,
-			"fantasy_card":         s.fantasyCardData(state, viewer),
-			"identity_available":   identityAvailable,
-			"identity_error":       identityError,
-			"badge_grid":           []map[string]any{},
+			"viewer":                        viewer,
+			"public_entry":                  publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),
+			"playoff_truth":                 s.playoffTruthMap(state, s.clock(), s.IsCommissioner(r)),
+			"has_seat":                      false,
+			"predraft_visible":              false,
+			"predraft_has_board":            false,
+			"predraft_board_count":          0,
+			"predraft_ready":                false,
+			"team_name_is_seed_placeholder": false,
+			"league":                        s.leagueMapForViewer(r),
+			"league_mode":                   s.cfg.ModeLabel,
+			"fantasy_card":                  s.fantasyCardData(state, viewer),
+			"identity_available":            identityAvailable,
+			"identity_error":                identityError,
+			"badge_grid":                    []map[string]any{},
 		}
 	}
 	teamID = lineupTarget.TeamID
@@ -2525,20 +2526,24 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		"predraft_has_board":   boardCount > 0,
 		"predraft_board_count": boardCount,
 		"predraft_ready":       managerReady,
-		"projected":            fmt.Sprintf("%.1f", projected),
-		"division":             teamMap["division"],
-		"scouting":             radar,
-		"scouting_empty":       len(radar) == 0,
-		"is_commissioner":      s.IsCommissioner(r),
-		"league_mode":          s.cfg.ModeLabel,
-		"league":               s.leagueMapForViewer(r),
-		"badge_tone_hex":       badgeToneHex,
-		"has_badge_claim":      hasBadgeClaim,
-		"badge_grid":           badgeGrid,
-		"identity_available":   identityAvailable,
-		"identity_error":       identityError,
-		"roster_shape":         rosterShapeRows(),
-		"shape_summary":        rosterShapeSummary(len(general) + len(reserveOccupants)),
+		// team_name_is_seed_placeholder (F9) unticks checklist item 01 while
+		// the franchise is still named its configured seed name — a claimed
+		// seat is not the same as a personalized one.
+		"team_name_is_seed_placeholder": s.TeamNameIsSeedPlaceholder(teamID),
+		"projected":                     fmt.Sprintf("%.1f", projected),
+		"division":                      teamMap["division"],
+		"scouting":                      radar,
+		"scouting_empty":                len(radar) == 0,
+		"is_commissioner":               s.IsCommissioner(r),
+		"league_mode":                   s.cfg.ModeLabel,
+		"league":                        s.leagueMapForViewer(r),
+		"badge_tone_hex":                badgeToneHex,
+		"has_badge_claim":               hasBadgeClaim,
+		"badge_grid":                    badgeGrid,
+		"identity_available":            identityAvailable,
+		"identity_error":                identityError,
+		"roster_shape":                  rosterShapeRows(),
+		"shape_summary":                 rosterShapeSummary(len(general) + len(reserveOccupants)),
 		// positional_depth (wave 7 item 2) is the general roster's own
 		// position counts — "2 QB · 4 RB · 5 WR · 2 TE · 1 K · 1 DST" — in
 		// the same QB/RB/WR/TE/K/DST order the bench grouping
@@ -2565,7 +2570,7 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		// every render, so it stays honest independent of whether the
 		// empty slot came from SET BEST LINEUP, a drop, or a lock.
 		"starters_empty":       len(lineupEmptyStarterSlots(lineup)) > 0,
-		"starters_empty_label": lineupEmptySlotsWarning(lineupEmptyStarterSlots(lineup)),
+		"starters_empty_label": teamStartersEmptyLabel(lifecycle.DraftComplete, lineupEmptyStarterSlots(lineup)),
 		"bench_capacity":       strconv.Itoa(preset.Bench),
 		"bench":                benchRows,
 		"bench_empty":          len(lineup.Bench) == 0,
@@ -3879,12 +3884,12 @@ func (s *Service) draftSummaryForState(now time.Time, state PersistedState) map[
 		startedAt = state.DraftStartedAt.Format(time.RFC3339)
 	}
 	summary := map[string]any{
-		"at":              draftAt.Format(time.RFC3339),
-		"overridden":      !state.DraftAtOverride.IsZero(),
-		"input_value":     draftMeetingInputValue(draftAt, location),
-		"event_label":     "LEAGUE DRAFT",
-		"date":            strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day()),
-		"time":            local.Format("3:04 PM MST"),
+		"at":          draftAt.Format(time.RFC3339),
+		"overridden":  !state.DraftAtOverride.IsZero(),
+		"input_value": draftMeetingInputValue(draftAt, location),
+		"event_label": "LEAGUE DRAFT",
+		"date":        strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day()),
+		"time":        local.Format("3:04 PM MST"),
 		// opens_label is the pre-draft room title's own clause ("opens
 		// <date> · <time>"), composed here so an unpublished date renders
 		// "opens TBD" rather than "opens TBD · " with a dangling separator.
@@ -5359,6 +5364,29 @@ func (s *Service) TeamLabel(id string) string {
 	return team.Name
 }
 
+// TeamNameIsSeedPlaceholder reports whether teamID's live display name
+// (s.teamByID, which applies any Store.RenameTeam override) still equals
+// its configured seed name from s.Teams() (F9: nothing prompted a manager
+// to rename a franchise still called, for example, "Placeholder go
+// here" — the Action Center never mentioned it, and the /team checklist
+// marked personalization complete on seat claim alone).
+func (s *Service) TeamNameIsSeedPlaceholder(teamID string) bool {
+	teamID = strings.TrimSpace(teamID)
+	if teamID == "" {
+		return false
+	}
+	live := strings.TrimSpace(s.teamByID(teamID).Name)
+	if live == "" {
+		return false
+	}
+	for _, team := range s.Teams() {
+		if team.ID == teamID {
+			return live == strings.TrimSpace(team.Name)
+		}
+	}
+	return false
+}
+
 // teamView resolves a team against an already-taken snapshot so callers in a
 // loop pay for one state copy, not one per team.
 func (s *Service) teamView(state PersistedState, id string) Team {
@@ -6048,7 +6076,8 @@ func (s *Service) actionCenterDataForSnapshot(r *http.Request, state PersistedSt
 		EntryActionHref: entry.ActionHref, EntryActionLabel: entry.ActionLabel,
 		EntryDetail: entry.Detail, Admitted: entry.Admitted, HasSeat: hasSeat,
 		TeamID: teamID, TeamName: entry.TeamName, Commissioner: entry.IsCommissioner,
-		DraftStarted: state.DraftStarted, DraftComplete: complete,
+		TeamNameIsSeedPlaceholder: hasSeat && s.TeamNameIsSeedPlaceholder(teamID),
+		DraftStarted:              state.DraftStarted, DraftComplete: complete,
 		DraftAt: s.EffectiveDraftAt(state),
 		Ready:   state.Ready[teamID], SeasonPhase: s.SeasonPhase(now),
 		SeatCapacity: seatCapacity, ClaimedSeats: claimedSeats, ReadySeats: readySeats,

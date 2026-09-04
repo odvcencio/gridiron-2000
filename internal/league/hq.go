@@ -102,47 +102,52 @@ type ActionCenterWaiverFacts struct {
 // ActionCenterFacts is the service-to-pure-model boundary. BuildActionCenter
 // performs no store, clock, or request access.
 type ActionCenterFacts struct {
-	Now                 time.Time
-	Location            *time.Location
-	EntryState          PublicEntryState
-	EntryStateLabel     string
-	EntryHeadline       string
-	EntryActionHref     string
-	EntryActionLabel    string
-	EntryDetail         string
-	Admitted            bool
-	HasSeat             bool
-	TeamID              string
-	TeamName            string
-	Commissioner        bool
-	DraftStarted        bool
-	DraftComplete       bool
-	DraftAt             time.Time
-	ViewerOnClock       bool
-	OnClockTeamName     string
-	ClockDeadline       time.Time
-	ClockPaused         bool
-	Ready               bool
-	BoardCount          int
-	SeatCapacity        int
-	ClaimedSeats        int
-	ReadySeats          int
-	DraftOrderSet       bool
-	DraftPoolCount      int
-	DraftPoolTarget     int
-	SeasonPhase         string
-	ScheduleExists      bool
-	WeekCloseWeek       int
-	WeekCloseFinal      bool
-	WeekCloseReady      bool
-	WeekCloseGamesFinal int
-	WeekCloseGamesTotal int
-	WeekCloseStatsFresh bool
-	WeekCloseReason     string
-	Pickem              ActionCenterPickemFacts
-	Lineup              ActionCenterLineupFacts
-	Trades              ActionCenterTradeFacts
-	Waivers             ActionCenterWaiverFacts
+	Now              time.Time
+	Location         *time.Location
+	EntryState       PublicEntryState
+	EntryStateLabel  string
+	EntryHeadline    string
+	EntryActionHref  string
+	EntryActionLabel string
+	EntryDetail      string
+	Admitted         bool
+	HasSeat          bool
+	TeamID           string
+	TeamName         string
+	// TeamNameIsSeedPlaceholder (F9) reports whether TeamName still equals
+	// teamID's configured seed name (Service.TeamNameIsSeedPlaceholder) —
+	// nothing previously prompted a manager to personalize a franchise
+	// still named, for example, "Placeholder go here."
+	TeamNameIsSeedPlaceholder bool
+	Commissioner              bool
+	DraftStarted              bool
+	DraftComplete             bool
+	DraftAt                   time.Time
+	ViewerOnClock             bool
+	OnClockTeamName           string
+	ClockDeadline             time.Time
+	ClockPaused               bool
+	Ready                     bool
+	BoardCount                int
+	SeatCapacity              int
+	ClaimedSeats              int
+	ReadySeats                int
+	DraftOrderSet             bool
+	DraftPoolCount            int
+	DraftPoolTarget           int
+	SeasonPhase               string
+	ScheduleExists            bool
+	WeekCloseWeek             int
+	WeekCloseFinal            bool
+	WeekCloseReady            bool
+	WeekCloseGamesFinal       int
+	WeekCloseGamesTotal       int
+	WeekCloseStatsFresh       bool
+	WeekCloseReason           string
+	Pickem                    ActionCenterPickemFacts
+	Lineup                    ActionCenterLineupFacts
+	Trades                    ActionCenterTradeFacts
+	Waivers                   ActionCenterWaiverFacts
 }
 
 type ActionCenterAction struct {
@@ -412,6 +417,9 @@ func preparationActions(f ActionCenterFacts) []ActionCenterAction {
 	}
 	if !f.Ready {
 		out = append(out, ActionCenterAction{ID: "draft-ready", Priority: ActionCenterPriorityPreparation, PriorityLabel: "PREPARATION", Label: "Check in for the draft", Detail: "Mark this seat ready from the draft room when your board is set. " + draftMeetingDetail(f), Href: "/draft", DueAt: f.DraftAt, HasDueAt: !f.DraftAt.IsZero(), DueLabel: "DRAFT MEETING"})
+	}
+	if f.TeamNameIsSeedPlaceholder {
+		out = append(out, ActionCenterAction{ID: "rename-placeholder", Priority: ActionCenterPriorityPreparation, PriorityLabel: "PREPARATION", Label: "Name your franchise", Detail: fmt.Sprintf("Your team is still called %q.", f.TeamName), Href: "/team?identity=edit#team-identity"})
 	}
 	return out
 }

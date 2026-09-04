@@ -959,6 +959,22 @@ func lineupEmptySlotsWarning(missing []SlotInstance) string {
 	return strings.Join(phrases, "; ") + ". Sign from the Player Pool."
 }
 
+// teamStartersEmptyLabel is starters_empty_label's own draft-phase gate
+// (F17): before the draft completes, an empty starter slot is correct,
+// not a problem — free agency is not open, and lineupEmptySlotsWarning's
+// own per-slot "Sign from the Player Pool." instruction names an action
+// the manager cannot yet take. Collapse to one honest line instead of
+// repeating an unusable instruction once per empty slot.
+func teamStartersEmptyLabel(draftComplete bool, missing []SlotInstance) string {
+	if len(missing) == 0 {
+		return ""
+	}
+	if !draftComplete {
+		return "Your starters fill in on draft night."
+	}
+	return lineupEmptySlotsWarning(missing)
+}
+
 // lineupAutoResultMessage is SET BEST LINEUP's result copy (section 4.7,
 // gap-audit finding: the action must never report plain success while a
 // starting slot stays empty). resolved is autoFillWeek's slotID -> playerID
