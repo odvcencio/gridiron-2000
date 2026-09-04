@@ -55,11 +55,15 @@ func TestPublicEntryAnonymousOnlyPromisesAuthenticationAcrossModes(t *testing.T)
 	}
 }
 
-// TestPublicEntryAnonymousLeagueFullDoesNotPromiseASeat guards wave-6 item
-// 3: an anonymous viewer of a full league previously kept the open-seat
-// "SIGN IN TO ENTER." headline even beside "0 of N seats open". A full
-// league must tell the anonymous viewer seats are taken and that sign-in
-// gets them admission and the waitlist/Pick'em posture, not a franchise.
+// TestPublicEntryAnonymousLeagueFullDoesNotPromiseASeat guards two, now
+// distinct, promises for an anonymous viewer of a full league. Wave-6 item
+// 3 first shipped a headline swap to "EVERY FRANCHISE SEAT IS TAKEN.",
+// which a J5 comb audit (F2, 2026-09-04) found read as a rejection notice
+// to a seated manager who has not signed in yet — the wrong instruction
+// for every anonymous visitor, seated or not. The headline now stays
+// "SIGN IN TO ENTER." at every seat count; this test instead pins the
+// full-league truth to the detail line (and confirms it never claims a
+// seat is available).
 func TestPublicEntryAnonymousLeagueFullDoesNotPromiseASeat(t *testing.T) {
 	t.Run("open seats keep the sign-in-to-enter promise", func(t *testing.T) {
 		service := newTestService(t, false)
@@ -88,8 +92,11 @@ func TestPublicEntryAnonymousLeagueFullDoesNotPromiseASeat(t *testing.T) {
 		if view.State != PublicEntryAnonymous || view.SignedIn || view.Admitted || view.CanClaim {
 			t.Fatalf("full anonymous entry changed identity state: %+v", view)
 		}
-		if view.Headline == "SIGN IN TO ENTER." {
-			t.Fatalf("full league still promises a seat with the open-seat headline: %+v", view)
+		// F2: the headline is the one instruction every anonymous visitor
+		// needs, seated manager or not — it stays constant regardless of
+		// seat count. The full-league truth belongs in the detail line.
+		if view.Headline != "SIGN IN TO ENTER." {
+			t.Fatalf("full league changed the anonymous headline away from the sign-in instruction: %+v", view)
 		}
 		lower := strings.ToLower(view.Headline + " " + view.Detail)
 		if !strings.Contains(lower, "taken") && !strings.Contains(lower, "full") && !strings.Contains(lower, "assigned") {
