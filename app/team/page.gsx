@@ -429,6 +429,7 @@ func Page() Node {
 							<input type="hidden" name={data.team_return_target_field} value={data.team_return_target}></input>
 							<input id="team-name-input" type="text" name="name" value={data.team_name_value} maxlength="40" enterkeyhint="done" aria-invalid={data.has_rename_error} aria-describedby="team-name-error"></input>
 							<p id="team-name-error" class="error-message form-error" data-gosx-field-error="name" role="alert">{data.rename_error}</p>
+							<p id="team-rename-status" class="form-status" role="status" aria-live="polite"></p>
 							<button class="button button--compact" type="submit">Rename</button>
 						</form>
 						<If cond={data.team.has_custom_name}>

@@ -38,6 +38,48 @@ func TestManagedTeamFormsCarryCSRFToken(t *testing.T) {
 	}
 }
 
+// TestTeamRenameFormCarriesAManagedFormStatusElement (F8): renaming the
+// team with JavaScript on produced no confirmation — the managed form
+// patched the input's value in place (a reload confirmed the rename
+// took) but the returned notice had nowhere to render, four screens away
+// from the field the manager just used. GoSX's client runtime fills the
+// FIRST element inside a managed form carrying class "form-status" or
+// "action-message" with the action's own result message on every
+// response, success or failure (client/runtime/host/navigation.ts,
+// managedFormStatus/projectManagedFormResult) — the exact convention
+// /join's #signup-form-status already relies on. This pins that the
+// element exists inside the team-rename form, after the field-level
+// error and before the submit button, so the client runtime's own
+// existing, already-tested behavior has something to fill.
+func TestTeamRenameFormCarriesAManagedFormStatusElement(t *testing.T) {
+	sourceBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	formStart := strings.Index(source, `action={actionPath("team-rename")}`)
+	if formStart < 0 {
+		t.Fatal("managed team-rename form not found")
+	}
+	formEnd := strings.Index(source[formStart:], "</form>")
+	if formEnd < 0 {
+		t.Fatal("managed team-rename form has no closing form tag")
+	}
+	form := source[formStart : formStart+formEnd]
+	if !strings.Contains(form, `class="form-status" role="status" aria-live="polite"`) {
+		t.Fatalf("team-rename form has no .form-status element for the client runtime to fill: %s", form)
+	}
+	errorAt := strings.Index(form, `data-gosx-field-error="name"`)
+	statusAt := strings.Index(form, `class="form-status"`)
+	submitAt := strings.Index(form, `type="submit"`)
+	if errorAt < 0 || statusAt < 0 || submitAt < 0 {
+		t.Fatalf("could not locate field error, status, and submit control in team-rename form: %s", form)
+	}
+	if !(errorAt < statusAt && statusAt < submitAt) {
+		t.Fatalf("team-rename form order = error@%d status@%d submit@%d, want error, then status, then submit", errorAt, statusAt, submitAt)
+	}
+}
+
 func TestTeamRoleStateRenderUsesCanonicalPublicEntry(t *testing.T) {
 	sourceBytes, err := os.ReadFile("page.gsx")
 	if err != nil {
