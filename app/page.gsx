@@ -371,6 +371,11 @@ func Page() Node {
 				</aside>
 			</section>
 		</If>
+		<If cond={data.co_manager_welcome_shown}>
+			<p class="flash-message co-manager-welcome" role="status">
+				You now co-manage <strong>{data.co_manager_welcome_team_name}</strong> with <strong>{data.co_manager_welcome_primary_first_name}</strong>. You share the roster, the Big Board, and the draft clock.
+			</p>
+		</If>
 		<If cond={data.viewer.signed_in}>
 			<ActionCenterPanel {...data.action_center}></ActionCenterPanel>
 		</If>

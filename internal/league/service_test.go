@@ -1204,6 +1204,40 @@ func TestViewerIncludesIsCommissionerInDemoMode(t *testing.T) {
 	}
 }
 
+// TestViewerReportsCoManagerRoleWithoutMarkingThePrimary (F11b): the rail
+// and phone menu need a truthful "CO-MANAGER" chip beside the team name,
+// and must never show a matching chip for a primary manager (noise the
+// finding explicitly warns against). Viewer()'s is_co_manager field is the
+// one value both PrimaryNavigation call sites read.
+func TestViewerReportsCoManagerRoleWithoutMarkingThePrimary(t *testing.T) {
+	service := newTestService(t, false)
+	primary, _, err := service.store.AssignMember("rail-primary@example.com", "Rail Primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.InviteCoManager(primary.TeamID, "rail-co@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, bound, err := service.BindCoManagerOnSignIn("rail-co@example.com", "Rail Co"); err != nil || !bound {
+		t.Fatalf("co-manager bind = bound %v, err %v", bound, err)
+	}
+
+	var primaryViewer, coViewer map[string]any
+	withPublicEntryRequest(t, service, "rail-primary@example.com", func(r *http.Request) {
+		primaryViewer = service.Viewer(r)
+	})
+	withPublicEntryRequest(t, service, "rail-co@example.com", func(r *http.Request) {
+		coViewer = service.Viewer(r)
+	})
+
+	if primaryViewer["is_co_manager"] != false {
+		t.Fatalf("primary viewer is_co_manager = %v, want false", primaryViewer["is_co_manager"])
+	}
+	if coViewer["is_co_manager"] != true {
+		t.Fatalf("co-manager viewer is_co_manager = %v, want true", coViewer["is_co_manager"])
+	}
+}
+
 // TestPlayerMapEmitsBreakdownJerseyAndHistKeys checks the frontend contract:
 // jersey, has_breakdown, breakdown, breakdown_total, has_hist, and hist all
 // appear on the rendered player map, with jersey prefixed "#" only when set.

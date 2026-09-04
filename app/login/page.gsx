@@ -83,9 +83,16 @@ func Page() Node {
 					</If>
 					<If cond={data.configured == false}>
 						<div class="setup-note" role="alert">
-							<p id="google-setup-note">
-								Sign-in is not open yet. Ask the commissioner.
-							</p>
+							<If cond={data.public_entry.commissioner_ask != ""}>
+								<p id="google-setup-note">
+									Sign-in is not open yet. {data.public_entry.commissioner_ask}
+								</p>
+							</If>
+							<If cond={data.public_entry.commissioner_ask == ""}>
+								<p id="google-setup-note">
+									Sign-in is not open yet. Ask the commissioner.
+								</p>
+							</If>
 						</div>
 					</If>
 					<If cond={data.configured}>

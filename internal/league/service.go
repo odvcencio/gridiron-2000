@@ -1935,6 +1935,7 @@ func (s *Service) Viewer(r *http.Request) map[string]any {
 			"has_seat":            s.demoMode,
 			"seat_claim_eligible": false,
 			"is_commissioner":     s.demoMode,
+			"is_co_manager":       false,
 		}
 	}
 	member, memberExists := s.store.MemberByEmail(user.Email)
@@ -1961,6 +1962,7 @@ func (s *Service) Viewer(r *http.Request) map[string]any {
 		"has_seat":            hasSeat,
 		"seat_claim_eligible": seatClaimEligible,
 		"is_commissioner":     s.IsCommissioner(r),
+		"is_co_manager":       member.Role == "co",
 	}
 }
 

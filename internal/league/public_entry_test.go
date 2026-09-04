@@ -145,6 +145,78 @@ func TestPublicEntryAdmittedSeatlessOpenAndFull(t *testing.T) {
 	})
 }
 
+// TestPublicEntryNamesTheCommissionerWhenSeatedAndNamed (F10, name part):
+// "Ask the commissioner" appeared fourteen times with no name and no
+// route. This pins the three surfaces the fix covers through
+// PublicEntryView (anonymous membership_detail feeds / and /login;
+// authenticated_pending and admitted_seatless_full's own Detail feed
+// /login, /join, /team, /board) with a real seated, named commissioner —
+// and proves no email address ever appears.
+func TestPublicEntryNamesTheCommissionerWhenSeatedAndNamed(t *testing.T) {
+	service := newTestService(t, false)
+	t.Setenv("LEAGUE_ALLOWED_EMAILS", "allowed@example.com")
+	t.Setenv("COMMISSIONER_EMAILS", "commish@example.com")
+	commissioner, _, err := service.store.AssignMember("commish@example.com", "Oscar Villavicencio")
+	if err != nil {
+		t.Fatal(err)
+	}
+	commissionerTeamName := service.teamByID(commissioner.TeamID).Name
+	wantAsk := "Ask your commissioner, Oscar (" + commissionerTeamName + ")."
+
+	anon := service.PublicEntryView(httptest.NewRequest(http.MethodGet, "/", nil))
+	if !strings.Contains(anon.MembershipDetail, wantAsk) {
+		t.Fatalf("anonymous membership_detail = %q, want to contain %q", anon.MembershipDetail, wantAsk)
+	}
+	if strings.Contains(anon.MembershipDetail, "@") {
+		t.Fatalf("membership_detail must never print an email address: %q", anon.MembershipDetail)
+	}
+
+	pendingView := publicEntryForEmail(t, service, "unrecorded@example.com")
+	if pendingView.State != PublicEntryAuthenticatedPending || !strings.Contains(pendingView.Detail, wantAsk) {
+		t.Fatalf("authenticated-pending entry = %+v, want detail to contain %q", pendingView, wantAsk)
+	}
+
+	for _, team := range service.Teams() {
+		if team.ID == commissioner.TeamID {
+			continue
+		}
+		if _, _, err := service.store.AssignMember(team.ID+"@example.com", team.Name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := service.EnsureMember("full@example.com", "Full"); err != nil {
+		t.Fatal(err)
+	}
+	fullView := publicEntryForEmail(t, service, "full@example.com")
+	if fullView.State != PublicEntryAdmittedSeatlessFull || !strings.Contains(fullView.Detail, wantAsk) {
+		t.Fatalf("full seatless entry = %+v, want detail to contain %q", fullView, wantAsk)
+	}
+	if strings.Contains(fullView.Detail, "@") {
+		t.Fatalf("seatless-full detail must never print an email address: %q", fullView.Detail)
+	}
+}
+
+// TestPublicEntryKeepsGenericCommissionerPhraseWithoutANamedCommissioner
+// (F10): when no commissioner is seated or named, every surface keeps the
+// existing generic phrase rather than a broken or empty sentence.
+func TestPublicEntryKeepsGenericCommissionerPhraseWithoutANamedCommissioner(t *testing.T) {
+	service := newTestService(t, false)
+	t.Setenv("LEAGUE_ALLOWED_EMAILS", "allowed@example.com")
+
+	anon := service.PublicEntryView(httptest.NewRequest(http.MethodGet, "/", nil))
+	if strings.Contains(anon.MembershipDetail, "Ask your commissioner,") {
+		t.Fatalf("named commissioner ask leaked with no commissioner seated: %q", anon.MembershipDetail)
+	}
+	if !strings.Contains(anon.MembershipDetail, "Ask the commissioner for access.") {
+		t.Fatalf("generic commissioner phrase missing: %q", anon.MembershipDetail)
+	}
+
+	pendingView := publicEntryForEmail(t, service, "unrecorded@example.com")
+	if strings.Contains(pendingView.Detail, "Ask your commissioner,") {
+		t.Fatalf("named commissioner ask leaked in authenticated-pending detail: %q", pendingView.Detail)
+	}
+}
+
 func TestPublicEntryPrimaryAndCoManagerStates(t *testing.T) {
 	service := newTestService(t, false)
 	primary, _, err := service.store.AssignMember("primary@example.com", "Primary Manager")

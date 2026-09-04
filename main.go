@@ -999,7 +999,16 @@ func completeSignIn(w http.ResponseWriter, r *http.Request, manager *auth.Manage
 	}
 	if bound {
 		primaryName := league.Default().PrimaryNameForTeam(member.TeamID, user.Email)
-		session.AddFlash(r, "notice", coManagerWelcomeFlash(league.Default().TeamLabel(member.TeamID), primaryName))
+		teamLabel := league.Default().TeamLabel(member.TeamID)
+		session.AddFlash(r, "notice", coManagerWelcomeFlash(teamLabel, primaryName))
+		// F11a: a dedicated flash for the home page's first-session
+		// arrival panel — the generic notice above never says what a
+		// shared seat grants, and it may render on a deep-linked "next"
+		// page rather than /.
+		session.AddFlash(r, "co_manager_bound", map[string]any{
+			"team_name":          teamLabel,
+			"primary_first_name": league.FirstName(primaryName),
+		})
 	} else if member.TeamID != "" {
 		session.AddFlash(r, "notice", "Welcome back to "+league.Default().TeamLabel(member.TeamID)+", "+user.Name+".")
 	} else {

@@ -16751,3 +16751,31 @@ a.skip-link {
     --type-sm: clamp(0.875rem, 0.86rem + 0.10vw, 0.9375rem);
   }
 }
+
+/* comb — hickory (2026-09-04 UX pass) */
+
+/* F11b: a truthful "CO-MANAGER" chip beside the team name in every
+   PrimaryNavigation account block (desktop rail, mobile-enhanced dialog,
+   no-JS static disclosure). Deliberately never shown for a primary
+   manager — see PrimaryNavigationProps.IsCoManager's own doc comment
+   (app/layout.gsx). flex: 0 0 auto keeps it from squeezing the team
+   name's own ellipsis/wrap behavior in .navigation-account .user-name. */
+.user-role-chip {
+  flex: 0 0 auto;
+  padding: 0 var(--space-xs);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  background: var(--color-accent-haze);
+  font-size: var(--type-2xs);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* F11a: the co-manager first-session arrival panel on / (app/page.gsx).
+   Reuses the existing .flash-message pinned rule for its box treatment;
+   this just gives the panel breathing room above the Action Center it
+   sits in front of. */
+.co-manager-welcome {
+  margin-bottom: var(--space-md);
+}

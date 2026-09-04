@@ -35,6 +35,13 @@ type PrimaryNavigationProps struct {
 	PickemAttentionText string
 	TradesHot           bool
 	TradesAttentionText string
+	// IsCoManager (F11b) names a shared seat's non-primary manager beside
+	// the team name in every PrimaryNavigation call site (desktop rail,
+	// mobile-enhanced dialog, no-JS static disclosure), from
+	// data.viewer.is_co_manager (Service.Viewer). Deliberately one-sided:
+	// a primary manager never gets a matching "PRIMARY" chip, which the
+	// finding calls out as noise for the common case.
+	IsCoManager bool
 	// DraftComplete (wave 7, item 6) comes from data.league.draft_complete
 	// (leagueMap, internal/league/service.go) — the same "one map every
 	// page's data function already includes" property PickemHot/TradesHot
@@ -192,6 +199,9 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 				<div class="user-badge">
 					<span class="user-chip mono">{props.Initials}</span>
 					<span class="user-name">{props.TeamName}</span>
+					<If cond={props.IsCoManager}>
+						<span class="user-role-chip mono">CO-MANAGER</span>
+					</If>
 				</div>
 				<Link href="/settings" class="access-link">Notification settings</Link>
 				<form method="post" action="/auth/logout" data-gosx-managed="false">
@@ -360,6 +370,7 @@ func Layout() Node {
 					TradesHot={data.league.attention.trades_hot}
 					TradesAttentionText={data.league.attention.trades_attention_text}
 					DraftComplete={data.league.draft_complete}
+					IsCoManager={data.viewer.is_co_manager}
 				></PrimaryNavigation>
 			</aside>
 			<header class="mobile-navigation-enhanced" data-navigation-surface="mobile-enhanced-bar">
@@ -435,6 +446,7 @@ func Layout() Node {
 					TradesHot={data.league.attention.trades_hot}
 					TradesAttentionText={data.league.attention.trades_attention_text}
 					DraftComplete={data.league.draft_complete}
+					IsCoManager={data.viewer.is_co_manager}
 				></PrimaryNavigation>
 			</aside>
 			<details class="mobile-navigation-static" data-navigation-surface="mobile-static">
@@ -459,6 +471,7 @@ func Layout() Node {
 					TradesHot={data.league.attention.trades_hot}
 					TradesAttentionText={data.league.attention.trades_attention_text}
 					DraftComplete={data.league.draft_complete}
+					IsCoManager={data.viewer.is_co_manager}
 				></PrimaryNavigation>
 			</details>
 			<nav class="app-tabbar" aria-label="Quick navigation" data-navigation-surface="mobile-tabbar">

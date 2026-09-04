@@ -12,6 +12,16 @@ import (
 // — the one flag app/login/page.gsx's "GOOGLE SIGN-IN" console branches
 // on for gap-audit item 7 (wave 3, "feel and speed").
 func renderLoginGoogleSetupState(t *testing.T, configured bool) string {
+	return renderLoginGoogleSetupStateWithCommissionerAsk(t, configured, "")
+}
+
+// renderLoginGoogleSetupStateWithCommissionerAsk is
+// renderLoginGoogleSetupState's own fixture, with public_entry's
+// commissioner_ask field (F10) overridable so
+// TestLoginUnconfiguredAlertNamesTheCommissionerWhenKnown can pin both the
+// named and the generic-fallback branch of the "Sign-in is not open yet"
+// alert.
+func renderLoginGoogleSetupStateWithCommissionerAsk(t *testing.T, configured bool, commissionerAsk string) string {
 	t.Helper()
 	program, err := route.LoadFileProgram("page.gsx")
 	if err != nil {
@@ -52,6 +62,7 @@ func renderLoginGoogleSetupState(t *testing.T, configured bool) string {
 			"is_commissioner":       false,
 			"open_seats":            1,
 			"has":                   false,
+			"commissioner_ask":      commissionerAsk,
 		},
 		"league": map[string]any{
 			"name":            "FIXTURE LEAGUE",
@@ -146,5 +157,25 @@ func TestLoginGoogleControlStaysLiveAndAboveNoteWhenConfigured(t *testing.T) {
 	}
 	if !strings.Contains(html, `href="/auth/google/start?next=%2F" class="google-button"`) {
 		t.Fatalf("configured login console did not render a live google-button link: %s", html)
+	}
+}
+
+// TestLoginUnconfiguredAlertNamesTheCommissionerWhenKnown (F10): the
+// "Sign-in is not open yet" alert named no one — a dead end with no route
+// forward. When public_entry.commissioner_ask is known, the alert must
+// name them; when it is not (no commissioner seated or named), the
+// generic phrase must remain.
+func TestLoginUnconfiguredAlertNamesTheCommissionerWhenKnown(t *testing.T) {
+	named := renderLoginGoogleSetupStateWithCommissionerAsk(t, false, "Ask your commissioner, Oscar (In Shedeur Time).")
+	if !strings.Contains(named, "Ask your commissioner, Oscar (In Shedeur Time).") {
+		t.Fatalf("unconfigured login alert omitted the named commissioner: %s", named)
+	}
+
+	generic := renderLoginGoogleSetupStateWithCommissionerAsk(t, false, "")
+	if !strings.Contains(generic, "Sign-in is not open yet. Ask the commissioner.") {
+		t.Fatalf("unconfigured login alert lost its generic fallback: %s", generic)
+	}
+	if strings.Contains(generic, "Ask your commissioner,") {
+		t.Fatalf("unconfigured login alert named a commissioner with none known: %s", generic)
 	}
 }
