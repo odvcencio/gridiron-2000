@@ -5,17 +5,23 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Scope: a phone-first pass over every route (anonymous, manager, commissioner)
+No changes yet.
+
+## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
+
+Scope: GoSX v0.55.2 adoption, plus a phone-first pass over every route (anonymous, manager, commissioner)
 in the seated, live-draft, and season states, plus the stylesheet and font
-delivery path. No schema change.
+delivery path. Rolled as revision 104; no schema change.
 
 ### Changed
+- The framework is GoSX v0.55.2. Comments inside `.gsx` markup compile away on the released line instead of a maintenance prerelease, and soft navigation reconciles the body in place instead of replacing it.
 - The three type families are self-hosted under `public/fonts` and preloaded; the stylesheet no longer imports fonts.googleapis.com, and the Content Security Policy drops both Google font hosts.
 - The server serves `styles.css` with its source comments stripped and its font URLs content-addressed (about 39 KB gzipped instead of 135 KB); the `?v=` hash now covers the served bytes.
 - The anonymous header reads "Guide" and "Sign in" on one row at phone width, and public pages no longer reserve space for a fixed bar they never render, so the landing's sign-in action sits in the first phone viewport.
 - Mastheads on phones lead with less space above the eyebrow, drop the second-eyebrow reserve, and set their lede at body size, so each route's first state card lands in the first viewport.
 
 ### Fixed
+- The browser harness drops one known chromedp log line about `@starting-style` telemetry, measures compact density at desktop width where the toggle applies, and reports where a replay-score stall happened.
 - Draft-room pool rows at phone width show the full player name instead of three characters: the rank chip carries only the active-sort rank and the detail line moves under the name.
 - The phone action bar shows on the same tier as the tab bar, so tablet widths between 609 px and 899 px no longer reserve 56 px of empty bottom padding.
 - Compact density keeps the 13 px small-text floor on touch widths.

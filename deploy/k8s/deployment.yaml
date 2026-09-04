@@ -30,13 +30,13 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.03-1828a8e-sweep6; built from
-          # 1828a8e (main, 2026-09-03): sweep release 6 — board header
-          # tracks, matchup meta separators, pick'em back link, /team action
-          # bar clearance, win-probability meter ARIA, DST house rank, results
-          # masthead name, settings wording, featured-card names. No schema
-          # change: `rollout undo` to the previous revision is valid.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:a41e305e664a6b61ec9041a000af4ebe718d64577c2cbee389333506f2606b79
+          # release-2026.09.04-b96bb85-gosx0552; built from
+          # b96bb85 (main, 2026-09-04): GoSX v0.55.2 — comments inside .gsx
+          # markup compile away on the released line; soft navigation
+          # reconciles the body in place. Also ships the phone layout pass
+          # and the self-hosted fonts. No schema change: `rollout undo` to
+          # the previous revision is valid.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:a1307b9580ec39ff4d289622e0aa47a5cdb7f35d39c3eb033917e23f73208e16
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
