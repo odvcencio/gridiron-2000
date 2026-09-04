@@ -12,6 +12,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The home page's sign-in button sits above the two explanatory paragraphs at every width, and the headline never grows taller than the viewport allows.
 - The home Action Center sorts cards by time remaining to their deadline, so the nearer event leads regardless of its priority label.
 - The rail's attention chip wraps to two clean lines instead of three, with no stray separator on its own line.
+- The draft room tells a member with no seat "You are watching this draft" and, once a seat cannot be claimed, "Ask your commissioner for a seat" instead of "Get your seat ready."
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 
