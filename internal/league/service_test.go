@@ -1649,6 +1649,34 @@ func TestClockViewShortClockFlagsTheNotSeenSafetyCap(t *testing.T) {
 	}
 }
 
+// TestClockViewDeadlineDisplayIsLeagueLocalNotRawUTC pins F16 (gap-audit
+// J2): the console printed the pick deadline as a raw RFC3339 UTC
+// instant ("2026-09-04T10:00:03Z"), four hours off the league's own
+// clock and unlike every other timestamp on the page. deadline_display/
+// deadline_relative mirror the "generated_at"/"_iso"/"_relative" triad
+// already used elsewhere on /admin; deadline itself is untouched (still
+// RFC3339, for a <time datetime> attribute).
+func TestClockViewDeadlineDisplayIsLeagueLocalNotRawUTC(t *testing.T) {
+	service := newTestService(t, false)
+	now := time.Date(2026, 9, 4, 14, 0, 3, 0, time.UTC) // 10:00:03 AM EDT
+
+	armed := service.clockView(PersistedState{ClockDeadline: now.Add(90 * time.Second)}, now)
+	if got, _ := armed["deadline"].(string); got != "2026-09-04T14:01:33Z" {
+		t.Fatalf("deadline = %q, want the unchanged RFC3339 instant", got)
+	}
+	if display, _ := armed["deadline_display"].(string); display == "" || strings.Contains(display, "2026-09-04T") {
+		t.Fatalf("deadline_display = %q, want a league-local formatted string, not raw RFC3339", display)
+	}
+	if relative, _ := armed["deadline_relative"].(string); !strings.Contains(relative, "in ") {
+		t.Fatalf("deadline_relative = %q, want a forward-looking relative phrase", relative)
+	}
+
+	unarmed := service.clockView(PersistedState{}, now)
+	if unarmed["deadline"] != "" || unarmed["deadline_display"] != "" || unarmed["deadline_relative"] != "" {
+		t.Fatalf("unarmed clock deadline fields = %+v, want all empty", unarmed)
+	}
+}
+
 // TestPreviousPickSummaryNamesTheRemovedPick pins F25 (gap-audit J2): the
 // undo confirm panel and its logged commissioner event used to say only
 // "the last pick" / "undid the last pick" — no pick number, team, or

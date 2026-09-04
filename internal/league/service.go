@@ -3446,6 +3446,17 @@ func (s *Service) clockView(state PersistedState, now time.Time) map[string]any 
 		"can_resume": canResume,
 		"can_extend": canExtend,
 		"deadline":   formatClockInstant(deadline),
+		// deadline_display/deadline_relative (F16, gap-audit J2): the
+		// console printed this exact RFC3339 UTC instant
+		// ("2026-09-04T10:00:03Z") straight into the page, on the one row
+		// that matters during a live pick, breaking the README's
+		// league-local-time-with-zone promise every other timestamp on
+		// this page already keeps (the "generated_at"/"_iso"/"_relative"
+		// triad above, Commissioner HQ's own timestamps). deadline itself
+		// stays RFC3339 for a <time datetime> attribute; these two are the
+		// visible text.
+		"deadline_display":  s.leagueAbsoluteTimeStamp(deadline),
+		"deadline_relative": relativeTimeOrEmpty(now, deadline),
 		// F4 (gap-audit J2): reason ("clock", "paused", "unarmed",
 		// "autopick", "not_seen") only ever reached the room as this
 		// display LABEL, never the raw token, so the room's own "of 2:00"
@@ -4687,6 +4698,17 @@ func (s *Service) leagueAbsoluteTimeStamp(t time.Time) string {
 // action, a not-yet-elapsed lock, anything fed through this one shared
 // helper with then ahead of now silently claimed to have already
 // happened. d < 0 is now its own branch, checked first.
+// relativeTimeOrEmpty is relativeTime for an optional instant — "" for
+// the zero value (deadline_relative, F16: an unarmed clock's deadline is
+// zero, and "in 55 years" relative to the zero instant is worse than no
+// relative phrase at all).
+func relativeTimeOrEmpty(now, then time.Time) string {
+	if then.IsZero() {
+		return ""
+	}
+	return relativeTime(now, then)
+}
+
 func relativeTime(now, then time.Time) string {
 	d := now.Sub(then)
 	if d < 0 {

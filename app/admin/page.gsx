@@ -1197,7 +1197,18 @@ func Page() Node {
 						</div>
 						<div class="pool-stat">
 							<span>Deadline</span>
-							<b class="mono">{data.clock.deadline}</b>
+							{/* F16 (gap-audit J2): this printed the raw RFC3339 UTC
+							    instant ("2026-09-04T10:00:03Z") on the one row that
+							    matters during a live pick, four hours off the
+							    league's own clock and unlike every other timestamp
+							    on this page. Mirrors the READ AT row's own display/
+							    ISO/relative split above. */}
+							<If cond={data.clock.deadline != ""}>
+								<b class="mono"><time datetime={data.clock.deadline}>{data.clock.deadline_display}<If cond={data.clock.deadline_relative != ""}> · {data.clock.deadline_relative}</If></time></b>
+							</If>
+							<If cond={data.clock.deadline == ""}>
+								<b class="mono"></b>
+							</If>
 						</div>
 						<div class="pool-stat">
 							<span>Duration</span>
