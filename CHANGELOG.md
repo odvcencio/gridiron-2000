@@ -14,6 +14,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The session-expired page after a stale form submission now says the form expired, not the session, and names the page its back link returns to. A form posted to a page that does not accept one gets its own short 405 page instead of the same message.
 - The Preseason Blitz notice's action button no longer paints its top border across the sentence above it.
 - Every "back to home" link across `/settings`, `/terms`, `/open-source`, `/privacy`, and the 404 page uses the same label and destination; `/settings`'s sign-in link is named for what it does.
+### Changed
+- /scoring states the league's scoring format, superflex, mode, draft rounds, and starter count in one line under the heading.
+
+### Fixed
+- The Help Center glossary shows its 75 terms, definitions, and topic links instead of 75 blank cards linking to a 404.
+- The Help Center's "coming from another app" table shows its nine rows instead of nine blank rows, and a long unbroken run of text in that table wraps instead of pushing the page into a sideways scroll.
+- /scoring's "editable until" deadline shows only to the commissioner; a manager reads a true sentence about when the rules become final instead.
+- /scoring and /matchups now name the same season-opening kickoff instead of disagreeing by a day; scoring locks at the earlier of the configured start and the schedule's real week-1 kickoff.
+- The 404 page leads with a plain sentence and adds links back to Home and to Search help, alongside its existing joke.
+- /terms no longer calls itself the commissioner edition for every manager, and now carries a last-updated date like /privacy does.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 

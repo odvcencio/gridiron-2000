@@ -68,6 +68,36 @@ func checklistView(items []ChecklistItem) []map[string]any {
 	return out
 }
 
+// glossaryView projects GlossaryEntry structs into the lowercase map keys
+// app/help/page.gsx reads (term, aliases, definition, topic_id). Passing the
+// struct slice straight through left every field and every /help/<id> link
+// blank (F1: 75 empty glossary cards, 75 dead "/help/" links).
+func glossaryView(entries []GlossaryEntry) []map[string]any {
+	out := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, map[string]any{
+			"term": entry.Term, "aliases": strings.Join(entry.Aliases, ", "),
+			"definition": entry.Definition, "topic_id": entry.TopicID,
+		})
+	}
+	return out
+}
+
+// migrationView projects MigrationMapping structs into the lowercase map
+// keys app/help/page.gsx reads (canonical, incoming_aliases, difference,
+// next_action). Passing the struct slice straight through left the nine
+// concept-transition rows blank (F2).
+func migrationView(mappings []MigrationMapping) []map[string]any {
+	out := make([]map[string]any, 0, len(mappings))
+	for _, mapping := range mappings {
+		out = append(out, map[string]any{
+			"canonical": mapping.Canonical, "incoming_aliases": strings.Join(mapping.IncomingAliases, ", "),
+			"difference": mapping.Difference, "next_action": mapping.NextAction,
+		})
+	}
+	return out
+}
+
 func helpIndexData(ctx *route.RouteContext) map[string]any {
 	data := league.Default().StaticPageData(ctx.Request)
 	query := strings.TrimSpace(ctx.Query("q"))
@@ -109,8 +139,8 @@ func helpIndexData(ctx *route.RouteContext) map[string]any {
 	data["source_sha_short"] = ShortSHA(VerifiedSourceSHA)
 	data["checklist"] = checklistView(ChecklistFor("primary", mode, phase, false))
 	data["commissioner_checklist"] = checklistView(ChecklistFor("seatless", mode, phase, true))
-	data["migration"] = MigrationMappings()
-	data["glossary"] = Glossary()
+	data["migration"] = migrationView(MigrationMappings())
+	data["glossary"] = glossaryView(Glossary())
 	return data
 }
 

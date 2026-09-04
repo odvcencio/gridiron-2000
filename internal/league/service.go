@@ -4191,6 +4191,44 @@ func (s *Service) formatBlurb() string {
 	}
 }
 
+// scoringFormatLabel renders scoring_format's short display name: "Half
+// PPR" / "Full PPR" / "Standard", the same three-way switch scoringNote
+// and ReceptionPointsForScoringFormat already apply to this field.
+func scoringFormatLabel(format string) string {
+	switch format {
+	case "standard":
+		return "Standard"
+	case "ppr":
+		return "Full PPR"
+	default:
+		return "Half PPR"
+	}
+}
+
+// scoringFormatSummary renders /scoring's one-line format summary (F7/F36,
+// 2026-09-04 UX pass): the page's first-viewport paragraph never named the
+// scoring format, so an arriving manager had to read three separate
+// tables to learn PPR value, superflex, and the house punter slot. Every
+// segment reads the live config/roster shape, never a retyped literal, so
+// a redraft or standard-preset league prints its own truthful line.
+func (s *Service) scoringFormatSummary() string {
+	roster := CurrentRoster()
+	segments := []string{scoringFormatLabel(s.cfg.ScoringFormat)}
+	if roster.Slots["SUPERFLEX"] > 0 {
+		segments = append(segments, "superflex")
+	}
+	if mode := strings.ToLower(strings.TrimSpace(s.cfg.ModeLabel)); mode != "" {
+		segments = append(segments, mode)
+	}
+	segments = append(segments, CountNoun(CurrentDraftRounds(), "round"))
+	starters := CountNoun(roster.Starters(), "starter")
+	if roster.Slots["P"] > 0 {
+		starters += " including a punter"
+	}
+	segments = append(segments, starters)
+	return strings.Join(segments, " · ") + "."
+}
+
 // leagueMap is the identity block every page's data map carries as
 // data["league"] (spec section 5.1): the layout's header/footer, the
 // landing page's wordmark and kicker, and every derived copy fragment
