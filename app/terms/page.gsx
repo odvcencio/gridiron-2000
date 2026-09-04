@@ -6,7 +6,7 @@ func Page() Node {
 			<span class="signal-mark" aria-hidden="true"></span>
 			DOCUMENT // LEAGUE TERMS
 		</span>
-		<p class="page-kicker">Commissioner edition · {data.league.season} season</p>
+		<p class="page-kicker">{data.league.season} season · Last updated August 8, 2026</p>
 		<h1>
 			HOUSE
 			{" "}
