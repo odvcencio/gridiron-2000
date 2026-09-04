@@ -10,6 +10,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - One name for the draft check-in everywhere it appears: "Check in for the draft" to act, "Undo check-in" to reverse it.
 - The anonymous landing page keeps "Sign in to enter." as its headline at every seat count; a full league states the fact in the detail line instead of the headline.
 - The home page's sign-in button sits above the two explanatory paragraphs at every width, and the headline never grows taller than the viewport allows.
+- The home Action Center sorts cards by time remaining to their deadline, so the nearer event leads regardless of its priority label.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 
