@@ -374,3 +374,51 @@ func TestLeagueMapForViewerPickemItemTracksTheAdmittedViewersOwnUnpickedGames(t 
 		t.Fatalf("pickem_hot = %v, want false once every open game is picked", afterAttention["pickem_hot"])
 	}
 }
+
+// TestAttentionChipAndActionCenterAgreeOnOneOpenIncomingTrade pins wave-P
+// finding J3 F7 (chip part): with exactly one open incoming trade offer,
+// the shared chrome's attention chip must count 1, and the home Action
+// Center's own trade-inbox card must carry Urgent — before this fix the
+// card stayed Priority Stable/Urgent false while the two locked-out
+// Pick'em cards next to it both carried the URGENT badge, so a manager
+// reading the page could not tell the chip's count included a live trade
+// at all.
+func TestAttentionChipAndActionCenterAgreeOnOneOpenIncomingTrade(t *testing.T) {
+	svc := newTestService(t, false)
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	teamIDs := defaultTeamIDs()
+	if len(teamIDs) < 2 {
+		t.Fatal("fixture league needs at least two teams")
+	}
+	fromID, toID := teamIDs[0], teamIDs[1]
+	const email = "viewer@example.com"
+
+	state := svc.store.Snapshot()
+	state.Members[email] = Member{Email: email, Name: "Viewer", TeamID: toID}
+	state.TradeOffers = []TradeOffer{{ID: "trd-open", FromTeamID: fromID, ToTeamID: toID, Status: TradeStatusOpen}}
+
+	attention := svc.attentionMap(state, now)
+	if got := attention["urgent_count"]; got != 1 {
+		t.Fatalf("urgent_count = %v, want 1 for one open incoming trade offer", got)
+	}
+
+	viewer := map[string]any{"signed_in": true, "email": email, "has_seat": true, "team_id": toID}
+	request, err := http.NewRequest(http.MethodGet, "/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := svc.actionCenterDataForSnapshot(request, state, viewer, map[string]any{}, now)
+	actions, _ := data["actions"].([]map[string]any)
+	var inbox map[string]any
+	for _, action := range actions {
+		if action["id"] == "trade-inbox" {
+			inbox = action
+		}
+	}
+	if inbox == nil {
+		t.Fatalf("actions = %#v, want a trade-inbox card for one open incoming offer", actions)
+	}
+	if inbox["urgent"] != true {
+		t.Fatalf("trade-inbox urgent = %v, want true so the card agrees with the chip", inbox["urgent"])
+	}
+}

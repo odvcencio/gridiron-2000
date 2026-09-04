@@ -368,7 +368,11 @@ func tradeActions(f ActionCenterFacts) []ActionCenterAction {
 		out = append(out, ActionCenterAction{ID: "trade-review", Priority: ActionCenterPriorityDeadline, PriorityLabel: "TRADE REVIEW", Label: "Review accepted trade", Detail: fmt.Sprintf("%d accepted trade", f.Trades.AcceptedReview) + pluralSuffix(f.Trades.AcceptedReview) + " still in the review window.", Href: "/trades", DueAt: f.Trades.NextReviewDeadline, HasDueAt: f.Trades.HasReviewDeadline, DueLabel: "REVIEW DEADLINE", Urgent: true})
 	}
 	if f.Trades.IncomingOpen > 0 {
-		out = append(out, ActionCenterAction{ID: "trade-inbox", Priority: ActionCenterPriorityStable, PriorityLabel: actionCenterLabelNeedsYou, Label: "Review incoming trade", Detail: fmt.Sprintf("%d trade offer", f.Trades.IncomingOpen) + pluralSuffix(f.Trades.IncomingOpen) + " waiting in your inbox.", Href: "/trades", Primary: true})
+		// Urgent: true (J3 F7) makes the card carry the same URGENT badge
+		// the attention chip already counts an open incoming offer toward;
+		// Priority stays ActionCenterPriorityStable so card order is
+		// unaffected here.
+		out = append(out, ActionCenterAction{ID: "trade-inbox", Priority: ActionCenterPriorityStable, PriorityLabel: actionCenterLabelNeedsYou, Label: "Review incoming trade", Detail: fmt.Sprintf("%d trade offer", f.Trades.IncomingOpen) + pluralSuffix(f.Trades.IncomingOpen) + " waiting in your inbox.", Href: "/trades", Urgent: true, Primary: true})
 	}
 	if f.DraftComplete && f.Trades.HasTradeDeadline && f.Now.Before(f.Trades.TradeDeadline) {
 		out = append(out, ActionCenterAction{ID: "trade-deadline", Priority: ActionCenterPriorityDeadline, PriorityLabel: "DEADLINE", Label: "Review trade desk", Detail: "Trades remain available until the configured league deadline.", Href: "/trades", DueAt: f.Trades.TradeDeadline, HasDueAt: true, DueLabel: "TRADE DEADLINE"})
