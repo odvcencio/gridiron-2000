@@ -11,6 +11,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Saving a notification category on `/settings` returns you to that category, not the top of the page, and names the category and its new state in the confirmation.
 - The session-expired page after a stale form submission now says the form expired, not the session, and names the page its back link returns to. A form posted to a page that does not accept one gets its own short 405 page instead of the same message.
 - The Preseason Blitz notice's action button no longer paints its top border across the sentence above it.
+- Every "back to home" link across `/settings`, `/terms`, `/open-source`, `/privacy`, and the 404 page uses the same label and destination; `/settings`'s sign-in link is named for what it does.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 

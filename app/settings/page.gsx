@@ -260,8 +260,8 @@ func Page() Node {
 		</If>
 
 		<nav class="notification-settings-footer" aria-label="Account settings navigation">
-			<a href="/" data-gosx-link class="button button--ghost">Back to league HQ</a>
-			<a href="/login" data-gosx-link class="button button--compact">Account access</a>
+			<a href="/" data-gosx-link class="button button--ghost">Back to Home</a>
+			<a href="/login" data-gosx-link class="button button--compact">Sign-in and account</a>
 		</nav>
 	</main>
 }

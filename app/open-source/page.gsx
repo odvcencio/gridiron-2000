@@ -37,6 +37,6 @@ func Page() Node {
 				{data.attribution_name} · {data.attribution_license} ↗
 			</a>
 		</section>
-		<a href="/" data-gosx-link class="button button--primary">Return to the league</a>
+		<a href="/" data-gosx-link class="button button--primary">Back to Home</a>
 	</main>
 }
