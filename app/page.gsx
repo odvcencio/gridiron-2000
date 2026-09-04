@@ -374,6 +374,18 @@ func Page() Node {
 		<If cond={data.viewer.signed_in}>
 			<ActionCenterPanel {...data.action_center}></ActionCenterPanel>
 		</If>
+		<If cond={data.viewer.signed_in && data.practice.allowed}>
+			<section class="score-command practice-invite-card" aria-labelledby="home-practice-heading">
+				<header class="section-heading section-heading--split">
+					<div>
+						<span class="section-index">DRAFT // PRACTICE</span>
+						<h2 id="home-practice-heading">Practice the draft room</h2>
+					</div>
+				</header>
+				<p>Take a few picks on the clock against the other seats, played by bots. Nothing you do there counts.</p>
+				<a href={data.practice.href} data-gosx-link class="access-link">Open the practice draft →</a>
+			</section>
+		</If>
 		<If cond={data.viewer.signed_in && data.draft.complete}>
 			<section class="score-command draft-results-card" aria-labelledby="home-draft-results-heading">
 				<header class="section-heading section-heading--split">

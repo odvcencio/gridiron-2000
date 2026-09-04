@@ -413,7 +413,7 @@ type DraftRoomProps struct {
 
 func DraftRoom(props DraftRoomProps) Node {
 	return <div class="draft-live-room">
-		<p class="draft-region-stale mono" role="status">The room did not update. This is the last confirmed board. <a href="/draft">Refresh room →</a></p>
+		<p class="draft-region-stale mono" role="status">The room did not update. This is the last confirmed board. <a href={props.Data.room_path}>Refresh room →</a></p>
 		<p class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{props.StatusSummary}</p>
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
@@ -803,7 +803,7 @@ type DraftWorkspaceProps struct {
 
 func DraftWorkspace(props DraftWorkspaceProps) Node {
 	return <div class="draft-live-workspace">
-		<p class="draft-region-stale mono" role="status">LIVE UPDATE FAILED · SHOWING LAST CONFIRMED PLAYER POOL AND PICK TAPE. <a href="/draft">Refresh workspace →</a></p>
+		<p class="draft-region-stale mono" role="status">LIVE UPDATE FAILED · SHOWING LAST CONFIRMED PLAYER POOL AND PICK TAPE. <a href={props.Data.room_path}>Refresh workspace →</a></p>
 		<div class="pool-count-bar">
 			<If cond={props.Data.draft_complete == false}>
 			<span class="mono pool-count">
@@ -1129,6 +1129,14 @@ type DraftHistoryProps struct {
 	// (page.server.go).
 	TapeURL    string
 	TargetMode bool
+	// RoomPath/LiveSrc/LiveHub: the room this pane belongs to (practice
+	// draft, internal/league/practice.go) — "/draft", "/draft/live.json",
+	// and "draft-live" for the real room, the practice room's own for a
+	// practice, so the pane's stale link and live root never point at the
+	// other room.
+	RoomPath string
+	LiveSrc  string
+	LiveHub  string
 }
 
 type DraftAvailableProps struct {
@@ -1156,6 +1164,11 @@ type DraftMyTeamProps struct {
 
 type DraftAvailableHeadProps struct {
 	SearchPlaceholder string
+	// RoomPath is the GET search form's action: "/draft" for the real
+	// room, the practice room's own path for a practice (data.room_path,
+	// service.go's draftData), so a no-JS search never leaves the room the
+	// visitor is in.
+	RoomPath string
 	// Query/Position/Sort (comb — oleander, item 1): the current pool
 	// state, so the no-JS search form below can resubmit it as a real GET
 	// (value on the input, hidden fields for pos/sort) and a reload never
@@ -1276,7 +1289,7 @@ type DraftHistoryHeadProps struct {
 //     flex lines instead of shrinking to fit one).
 func DraftCommandBar(props DraftCommandBarProps) Node {
 	return <div class="draft-command__inner">
-		<p class="draft-region-stale mono" role="status">The room did not update. This is the last confirmed state. <a href="/draft">Refresh room →</a></p>
+		<p class="draft-region-stale mono" role="status">The room did not update. This is the last confirmed state. <a href={props.Data.room_path}>Refresh room →</a></p>
 		<p class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{props.StatusSummary}</p>
 		<div class="draft-command__pill-row">
 		<div class="draft-command__pick">
@@ -1360,6 +1373,7 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 				</div>
 				<div class="draft-command__sheet-controls">
 					<If cond={props.Data.viewer.has_seat && props.Data.draft.complete == false}>
+						<If cond={props.Data.practice.active == false}>
 						<form method="post" action={props.Actions.toggle_ready} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 							<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
@@ -1370,6 +1384,7 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 								<button class="btn btn-sm btn-primary" type="submit" aria-pressed="false">Mark me ready</button>
 							</If>
 						</form>
+						</If>
 						<form method="post" action={props.Actions.toggle_autopick} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 							<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
@@ -1384,7 +1399,15 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 						</form>
 					</If>
 					<button type="button" class="btn btn-sm draft-command__pill-sound" data-gosx-cue-toggle data-gosx-cue-label-on="Sound on" data-gosx-cue-label-off="Sound off" aria-pressed="true">Sound on</button>
-					<button type="button" class="btn btn-sm" aria-label="Open league navigation" aria-controls="primary-navigation-dialog" aria-expanded="false" data-gosx-disclosure-target="#primary-navigation-dialog">League</button>
+					<If cond={props.Data.practice.active == false}>
+						<button type="button" class="btn btn-sm" aria-label="Open league navigation" aria-controls="primary-navigation-dialog" aria-expanded="false" data-gosx-disclosure-target="#primary-navigation-dialog">League</button>
+					</If>
+					<If cond={props.Data.practice.active}>
+						<form method="post" action={props.Actions.practice_leave} data-gosx-managed="false">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<button class="btn btn-sm" type="submit">Leave practice</button>
+						</form>
+					</If>
 					<If cond={props.Data.viewer.is_commissioner && props.Data.draft.started == false}>
 						<button type="button" class="btn btn-sm btn-primary" data-gosx-disclosure-target="#draft-commissioner" aria-controls="draft-commissioner" aria-expanded="false">Start the draft →</button>
 					</If>
@@ -1460,6 +1483,47 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 			data-gosx-watch-effect="class:is-on-clock@body,title,cue:chime"
 			data-gosx-watch-title="YOUR PICK IS ON THE CLOCK"
 		></span>
+	</div>
+}
+
+// DraftPracticeStrip is the practice room's own status strip (practice
+// draft, internal/league/practice.go): plain language first — this is
+// practice, picks do not count, which rounds this practice covers, when
+// the REAL draft starts (league-local, with its relative phrase) — and the
+// two verbs a practice ever needs, Leave and (once complete) Practice
+// again. It renders inside the command header, above the command bar, as
+// its own region so a bot's pick or the practice's end re-renders it
+// without touching the bar's live binds. The forms are native (not
+// data-gosx-managed): Leave must navigate the whole document back to the
+// real room, the same full-navigation rule the sign-out form follows.
+func DraftPracticeStrip(props DraftCommandBarProps) Node {
+	return <div class="draft-practice-strip" role="status" data-practice-complete={props.Data.practice.complete}>
+		<span class="draft-practice-strip__tag mono">PRACTICE</span>
+		<If cond={props.Data.practice.complete == false}>
+			<p class="draft-practice-strip__text">
+				<strong>Practice draft.</strong> Picks here do not count. Round {props.Data.practice.round} of {props.Data.practice.end_round}, practice rounds {props.Data.practice.start_round} to {props.Data.practice.end_round}.
+				<If cond={props.Data.practice.real_draft_known}> The real draft starts {props.Data.practice.real_draft_label}, {props.Data.practice.real_draft_relative}.</If>
+			</p>
+		</If>
+		<If cond={props.Data.practice.complete}>
+			<p class="draft-practice-strip__text">
+				<strong>Practice complete.</strong> You drafted rounds {props.Data.practice.start_round} to {props.Data.practice.end_round}. Nothing was saved.
+				<If cond={props.Data.practice.real_draft_known}> The real draft starts {props.Data.practice.real_draft_label}, {props.Data.practice.real_draft_relative}.</If>
+			</p>
+		</If>
+		<div class="draft-practice-strip__actions">
+			<If cond={props.Data.practice.complete}>
+				<form method="post" action={props.Actions.practice_restart} data-gosx-managed="false">
+					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+					<input type="hidden" name="round" value={props.Data.practice.start_round}></input>
+					<button class="btn btn-sm btn-primary" type="submit">Practice again</button>
+				</form>
+			</If>
+			<form method="post" action={props.Actions.practice_leave} data-gosx-managed="false">
+				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+				<button class="btn btn-sm btn-ghost" type="submit">Leave practice</button>
+			</form>
+		</div>
 	</div>
 }
 
@@ -1790,7 +1854,7 @@ func DraftPickBar(props DraftAvailableProps) Node {
 func DraftAvailableHead(props DraftAvailableHeadProps) Node {
 	return <div class="draft-available-head">
 		<h2 id="draft-available-title" class="visually-hidden">Available players</h2>
-		<form method="get" action="/draft" class="draft-search-form">
+		<form method="get" action={props.RoomPath} class="draft-search-form">
 			<input id="draft-search" type="search" class="draft-search" name="q" value={props.Query} placeholder={props.SearchPlaceholder} inputmode="search" enterkeyhint="search" autocomplete="off" data-gosx-filter="draft-available-list" data-gosx-filter-announce="true" />
 			<If cond={props.Position != ""}>
 				<input type="hidden" name="pos" value={props.Position}></input>
@@ -1909,6 +1973,7 @@ func DraftAvailable(props DraftAvailableProps) Node {
 						</td>
 						<td class="avail-row__actions">
 						<If cond={props.Data.viewer.has_seat}>
+							<If cond={props.Data.practice.active == false}>
 							<form method="post" action={props.QueueAddAction} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 								<input type="hidden" name="player_id" value={player.ID}></input>
@@ -1917,6 +1982,7 @@ func DraftAvailable(props DraftAvailableProps) Node {
 								<input type="hidden" name="page" value={props.Data.pool_page}></input>
 								<button class="button button--ghost" type="submit">+ RANK</button>
 							</form>
+							</If>
 							<form method="post" action={props.MakePickAction} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 								<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
@@ -1986,13 +2052,18 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 			<label class="segment__option" for="mine-room">Room</label>
 		</div>
 		<div class="draft-mine__view draft-mine__view--queue">
-			<div class="pool-list pool-list--reorder-scroll" data-gosx-reorder data-gosx-reorder-action="POST /draft/queue" data-gosx-csrf-token={props.CSRF}>
+			<div class="pool-list pool-list--reorder-scroll" data-gosx-reorder data-gosx-reorder-action={props.Data.queue_move_url} data-gosx-csrf-token={props.CSRF}>
+				<If cond={props.Data.practice.active}>
+					<p class="draft-practice-note mono" role="note">Your Big Board is read-only in practice. <a href="/board" data-gosx-link>Edit it in the real room →</a></p>
+				</If>
 				<If cond={props.Data.queue_empty == false}>
 					<div class="q-list__header mono">NEXT UP</div>
 				</If>
 				<Each of={props.Queue} as="player">
 					<article class="q-row" data-gosx-reorder-item={player.ID} data-taken={player.Taken} data-gosx-live-bind-attr={"data-taken:queue." + player.ID + ".taken"}>
-						<span class="board-row__handle" data-gosx-reorder-handle aria-label={"Reorder " + player.Name}>⠿</span>
+						<If cond={props.Data.practice.active == false}>
+							<span class="board-row__handle" data-gosx-reorder-handle aria-label={"Reorder " + player.Name}>⠿</span>
+						</If>
 						<div class="q-row__player">
 							<span class="q-row__rank mono">{player.Rank}</span>
 							<strong class="q-row__name">{player.Name}</strong>
@@ -2001,6 +2072,7 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 						<div class="q-row__info">
 							<If cond={player.HasNews}><details class="stat-tip stat-tip--news"><summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + player.Name}>📰</summary><div class="stat-tip__panel"><p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.News}</p><If cond={player.HasInjury}><p class="stat-tip__hist-note">{player.Injury}</p></If></div></details></If>
 						</div>
+						<If cond={props.Data.practice.active == false}>
 						<div class="q-row__actions">
 							<form method="post" action={props.QueueMoveAction} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={props.CSRF}></input>
@@ -2041,6 +2113,7 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 								</form>
 							</If>
 						</div>
+						</If>
 					</article>
 				</Each>
 				<p class="reorder-status reorder-status--pending">Saving order…</p>
@@ -2077,6 +2150,7 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 				</If>
 			</div>
 			<If cond={props.Data.viewer.has_seat && props.Data.draft.complete == false}>
+				<If cond={props.Data.practice.active == false}>
 				<div class="manager-draft-control" id="ready-toggle" data-ready={props.Data.viewer_ready}>
 					<If cond={props.Data.viewer_ready}><small class="visually-hidden">You are checked in for draft night.</small></If>
 					<If cond={props.Data.viewer_ready == false}><small class="visually-hidden">Check in once your Big Board is set.</small></If>
@@ -2091,6 +2165,7 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 						</If>
 					</form>
 				</div>
+				</If>
 				<div class="manager-draft-control" id="autopick-toggle">
 					<If cond={props.Data.viewer_autopick}><small class="visually-hidden">Autopick uses your Big Board, then best available.</small></If>
 					<If cond={props.Data.viewer_autopick == false}><small class="visually-hidden">Manual control keeps your full pick clock.</small></If>
@@ -2585,8 +2660,8 @@ func DraftHistoryBoardTeamsLedger(props DraftHistoryBoardTeamsLedgerProps) Node 
 func DraftHistory(props DraftHistoryProps) Node {
 	return <>
 	<If cond={props.TargetMode}>
-	<div class="draft-history" data-latest={props.Latest} data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:state">
-		<p class="draft-region-stale mono" role="status">Pick history did not update. <a href="/draft">Refresh room →</a></p>
+	<div class="draft-history" data-latest={props.Latest} data-gosx-live-mode="event" data-gosx-live-src={props.LiveSrc} data-gosx-live-hub={props.LiveHub} data-gosx-live-on="draft:pick draft:undo draft:state">
+		<p class="draft-region-stale mono" role="status">Pick history did not update. <a href={props.RoomPath}>Refresh room →</a></p>
 		<If cond={props.ShowTape}>
 			<div class="draft-history__view draft-history__view--tape">
 				<div class="tape" id="tape-latest">
@@ -2601,7 +2676,7 @@ func DraftHistory(props DraftHistoryProps) Node {
 	</If>
 	<If cond={props.TargetMode == false}>
 	<div class="draft-history" data-latest={props.Latest}>
-		<p class="draft-region-stale mono" role="status">Pick history did not update. <a href="/draft">Refresh room →</a></p>
+		<p class="draft-region-stale mono" role="status">Pick history did not update. <a href={props.RoomPath}>Refresh room →</a></p>
 		<If cond={props.ShowTape}>
 			<div class="draft-history__view draft-history__view--tape">
 				<div class="tape draft-tape-rows" id="tape-latest">
@@ -2704,9 +2779,29 @@ func DraftPreflight(props DraftPreflightProps) Node {
 				</div>
 				<a href="/board" data-gosx-link class="board-button">Open board →</a>
 			</div>
+			<If cond={props.Data.practice.allowed}>
+				<div class="checklist-item checklist-item--practice">
+					<span class="checklist-mark mono">02</span>
+					<div class="checklist-item__text">
+						<strong>Practice the draft room</strong>
+						<small>Take a few picks on the clock against the other seats, played by bots. Nothing you do there counts.</small>
+					</div>
+					<a href={props.Data.practice.href} data-gosx-link class="board-button">Practice now →</a>
+				</div>
+			</If>
+			<If cond={props.Data.practice.allowed == false && props.Data.viewer.has_seat}>
+				<div class="checklist-item checklist-item--practice">
+					<span class="checklist-mark mono">02</span>
+					<div class="checklist-item__text">
+						<strong>Practice the draft room</strong>
+						<small>{props.Data.practice.reason}</small>
+					</div>
+					<span class="board-button board-button--disabled" aria-disabled="true">Practice unavailable</span>
+				</div>
+			</If>
 			<If cond={props.Data.viewer.has_seat}>
 				<div class="checklist-item">
-					<span class="checklist-mark mono">02</span>
+					<span class="checklist-mark mono">03</span>
 					<div class="checklist-item__text">
 						<strong>Check in as ready</strong>
 						<small>Mark yourself ready after your Big Board is set. Then keep this tab open so the commissioner can also see that you are HERE.</small>
@@ -2716,7 +2811,7 @@ func DraftPreflight(props DraftPreflightProps) Node {
 			</If>
 			<If cond={props.Data.viewer.has_seat == false && props.Data.public_entry.can_claim}>
 				<div class="checklist-item">
-					<span class="checklist-mark mono">02</span>
+					<span class="checklist-mark mono">03</span>
 					<div class="checklist-item__text">
 						<strong>Claim a franchise</strong>
 						<small>{props.Data.public_entry.detail}</small>
@@ -2726,7 +2821,7 @@ func DraftPreflight(props DraftPreflightProps) Node {
 			</If>
 			<If cond={props.Data.viewer.has_seat == false && props.Data.public_entry.can_claim == false}>
 				<div class="checklist-item">
-					<span class="checklist-mark mono">02</span>
+					<span class="checklist-mark mono">03</span>
 					<div class="checklist-item__text">
 						<strong>{props.Data.public_entry.state_label}</strong>
 						<small>{props.Data.public_entry.detail}</small>
@@ -2741,7 +2836,7 @@ func DraftPreflight(props DraftPreflightProps) Node {
 				</div>
 			</If>
 			<div class="checklist-item">
-				<span class="checklist-mark mono">03</span>
+				<span class="checklist-mark mono">04</span>
 				<div class="checklist-item__text">
 					<strong>Keep this tab open with sound on</strong>
 					<small>Sound is already on. Click anywhere on the page once so your browser allows the on-clock chime to play.</small>
@@ -2749,7 +2844,7 @@ func DraftPreflight(props DraftPreflightProps) Node {
 			</div>
 			<If cond={props.Data.viewer.has_seat}>
 				<div class="checklist-item">
-					<span class="checklist-mark mono">04</span>
+					<span class="checklist-mark mono">05</span>
 					<div class="checklist-item__text">
 						<strong>Autopick covers you if you disappear</strong>
 						<small>Turn it on before the draft if you might miss your pick.</small>
@@ -2768,17 +2863,29 @@ func Page() Node {
 			<If cond={data.has_pick_error}><p class="error-message">{data.pick_error}</p></If>
 		</div>
 		<If cond={data.live_mode == "target"}>
-		<header class="draft-command" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:clock draft:seat draft:state">
-			<If cond={data.draft.started}><h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
-			<If cond={data.draft.started == false}><h1 class="draft-command__title">Draft room · {data.draft.opens_label}</h1></If>
+		<header class="draft-command" data-gosx-live-mode="event" data-gosx-live-src={data.live_src} data-gosx-live-hub={data.live_hub} data-gosx-live-on="draft:pick draft:undo draft:clock draft:seat draft:state">
+			<If cond={data.practice.active}><h1 class="draft-command__title">Practice draft · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
+			<If cond={data.practice.active == false && data.draft.started}><h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
+			<If cond={data.practice.active == false && data.draft.started == false}><h1 class="draft-command__title">Draft room · {data.draft.opens_label}</h1></If>
+			<If cond={data.practice.active}>
+				<div class="draft-practice-region" data-gosx-region data-gosx-region-url={data.fragment_base + "/practice"} data-gosx-region-on="draft:pick draft:undo draft:clock draft:state">
+					<DraftPracticeStrip {...data.command}></DraftPracticeStrip>
+				</div>
+			</If>
 			<DraftCommandBar {...data.command}></DraftCommandBar>
 		</header>
 		</If>
 		<If cond={data.live_mode != "target"}>
 		<header class="draft-command">
-			<If cond={data.draft.started}><h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
-			<If cond={data.draft.started == false}><h1 class="draft-command__title">Draft room · {data.draft.opens_label}</h1></If>
-			<div data-gosx-region data-gosx-region-url="/draft/fragment/command" data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:pick draft:undo draft:clock draft:state">
+			<If cond={data.practice.active}><h1 class="draft-command__title">Practice draft · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
+			<If cond={data.practice.active == false && data.draft.started}><h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
+			<If cond={data.practice.active == false && data.draft.started == false}><h1 class="draft-command__title">Draft room · {data.draft.opens_label}</h1></If>
+			<If cond={data.practice.active}>
+				<div class="draft-practice-region" data-gosx-region data-gosx-region-url={data.fragment_base + "/practice"} data-gosx-region-on="draft:pick draft:undo draft:clock draft:state">
+					<DraftPracticeStrip {...data.command}></DraftPracticeStrip>
+				</div>
+			</If>
+			<div data-gosx-region data-gosx-region-url={data.fragment_base + "/command"} data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:pick draft:undo draft:clock draft:state">
 				<DraftCommandBar {...data.command}></DraftCommandBar>
 			</div>
 		</header>
@@ -2802,30 +2909,30 @@ func Page() Node {
 				</If>
 			</section>
 			<section class="draft-pane draft-pane--available" aria-labelledby="draft-available-title">
-				<DraftAvailableHead SearchPlaceholder={data.available_search_placeholder} Query={data.pool_query} Position={data.pool_position} Sort={data.pool_sort} Positions={data.pool_position_chips} SortOptions={data.pool_sort_options}></DraftAvailableHead>
+				<DraftAvailableHead RoomPath={data.room_path} SearchPlaceholder={data.available_search_placeholder} Query={data.pool_query} Position={data.pool_position} Sort={data.pool_sort} Positions={data.pool_position_chips} SortOptions={data.pool_sort_options}></DraftAvailableHead>
 				<If cond={data.live_mode == "target"}>
-				<div class="draft-pane__body" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:state">
-					<div id="draft-available-list" data-gosx-region data-gosx-region-url={"/draft/fragment/available?pos={value}&sort=" + data.pool_sort} data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty>
+				<div class="draft-pane__body" data-gosx-live-mode="event" data-gosx-live-src={data.live_src} data-gosx-live-hub={data.live_hub} data-gosx-live-on="draft:pick draft:undo draft:state">
+					<div id="draft-available-list" data-gosx-region data-gosx-region-url={data.fragment_base + "/available?pos={value}&sort=" + data.pool_sort} data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty>
 						<DraftAvailable {...data.available}></DraftAvailable>
 					</div>
 				</div>
 				</If>
 				<If cond={data.live_mode != "target"}>
-				<div id="draft-available-list" class="draft-pane__body" data-gosx-region data-gosx-region-url={"/draft/fragment/available?pos={value}&sort=" + data.pool_sort} data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty data-gosx-region-on="draft:pick draft:undo draft:state">
+				<div id="draft-available-list" class="draft-pane__body" data-gosx-region data-gosx-region-url={data.fragment_base + "/available?pos={value}&sort=" + data.pool_sort} data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty data-gosx-region-on="draft:pick draft:undo draft:state">
 					<DraftAvailable {...data.available}></DraftAvailable>
 				</div>
 				</If>
 			</section>
 			<section class="draft-pane draft-pane--mine" aria-labelledby="draft-mine-title">
 				<If cond={data.live_mode == "target"}>
-				<div class="draft-pane__body" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:seat draft:state">
-					<div data-gosx-region data-gosx-region-url="/draft/fragment/queue" data-gosx-region-on="draft:pick draft:undo draft:seat draft:state">
+				<div class="draft-pane__body" data-gosx-live-mode="event" data-gosx-live-src={data.live_src} data-gosx-live-hub={data.live_hub} data-gosx-live-on="draft:pick draft:undo draft:seat draft:state">
+					<div data-gosx-region data-gosx-region-url={data.fragment_base + "/queue"} data-gosx-region-on="draft:pick draft:undo draft:seat draft:state">
 						<DraftMyTeam {...data.queue}></DraftMyTeam>
 					</div>
 				</div>
 				</If>
 				<If cond={data.live_mode != "target"}>
-				<div class="draft-pane__body" data-gosx-region data-gosx-region-url="/draft/fragment/queue" data-gosx-region-on="draft:pick draft:undo draft:state draft:seat">
+				<div class="draft-pane__body" data-gosx-region data-gosx-region-url={data.fragment_base + "/queue"} data-gosx-region-on="draft:pick draft:undo draft:state draft:seat">
 					<DraftMyTeam {...data.queue}></DraftMyTeam>
 				</div>
 				</If>

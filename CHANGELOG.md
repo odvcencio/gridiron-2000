@@ -5,7 +5,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Added
+- A practice draft at `/draft/practice`: a seated manager takes a few picks on the clock in a private copy of the draft room, in their real seat, against the other seats played by bots that draft from each seat's real Big Board. It uses the real pool, draft order, and pick clock, starts from round 1, 5, 10, or 15, runs three rounds, and saves nothing. Entry points sit on the home page, in the pre-draft checklist, and in /help.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 

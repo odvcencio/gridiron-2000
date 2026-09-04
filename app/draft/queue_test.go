@@ -99,7 +99,7 @@ func TestQueueNativeReorderControlsPreserveContextAndManagedFeedback(t *testing.
 		`"queue-move": func(ctx *action.Context) error {`,
 		`league.Default().BoardMove(ctx.Request, ctx.FormData["player_id"], ctx.FormData["direction"])`,
 		`return draftActionSuccess(ctx, target, "Queue order updated.")`,
-		`QueueMoveAction: draftActionPath("queue-move")`,
+		`QueueMoveAction: actionPath("queue-move")`,
 		`CanMoveUp:       boolField(player, "board_can_move_up")`,
 		`CanMoveDown:     boolField(player, "board_can_move_down")`,
 	} {
