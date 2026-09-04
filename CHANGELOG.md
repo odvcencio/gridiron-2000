@@ -39,6 +39,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The matchups page's previous/next week arrows carry a real accessible name.
 - The matchups page's freshness clock drops literal seconds and adds a relative phrase.
 - League HQ's sidebar numbers every destination and shows "Draft results," matching the league settings console.
+### Fixed
+- The waiver claim form states the roster consequence and asks for confirmation before a claim that would drop a player, matching the free-agent add form.
+- An accepted trade in a commissioner-veto league now says the commissioner is reviewing it, with the review deadline, instead of a league-vote count that never applies.
+- The trade desk states the veto rule and review window above the offer form, and the accept confirmation names the actual outcome instead of hedging between two policies.
+- The player pool's position filter chips show and work at desktop width; the phone filter rail still collapses to one row.
+- The player pool's add-and-drop confirmation panel no longer overlaps the row's status chip at desktop width.
+- The trade inbox's offer text no longer prints over the Accept and Decline buttons on a phone.
+- A long player name on the team page shows in full at phone width instead of clipping to a few characters.
+- Opening the player pool's phone filter panel no longer jumps the page or draws the panel outside its card.
+- The player pool's roster-full error names the player you tried to add or claim.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 

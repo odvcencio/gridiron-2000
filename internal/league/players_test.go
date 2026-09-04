@@ -127,7 +127,7 @@ func TestAddPlayerRosterFullRequiresDrop(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
 	_, err := svc.AddPlayer(request, "team-1", "fa-open", "", "")
-	want := "your roster is full; choose a player to drop"
+	want := "your roster is full; choose a player to drop for Free Agent Open"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
 	}

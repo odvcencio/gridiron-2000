@@ -3651,7 +3651,7 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 			result.Reason = fmt.Sprintf("%s is locked and cannot be dropped until the week closes", poolByID[next.DropID].Name)
 		case effectiveRosterSize(s.state, next.TeamID)+1-rosterCredit > rosterCap:
 			result.Outcome = "failed"
-			result.Reason = "your roster is full; choose a player to drop"
+			result.Reason = fmt.Sprintf("your roster is full; choose a player to drop for %s", poolByID[next.AddID].Name)
 		case cfg.Waivers.Mode == "faab" && next.Bid > budget[next.TeamID]:
 			result.Outcome = "failed"
 			result.Reason = fmt.Sprintf("your bid exceeds your remaining budget (%s left)", faabUnits(budget[next.TeamID]))

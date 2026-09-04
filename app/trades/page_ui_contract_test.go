@@ -121,3 +121,69 @@ func TestTradeSectionsRenumberAroundHiddenSections(t *testing.T) {
 		}
 	}
 }
+
+// TestTradeDeskStatesTheVetoRuleAboveTheComposer is F20's UX-pass fix
+// (comb audit J3): the masthead used to show only the bare "Veto policy:
+// ..." fragment, with no sentence naming the review window or what
+// happens after it. league.tradeVetoSummarySentence supplies one plain
+// sentence (both config-driven modes are pinned at the data layer by
+// TestTradeVetoSummarySentenceCoversEveryConfigValue, internal/league);
+// this only pins that the composer's own masthead panel actually prints
+// it, above the composer form itself.
+func TestTradeDeskStatesTheVetoRuleAboveTheComposer(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(page)
+	sentenceIndex := strings.Index(markup, "{data.veto_summary_sentence}")
+	composeIndex := strings.Index(markup, `<h2>Propose a trade</h2>`)
+	if sentenceIndex < 0 {
+		t.Fatal("trade masthead lost the veto_summary_sentence line")
+	}
+	if composeIndex < 0 || sentenceIndex > composeIndex {
+		t.Fatal("veto_summary_sentence must render above the compose section")
+	}
+}
+
+// TestTradeAcceptGateNamesTheActualOutcome is F19's fix: the accept gate
+// used to hedge ("This either opens the league review window or executes
+// immediately, depending on league policy") even though the league's own
+// veto policy is fixed and known. Both config-driven wordings are pinned
+// at the data layer (TestTradeAcceptConsequenceSentenceCoversEveryConfigValue,
+// internal/league); this pins that the gate reads that field instead of
+// the old hedge string.
+func TestTradeAcceptGateNamesTheActualOutcome(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(page)
+	if !strings.Contains(markup, "{data.trade_accept_consequence}") {
+		t.Fatal("accept gate lost the trade_accept_consequence line")
+	}
+	if strings.Contains(markup, "This either opens the league review window or executes immediately, depending on league policy.") {
+		t.Fatal("accept gate still hedges instead of naming the actual outcome")
+	}
+}
+
+// TestTradeOutboxAndPendingReviewBranchOnVetoMode is F11's fix: an
+// accepted offer used to advertise "N of M vetoes filed" even in a
+// commissioner-veto league, where no vote ever happens. Both the outbox
+// (the proposer's own view) and pending review (the accepting manager's
+// view) now branch on the configured veto mode.
+func TestTradeOutboxAndPendingReviewBranchOnVetoMode(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(page)
+	commissionerCopyCount := strings.Count(markup, "Waiting for the commissioner's review ·")
+	if commissionerCopyCount != 2 {
+		t.Fatalf(`"Waiting for the commissioner's review ·" appears %d times, want 2 (outbox and pending review)`, commissionerCopyCount)
+	}
+	voteGuardCount := strings.Count(markup, `<If cond={data.veto_mode != "commissioner"}>`)
+	if voteGuardCount != 2 {
+		t.Fatalf(`veto_mode != "commissioner" guard appears %d times, want 2 (outbox and pending review)`, voteGuardCount)
+	}
+}

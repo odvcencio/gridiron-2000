@@ -611,7 +611,7 @@ func (s *Service) AddPlayer(r *http.Request, requestedTeam, addID, dropID, confi
 	// effectiveRosterSize already excludes from the count, so dropping
 	// one frees no additional spot.
 	if effectiveRosterSize(state, teamID)+1-creditedDropCount(state, teamID, dropIDs) > rosterCap {
-		return "", fmt.Errorf("your roster is full; choose a player to drop")
+		return "", fmt.Errorf("your roster is full; choose a player to drop for %s", addPlayer.Name)
 	}
 	// Limits (optional knob, default off, SK spec).
 	if position, limit, breach := teamWouldBreachLimit(state, pool.byID, teamID, []string{addID}, dropIDs); breach {
@@ -767,7 +767,7 @@ func (s *Service) FileClaim(r *http.Request, requestedTeam, addID, dropID string
 	// since roster composition may shift between filing and the claim's
 	// own run.
 	if effectiveRosterSize(state, teamID)+1-creditedDropCount(state, teamID, claimOutgoing) > rosterCap { // W6
-		return "", fmt.Errorf("your roster is full; choose a player to drop")
+		return "", fmt.Errorf("your roster is full; choose a player to drop for %s", addPlayer.Name)
 	}
 	// Limits (optional knob, default off, SK spec) — filing-time fail
 	// fast; ProcessWaivers re-checks at resolution time, since roster
