@@ -148,23 +148,7 @@ func (s *Service) publicEntryViewForViewerState(r *http.Request, viewer map[stri
 			view.StateLabel = "ADMITTED · CO-MANAGER"
 			view.Headline = "YOUR SHARED FRANCHISE IS READY."
 			view.RoleLabel = "CO-MANAGER"
-			primary := memberForTeam(state.Members, member.TeamID)
-			if primary.Email == member.Email {
-				primary = Member{}
-				for _, candidate := range teamMembers(state.Members, member.TeamID) {
-					if candidate.Role != "co" {
-						primary = candidate
-						break
-					}
-				}
-			}
-			view.PrimaryName = strings.TrimSpace(primary.Name)
-			if view.PrimaryName == "" {
-				view.PrimaryName = strings.TrimSpace(primary.Email)
-			}
-			if view.PrimaryName == "" {
-				view.PrimaryName = "the primary manager"
-			}
+			view.PrimaryName = primaryNameForTeam(state.Members, member.TeamID, member.Email)
 			view.Detail = "You share " + view.TeamName + " with " + view.PrimaryName + ". The primary manager and co-manager use the same roster, Big Board, and draft controls."
 		} else {
 			view.State = PublicEntryPrimary
@@ -257,4 +241,42 @@ func seatCountCopy(open int) string {
 		return "One franchise is open."
 	}
 	return strings.TrimSpace(strings.Join([]string{countWord(open), "franchises are open."}, " "))
+}
+
+// primaryNameForTeam resolves teamID's primary manager's display name from
+// members, so copy that must credit the primary manager never substitutes
+// a co-manager's own name for them. excludeEmail skips a member row that
+// must never stand in for the primary — the viewer's own email in the
+// co-manager PublicEntryView, or a freshly bound co-manager's email right
+// after sign-in (F6: the welcome flash named the invitee as their own
+// primary manager). Falls back to "the primary manager" when no other
+// named row exists.
+func primaryNameForTeam(members map[string]Member, teamID, excludeEmail string) string {
+	primary := memberForTeam(members, teamID)
+	if primary.Email == excludeEmail {
+		primary = Member{}
+		for _, candidate := range teamMembers(members, teamID) {
+			if candidate.Role != "co" {
+				primary = candidate
+				break
+			}
+		}
+	}
+	name := strings.TrimSpace(primary.Name)
+	if name == "" {
+		name = strings.TrimSpace(primary.Email)
+	}
+	if name == "" {
+		name = "the primary manager"
+	}
+	return name
+}
+
+// PrimaryNameForTeam resolves teamID's primary manager's display name from
+// the current snapshot for copy built outside a PublicEntryView (for
+// example the sign-in callback's co-manager welcome flash). excludeEmail
+// keeps a freshly bound co-manager's own row from standing in for the
+// primary; pass "" when no exclusion applies.
+func (s *Service) PrimaryNameForTeam(teamID, excludeEmail string) string {
+	return primaryNameForTeam(s.store.Snapshot().Members, teamID, excludeEmail)
 }
