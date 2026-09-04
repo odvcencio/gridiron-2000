@@ -22,6 +22,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The console's readiness card names who has not checked in, by first name and team, with a link that opens the draft room to check them in, instead of reporting a bare ready count with no way to act.
 - The console's readiness rows show each manager's own name and a plain-language presence sentence instead of a bare seat code and "no room heartbeat since this server started."
 - The console's outreach control sends an already-seated manager a "please check in for the draft" reminder with the room link, instead of inviting them to a seat they already hold.
+- The commissioner's own pre-draft task ("Start the draft Sunday · N of 8 checked in · open the runbook") now leads the home page's Action Center while the draft has not started, instead of a manager's own pick'em review.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 

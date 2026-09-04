@@ -216,6 +216,17 @@ func BuildActionCenter(f ActionCenterFacts) ActionCenter {
 		}
 		actions = append(actions, preparationActions(f)...)
 	}
+	// F11 (gap-audit J2): two days out, the commissioner's real job is
+	// seat readiness and starting the draft, but the home page ranked a
+	// manager's pick'em review first and carried the commissioner's own
+	// task only in the always-secondary "COMMISSIONER OVERLAY" aside
+	// below. This promotes it into the SAME sorted list every manager
+	// task shares — DueAt is the draft's own start time, so it sorts
+	// first under sortActionCenterActions' own unchanged time-remaining
+	// rule, exactly like any other deadline-priority task.
+	if f.Commissioner && resolveActionCenterStage(f) == ActionCenterPreDraft {
+		actions = append(actions, commissionerPreDraftAction(f))
+	}
 	sortActionCenterActions(actions)
 	if len(actions) == 0 {
 		actions = append(actions, informationalAction(f))
@@ -437,6 +448,35 @@ func informationalAction(f ActionCenterFacts) ActionCenterAction {
 		return ActionCenterAction{ID: "record-info", Priority: ActionCenterPriorityInfo, PriorityLabel: "INFORMATION", Label: "Review final record", Detail: "Open the matchup center for the completed season record.", Href: "/matchups"}
 	default:
 		return ActionCenterAction{ID: "matchups-info", Priority: ActionCenterPriorityInfo, PriorityLabel: "INFORMATION", Label: "Open matchup center", Detail: "Follow the league's current matchups and standings.", Href: "/matchups"}
+	}
+}
+
+// commissionerPreDraftAction (F11, gap-audit J2) is the commissioner's own
+// pre-draft task, promoted into BuildActionCenter's main sorted list (see
+// that function's own doc comment). Label names the draft's own weekday
+// ("Start the draft Sunday") rather than a fixed day name, since the
+// scheduled meeting can fall on any day; Detail states plain readiness
+// counts and points at the runbook that walks the rest of the sequence.
+func commissionerPreDraftAction(f ActionCenterFacts) ActionCenterAction {
+	capacity := f.SeatCapacity
+	if capacity <= 0 {
+		capacity = f.ClaimedSeats
+	}
+	location := f.Location
+	if location == nil {
+		location = time.UTC
+	}
+	weekday := "the scheduled meeting"
+	if !f.DraftAt.IsZero() {
+		weekday = f.DraftAt.In(location).Format("Monday")
+	}
+	return ActionCenterAction{
+		ID: "commissioner-start-draft", Priority: ActionCenterPriorityDeadline, PriorityLabel: "COMMISSIONER",
+		Label:  "Start the draft " + weekday,
+		Detail: fmt.Sprintf("%d of %d checked in · open the runbook.", f.ReadySeats, capacity),
+		Href:   "/admin?section=draft-control#admin-draft-control",
+		DueAt:  f.DraftAt, HasDueAt: !f.DraftAt.IsZero(), DueLabel: "DRAFT MEETING",
+		Primary: true,
 	}
 }
 

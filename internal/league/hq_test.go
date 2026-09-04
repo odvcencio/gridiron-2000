@@ -218,6 +218,71 @@ func TestBuildActionCenterWaiverResolutionTruth(t *testing.T) {
 	}
 }
 
+// TestBuildActionCenterPromotesCommissionerPreDraftTaskToTheMainList pins
+// F11 (gap-audit J2): two days before the draft, the home page's primary
+// slot went to a manager's own pick'em review — the commissioner's real
+// job (seat readiness, starting the draft) lived only in the always-
+// secondary "COMMISSIONER OVERLAY" aside. The commissioner's own task now
+// also appears in the SAME sorted list a manager's tasks share, at
+// deadline priority with the draft's own start time as its DueAt, so it
+// sorts ahead of a manager's lower-priority preparation task under the
+// existing, unmodified time-remaining sort. It must not appear once the
+// draft has started or completed — the "COMMISSIONER OVERLAY" aside
+// already carries the commissioner's task for those stages.
+func TestBuildActionCenterPromotesCommissionerPreDraftTaskToTheMainList(t *testing.T) {
+	draftAt := time.Date(2026, 9, 6, 20, 5, 0, 0, time.UTC) // a Sunday
+	predraft := BuildActionCenter(ActionCenterFacts{
+		Now: time.Now(), Location: time.UTC, Admitted: true, HasSeat: true, Commissioner: true,
+		DraftAt: draftAt, SeatCapacity: 8, ClaimedSeats: 8, ReadySeats: 4,
+		BoardCount: 1, Ready: true, // the commissioner's own manager prep is already done
+	})
+	if predraft.Stage != ActionCenterPreDraft {
+		t.Fatalf("stage = %q, want predraft", predraft.Stage)
+	}
+	commissionerTask, ok := findAction(predraft.Actions, "commissioner-start-draft")
+	if !ok {
+		t.Fatalf("commissioner-start-draft missing from the main Actions list: %+v", predraft.Actions)
+	}
+	if commissionerTask.Priority != ActionCenterPriorityDeadline {
+		t.Fatalf("commissioner-start-draft priority = %q, want %q", commissionerTask.Priority, ActionCenterPriorityDeadline)
+	}
+	if !commissionerTask.HasDueAt || !commissionerTask.DueAt.Equal(draftAt) {
+		t.Fatalf("commissioner-start-draft DueAt = %+v, want %v", commissionerTask, draftAt)
+	}
+	if want := "Start the draft Sunday"; commissionerTask.Label != want {
+		t.Fatalf("commissioner-start-draft label = %q, want %q", commissionerTask.Label, want)
+	}
+	if want := "4 of 8 checked in · open the runbook."; commissionerTask.Detail != want {
+		t.Fatalf("commissioner-start-draft detail = %q, want %q", commissionerTask.Detail, want)
+	}
+	// Ahead of a lower (preparation) priority task, unmodified sort rule.
+	if len(predraft.Actions) == 0 || predraft.Actions[0].ID != "commissioner-start-draft" {
+		t.Fatalf("commissioner-start-draft did not sort first: %+v", predraft.Actions)
+	}
+
+	live := BuildActionCenter(ActionCenterFacts{
+		Now: time.Now(), Admitted: true, HasSeat: true, Commissioner: true, DraftStarted: true, DraftAt: draftAt,
+	})
+	if _, ok := findAction(live.Actions, "commissioner-start-draft"); ok {
+		t.Fatalf("commissioner-start-draft must not appear once the draft has started: %+v", live.Actions)
+	}
+
+	complete := BuildActionCenter(ActionCenterFacts{
+		Now: time.Now(), Admitted: true, HasSeat: true, Commissioner: true, DraftComplete: true, DraftAt: draftAt,
+		SeasonPhase: PhaseRegularSeason,
+	})
+	if _, ok := findAction(complete.Actions, "commissioner-start-draft"); ok {
+		t.Fatalf("commissioner-start-draft must not appear once the draft is complete: %+v", complete.Actions)
+	}
+
+	nonCommissioner := BuildActionCenter(ActionCenterFacts{
+		Now: time.Now(), Admitted: true, HasSeat: true, DraftAt: draftAt,
+	})
+	if _, ok := findAction(nonCommissioner.Actions, "commissioner-start-draft"); ok {
+		t.Fatalf("commissioner-start-draft must not appear for a non-commissioner viewer: %+v", nonCommissioner.Actions)
+	}
+}
+
 func TestBuildActionCenterCommissionerAnchorsAndPostseasonCopy(t *testing.T) {
 	predraft := BuildActionCenter(ActionCenterFacts{
 		Now: time.Now(), Admitted: true, HasSeat: true, Commissioner: true,
