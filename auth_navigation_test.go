@@ -51,6 +51,7 @@ func TestFileRouteAuthMiddlewareOnlyRunsAfterAFileRouteMatches(t *testing.T) {
 		"privacy/page.html",
 		"terms/page.html",
 		"draft/page.html",
+		"draft/practice/page.html",
 		"wire/page.html",
 		"join/page.html",
 	} {
@@ -109,6 +110,10 @@ func TestFileRouteAuthMiddlewareOnlyRunsAfterAFileRouteMatches(t *testing.T) {
 		wantNext   string
 	}{
 		{name: "protected draft page", method: http.MethodGet, target: "/draft?week=1", wantStatus: http.StatusSeeOther, wantNext: "/draft?week=1"},
+		// practice draft (internal/league/practice.go): the practice room is
+		// a member route like the real room, so an anonymous visitor bounces
+		// through sign-in with the practice path preserved as next.
+		{name: "protected practice page", method: http.MethodGet, target: "/draft/practice", wantStatus: http.StatusSeeOther, wantNext: "/draft/practice"},
 		{name: "protected wire page", method: http.MethodGet, target: "/wire?category=injury", wantStatus: http.StatusSeeOther, wantNext: "/wire?category=injury"},
 		{name: "protected action", method: http.MethodPost, target: "/draft/__actions/save", wantStatus: http.StatusSeeOther},
 		{name: "unknown get", method: http.MethodGet, target: "/does-not-exist?x=1", wantStatus: http.StatusNotFound},

@@ -701,6 +701,11 @@ func TestDraftPostFormsEitherSignalOrAreExplicitlyAllowlisted(t *testing.T) {
 	// DraftMyTeam) shares draftActionSuccess with the other three: its
 	// managed-form response is the same "value": "refresh" full soft
 	// navigation, so it needs no region-scoped signal either.
+	// practice_leave/practice_restart (practice draft, DraftPracticeStrip
+	// and the command sheet) are NATIVE forms, not managed: Leave must
+	// navigate the whole document back to the real room (the same
+	// full-navigation rule the sign-out form follows), and Practice again
+	// lands on a freshly built sandbox; neither has a region to signal.
 	allowlist := []string{
 		`action={props.MakePickAction}`,
 		`action={props.QueueAddAction}`,
@@ -708,6 +713,8 @@ func TestDraftPostFormsEitherSignalOrAreExplicitlyAllowlisted(t *testing.T) {
 		`action={props.QueueMoveAction}`,
 		`action={props.Actions.toggle_ready}`,
 		`action={props.Actions.toggle_autopick}`,
+		`action={props.Actions.practice_leave}`,
+		`action={props.Actions.practice_restart}`,
 	}
 	var signaled, signalFree, total int
 	for _, line := range strings.Split(string(source), "\n") {
@@ -757,8 +764,11 @@ func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 	// mounted, unused by Page()), so this test still pins them by name.
 	for _, want := range []string{
 		`data-gosx-live-mode="event"`,
-		`data-gosx-live-src="/draft/live.json"`,
-		`data-gosx-live-hub="draft-live"`,
+		// live_src/live_hub (practice draft): the real room renders these as
+		// "/draft/live.json" and "draft-live" (service.go's draftData), the
+		// practice room as its own; the attribute pair itself is the pin.
+		`data-gosx-live-src={data.live_src}`,
+		`data-gosx-live-hub={data.live_hub}`,
 		`data-gosx-live-on="draft:pick draft:undo draft:clock draft:seat draft:state"`,
 		`data-gosx-action-signal="$draft.state.refresh"`,
 		`data-gosx-countdown={props.Data.clock.effective_deadline}`,

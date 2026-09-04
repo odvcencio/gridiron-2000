@@ -9,6 +9,7 @@ import (
 	_ "gridiron-2000/app/board"
 	_ "gridiron-2000/app/commissioner"
 	_ "gridiron-2000/app/draft"
+	_ "gridiron-2000/app/draft/practice"
 	_ "gridiron-2000/app/draft/results"
 	_ "gridiron-2000/app/guide"
 	_ "gridiron-2000/app/help"
