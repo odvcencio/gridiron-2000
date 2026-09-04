@@ -11,6 +11,6 @@ func Page() Node {
 		<p>
 			This page doesn't exist, the commissioner moved it, or someone traded it for a future second.
 		</p>
-		<a href="/" data-gosx-link class="button button--primary">Return to HQ</a>
+		<a href="/" data-gosx-link class="button button--primary">Back to Home</a>
 	</main>
 }

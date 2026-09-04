@@ -204,3 +204,21 @@ func TestNotificationSettingsDataReadsCanonicalOverride(t *testing.T) {
 		t.Fatalf("identity/read-only data = email:%v read_only:%v", data["email"], data["read_only"])
 	}
 }
+
+// TestNotificationCategoryLabelNamesKnownCategoriesAndFallsBack pins F9
+// (2026-09-04 UX pass): the settings action's own saved-preference
+// confirmation names the category ("Draft reminders is now OFF.") instead
+// of leaving a manager to guess which of ten toggles just changed.
+func TestNotificationCategoryLabelNamesKnownCategoriesAndFallsBack(t *testing.T) {
+	tests := map[string]string{
+		categoryDraftReminders: "Draft reminders",
+		categoryLeagueNews:     "League news",
+		categoryTransactions:   "Transactions",
+		"unknown-category":     "unknown-category",
+	}
+	for category, want := range tests {
+		if got := NotificationCategoryLabel(category); got != want {
+			t.Errorf("NotificationCategoryLabel(%q) = %q, want %q", category, got, want)
+		}
+	}
+}

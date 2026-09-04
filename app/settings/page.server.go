@@ -134,15 +134,33 @@ func init() {
 	}
 }
 
-func notificationPreferenceSavedMessage(enabled, deliveryReady bool) string {
+// notificationRedirectTarget names the fragment (F9, 2026-09-04 UX pass) a
+// saved category returns to, so the manager lands back beside the fieldset
+// she just used instead of the top of a six-screen page. It matches the id
+// NotificationRow gives that fieldset (page.gsx, "notify-"+Category).
+// RedirectWithNotice already strips this fragment for a managed request and
+// keeps it for a native one (internal/actionui/feedback.go), so this
+// function only needs to name the destination once.
+func notificationRedirectTarget(category string) string {
+	return "/settings#notify-" + category
+}
+
+// notificationPreferenceSavedMessage names the category and its new state
+// (F9): a manager saving several categories in a row must be able to tell
+// which one just changed from the confirmation alone. An OFF category never
+// sends regardless of the league's mail transport (F3 fixed the same
+// honesty gap in the row's own state label), so only the ON case adds a
+// transport-truth clause.
+func notificationPreferenceSavedMessage(label string, enabled, deliveryReady bool) string {
 	state := "OFF"
 	if enabled {
 		state = "ON"
 	}
-	if !deliveryReady {
-		return "Notification preference saved. Email delivery is not configured; this category is set to " + state + " and will apply when delivery is enabled."
+	message := label + " is now " + state + "."
+	if enabled && !deliveryReady {
+		message += " It will send once the commissioner sets up email."
 	}
-	return "Notification preference saved. Email delivery is ready; this category is now " + state + "."
+	return message
 }
 
 func setNotificationPreference(ctx *action.Context) error {
@@ -158,8 +176,9 @@ func setNotificationPreference(ctx *action.Context) error {
 	if data := league.Default().NotificationSettingsData(ctx.Request); data != nil {
 		deliveryReady, _ = data["delivery_ready"].(bool)
 	}
-	message := notificationPreferenceSavedMessage(enabled, deliveryReady)
-	actionui.RedirectWithNotice(ctx, "/settings", message)
+	label := league.NotificationCategoryLabel(category)
+	message := notificationPreferenceSavedMessage(label, enabled, deliveryReady)
+	actionui.RedirectWithNotice(ctx, notificationRedirectTarget(category), message)
 	return nil
 }
 

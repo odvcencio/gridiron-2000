@@ -71,34 +71,53 @@ func TestParseNotificationEnabledIsLiteral(t *testing.T) {
 	}
 }
 
+// TestNotificationPreferenceSavedMessageReportsTransportTruth is F9's own
+// regression test (2026-09-04 UX pass): the confirmation must name the
+// category so a manager saving several toggles in a row can tell which one
+// just changed, and an OFF category must never claim it will send later —
+// OFF never sends regardless of transport (the same honesty gap F3 fixed
+// in the row's own state label).
 func TestNotificationPreferenceSavedMessageReportsTransportTruth(t *testing.T) {
 	tests := []struct {
-		name          string
-		enabled       bool
-		deliveryReady bool
-		want          string
+		name           string
+		label          string
+		enabled        bool
+		deliveryReady  bool
+		want           string
+		mustNotContain string
 	}{
 		{
 			name:          "mail disabled and preference on",
+			label:         "Draft reminders",
 			enabled:       true,
 			deliveryReady: false,
-			want:          "Email delivery is not configured; this category is set to ON and will apply when delivery is enabled.",
+			want:          "Draft reminders is now ON. It will send once the commissioner sets up email.",
 		},
 		{
-			name:          "mail ready and preference off",
-			enabled:       false,
-			deliveryReady: true,
-			want:          "Email delivery is ready; this category is now OFF.",
+			name:           "mail ready and preference off",
+			label:          "Draft reminders",
+			enabled:        false,
+			deliveryReady:  true,
+			want:           "Draft reminders is now OFF.",
+			mustNotContain: "will send",
+		},
+		{
+			name:           "mail disabled and preference off",
+			label:          "Draft reminders",
+			enabled:        false,
+			deliveryReady:  false,
+			want:           "Draft reminders is now OFF.",
+			mustNotContain: "will send",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := notificationPreferenceSavedMessage(test.enabled, test.deliveryReady)
-			if !strings.Contains(got, test.want) {
+			got := notificationPreferenceSavedMessage(test.label, test.enabled, test.deliveryReady)
+			if got != test.want {
 				t.Fatalf("notificationPreferenceSavedMessage() = %q, want %q", got, test.want)
 			}
-			if strings.Contains(got, "Email is now") {
-				t.Fatalf("notificationPreferenceSavedMessage() made an unconditional transport claim: %q", got)
+			if test.mustNotContain != "" && strings.Contains(got, test.mustNotContain) {
+				t.Fatalf("notificationPreferenceSavedMessage() = %q, must not contain %q: an OFF category never sends", got, test.mustNotContain)
 			}
 		})
 	}

@@ -392,11 +392,18 @@ func csrfExemptClientEvents(protect func(http.Handler) http.Handler) func(http.H
 	}
 }
 
-// csrfFailureMessage is the truthful cause of a CSRF rejection: almost
-// always an expired or rotated session, not a hostile forgery attempt.
-// Both surfaces below (the shell error page and the managed-action JSON
-// body) show the identical sentence.
-const csrfFailureMessage = "Your session expired. Reload the page, then try again."
+// csrfFailureMessage is the truthful cause of a CSRF rejection (F6, 2026-09-04
+// UX pass): the token on the submitted form went stale, not the visitor's
+// signed-in session — she is still signed in and nothing she typed was lost
+// except the one submission. Both surfaces below (the shell error page and
+// the managed-action JSON body) show the identical sentence.
+const csrfFailureMessage = "The page you submitted was open too long. Your league data is unchanged and you are still signed in."
+
+// csrfMethodNotAllowedMessage answers a POST (or PUT/PATCH/DELETE) to a path
+// this app never accepts one on (F6). It is deliberately distinct from
+// csrfFailureMessage: the token was never the problem, the route itself does
+// not take a form post, so naming the wrong cause would be its own defect.
+const csrfMethodNotAllowedMessage = "That page does not accept a form post."
 
 // csrfProtectedRequestMethod mirrors session.csrfProtectedMethod (an
 // unexported predicate in m31labs.dev/gosx/session), so this wrapper only
@@ -407,6 +414,31 @@ const csrfFailureMessage = "Your session expired. Reload the page, then try agai
 func csrfProtectedRequestMethod(method string) bool {
 	switch method {
 	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+// csrfMutationCapableTarget reports whether path is a route this app ever
+// accepts a mutating request on (F6, 2026-09-04 UX pass). Every file-route
+// action mounts under ".../__actions/<name>" (gosx's own
+// filePageActionPattern, route/filesystem.go), the same generic pattern for
+// every app/<route> directory; everything else this app mutates through
+// (invite consume, the setup wizard, avatar uploads, the draft queue
+// reorder, sign-out) is mounted explicitly below. A POST to any other path,
+// such as a page route like /scoring, can never succeed here regardless of
+// its CSRF token, so it gets an honest 405 instead of being funneled
+// through the CSRF failure page as though the token were the problem.
+func csrfMutationCapableTarget(path string) bool {
+	if strings.Contains(path, "/__actions/") {
+		return true
+	}
+	if strings.HasPrefix(path, "/auth/invite/") || strings.HasPrefix(path, "/setup") {
+		return true
+	}
+	switch path {
+	case "/draft/queue", "/avatar/upload", "/avatar/badge", "/auth/logout":
 		return true
 	default:
 		return false
@@ -482,12 +514,23 @@ func (c *csrfFailureCapture) flush() {
 // still carries a captured 403 is unambiguously Protect's own rejection —
 // every other outcome (next ran at all, or Protect failed some other way,
 // e.g. missing session middleware) is forwarded untouched.
+//
+// A mutating request to a path this app never accepts one on (F6, 2026-09-04
+// UX pass) is answered before Protect ever runs: such a request always 403s
+// here today (no page that only takes GET ever renders a CSRF token for it),
+// which named the wrong cause — "session expired" — for a submission that
+// was never going to succeed regardless of its token. csrfMutationCapableTarget
+// answers honestly with 405 instead.
 func csrfFailureRenderer(protect func(http.Handler) http.Handler, stylesheetHref string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		passthrough := protect(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !csrfProtectedRequestMethod(r.Method) {
 				passthrough.ServeHTTP(w, r)
+				return
+			}
+			if !csrfMutationCapableTarget(r.URL.Path) {
+				writeCSRFMethodNotAllowedPage(w, r, stylesheetHref)
 				return
 			}
 			reached := false
@@ -538,6 +581,47 @@ func csrfFailureBackTarget(r *http.Request) string {
 	return navigation.SafeReturnPath(target)
 }
 
+// csrfFailurePageNames names the plain-language destination of every
+// same-origin path the CSRF and 405 recovery pages can send a visitor back
+// to (F6, 2026-09-04 UX pass), matching the sidebar's own title= labels
+// (app/layout.gsx) so "Go back to <page name>" recognizes the page she was
+// just on. A path this table does not carry falls back to "that page"
+// rather than printing a raw route like "Go back to /some/route".
+var csrfFailurePageNames = map[string]string{
+	"/":            "Home",
+	"/pickem":      "Pick'em",
+	"/matchups":    "Matchups",
+	"/team":        "the Team Terminal",
+	"/board":       "the Big Board",
+	"/players":     "the Player Pool",
+	"/trades":      "Trades",
+	"/draft":       "the Draft",
+	"/blitz":       "Preseason Blitz",
+	"/wire":        "the Signal Wire",
+	"/activity":    "Activity",
+	"/locker":      "the Locker Room",
+	"/scoring":     "Rules & Scoring",
+	"/guide":       "the Manager Guide",
+	"/help":        "the Help Center",
+	"/settings":    "Notification Settings",
+	"/privacy":     "Privacy",
+	"/terms":       "Terms",
+	"/open-source": "Open Source",
+	"/login":       "Sign In",
+}
+
+// csrfFailurePageName looks up target's path (its query string, if any, is
+// ignored) in csrfFailurePageNames. target's path is exactly what
+// csrfFailureBackTarget already produced, so "/" (its own no-Referer
+// fallback) always resolves to "Home" — no separate no-Referer case needed.
+func csrfFailurePageName(target string) string {
+	path, _, _ := strings.Cut(target, "?")
+	if name, ok := csrfFailurePageNames[path]; ok {
+		return name
+	}
+	return "that page"
+}
+
 func writeCSRFFailurePage(w http.ResponseWriter, r *http.Request, stylesheetHref string) {
 	if wantsManagedActionJSON(r) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -550,17 +634,47 @@ func writeCSRFFailurePage(w http.ResponseWriter, r *http.Request, stylesheetHref
 		return
 	}
 	back := csrfFailureBackTarget(r)
+	label := "Go back to " + csrfFailurePageName(back)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusForbidden)
 	_, _ = io.WriteString(w, `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">`+
 		`<meta name="viewport" content="width=device-width, initial-scale=1">`+
-		`<title>Session expired</title>`+
+		`<title>This form expired</title>`+
 		`<link rel="stylesheet" href="`+html.EscapeString(stylesheetHref)+`"></head>`+
 		`<body class="app-shell"><main class="page" id="main-content">`+
-		`<h1>Session expired</h1>`+
+		`<h1>This form expired</h1>`+
 		`<div class="error-message" role="alert"><p>`+html.EscapeString(csrfFailureMessage)+`</p></div>`+
-		`<p><a class="button button--ghost" href="`+html.EscapeString(back)+`">Reload the page</a></p>`+
+		`<p><a class="button button--ghost" href="`+html.EscapeString(back)+`">`+html.EscapeString(label)+`</a></p>`+
+		`</main></body></html>`)
+}
+
+// writeCSRFMethodNotAllowedPage answers a mutating request to a path this
+// app never accepts one on (F6): honest 405, not the CSRF page's "session
+// expired" framing, since no token would have made this submission succeed.
+func writeCSRFMethodNotAllowedPage(w http.ResponseWriter, r *http.Request, stylesheetHref string) {
+	if wantsManagedActionJSON(r) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":      false,
+			"message": csrfMethodNotAllowedMessage,
+		})
+		return
+	}
+	back := csrfFailureBackTarget(r)
+	label := "Go back to " + csrfFailurePageName(back)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusMethodNotAllowed)
+	_, _ = io.WriteString(w, `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">`+
+		`<meta name="viewport" content="width=device-width, initial-scale=1">`+
+		`<title>`+html.EscapeString(csrfMethodNotAllowedMessage)+`</title>`+
+		`<link rel="stylesheet" href="`+html.EscapeString(stylesheetHref)+`"></head>`+
+		`<body class="app-shell"><main class="page" id="main-content">`+
+		`<h1>`+html.EscapeString(csrfMethodNotAllowedMessage)+`</h1>`+
+		`<p><a class="button button--ghost" href="`+html.EscapeString(back)+`">`+html.EscapeString(label)+`</a></p>`+
 		`</main></body></html>`)
 }
 
