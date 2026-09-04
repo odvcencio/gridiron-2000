@@ -1530,6 +1530,10 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.Mount("GET /draft/fragment/pick/{n}", draftpage.PickDetailFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/available", draftpage.AvailableFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/queue", draftpage.QueueFragmentHandler(league.Default()))
+	// pickbar (spruce audit, J1 F1, 2026-09-04): the phone sticky action
+	// strip never had a region or a live bind in either live_mode before
+	// this fix, so it never refreshed after first paint.
+	app.Mount("GET /draft/fragment/pickbar", draftpage.PickBarFragmentHandler(league.Default()))
 	app.Mount("POST /draft/queue", draftpage.QueueMoveHandler(league.Default()))
 	app.Mount("GET /draft/live.json", draftpage.LiveViewHandler(league.Default()))
 	app.Mount("GET /draft/ledger.csv", draftpage.LedgerCSVHandler(league.Default()))

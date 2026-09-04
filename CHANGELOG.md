@@ -25,6 +25,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The 404 page leads with a plain sentence and adds links back to Home and to Search help, alongside its existing joke.
 - /terms no longer calls itself the commissioner edition for every manager, and now carries a last-updated date like /privacy does.
 
+### Fixed
+- The draft room now updates itself while you keep it open: the DRAFT button, the "you're up" pill, the page heading, the paused-clock state, and the phone pick bar all refresh live instead of freezing at the state the page had when you loaded it. Live updates now default to the mode that refetches these regions on every pick, clock change, and state change; the faster fetchless mode stays available as an override for anyone who needs it.
+- The draft room's screen-reader announcement now names the team on the clock ("Los Delfines del Norte on the clock") instead of an internal seat code ("AQ2 on the clock").
+
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 
 Scope: GoSX v0.55.2 adoption, plus a phone-first pass over every route (anonymous, manager, commissioner)

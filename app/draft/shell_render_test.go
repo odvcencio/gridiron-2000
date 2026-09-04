@@ -101,9 +101,17 @@ func houseRankSupplyFiller(startIndex int) []league.Player {
 	return out
 }
 
+// TestDraftShellRendersEveryDraftState pins TARGET mode's own contract
+// (spruce audit, 2026-09-04: DRAFT_LIVE_MODE now defaults to fallback,
+// draftLiveMode's own doc comment, page.server.go) — this fixture sets
+// DRAFT_LIVE_MODE=target explicitly so its assertions below (the
+// fetchless data-gosx-live-mode="event" command header, S6's zero-fetch
+// budget) keep proving target mode's own shape, unchanged by the default
+// flip. TestDraftShellFallbackModeRestoresRegionRefetch, below, is the
+// fallback-mode twin.
 func TestDraftShellRendersEveryDraftState(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestDraftShellRendersEveryDraftStateFixtureProcess$")
-	cmd.Env = append(os.Environ(), "DRAFT_SHELL_FIXTURE=1", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=false", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=", "COMMISSIONER_EMAILS="+shellCommissioner)
+	cmd.Env = append(os.Environ(), "DRAFT_SHELL_FIXTURE=1", "DRAFT_LIVE_MODE=target", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=false", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=", "COMMISSIONER_EMAILS="+shellCommissioner)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("draft shell fixture process: %v\n%s", err, output)
 	}

@@ -21,6 +21,14 @@ const (
 	draftTapeRowsRegion  = "tape-rows"
 	draftAvailableRegion = "available"
 	draftQueueRegion     = "queue"
+	// draftPickBarRegion (spruce audit, J1 F1, 2026-09-04): the phone
+	// sticky action strip (DraftPickBar, page.gsx) — the one pane Page()
+	// used to render with no region and no live bind in either live_mode,
+	// so it never refreshed at all. Shares draftAvailableView (the same
+	// data draftAvailableRegion already serves): DraftPickBar reads only
+	// viewer/draft/next_queued/viewer_ready/viewer_autopick, all already
+	// on that view, so no new server-side type was needed.
+	draftPickBarRegion = "pickbar"
 
 	// draftTapeSinceKey is the tape pane's own "?since=" cursor: a
 	// non-negative pick number below which the pane's rows are already on
@@ -154,6 +162,14 @@ func QueueFragmentHandler(service *league.Service) http.Handler {
 	return draftFragmentHandler(draftQueueRegion, draftFragmentAccess(service), draftFragmentLoader(service, false))
 }
 
+// PickBarFragmentHandler serves the phone sticky action strip's swapped
+// body (spruce audit, J1 F1, 2026-09-04). Loads the same read-only
+// available view AvailableFragmentHandler does; draftRegionView picks
+// DraftPickBar, not DraftAvailable, as the component for this region name.
+func PickBarFragmentHandler(service *league.Service) http.Handler {
+	return draftFragmentHandler(draftPickBarRegion, draftFragmentAccess(service), draftFragmentLoader(service, false))
+}
+
 // draftFragmentAccess is app/liveaccess.SignedInOrDemo under the name the
 // rest of this package already calls it by (round-2 review of commit
 // 917cf4f, finding 4: the predicate itself now lives in one shared place
@@ -244,7 +260,14 @@ func draftRegionView(data map[string]any, region string) (any, string, error) {
 		if !ok {
 			return nil, "", errInvalidDraftRegion
 		}
-		return view, "DraftCommandBar", nil
+		// DraftCommandHeader, not DraftCommandBar (spruce audit, J1 F1/F7,
+		// J2 F7, 2026-09-04): the h1 now travels inside this same fragment
+		// (DraftCommandHeader's own doc comment, page.gsx) — answering with
+		// the bar alone here would drop the h1 from the DOM the first time
+		// the fallback-mode region actually refetched it, even though the
+		// initial SSR page (Page(), which also calls DraftCommandHeader)
+		// painted it correctly at load.
+		return view, "DraftCommandHeader", nil
 	case draftTapeRegion:
 		view, ok := data["history"].(draftHistoryView)
 		if !ok {
@@ -276,6 +299,12 @@ func draftRegionView(data map[string]any, region string) (any, string, error) {
 			return nil, "", errInvalidDraftRegion
 		}
 		return view, "DraftMyTeam", nil
+	case draftPickBarRegion:
+		view, ok := data["available"].(draftAvailableView)
+		if !ok {
+			return nil, "", errInvalidDraftRegion
+		}
+		return view, "DraftPickBar", nil
 	case practiceRegion:
 		// The practice strip renders from the command view (practice
 		// draft, practice_handlers.go): it reads props.Data.practice,

@@ -87,7 +87,7 @@ func PracticeFragmentHandler(region string, base *league.Service, registry *leag
 
 // PracticeRegions lists every fragment region the practice room mounts.
 func PracticeRegions() []string {
-	return []string{draftRoomRegion, draftWorkspaceRegion, draftCommandRegion, draftTapeRegion, draftTapeRowsRegion, draftAvailableRegion, draftQueueRegion, practiceRegion}
+	return []string{draftRoomRegion, draftWorkspaceRegion, draftCommandRegion, draftTapeRegion, draftTapeRowsRegion, draftAvailableRegion, draftQueueRegion, draftPickBarRegion, practiceRegion}
 }
 
 // PracticeLiveViewHandler serves GET /draft/practice/live.json: the
