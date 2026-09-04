@@ -17734,3 +17734,23 @@ a.skip-link {
   font-size: clamp(2.25rem, 6vw, 4.5rem);
   overflow-wrap: break-word;
 }
+
+/* comb — sequoia (2026-09-04 UX pass) */
+
+/* RK column: HOUSE sort (the default) leads the cell with a four-character
+   H### code, and the 2rem track set above (~11750) was sized for the
+   three-digit market rank. table-layout: fixed does not grow the track,
+   so the code painted into the PLAYER cell ("H001Jahmyr Gibbs" at 1440).
+   3.25rem holds "H###" plus the cell's own padding at the mono size. */
+.avail-row--head > :nth-child(1),
+.avail-row > :nth-child(1) {
+  width: 3.25rem;
+}
+
+/* Practice entry in the command bar (desktop block and phone sheet)
+   before the draft: one plain link, no new pane child. */
+.draft-command__practice {
+  display: inline-block;
+  margin-top: 0.35rem;
+  font-size: var(--type-sm);
+}

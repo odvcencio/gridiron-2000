@@ -1363,6 +1363,9 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 					<span class="idx">Before the room opens</span>
 					<strong class="display">Draft not started</strong>
 					<small class="muted"><span data-gosx-live-bind="room.ready">{props.Data.ready_count}</span> of <span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> ready</small>
+					<If cond={props.Data.practice.allowed}>
+						<a href={props.Data.practice.href} data-gosx-link class="draft-command__practice">Practice the draft room →</a>
+					</If>
 					<If cond={props.Data.viewer.is_commissioner}>
 						<button type="button" class="btn btn-sm btn-primary draft-command__start" data-gosx-disclosure-target="#draft-commissioner" aria-controls="draft-commissioner" aria-expanded="false">Start the draft →</button>
 					</If>
@@ -1471,6 +1474,9 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 					</If>
 				</div>
 				<div class="draft-command__sheet-controls">
+					<If cond={props.Data.draft.started == false && props.Data.practice.allowed}>
+						<a href={props.Data.practice.href} data-gosx-link class="btn btn-sm draft-command__practice">Practice the draft room →</a>
+					</If>
 					<If cond={props.Data.viewer.has_seat && props.Data.draft.complete == false}>
 						<If cond={props.Data.practice.active == false}>
 						<form method="post" action={props.Actions.toggle_ready} data-gosx-managed="true">
