@@ -8,6 +8,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - A practice draft at `/draft/practice`: a seated manager takes a few picks on the clock in a private copy of the draft room, in their real seat, against the other seats played by bots that draft from each seat's real Big Board. It uses the real pool, draft order, and pick clock, starts from round 1, 5, 10, or 15, runs three rounds, and saves nothing. Entry points sit on the home page, in the pre-draft checklist, and in /help.
 ### Fixed
+- The draft room's RK column is wide enough for the house-rank code, so the code no longer paints over the player name at desktop widths.
+- Before the draft, the command bar and the phone menu carry a "Practice the draft room" link, so the practice draft is visible without opening the checklist.
 - `/settings` states a category's ON/OFF wording honestly: an OFF category now says it will not send even after email is set up, instead of claiming it still sends.
 - `/settings` states "email is not configured" at most twice instead of fourteen times, and adds one link asking the commissioner to turn on email.
 - Saving a notification category on `/settings` returns you to that category, not the top of the page, and names the category and its new state in the confirmation.
