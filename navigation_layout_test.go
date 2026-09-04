@@ -357,20 +357,29 @@ func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigati
 	}
 	team := &groups[1].Links
 	switch {
-	case viewer.hasSeat:
+	case viewer.hasSeat || viewer.commissioner:
+		// F5's disabled treatment never applies to a commissioner: they
+		// already have intervention access to any team's terminal
+		// independent of holding a personal seat (fern_mobile_parity_
+		// browser_test.go's own TestBrowserDesktopRailFitsAt900And800
+		// fixture is exactly this — a seatless commissioner — and pins
+		// the rail's own fixed height, which the disabled item's extra
+		// line would otherwise overflow).
 		*team = append(*team, "/team|04 Team terminal")
 	case viewer.seatsOpen && viewer.canClaimSeat:
 		*team = append(*team, "/join|04 Join a team")
 	default:
-		// F5: a viewer with no seat and no open, claimable seat gets a
-		// disabled Team terminal item (a <div>, never an <a>) naming the
-		// reason "Needs a franchise seat" beside it — excluded from this
-		// <a>-only extraction by design, so no entry belongs here.
+		// F5: a non-commissioner viewer with no seat and no open,
+		// claimable seat gets a disabled Team terminal item (a <div>,
+		// never an <a>) naming the reason "Needs a franchise seat"
+		// beside it — excluded from this <a>-only extraction by design,
+		// so no entry belongs here.
 	}
-	if viewer.hasSeat {
-		// F5: Big Board is a disabled <div> (same reason) for any viewer
-		// with no seat, so it only appears in this <a>-only extraction
-		// once a seat is held.
+	if viewer.hasSeat || viewer.commissioner {
+		// F5: Big Board is a disabled <div> (same reason) for any
+		// non-commissioner viewer with no seat, so it only appears in
+		// this <a>-only extraction once a seat is held or the viewer is
+		// the commissioner.
 		*team = append(*team, "/board|05 Big Board")
 	}
 	if viewer.hasSeat || viewer.signedIn {

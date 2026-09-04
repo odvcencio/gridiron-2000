@@ -90,25 +90,32 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 				</Link>
 			</div>
 			<div class="navigation-group" data-navigation-group="my-team">
+				{/* F5 disables Team terminal and Big Board with a "Needs a
+				    franchise seat" reason for a seatless viewer — but never
+				    for a seatless COMMISSIONER (props.Commissioner), who
+				    already has intervention access to any team's terminal
+				    independent of holding a personal seat (the same
+				    props.HasSeat || props.Commissioner gate Trades already
+				    uses below). */}
 				<If cond={props.HasSeat}>
 					<p class="navigation-group__label mono">MY TEAM</p>
 				</If>
 				<If cond={props.HasSeat == false}>
 					<p class="navigation-group__label mono">TEAM</p>
 				</If>
-				<If cond={props.HasSeat}>
+				<If cond={props.HasSeat || props.Commissioner}>
 					<Link href="/team" class="navigation-link" title="Team terminal">
 						<span class="navigation-link__index mono">04</span>
 						Team terminal
 					</Link>
 				</If>
-				<If cond={props.HasSeat == false && props.SeatsOpen && props.CanClaimSeat}>
+				<If cond={props.HasSeat == false && props.Commissioner == false && props.SeatsOpen && props.CanClaimSeat}>
 					<Link href="/join" class="navigation-link navigation-link--hot" title="Join a team">
 						<span class="navigation-link__index mono">04</span>
 						Join a team
 					</Link>
 				</If>
-				<If cond={props.HasSeat == false && (props.SeatsOpen == false || props.CanClaimSeat == false)}>
+				<If cond={props.HasSeat == false && props.Commissioner == false && (props.SeatsOpen == false || props.CanClaimSeat == false)}>
 					<div class="navigation-link navigation-link--disabled" aria-disabled="true" title="Team terminal">
 						<span class="navigation-link__row">
 							<span class="navigation-link__index mono">04</span>
@@ -117,13 +124,13 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 						<small class="navigation-link__reason">Needs a franchise seat</small>
 					</div>
 				</If>
-				<If cond={props.HasSeat}>
+				<If cond={props.HasSeat || props.Commissioner}>
 					<Link href="/board" class="navigation-link" title="Big Board">
 						<span class="navigation-link__index mono">05</span>
 						Big Board
 					</Link>
 				</If>
-				<If cond={props.HasSeat == false}>
+				<If cond={props.HasSeat == false && props.Commissioner == false}>
 					<div class="navigation-link navigation-link--disabled" aria-disabled="true" title="Big Board">
 						<span class="navigation-link__row">
 							<span class="navigation-link__index mono">05</span>
