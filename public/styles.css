@@ -16751,3 +16751,128 @@ a.skip-link {
     --type-sm: clamp(0.875rem, 0.86rem + 0.10vw, 0.9375rem);
   }
 }
+
+/* comb — fir (2026-09-04 UX pass) ------------------------------------------
+   File-scoped block, appended after every other rule so it cannot collide
+   with a concurrent edit elsewhere in this stylesheet — the same append
+   convention every earlier "wave N — codename"/"comb — codename" block in
+   this file already uses. Every selector below is new, or a deliberate
+   later-cascade override of an earlier rule's own property (called out
+   inline); nothing above this comment is edited in place. Covers: J3
+   (weekly-loop comb audit) F5, F6, F3, F24, F30. */
+
+/* F5: the desktop /players and /board toolbars hide .pool-filter-
+   disclosure's <summary> and rely on ".pool-filter-disclosure >
+   .position-filters { display: flex }" (comb — fern, above) to defeat the
+   <details> UA stylesheet's own "hide non-summary children unless [open]"
+   rule. Current Chrome instead hides a CLOSED <details>'s non-summary
+   content through the ::details-content pseudo-element
+   (content-visibility: hidden), which a child's own display value does
+   not override — measured live: .position-filters computed
+   checkVisibility() = false and elementFromPoint at a chip's own
+   coordinates returned the rail, not the link, even though the chip's
+   display was flex. content-visibility is the one property that actually
+   defeats it. Scoped to the same 56.1875rem line the phone/tablet query
+   above uses, inverted, so the collapsed one-row phone rail (fern's own
+   fix, above) is untouched — a phone's <details> must stay genuinely
+   closed until tapped. */
+@media (width >= 56.1875rem) {
+  .pool-filter-disclosure::details-content {
+    content-visibility: visible;
+  }
+}
+
+/* F6: /players' pool row ACTION column (.pool-row--status's 6th track)
+   was a fixed 5rem (80px) — enough for a short "SIGN"/"CLAIM" button or
+   a status chip, not for the .action-confirmation gate's own paragraph
+   and "CONFIRM ADD AND DROP" button once opened. A grid item's automatic
+   minimum size (its content's own min-content width) is not capped by a
+   FIXED-length track, so the open panel (measured 219px) overflowed the
+   80px track outward — and because .board-controls packs its one child
+   against the row's own right edge (justify-content: end, above), that
+   overflow ran LEFTWARD, straight over the STATUS chip (the 5th track)
+   beside it, not off the row's own right edge. minmax(5rem, auto) keeps
+   every ordinary closed row's column at its current compact width (auto
+   bottoms out at the short button/chip content already there) while
+   letting THIS row's own column grow to fit an open confirmation panel —
+   each .pool-row--status is its own independent grid, so this never
+   widens any OTHER row's action column. The row's own minmax(12rem, 1fr)
+   name column absorbs the difference; it never drops below its own
+   12rem floor. */
+.pool-row--status {
+  grid-template-columns: 3rem minmax(12rem, 1fr) 3.5rem 4rem 8rem minmax(5rem, auto);
+}
+
+/* F3: at phone width, .rank-row--wide (the /trades inbox/outbox/pending-
+   review/vote-panel card, app/trades/page.gsx) still used its desktop
+   two-track grid-template-columns: minmax(0, 1fr) auto — at 390px the
+   auto action track (Accept/Decline, ~301px unwrapped) claimed most of
+   the 339px row, leaving minmax(0, 1fr)'s own content track to resolve
+   to 0px (measured live: "0px 301.281px"). The offer text and the
+   Accept/Decline buttons then painted on top of each other. A single
+   minmax(0, 1fr) column lets the identity text take the full row width
+   and the action buttons wrap onto their own row beneath it — the exact
+   shape .board-controls' own flex-wrap already gives the buttons once
+   they are no longer sharing a column with the text. Scoped to the
+   existing 38rem phone line other /trades-adjacent rules in this file
+   already use for .rank-row (not a new breakpoint value). */
+@media (width <= 38rem) {
+  .rank-row--wide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rank-row--wide > .board-controls {
+    grid-column: 1;
+  }
+}
+
+/* F24: /team's starter (.lineup-slot) and bench (.roster-row) identity
+   rows share the same .stat-tip__summary flex row as every other
+   avatar+name trigger in this file (photo, .player-identity__text, the
+   ::after "DETAILS +" affordance) — but unlike /players' and /board's
+   own photo rows, neither markup carries the "--photo" modifier
+   .pool-player.pool-player--photo::after's own rule (above) keys off to
+   hide that affordance, so it stays a real, non-shrinking flex item here.
+   At phone width that left only ~124px of a ~259px row for the name
+   (measured live, both a .lineup-slot starter and a .roster-row bench
+   row), while .player-identity__text's own flex: 1 1 0% (wave-7 elm,
+   above) already gives it every last px of what remains — the DETAILS+
+   label, not the name's own flex settings, was the actual ceiling.
+   Removing the label's generated content at phone width (the same
+   content: none technique .stat-tip__summary--news::after already uses,
+   above) hands that space back to the name/meta column; the row is
+   still fully tappable through the rest of the summary. Scoped to the
+   existing 26.75rem /team phone-card line (wave-7 hazel item 8, above),
+   not a new breakpoint value. */
+@media (width <= 26.75rem) {
+  .lineup-slot .stat-tip__summary::after,
+  .roster-row .stat-tip__summary::after {
+    content: none;
+  }
+}
+
+/* F30: /players' and /board's phone Filters disclosure
+   (.pool-filter-disclosure[open] > .position-filters, comb — fern,
+   above) opens with right: 0 and width: max-content — with eight chips
+   (ALL/QB/RB/WR/TE/DST/K/P) that combined max-content width runs past
+   the toolbar's own left edge, so the panel's own left edge measured at
+   x=0, outside the card, and the search input beside the (now very wide)
+   toggle summary shrank to a five-character sliver. Capping the panel to
+   the toolbar's own available width (left: 0 alongside the existing
+   right: 0 pins both edges to the rail) lets it wrap onto more rows
+   inside the card instead of growing sideways past it. The scroll jump
+   the audit measured came from the browser's own focus-follows-summary
+   behavior scrolling the newly two-row-tall <details> into view;
+   scroll-margin-top on the disclosure keeps that native scroll (still
+   useful when the toggle sits near the viewport edge) from ever needing
+   to move the page further than the fixed mobile bar's own height. */
+@media (width <= 56.1875rem) {
+  .pool-filter-disclosure {
+    scroll-margin-top: var(--mobile-bar-height);
+  }
+
+  .pool-filter-disclosure[open] > .position-filters {
+    left: 0;
+    width: auto;
+  }
+}

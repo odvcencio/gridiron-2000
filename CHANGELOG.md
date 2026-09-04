@@ -5,7 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- The player pool's position filter chips show and work at desktop width; the phone filter rail still collapses to one row.
+- The player pool's add-and-drop confirmation panel no longer overlaps the row's status chip at desktop width.
+- The trade inbox's offer text no longer prints over the Accept and Decline buttons on a phone.
+- A long player name on the team page shows in full at phone width instead of clipping to a few characters.
+- Opening the player pool's phone filter panel no longer jumps the page or draws the panel outside its card.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 
