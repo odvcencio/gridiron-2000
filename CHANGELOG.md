@@ -5,6 +5,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- /scoring states the league's scoring format, superflex, mode, draft rounds, and starter count in one line under the heading.
+
 ### Fixed
 - The Help Center glossary shows its 75 terms, definitions, and topic links instead of 75 blank cards linking to a 404.
 - The Help Center's "coming from another app" table shows its nine rows instead of nine blank rows.

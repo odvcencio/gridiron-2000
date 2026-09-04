@@ -234,3 +234,49 @@ func TestScoringPageFooterNamesTheRenderClock(t *testing.T) {
 		t.Error("scoring page footer is missing the honest RULES RENDERED label")
 	}
 }
+
+// TestScoringPageMastheadStatesTheFormatInWords is F7/F36's page-render
+// half (2026-09-04 UX pass): the masthead's own lead paragraph never named
+// the scoring format, so the exact string
+// TestScoringDataFormatSummaryStatesTheFormatInWords already pins on
+// ScoringData's output (internal/league/scoring_rules_test.go) must also
+// reach the rendered HTML through data.format_summary. This package's
+// tests share one process-wide league.Default() singleton (sync.Once), so
+// it renders whatever config the FIRST Default() call in this test binary
+// resolved (the neutral standard-preset default, not the flagship
+// gridiron-house league) — this test proves the template wiring, not the
+// exact flagship words; the flagship string itself is proven at the data
+// layer, where a fresh *Service is not subject to the singleton.
+func TestScoringPageMastheadStatesTheFormatInWords(t *testing.T) {
+	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
+	t.Setenv("DEMO_MODE", "true")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
+	})
+	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
+		t.Fatalf("AddDir: %v", err)
+	}
+	handler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / (scoring page) = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `class="scoring-format-summary"`) {
+		t.Fatal("scoring page masthead is missing the format-summary line")
+	}
+	for _, want := range []string{"PPR", "rounds", "starters"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("scoring page format summary omitted %q", want)
+		}
+	}
+}

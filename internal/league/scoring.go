@@ -317,6 +317,7 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 		"season_start":    seasonStartLabel,
 		"groups":          groups,
 		"scoring_note":    s.scoringNote(),
+		"format_summary":  s.scoringFormatSummary(),
 		"league":          s.leagueMapForViewer(r),
 		// Every section below renders THIS instance's live ruleset: config
 		// (s.cfg), the runtime roster/draft accessors (CurrentRoster,

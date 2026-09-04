@@ -446,3 +446,59 @@ func TestRulesFingerprintTracksRosterAndScoring(t *testing.T) {
 		t.Errorf("fingerprint unchanged after a roster-shape override: %q", fourth)
 	}
 }
+
+// TestScoringDataFormatSummaryStatesTheFormatInWords is F7/F36 (2026-09-04
+// UX pass): /scoring's masthead never said "half PPR", "superflex", or
+// that this house roster starts a punter in words, so a manager arriving
+// from another platform had to read three separate tables to answer three
+// one-word questions. format_summary must say all of it in one line, built
+// from the live config and roster shape (never a retyped literal), for
+// the flagship gridiron-house league.
+func TestScoringDataFormatSummaryStatesTheFormatInWords(t *testing.T) {
+	flagshipCfg := DefaultConfig()
+	flagshipCfg.Name = "GRIDIRON 2000"
+	flagshipCfg.ModeLabel = "DYNASTY"
+	flagshipCfg.RosterPresetName = "gridiron-house"
+	flagshipCfg.Roster = rosterPresets["gridiron-house"]
+	flagshipCfg.Rounds = flagshipCfg.Roster.Total()
+
+	t.Cleanup(clearRosterShape)
+	setRosterShape(flagshipCfg.Roster)
+
+	svc := newRulesTestService(t, flagshipCfg, time.Now().Add(48*time.Hour))
+	data := svc.ScoringData(rulesTestRequest(t))
+	want := "Half PPR · superflex · dynasty · 17 rounds · 11 starters including a punter."
+	if got := data["format_summary"]; got != want {
+		t.Errorf("format_summary = %q, want %q", got, want)
+	}
+}
+
+// TestScoringDataFormatSummaryTruthfulForShippedExampleConfig proves
+// format_summary is derived, not the flagship string hardcoded: the
+// shipped config/league.json.example runs the "standard" preset (no
+// SUPERFLEX slot, no punter) and half-PPR scoring, so its line must state
+// half PPR and the mode without ever claiming superflex or a punter.
+func TestScoringDataFormatSummaryTruthfulForShippedExampleConfig(t *testing.T) {
+	path := filepath.Join("..", "..", "config", "league.json.example")
+	body := mustReadFile(t, path)
+	cfg, err := loadConfigFromEnvFile(t, body)
+	if err != nil {
+		t.Fatalf("config/league.json.example must load and validate cleanly: %v", err)
+	}
+
+	t.Cleanup(clearRosterShape)
+	setRosterShape(cfg.Roster)
+
+	svc := newRulesTestService(t, cfg, time.Now().Add(48*time.Hour))
+	data := svc.ScoringData(rulesTestRequest(t))
+	want := "Half PPR · dynasty · 15 rounds · 9 starters."
+	if got := data["format_summary"]; got != want {
+		t.Errorf("format_summary = %q, want %q", got, want)
+	}
+	if strings.Contains(fmt.Sprint(data["format_summary"]), "superflex") {
+		t.Error("format_summary claimed superflex for a standard-preset league")
+	}
+	if strings.Contains(fmt.Sprint(data["format_summary"]), "punter") {
+		t.Error("format_summary claimed a punter for a preset with no P slot")
+	}
+}
