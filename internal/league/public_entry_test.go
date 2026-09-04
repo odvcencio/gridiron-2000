@@ -156,12 +156,12 @@ func TestPublicEntryNamesTheCommissionerWhenSeatedAndNamed(t *testing.T) {
 	service := newTestService(t, false)
 	t.Setenv("LEAGUE_ALLOWED_EMAILS", "allowed@example.com")
 	t.Setenv("COMMISSIONER_EMAILS", "commish@example.com")
-	commissioner, _, err := service.store.AssignMember("commish@example.com", "Oscar Villavicencio")
+	commissioner, _, err := service.store.AssignMember("commish@example.com", "Jordan Fixture")
 	if err != nil {
 		t.Fatal(err)
 	}
 	commissionerTeamName := service.teamByID(commissioner.TeamID).Name
-	wantAsk := "Ask your commissioner, Oscar (" + commissionerTeamName + ")."
+	wantAsk := "Ask your commissioner, Jordan (" + commissionerTeamName + ")."
 
 	anon := service.PublicEntryView(httptest.NewRequest(http.MethodGet, "/", nil))
 	if !strings.Contains(anon.MembershipDetail, wantAsk) {

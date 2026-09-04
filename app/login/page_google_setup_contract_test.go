@@ -166,8 +166,8 @@ func TestLoginGoogleControlStaysLiveAndAboveNoteWhenConfigured(t *testing.T) {
 // name them; when it is not (no commissioner seated or named), the
 // generic phrase must remain.
 func TestLoginUnconfiguredAlertNamesTheCommissionerWhenKnown(t *testing.T) {
-	named := renderLoginGoogleSetupStateWithCommissionerAsk(t, false, "Ask your commissioner, Oscar (In Shedeur Time).")
-	if !strings.Contains(named, "Ask your commissioner, Oscar (In Shedeur Time).") {
+	named := renderLoginGoogleSetupStateWithCommissionerAsk(t, false, "Ask your commissioner, Jordan (Fixture League).")
+	if !strings.Contains(named, "Ask your commissioner, Jordan (Fixture League).") {
 		t.Fatalf("unconfigured login alert omitted the named commissioner: %s", named)
 	}
 

@@ -81,8 +81,8 @@ func TestStateSchemaPayloadExposesOnlyCompatibilityEvidence(t *testing.T) {
 // F6: the co-manager welcome flash must credit the seat's primary manager,
 // never the invitee who just signed in to consume the invite.
 func TestCoManagerWelcomeFlashNamesThePrimaryNotTheInvitee(t *testing.T) {
-	got := coManagerWelcomeFlash("Caleb's Corn Dogs", "Melanie Miguel Villavicencio")
-	want := "You're co-managing Caleb's Corn Dogs alongside its primary manager, Melanie Miguel Villavicencio."
+	got := coManagerWelcomeFlash("Caleb's Corn Dogs", "Priya Anand Fixture")
+	want := "You're co-managing Caleb's Corn Dogs alongside its primary manager, Priya Anand Fixture."
 	if got != want {
 		t.Fatalf("coManagerWelcomeFlash = %q, want %q", got, want)
 	}

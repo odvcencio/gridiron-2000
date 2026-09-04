@@ -303,9 +303,9 @@ func (s *Service) PrimaryNameForTeam(teamID, excludeEmail string) string {
 
 // FirstName returns the first space-separated token of name, for copy that
 // must address someone by their given name alone (F11a's co-manager
-// arrival panel: "with Melanie", never "with Melanie Miguel
-// Villavicencio"). Returns "" for a blank name, and the full trimmed name
-// when it has no separable first token.
+// arrival panel: "with Jordan", never "with Jordan Alexis Rivera").
+// Returns "" for a blank name, and the full trimmed name when it has no
+// separable first token.
 func FirstName(name string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {
