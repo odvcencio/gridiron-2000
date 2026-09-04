@@ -123,7 +123,7 @@ component PickemRow(props: PickemRowProps) {
 					<input type="hidden" name="game_id" value={props.Game.ID}></input>
 					<input type="hidden" name="week" value={props.Game.Week}></input>
 					<input type="hidden" name="team" value={props.Game.Away}></input>
-					<button class="filter-button" type="submit" aria-pressed={props.Game.PickedAway}>{props.Game.AwayLine}</button>
+					<button class="filter-button" type="submit" aria-pressed={props.Game.PickedAway}>{props.Game.AwayLine}<If cond={props.Game.PickedAway}><span class="pickem-your-pick"> ✓ YOUR PICK</span></If></button>
 				</form>
 			</If>
 			<If cond={props.Game.Locked}>
@@ -135,7 +135,7 @@ component PickemRow(props: PickemRowProps) {
 					<input type="hidden" name="game_id" value={props.Game.ID}></input>
 					<input type="hidden" name="week" value={props.Game.Week}></input>
 					<input type="hidden" name="team" value={props.Game.Home}></input>
-					<button class="filter-button" type="submit" aria-pressed={props.Game.PickedHome}>{props.Game.HomeLine}</button>
+					<button class="filter-button" type="submit" aria-pressed={props.Game.PickedHome}>{props.Game.HomeLine}<If cond={props.Game.PickedHome}><span class="pickem-your-pick"> ✓ YOUR PICK</span></If></button>
 				</form>
 			</If>
 			<If cond={props.Game.Locked}>
