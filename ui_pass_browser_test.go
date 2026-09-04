@@ -502,9 +502,19 @@ func TestBrowserActionConfirmationCheckboxMeetsTouchBaseline(t *testing.T) {
 
 // TestBrowserDensityToggleRoundTrips is P1-6's own probe (UI pass
 // 2026-08-30): comfortable (the default) never drops below 13px inside
-// #main-content at 390px; switching to compact on /settings brings the
-// pre-UI-pass 12px --type-xs size back everywhere, draft-room room-status
-// shorthand included (item 17), until switched back.
+// #main-content at 390px. Switching to compact on /settings brings the
+// pre-UI-pass 12px --type-xs size back on DESKTOP widths only; item 7 of
+// the 2026-09-03 mobile pass (styles.css's "comb — sequoia" block,
+// `@media (width <= 56.1875rem) { body[data-density="compact"] { ... } }`)
+// deliberately caps --type-xs/-2xs/-sm back to the 13px floor at touch
+// widths so compact can never undercut the floor
+// touch_and_type_floor_contract_test.go pins for the default density — the
+// toggle is a desktop-only affordance; at phone width it is a documented
+// no-op, not a regression. This test checks the true 12px reduction at
+// uiPassDesktopWidth instead, and confirms phone width stays at the floor.
+// The draft-room room-status shorthand check (item 17) still runs at phone
+// width: it is a display toggle, not a font-size one, so the touch-width
+// floor override does not touch it.
 func TestBrowserDensityToggleRoundTrips(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
@@ -561,9 +571,22 @@ func TestBrowserDensityToggleRoundTrips(t *testing.T) {
 	if bodyDensity != "compact" {
 		t.Fatalf("draft room's <body> carries data-density=%q after switching to Compact, want \"compact\"", bodyDensity)
 	}
-	if after := minFontSize("draft room, compact"); after >= 13 {
-		t.Errorf("draft room's smallest #main-content font-size is %.2fpx under compact density, want < 13px (back to the pre-UI-pass 12px size)", after)
+	// Phone width: item 7's touch-width floor override caps --type-xs back
+	// to the 13px floor even under compact, so this stays >= 13px — the
+	// toggle is a documented no-op here, not a bug.
+	if afterPhone := minFontSize("draft room, compact, phone width"); afterPhone < 13 {
+		t.Errorf("draft room's smallest #main-content font-size is %.2fpx under compact density at phone width, want >= 13px (item 7's touch-width floor)", afterPhone)
 	}
+
+	// Desktop width: outside the touch-width media query, compact's own
+	// --type-xs: 0.75rem takes over undiluted and must actually drop below
+	// the 13px floor — this is the one place the toggle's real 12px
+	// reduction is still observable.
+	navigateTo(t, ctx, child, "/draft", uiPassDesktopWidth, uiPassDesktopHeight)
+	if afterDesktop := minFontSize("draft room, compact, desktop width"); afterDesktop >= 13 {
+		t.Errorf("draft room's smallest #main-content font-size is %.2fpx under compact density at desktop width, want < 13px (back to the pre-UI-pass 12px size)", afterDesktop)
+	}
+	navigateTo(t, ctx, child, "/draft", uiPassPhoneWidth, uiPassPhoneHeight)
 
 	var roomStatus string
 	if err := chromedp.Run(ctx, chromedp.Evaluate(`(function(){

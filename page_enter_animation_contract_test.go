@@ -57,6 +57,15 @@ func TestPageEnterAnimationIsShortAndSubtle(t *testing.T) {
 // /activity). body is the one element replaceBody reuses verbatim across
 // every soft navigation, so it is the only element in the tree that can
 // carry a once-only entrance effect.
+//
+// gosx v0.55.0 update (linden, 2026-09-04): this is a CSS-source-only
+// check (readStylesheet, below), so v0.55.0's runtime-level body-
+// reconciliation change does not touch it either way — re-verified the
+// invariant still holds against public/styles.css unchanged. See
+// page_enter_revalidation_browser_test.go's TestBrowserMainOpacity
+// NeverDropsOnRevalidationSwap and TestBrowserBodyOpacityFadesOnlyOn
+// ColdLoadNotOnARealSoftNavigation for the live-browser proof that the
+// runtime still honors this once-per-document-lifetime contract.
 func TestPageEnterEntranceLivesOnBodyNotPage(t *testing.T) {
 	css := readStylesheet(t)
 

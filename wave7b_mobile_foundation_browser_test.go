@@ -29,7 +29,10 @@ func newCoarsePointerBrowserContext(t *testing.T, chrome string) context.Context
 	)
 	allocator, closeAllocator := chromedp.NewExecAllocator(context.Background(), options...)
 	t.Cleanup(closeAllocator)
-	ctx, closeBrowser := chromedp.NewContext(allocator)
+	// chromedp.WithErrorf(chromedpFilteredErrorf): mirrors newBrowserContext's
+	// own filter (sim_browser_test.go) — see chromedpIgnoredNodeEventLogPattern's
+	// doc comment there.
+	ctx, closeBrowser := chromedp.NewContext(allocator, chromedp.WithErrorf(chromedpFilteredErrorf))
 	t.Cleanup(closeBrowser)
 	ctx, cancelBudget := context.WithTimeout(ctx, browserBudget)
 	t.Cleanup(cancelBudget)

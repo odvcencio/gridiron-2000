@@ -620,6 +620,12 @@ func fantasyPositionFloors(teams int, slots map[string]int) map[string]int {
 // from application code; that tag is the framework's own, not this
 // file's). Scoped to the runtime asset path only, not every response,
 // so no other route's CSP/cache posture changes.
+//
+// Re-verified against m31labs.dev/gosx@v0.55.2-0.20260904025313-4762baf45121
+// (2026-09-04): island.Renderer.PreloadHints still hard-codes
+// crossorigin="anonymous" on the preload link with no matching change to
+// the consuming <script>'s own attributes; this middleware is still
+// required.
 func runtimeAssetCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/gosx/assets/runtime/") {
@@ -666,6 +672,14 @@ const (
 // plain, uncompressed HTML — gzip (outermost in the middleware chain,
 // wrap()'s own last-added-runs-first order) compresses whatever this
 // middleware ultimately writes, not the other way around.
+//
+// Re-verified against m31labs.dev/gosx@v0.55.2-0.20260904025313-4762baf45121
+// (2026-09-04, v0.55.0/v0.55.1's soft-navigation and Scene3D changes):
+// island.Renderer.PreloadHints (island/island.go) still emits the hubs
+// feature bundle's <link rel="preload" as="script" crossorigin="anonymous"
+// referrerpolicy="no-referrer"> with no nonce parameter, byte-identical to
+// v0.53.11 — this middleware is still required, not made obsolete by any
+// v0.54/v0.55 change.
 func dropFeatureHubPreload(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec := &htmlCaptureWriter{ResponseWriter: w}

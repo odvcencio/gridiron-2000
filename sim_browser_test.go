@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -129,6 +132,42 @@ func startBrowserDraftWith(t *testing.T, extraEnv ...string) (*simChild, *simLea
 	return child, league, newBrowserContext(t, chrome)
 }
 
+// chromedpIgnoredNodeEventLogPattern matches the one log line chromedp's
+// own target.go domEvent emits for a CDP DOM-domain event cdproto defines
+// but chromedp's event switch does not yet handle ("unhandled node event
+// %T", target.go:422, default case): *dom.EventAffectedByStartingStyles
+// FlagUpdated, Chrome's own "which nodes match @starting-style" DevTools
+// telemetry (devtools-protocol DOM#event-affectedByStartingStylesFlag
+// Updated). It carries no rendering information chromedp's DOM-mirror
+// needs, so an unhandled case here drops nothing the DOM-mirror-consuming
+// helpers in this file read. Confirmed still unhandled in both the
+// currently pinned cdproto/chromedp (go.mod) and the latest tagged
+// releases as of 2026-09-04 (github.com/chromedp/chromedp@v0.16.0,
+// github.com/chromedp/cdproto@v0.0.0-20260804232424-e85f50dbfd32) — an
+// upstream gap, not something this app's own go.mod pin can fix by
+// bumping. v0.55.0's in-place body reconciliation (gosx CHANGELOG)
+// mutates body's own attributes on every soft navigation instead of
+// discarding and recreating body, so a page whose CSS keys @starting-style
+// off body (public/styles.css's page-enter fade, page_enter_animation_
+// contract_test.go) now fires this event on every soft nav rather than
+// only on a fresh document load — 125 times across one full suite run,
+// each logged at ERROR level (chromedp/browser.go's default errf),
+// drowning out real chromedp errors in test output.
+var chromedpIgnoredNodeEventLogPattern = regexp.MustCompile(`unhandled node event \*dom\.EventAffectedByStartingStylesFlagUpdated`)
+
+// chromedpFilteredErrorf is chromedp.WithErrorf's handler for every
+// browser context this file (and wave7b_mobile_foundation_browser_test.go's
+// newCoarsePointerBrowserContext) opens: it drops the one known-noisy,
+// harmless line chromedpIgnoredNodeEventLogPattern names and forwards
+// every other chromedp error unchanged, so a real regression in some
+// OTHER CDP event never goes silently missing alongside it.
+func chromedpFilteredErrorf(format string, args ...any) {
+	if chromedpIgnoredNodeEventLogPattern.MatchString(fmt.Sprintf(format, args...)) {
+		return
+	}
+	log.Printf(format, args...)
+}
+
 // newBrowserContext opens one headless Chrome and registers its shutdown.
 // The three cleanups run in reverse order — budget, then tab, then the
 // process — so the browser always closes before the test returns, even
@@ -138,7 +177,7 @@ func newBrowserContext(t *testing.T, chrome string) context.Context {
 	options := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.ExecPath(chrome), chromedp.NoSandbox)
 	allocator, closeAllocator := chromedp.NewExecAllocator(context.Background(), options...)
 	t.Cleanup(closeAllocator)
-	ctx, closeBrowser := chromedp.NewContext(allocator)
+	ctx, closeBrowser := chromedp.NewContext(allocator, chromedp.WithErrorf(chromedpFilteredErrorf))
 	t.Cleanup(closeBrowser)
 	ctx, cancelBudget := context.WithTimeout(ctx, browserBudget)
 	t.Cleanup(cancelBudget)
