@@ -13,8 +13,8 @@ import (
 	"gridiron-2000/internal/league"
 )
 
-const currentGoSXVersion = "v0.53.11-0.20260903011141-48af3189fe1f"
-const currentGoSXSum = "h1:VQL+vB8MTTyMJD+Oz0XrIiWbyU8mIBcQSUH47eaWAoM="
+const currentGoSXVersion = "v0.55.1"
+const currentGoSXSum = "h1:kCu3aFEnKIqMsgg3tO2OUpvN8aweyH5btJgKl5nk5us="
 
 const prohibitedReversedIdentityAlias = "IDENTITY_ALIASES=commissioner@example.com=" +
 	"commissioner.alias@example.org"
@@ -102,7 +102,8 @@ func TestFrameworkReleasePinsStayExact(t *testing.T) {
 // gosxVersionCitationPattern extracts a "gosx@<version>" token from a
 // comment line. It accepts dots and dashes so it also captures full
 // pseudo-versions such as v0.53.11-0.20260903011141-48af3189fe1f, not
-// only semantic-version tags.
+// only semantic-version tags (currentGoSXVersion itself is now a plain
+// tag, v0.55.1).
 var gosxVersionCitationPattern = regexp.MustCompile(`gosx@(v[\w.\-]+)`)
 
 // TestGoSXInstallCitationsInTestFilesMatchGoModPin is the drift gate for
