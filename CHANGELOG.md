@@ -13,6 +13,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The Help Center's "coming from another app" table shows its nine rows instead of nine blank rows.
 - /scoring's "editable until" deadline shows only to the commissioner; a manager reads a true sentence about when the rules become final instead.
 - /scoring and /matchups now name the same season-opening kickoff instead of disagreeing by a day; scoring locks at the earlier of the configured start and the schedule's real week-1 kickoff.
+- The 404 page leads with a plain sentence and adds links back to Home and to Search help, alongside its existing joke.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 
