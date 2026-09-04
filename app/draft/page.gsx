@@ -1294,6 +1294,27 @@ type DraftHistoryHeadProps struct {
 //     five ungrouped children did in an earlier draft of this fix
 //     (measured live: pick/turn/clock/toggle spread across 3 separate
 //     flex lines instead of shrinking to fit one).
+// DraftCommandHeader wraps the page's one visible h1 together with
+// DraftCommandBar (spruce audit, J1 F1/F7, J2 F7, 2026-09-04): Page()
+// used to render the h1 If-chain as a plain sibling of DraftCommandBar,
+// outside whatever refetch/rebind mechanism covered the bar itself, so it
+// never moved after first paint. Folding it into this one component lets
+// CommandFragmentHandler's existing "/draft/fragment/command" fetch
+// (fallback mode's own region) carry a fresh h1 on every draft:pick/undo/
+// clock/state event with no second network round trip. Same three
+// mutually exclusive branches Page() used to render inline; reads
+// props.Data (the same viewData map DraftCommandBar already reads
+// props.Data.draft.started/practice.active/etc. from), so no new field
+// wiring was needed in page.server.go.
+func DraftCommandHeader(props DraftCommandBarProps) Node {
+	return <>
+		<If cond={props.Data.practice.active}><h1 class="draft-command__title">Practice draft · Round {props.Data.round} · Pick {props.Data.pick_number} of {props.Data.picks_total}</h1></If>
+		<If cond={props.Data.practice.active == false && props.Data.draft.started}><h1 class="draft-command__title">Draft room · Round {props.Data.round} · Pick {props.Data.pick_number} of {props.Data.picks_total}</h1></If>
+		<If cond={props.Data.practice.active == false && props.Data.draft.started == false}><h1 class="draft-command__title">Draft room · {props.Data.draft.opens_label}</h1></If>
+		<DraftCommandBar {...props}></DraftCommandBar>
+	</>
+}
+
 func DraftCommandBar(props DraftCommandBarProps) Node {
 	return <div class="draft-command__inner">
 		<p class="draft-region-stale mono" role="status">The room did not update. This is the last confirmed state. <a href={props.Data.room_path}>Refresh room →</a></p>
@@ -1545,20 +1566,17 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 // data-gosx-managed): Leave must navigate the whole document back to the
 // real room, the same full-navigation rule the sign-out form follows.
 func DraftPracticeStrip(props DraftCommandBarProps) Node {
-	return <div class="draft-practice-strip" role="status" data-practice-complete={props.Data.practice.complete}>
+	return <div class="draft-practice-strip" role="status" data-practice-complete={props.Data.practice.complete} data-real-started={props.Data.practice.real_started}>
+		<If cond={props.Data.practice.real_started}>
+			<p class="draft-practice-strip__alert" role="alert"><strong>The real draft has started.</strong> <a href={props.Data.practice.real_room_href}>Go to the real draft room →</a></p>
+		</If>
 		<span class="draft-practice-strip__tag mono">PRACTICE</span>
-		<If cond={props.Data.practice.complete == false}>
-			<p class="draft-practice-strip__text">
-				<strong>Practice draft.</strong> Picks here do not count. Round {props.Data.practice.round} of {props.Data.practice.end_round}, practice rounds {props.Data.practice.start_round} to {props.Data.practice.end_round}.
-				<If cond={props.Data.practice.real_draft_known}> The real draft starts {props.Data.practice.real_draft_label}, {props.Data.practice.real_draft_relative}.</If>
-			</p>
-		</If>
-		<If cond={props.Data.practice.complete}>
-			<p class="draft-practice-strip__text">
-				<strong>Practice complete.</strong> You drafted rounds {props.Data.practice.start_round} to {props.Data.practice.end_round}. Nothing was saved.
-				<If cond={props.Data.practice.real_draft_known}> The real draft starts {props.Data.practice.real_draft_label}, {props.Data.practice.real_draft_relative}.</If>
-			</p>
-		</If>
+		<p class="draft-practice-strip__text">{props.Data.practice.summary_full}</p>
+		<p class="draft-practice-strip__line mono">{props.Data.practice.summary_short}</p>
+		<details class="draft-practice-strip__details">
+			<summary>Details</summary>
+			<p>{props.Data.practice.summary_full}</p>
+		</details>
 		<div class="draft-practice-strip__actions">
 			<If cond={props.Data.practice.complete}>
 				<form method="post" action={props.Actions.practice_restart} data-gosx-managed="false">
@@ -1569,7 +1587,7 @@ func DraftPracticeStrip(props DraftCommandBarProps) Node {
 			</If>
 			<form method="post" action={props.Actions.practice_leave} data-gosx-managed="false">
 				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-				<button class="btn btn-sm btn-ghost" type="submit">Leave practice</button>
+				<button class="btn btn-sm btn-ghost" type="submit" aria-label="Leave practice">Leave</button>
 			</form>
 		</div>
 	</div>
@@ -1843,6 +1861,18 @@ func DraftMobileTabs(props DraftMobileTabsProps) Node {
 // live-but-not-on-clock or pre-draft seat both still need) — so no two
 // branches can ever paint at once and no live state falls through to
 // pre-draft copy.
+//
+// spruce audit (J1 F1, 2026-09-04): Page() used to call this with no
+// region and no live bind at all, in EITHER live_mode — the one pane
+// this whole shell never refreshed. A manager whose turn arrived kept
+// seeing the pre-draft "Check in for draft night" prompt, not the Draft
+// button, until a reload. Page() now wraps the call in a plain
+// data-gosx-region pointed at the new "/pickbar" fragment (fragment.go's
+// draftPickBarRegion), refetching on the same events the command bar
+// already lists — unconditional, not gated on data.live_mode, since
+// neither mode ever covered it before. Together with F2's branch fix
+// above, the bar both names the right state on first render AND keeps
+// naming it as the draft moves without a reload.
 func DraftPickBar(props DraftAvailableProps) Node {
 	return <If cond={props.Data.viewer.has_seat}>
 		<div class="draft-pickbar">
@@ -2844,15 +2874,29 @@ func DraftHistory(props DraftHistoryProps) Node {
 // would add a sixth top-level child to .draft-shell's own explicit
 // grid-template-rows track list, which is sized for exactly the five
 // existing children (notice, command, tabbar, panes, pickbar) — see
-// the ≤56.1875rem block's own comment on that grid. Inside the fallback
-// branch's header, the h1 sits ahead of a NEW inner div that now alone
-// carries data-gosx-region: CommandFragmentHandler's own response is
-// still DraftCommandBar's .draft-command__inner alone (fragment_test.go
-// pins that exact class), so had the h1 stayed a direct child of the
-// region-carrying header itself, it would render once at first load and
-// vanish on the header's first region-swap. Sentence case, matching
-// every other heading on this page (h2 "Available now", "Pick history",
-// etc.).
+// the ≤56.1875rem block's own comment on that grid.
+//
+// spruce audit (J1 F1/F7, J2 F7, 2026-09-04): the h1 above used to be a
+// plain sibling of the region-carrying div in the fallback branch, and a
+// plain sibling of the live-mode header in the target branch. Neither
+// place ever refetches or rebinds it, so a manager who kept the room open
+// watched the heading freeze at pick 1 while the pill counted up to pick
+// 24 (J2 F7's own repro). DraftCommandHeader below now wraps the h1
+// If-chain AND DraftCommandBar in one component, and CommandFragmentHandler
+// (fragment.go) renders that SAME component — so the h1 travels inside
+// the one existing "/draft/fragment/command" fetch (fallback's region) as
+// a plain sibling of .draft-command__inner, not a second root: the old
+// worry that the h1 must stay OUTSIDE the region because
+// CommandFragmentHandler answered with .draft-command__inner alone no
+// longer applies, since that handler answers with DraftCommandHeader now.
+// fragment_test.go's own check (Contains, not exact-root) still passes.
+// Target mode's header keeps calling DraftCommandHeader directly with no
+// region (Task 8's fetchless design, review item 8's own doc comment,
+// draftLiveMode below) — the h1 there stays as stale as before this fix;
+// DRAFT_LIVE_MODE defaults to fallback now (draftLiveMode's own doc
+// comment), so this is a known, documented gap in the non-default mode
+// only. Sentence case, matching every other heading on this page (h2
+// "Available now", "Pick history", etc.).
 
 // DraftPreflight is the pre-draft "get your seat ready" checklist (D4,
 // spruce audit): it used to open DraftAvailable's own swapped body,
@@ -2930,7 +2974,7 @@ func DraftPreflight(props DraftPreflightProps) Node {
 			</If>
 			<If cond={props.Data.viewer.has_seat == false && props.Data.public_entry.can_claim}>
 				<div class="checklist-item">
-					<span class="checklist-mark mono">03</span>
+					<span class="checklist-mark mono">02</span>
 					<div class="checklist-item__text">
 						<strong>Claim a franchise</strong>
 						<small>{props.Data.public_entry.detail}</small>
@@ -2940,7 +2984,7 @@ func DraftPreflight(props DraftPreflightProps) Node {
 			</If>
 			<If cond={props.Data.viewer.has_seat == false && props.Data.public_entry.can_claim == false}>
 				<div class="checklist-item">
-					<span class="checklist-mark mono">03</span>
+					<span class="checklist-mark mono">02</span>
 					<div class="checklist-item__text">
 						<strong>{props.Data.public_entry.state_label}</strong>
 						<small>{props.Data.public_entry.detail}</small>
@@ -2955,7 +2999,8 @@ func DraftPreflight(props DraftPreflightProps) Node {
 				</div>
 			</If>
 			<div class="checklist-item">
-				<span class="checklist-mark mono">04</span>
+				<If cond={props.Data.viewer.has_seat}><span class="checklist-mark mono">04</span></If>
+				<If cond={props.Data.viewer.has_seat == false}><span class="checklist-mark mono">03</span></If>
 				<div class="checklist-item__text">
 					<strong>Keep this tab open with sound on</strong>
 					<small>Sound is already on. Click anywhere on the page once so your browser allows the on-clock chime to play.</small>
@@ -2983,29 +3028,23 @@ func Page() Node {
 		</div>
 		<If cond={data.live_mode == "target"}>
 		<header class="draft-command" data-gosx-live-mode="event" data-gosx-live-src={data.live_src} data-gosx-live-hub={data.live_hub} data-gosx-live-on="draft:pick draft:undo draft:clock draft:seat draft:state">
-			<If cond={data.practice.active}><h1 class="draft-command__title">Practice draft · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
-			<If cond={data.practice.active == false && data.draft.started}><h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
-			<If cond={data.practice.active == false && data.draft.started == false}><h1 class="draft-command__title">Draft room · {data.draft.opens_label}</h1></If>
 			<If cond={data.practice.active}>
-				<div class="draft-practice-region" data-gosx-region data-gosx-region-url={data.fragment_base + "/practice"} data-gosx-region-on="draft:pick draft:undo draft:clock draft:state">
+				<div class="draft-practice-region" data-gosx-region data-gosx-region-url={data.fragment_base + "/practice"} data-gosx-region-on="draft:pick draft:undo draft:clock draft:state" data-gosx-region-interval={data.region_interval}>
 					<DraftPracticeStrip {...data.command}></DraftPracticeStrip>
 				</div>
 			</If>
-			<DraftCommandBar {...data.command}></DraftCommandBar>
+			<DraftCommandHeader {...data.command}></DraftCommandHeader>
 		</header>
 		</If>
 		<If cond={data.live_mode != "target"}>
 		<header class="draft-command">
-			<If cond={data.practice.active}><h1 class="draft-command__title">Practice draft · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
-			<If cond={data.practice.active == false && data.draft.started}><h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
-			<If cond={data.practice.active == false && data.draft.started == false}><h1 class="draft-command__title">Draft room · {data.draft.opens_label}</h1></If>
 			<If cond={data.practice.active}>
-				<div class="draft-practice-region" data-gosx-region data-gosx-region-url={data.fragment_base + "/practice"} data-gosx-region-on="draft:pick draft:undo draft:clock draft:state">
+				<div class="draft-practice-region" data-gosx-region data-gosx-region-url={data.fragment_base + "/practice"} data-gosx-region-on="draft:pick draft:undo draft:clock draft:state" data-gosx-region-interval={data.region_interval}>
 					<DraftPracticeStrip {...data.command}></DraftPracticeStrip>
 				</div>
 			</If>
-			<div data-gosx-region data-gosx-region-url={data.fragment_base + "/command"} data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:pick draft:undo draft:clock draft:state">
-				<DraftCommandBar {...data.command}></DraftCommandBar>
+			<div data-gosx-region data-gosx-region-url={data.fragment_base + "/command"} data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:pick draft:undo draft:clock draft:state" data-gosx-region-interval={data.region_interval}>
+				<DraftCommandHeader {...data.command}></DraftCommandHeader>
 			</div>
 		</header>
 		</If>
@@ -3022,7 +3061,7 @@ func Page() Node {
 				</div>
 				</If>
 				<If cond={data.live_mode != "target"}>
-				<div class="draft-pane__body" data-gosx-region data-gosx-region-url={data.history_tape_url} data-gosx-region-on="draft:pick draft:undo draft:state">
+				<div class="draft-pane__body" data-gosx-region data-gosx-region-url={data.history_tape_url} data-gosx-region-on="draft:pick draft:undo draft:state" data-gosx-region-interval={data.region_interval}>
 					<DraftHistory {...data.history}></DraftHistory>
 				</div>
 				</If>
@@ -3037,7 +3076,7 @@ func Page() Node {
 				</div>
 				</If>
 				<If cond={data.live_mode != "target"}>
-				<div id="draft-available-list" class="draft-pane__body" data-gosx-region data-gosx-region-url={data.fragment_base + "/available?pos={value}&sort=" + data.pool_sort} data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty data-gosx-region-on="draft:pick draft:undo draft:state">
+				<div id="draft-available-list" class="draft-pane__body" data-gosx-region data-gosx-region-url={data.fragment_base + "/available?pos={value}&sort=" + data.pool_sort} data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty data-gosx-region-on="draft:pick draft:undo draft:state" data-gosx-region-interval={data.region_interval}>
 					<DraftAvailable {...data.available}></DraftAvailable>
 				</div>
 				</If>
@@ -3051,13 +3090,15 @@ func Page() Node {
 				</div>
 				</If>
 				<If cond={data.live_mode != "target"}>
-				<div class="draft-pane__body" data-gosx-region data-gosx-region-url={data.fragment_base + "/queue"} data-gosx-region-on="draft:pick draft:undo draft:state draft:seat">
+				<div class="draft-pane__body" data-gosx-region data-gosx-region-url={data.fragment_base + "/queue"} data-gosx-region-on="draft:pick draft:undo draft:state draft:seat" data-gosx-region-interval={data.region_interval}>
 					<DraftMyTeam {...data.queue}></DraftMyTeam>
 				</div>
 				</If>
 			</section>
 		</div>
-		<DraftPickBar {...data.available}></DraftPickBar>
+		<div data-gosx-region data-gosx-region-url={data.fragment_base + "/pickbar"} data-gosx-region-on="draft:pick draft:undo draft:clock draft:seat draft:state">
+			<DraftPickBar {...data.available}></DraftPickBar>
+		</div>
 		<If cond={data.viewer.is_commissioner}><DraftCommissionerDrawer {...data.command}></DraftCommissionerDrawer></If>
 	</main>
 }

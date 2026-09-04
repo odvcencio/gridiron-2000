@@ -95,6 +95,20 @@ func notificationPreferenceView(category string, enabled, canEdit bool) Notifica
 	}
 }
 
+// NotificationCategoryLabel returns the manager-facing label for a
+// notification category (for example "draft_reminders" -> "Draft
+// reminders"), so a caller outside this package — the settings action's own
+// saved-preference confirmation (F9, 2026-09-04 UX pass) — can name the
+// category instead of leaving a manager to guess which of ten toggles the
+// confirmation refers to. Falls back to the raw category id for anything
+// this catalog does not carry, rather than returning an empty label.
+func NotificationCategoryLabel(category string) string {
+	if entry, ok := notificationPreferenceCopy[category]; ok {
+		return entry.label
+	}
+	return category
+}
+
 func notificationStateLabel(enabled bool) string {
 	if enabled {
 		return "ON"

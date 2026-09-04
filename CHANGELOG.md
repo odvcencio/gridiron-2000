@@ -7,6 +7,27 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - A practice draft at `/draft/practice`: a seated manager takes a few picks on the clock in a private copy of the draft room, in their real seat, against the other seats played by bots that draft from each seat's real Big Board. It uses the real pool, draft order, and pick clock, starts from round 1, 5, 10, or 15, runs three rounds, and saves nothing. Entry points sit on the home page, in the pre-draft checklist, and in /help.
+### Fixed
+- `/settings` states a category's ON/OFF wording honestly: an OFF category now says it will not send even after email is set up, instead of claiming it still sends.
+- `/settings` states "email is not configured" at most twice instead of fourteen times, and adds one link asking the commissioner to turn on email.
+- Saving a notification category on `/settings` returns you to that category, not the top of the page, and names the category and its new state in the confirmation.
+- The session-expired page after a stale form submission now says the form expired, not the session, and names the page its back link returns to. A form posted to a page that does not accept one gets its own short 405 page instead of the same message.
+- The Preseason Blitz notice's action button no longer paints its top border across the sentence above it.
+- Every "back to home" link across `/settings`, `/terms`, `/open-source`, `/privacy`, and the 404 page uses the same label and destination; `/settings`'s sign-in link is named for what it does.
+### Changed
+- /scoring states the league's scoring format, superflex, mode, draft rounds, and starter count in one line under the heading.
+
+### Fixed
+- The Help Center glossary shows its 75 terms, definitions, and topic links instead of 75 blank cards linking to a 404.
+- The Help Center's "coming from another app" table shows its nine rows instead of nine blank rows, and a long unbroken run of text in that table wraps instead of pushing the page into a sideways scroll.
+- /scoring's "editable until" deadline shows only to the commissioner; a manager reads a true sentence about when the rules become final instead.
+- /scoring and /matchups now name the same season-opening kickoff instead of disagreeing by a day; scoring locks at the earlier of the configured start and the schedule's real week-1 kickoff.
+- The 404 page leads with a plain sentence and adds links back to Home and to Search help, alongside its existing joke.
+- /terms no longer calls itself the commissioner edition for every manager, and now carries a last-updated date like /privacy does.
+
+### Fixed
+- The draft room now updates itself while you keep it open: the DRAFT button, the "you're up" pill, the page heading, the paused-clock state, and the phone pick bar all refresh live instead of freezing at the state the page had when you loaded it. Live updates now default to the mode that refetches these regions on every pick, clock change, and state change; the faster fetchless mode stays available as an override for anyone who needs it.
+- The draft room's screen-reader announcement now names the team on the clock ("Los Delfines del Norte on the clock") instead of an internal seat code ("AQ2 on the clock").
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 

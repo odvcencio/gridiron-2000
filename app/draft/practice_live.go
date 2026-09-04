@@ -37,7 +37,9 @@ type PracticeLive struct {
 // real room's binding path stays the real hub's.
 func NewPracticeLive(registry *league.PracticeRegistry) *PracticeLive {
 	live := &PracticeLive{hub: hub.New(league.PracticeLiveHubName), registry: registry}
-	live.hub.MaxClients = 64
+	// 128, not the real room's 64: the registry caps sessions at 32, and a
+	// manager practicing with a phone and a laptop open holds two of these.
+	live.hub.MaxClients = 128
 	live.hub.RequireOrigin = true
 	live.hub.MaxMessagesPerSecond = 2
 	live.hub.MaxMessageBurst = 4
@@ -89,6 +91,22 @@ func (live *PracticeLive) syncJoiningClient(ctx *hub.Context) {
 // practice has no demo-mode guest.
 func (live *PracticeLive) Handler(service *league.Service) http.Handler {
 	allowed := liveaccess.SignedInOrDemo(service)
+	return live.handler(func(request *http.Request) (string, bool) {
+		if service == nil || !allowed(request) {
+			return "", false
+		}
+		user, signedIn := service.CurrentUser(request)
+		if !signedIn {
+			return "", false
+		}
+		return league.PracticeKey(user.Email), true
+	})
+}
+
+// handler is Handler's core over a viewer-key resolver: the key the
+// resolver returns is stamped as connection metadata, and route delivers
+// only to connections carrying the same key.
+func (live *PracticeLive) handler(viewerKey func(*http.Request) (string, bool)) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Cache-Control", "no-store")
 		if request.Method != http.MethodGet {
@@ -96,17 +114,15 @@ func (live *PracticeLive) Handler(service *league.Service) http.Handler {
 			http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 			return
 		}
-		if live == nil || service == nil || !allowed(request) {
+		if live == nil || viewerKey == nil {
 			http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
-		user, signedIn := service.CurrentUser(request)
-		if !signedIn {
+		key, ok := viewerKey(request)
+		if !ok || key == "" {
 			http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
-		live.hub.ServeHTTPWithMetadata(writer, request, hub.ConnectionMetadata{
-			practiceLiveKey: league.PracticeKey(user.Email),
-		})
+		live.hub.ServeHTTPWithMetadata(writer, request, hub.ConnectionMetadata{practiceLiveKey: key})
 	})
 }

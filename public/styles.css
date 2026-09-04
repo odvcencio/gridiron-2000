@@ -16786,10 +16786,33 @@ a.skip-link {
   line-height: 1.4;
 }
 
+/* The one-line summary and its Details disclosure are the PHONE shape
+   (below); on desktop the full sentence shows inline and these two stay
+   out of the flow entirely. */
+.draft-practice-strip__line,
+.draft-practice-strip__details {
+  display: none;
+}
+
 .draft-practice-strip__actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-xs);
+}
+
+/* The real draft went live while a practice was open: one loud line above
+   the rest of the strip, with a plain link (a full navigation, never a
+   soft one) to the real room. */
+.draft-practice-strip__alert {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--color-accent);
+  font-size: var(--type-sm);
+}
+
+.draft-practice-strip__alert a {
+  color: inherit;
+  font-weight: 700;
 }
 
 .draft-practice-strip__actions form {
@@ -17163,4 +17186,133 @@ a.skip-link {
 .draft-command__not-in-room {
   display: block;
   color: var(--color-accent-hot);
+}
+
+/* Phone and tablet: the strip is ONE row — the chip, the short line
+   ("picks don't count · round 1 of 3"), a Details disclosure for the full
+   sentence, and a compact Leave control at the right — so the pool keeps
+   at least three rows in the first viewport (coordinator review of the
+   real-league copy, 2026-09-04: the wrapped sentence plus a full-width
+   button cost 370 px at 390 wide). Open, Details claims a full-width
+   second row, the room's notice banner's own [open] pattern. */
+@media (width <= 56.1875rem) {
+  .draft-practice-strip {
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    margin: var(--space-xs) var(--space-sm) 0;
+    padding: 0.3rem var(--space-xs);
+    min-height: 3.5rem;
+  }
+
+  .draft-practice-strip__text {
+    display: none;
+  }
+
+  .draft-practice-strip__line {
+    display: -webkit-box;
+    flex: 1 1 0;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    white-space: normal;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    font-size: var(--type-xs);
+    line-height: 1.3;
+  }
+
+  .draft-practice-strip__details {
+    display: block;
+    flex: 0 0 auto;
+  }
+
+  .draft-practice-strip__details[open] {
+    flex: 1 1 100%;
+  }
+
+  .draft-practice-strip__details summary {
+    cursor: pointer;
+    color: var(--color-text-muted);
+    font-size: var(--type-xs);
+    text-decoration: underline dotted;
+    text-underline-offset: 0.2em;
+    min-height: var(--control-h);
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .draft-practice-strip__details summary:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 0.25rem;
+  }
+
+  .draft-practice-strip__details p {
+    margin: var(--space-xs) 0 0;
+    font-size: var(--type-xs);
+    line-height: 1.4;
+  }
+
+  .draft-practice-strip__actions {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+}
+
+.practice-checkin {
+  flex-wrap: wrap;
+}
+
+.practice-checkin__state[data-checked-in="true"] {
+  color: var(--color-accent);
+}
+
+/* comb — sorrel (2026-09-04 UX pass) */
+
+/* F16: .filter-button's shared rule (~line 1612) sets display: inline-flex
+   with a 44px min-height (--control-h) — the touch-target floor every
+   button on this app keeps. Placed inline inside a <p class="demo-message">
+   (line-height ~21px) on /blitz, the button shares its paragraph's last
+   wrapped text line; a 44px inline box vertically centered on a ~21px line
+   grows that line's own box upward past the top of the (already-laid-out)
+   line above it, so the button's top border paints across that line,
+   reading as struck-through. inline-block plus vertical-align alone still
+   reproduces this (measured: the button's box remains centered on its
+   shared line and still overlaps the line above by 10-20px, since a line
+   box already laid out never grows retroactively to make room). display:
+   block removes the button from inline flow entirely — it always starts
+   its own fresh line, which stacks normally below the paragraph's text
+   with no vertical-align math to overlap it — and keeps the shared
+   min-height, so the 44px touch floor survives.
+
+   The #main-content prefix is load-bearing, not decoration: "Mobile
+   interaction baseline" (~line 521) already targets this exact button
+   with #main-content p a, whose ID beats a plain .demo-message
+   a.filter-button selector regardless of source order, silently keeping
+   display: inline-block (and a padding-block/margin-block pair sized for
+   a plain text link's invisible tap zone, not this button's own visible
+   44px box) no matter what this rule said. Matching that ID's specificity
+   and restating padding-block/margin-block here is what actually makes
+   display: block take effect. */
+#main-content .demo-message a.filter-button {
+  display: block;
+  width: fit-content;
+  padding-block: var(--space-xs);
+  margin-block: var(--space-xs) 0;
+}
+
+/* comb — juniper (2026-09-04 UX pass): F1/F2 (app/help/page.server.go) made
+   the migration table's third column render real prose for the first time
+   (it used to reach the template as an empty struct field). One row's
+   difference text carries an unbroken slash-joined run ("Provisional/
+   stale/degraded/final/corrected") with no space or hyphen for the browser
+   to break on; .help-mapping-row > * already sets min-width: 0 for normal
+   wrapping, but that does not stop one unbreakable token from overflowing
+   its cell and, since nothing on this row clips it, bleeding out to
+   document.documentElement.scrollWidth (TestBrowserRailBandNoHorizontalOverflow
+   caught it at the 900/960px rail band). overflow-wrap lets a cell break an
+   unbreakable run as a last resort, matching the audit's own "wrap, never
+   sideways-scroll" contract (see the wave 7b — ash block above) instead of
+   letting the row scroll or the page overflow. */
+.help-mapping-row > * {
+  overflow-wrap: break-word;
 }

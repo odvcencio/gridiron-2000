@@ -446,3 +446,195 @@ func TestRulesFingerprintTracksRosterAndScoring(t *testing.T) {
 		t.Errorf("fingerprint unchanged after a roster-shape override: %q", fourth)
 	}
 }
+
+// TestScoringDataFormatSummaryStatesTheFormatInWords is F7/F36 (2026-09-04
+// UX pass): /scoring's masthead never said "half PPR", "superflex", or
+// that this house roster starts a punter in words, so a manager arriving
+// from another platform had to read three separate tables to answer three
+// one-word questions. format_summary must say all of it in one line, built
+// from the live config and roster shape (never a retyped literal), for
+// the flagship gridiron-house league.
+func TestScoringDataFormatSummaryStatesTheFormatInWords(t *testing.T) {
+	flagshipCfg := DefaultConfig()
+	flagshipCfg.Name = "GRIDIRON 2000"
+	flagshipCfg.ModeLabel = "DYNASTY"
+	flagshipCfg.RosterPresetName = "gridiron-house"
+	flagshipCfg.Roster = rosterPresets["gridiron-house"]
+	flagshipCfg.Rounds = flagshipCfg.Roster.Total()
+
+	t.Cleanup(clearRosterShape)
+	setRosterShape(flagshipCfg.Roster)
+
+	svc := newRulesTestService(t, flagshipCfg, time.Now().Add(48*time.Hour))
+	data := svc.ScoringData(rulesTestRequest(t))
+	want := "Half PPR · superflex · dynasty · 17 rounds · 11 starters including a punter."
+	if got := data["format_summary"]; got != want {
+		t.Errorf("format_summary = %q, want %q", got, want)
+	}
+}
+
+// TestScoringDataFormatSummaryTruthfulForShippedExampleConfig proves
+// format_summary is derived, not the flagship string hardcoded: the
+// shipped config/league.json.example runs the "standard" preset (no
+// SUPERFLEX slot, no punter) and half-PPR scoring, so its line must state
+// half PPR and the mode without ever claiming superflex or a punter.
+func TestScoringDataFormatSummaryTruthfulForShippedExampleConfig(t *testing.T) {
+	path := filepath.Join("..", "..", "config", "league.json.example")
+	body := mustReadFile(t, path)
+	cfg, err := loadConfigFromEnvFile(t, body)
+	if err != nil {
+		t.Fatalf("config/league.json.example must load and validate cleanly: %v", err)
+	}
+
+	t.Cleanup(clearRosterShape)
+	setRosterShape(cfg.Roster)
+
+	svc := newRulesTestService(t, cfg, time.Now().Add(48*time.Hour))
+	data := svc.ScoringData(rulesTestRequest(t))
+	want := "Half PPR · dynasty · 15 rounds · 9 starters."
+	if got := data["format_summary"]; got != want {
+		t.Errorf("format_summary = %q, want %q", got, want)
+	}
+	if strings.Contains(fmt.Sprint(data["format_summary"]), "superflex") {
+		t.Error("format_summary claimed superflex for a standard-preset league")
+	}
+	if strings.Contains(fmt.Sprint(data["format_summary"]), "punter") {
+		t.Error("format_summary claimed a punter for a preset with no P slot")
+	}
+}
+
+// TestScoringDataManagerLockNoteStatesTheSeasonFromConfig is F24 (2026-09-04
+// UX pass): the "SCORING EDITABLE UNTIL" masthead card carried a
+// commissioner-only deadline but rendered for every viewer (app/scoring's
+// draft-clock-panel gated it on data.locked only, never data.is_commissioner,
+// even though that flag already sits in this same map). A manager gets a
+// true-state sentence instead: "These rules are final for the <season>
+// season once week 1 kicks off.", with season read from cfg.Season, not
+// retyped.
+func TestScoringDataManagerLockNoteStatesTheSeasonFromConfig(t *testing.T) {
+	cfg := rulesFixtureConfig("a")
+	cfg.Season = 2026
+	svc := newRulesTestService(t, cfg, time.Now().Add(48*time.Hour))
+	data := svc.ScoringData(rulesTestRequest(t))
+	want := "These rules are final for the 2026 season once week 1 kicks off."
+	if got := data["manager_lock_note"]; got != want {
+		t.Errorf("manager_lock_note = %q, want %q", got, want)
+	}
+
+	cfg.Season = 2031
+	svc2 := newRulesTestService(t, cfg, time.Now().Add(48*time.Hour))
+	data2 := svc2.ScoringData(rulesTestRequest(t))
+	want2 := "These rules are final for the 2031 season once week 1 kicks off."
+	if got := data2["manager_lock_note"]; got != want2 {
+		t.Errorf("manager_lock_note = %q, want %q (a different season must produce a different sentence)", got, want2)
+	}
+}
+
+// TestScoringDataIsCommissionerReflectsTheViewer proves the flag
+// app/scoring/page.gsx must gate the deadline card on actually varies by
+// viewer, so a render-level regression that hardcodes it true (as demo
+// mode does for every OTHER field) cannot hide silently: demo mode grants
+// commissioner authority to every request, and a live (non-demo) request
+// with no signed-in commissioner does not.
+func TestScoringDataIsCommissionerReflectsTheViewer(t *testing.T) {
+	cfg := rulesFixtureConfig("a")
+
+	commissioner := newRulesTestService(t, cfg, time.Now().Add(48*time.Hour))
+	commissioner.demoMode = true
+	commissionerData := commissioner.ScoringData(rulesTestRequest(t))
+	if commissionerData["is_commissioner"] != true {
+		t.Errorf("is_commissioner = %v, want true in demo mode", commissionerData["is_commissioner"])
+	}
+
+	manager := newRulesTestService(t, cfg, time.Now().Add(48*time.Hour))
+	manager.demoMode = false
+	managerData := manager.ScoringData(rulesTestRequest(t))
+	if managerData["is_commissioner"] != false {
+		t.Errorf("is_commissioner = %v, want false for an unauthenticated non-demo request", managerData["is_commissioner"])
+	}
+}
+
+// TestScoringLockAtIsTheEarlierOfConfigAndScheduleKickoff is F29
+// (2026-09-04 UX pass): /scoring's masthead read only the configured
+// season_start_at ("Thursday, September 10") while /matchups read the
+// schedule feed's real week-1 kickoff ("Wednesday, September 9") for the
+// SAME milestone, and scoring stayed editable a full day past when the
+// schedule said week 1 actually kicked off. scoringLockAt must resolve to
+// the earlier of the two, so scoring can never remain editable past
+// whichever candidate happens first.
+func TestScoringLockAtIsTheEarlierOfConfigAndScheduleKickoff(t *testing.T) {
+	newScheduleTestService := func(t *testing.T) *Service {
+		t.Helper()
+		svc := newTestService(t, true)
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		if _, err := svc.AdminGenerateSchedule(request, 14, 1, 42); err != nil {
+			t.Fatalf("AdminGenerateSchedule: %v", err)
+		}
+		return svc
+	}
+
+	t.Run("schedule earlier than config", func(t *testing.T) {
+		t.Setenv("SEASON_START_AT", "2026-09-10T20:20:00-04:00")
+		svc := newScheduleTestService(t)
+		scheduleKickoff := time.Date(2026, 9, 9, 20, 20, 0, 0, time.UTC)
+		svc.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{Week: 1, Kickoff: scheduleKickoff}}
+		})
+		if got := svc.scoringLockAt(); !got.Equal(scheduleKickoff) {
+			t.Errorf("scoringLockAt() = %v, want the earlier schedule kickoff %v", got, scheduleKickoff)
+		}
+	})
+
+	t.Run("no schedule falls back to config", func(t *testing.T) {
+		t.Setenv("SEASON_START_AT", "2026-09-10T20:20:00-04:00")
+		svc := newTestService(t, true) // no AdminGenerateSchedule call: state.Schedule stays nil
+		svc.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{Week: 1, Kickoff: time.Date(2026, 9, 9, 20, 20, 0, 0, time.UTC)}}
+		})
+		want := seasonStartAt()
+		if got := svc.scoringLockAt(); !got.Equal(want) {
+			t.Errorf("scoringLockAt() = %v, want the configured season start %v (no schedule loaded)", got, want)
+		}
+	})
+
+	t.Run("config earlier than schedule", func(t *testing.T) {
+		t.Setenv("SEASON_START_AT", "2026-09-09T20:20:00-04:00")
+		svc := newScheduleTestService(t)
+		svc.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{Week: 1, Kickoff: time.Date(2026, 9, 10, 20, 20, 0, 0, time.UTC)}}
+		})
+		want := seasonStartAt()
+		if got := svc.scoringLockAt(); !got.Equal(want) {
+			t.Errorf("scoringLockAt() = %v, want the earlier configured start %v", got, want)
+		}
+	})
+}
+
+// TestScoringPageAndMatchupsAgreeOnTheSeasonStart is F29's cross-page
+// proof: /scoring's masthead ("editable until") and /matchups' masthead
+// ("Fantasy scoring begins") must print the identical instant once a
+// schedule resolves a week-1 kickoff that disagrees with the configured
+// season_start_at.
+func TestScoringPageAndMatchupsAgreeOnTheSeasonStart(t *testing.T) {
+	t.Setenv("SEASON_START_AT", "2026-09-10T20:20:00-04:00")
+	svc := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	if _, err := svc.AdminGenerateSchedule(request, 14, 1, 42); err != nil {
+		t.Fatalf("AdminGenerateSchedule: %v", err)
+	}
+	scheduleKickoff := time.Date(2026, 9, 9, 20, 20, 0, 0, time.UTC) // Wed, not the configured Thu
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: 1, Kickoff: scheduleKickoff}}
+	})
+
+	// /matchups' own masthead derivation (feed.go's weekState) for week 1.
+	provider := scheduleProvider{svc: svc}
+	_, matchupsStatus, _, _ := provider.weekState(1, nil, scheduleKickoff.Add(-24*time.Hour))
+	if !strings.Contains(matchupsStatus, "Wed") {
+		t.Fatalf("matchups week-1 status = %q, want it to name the Wednesday schedule kickoff", matchupsStatus)
+	}
+
+	if got := svc.scoringLockAt(); !got.Equal(scheduleKickoff) {
+		t.Errorf("scoringLockAt() = %v, want the same Wednesday kickoff /matchups shows: %v", got, scheduleKickoff)
+	}
+}

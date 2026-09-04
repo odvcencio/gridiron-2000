@@ -6,7 +6,7 @@ func Page() Node {
 			<span class="signal-mark" aria-hidden="true"></span>
 			DOCUMENT // LEAGUE TERMS
 		</span>
-		<p class="page-kicker">Commissioner edition · {data.league.season} season</p>
+		<p class="page-kicker">{data.league.season} season · Last updated August 8, 2026</p>
 		<h1>
 			HOUSE
 			{" "}
@@ -30,6 +30,6 @@ func Page() Node {
 				Do not claim another manager's seat, hack the league, submit fake sightings, scrape private member data, run bots on connected accounts, or interfere with the draft. Friendly trash talk remains subject to commissioner review.
 			</p>
 		</section>
-		<a href="/" data-gosx-link class="button button--primary">Back to league HQ</a>
+		<a href="/" data-gosx-link class="button button--primary">Back to Home</a>
 	</main>
 }

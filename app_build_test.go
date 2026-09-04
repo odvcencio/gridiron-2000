@@ -559,14 +559,24 @@ func TestCSRFFailureRendersShellErrorPageForHTMLRequest(t *testing.T) {
 	if strings.Contains(body, "invalid csrf token") {
 		t.Fatalf("CSRF failure page leaked the raw library message: %s", body)
 	}
+	if strings.Contains(body, "Session expired") {
+		t.Fatalf("CSRF failure page still claims the session expired (F6): the token went stale, the session did not: %s", body)
+	}
 	// Item 5 (2026-09-02 route-crawl finding — rowan): the page's <title>
 	// read "Session expired" with no <h1> anywhere in the body — every
 	// page in this app must carry exactly one, matching the title.
 	if got := strings.Count(body, "<h1>"); got != 1 {
 		t.Fatalf("CSRF failure page has %d <h1> elements, want exactly 1: %s", got, body)
 	}
-	if !strings.Contains(body, "<h1>Session expired</h1>") {
-		t.Fatalf("CSRF failure page missing <h1>Session expired</h1> matching its <title>: %s", body)
+	if !strings.Contains(body, "<h1>This form expired</h1>") {
+		t.Fatalf("CSRF failure page missing <h1>This form expired</h1> matching its <title>: %s", body)
+	}
+	// F6 (2026-09-04 UX pass): the recovery button names the destination
+	// instead of the misleading "Reload the page" (a link, not a reload).
+	// POST /auth/logout carries no Referer, so the back target is "/" and
+	// the button must read exactly "Go back to Home".
+	if !strings.Contains(body, ">Go back to Home</a>") {
+		t.Fatalf("CSRF failure page missing the named back link: %s", body)
 	}
 }
 
@@ -617,7 +627,10 @@ func TestCSRFFailureRendererForwardsDownstreamResponsesUnchanged(t *testing.T) {
 		_, _ = io.WriteString(w, "downstream forbidden for its own reason")
 	})
 	wrapped := csrfFailureRenderer(fakeProtect, "/styles.css")(downstream)
-	request := httptest.NewRequest(http.MethodPost, "/whatever", nil)
+	// A path under /__actions/ so F6's csrfMutationCapableTarget gate lets
+	// this request reach the discriminator this test actually exercises,
+	// instead of answering 405 as it would for a bare page path.
+	request := httptest.NewRequest(http.MethodPost, "/team/__actions/whatever", nil)
 	recorder := httptest.NewRecorder()
 	wrapped.ServeHTTP(recorder, request)
 
@@ -644,7 +657,10 @@ func TestCSRFFailureRendererReplacesProtectRejection(t *testing.T) {
 	called := false
 	downstream := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true })
 	wrapped := csrfFailureRenderer(fakeProtect, "/styles.css")(downstream)
-	request := httptest.NewRequest(http.MethodPost, "/whatever", nil)
+	// See the sibling ...ForwardsDownstreamResponsesUnchanged test: an
+	// /__actions/ path keeps this request past F6's csrfMutationCapableTarget
+	// gate so it reaches Protect, the discriminator this test covers.
+	request := httptest.NewRequest(http.MethodPost, "/team/__actions/whatever", nil)
 	recorder := httptest.NewRecorder()
 	wrapped.ServeHTTP(recorder, request)
 
@@ -686,6 +702,108 @@ func TestCSRFFailureRendererBypassesSafeMethods(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", recorder.Code)
 	}
+}
+
+// TestCSRFMutationCapableTargetRecognizesActionsAndKnownMutations pins F6
+// (2026-09-04 UX pass): every file-route action ("/<route>/__actions/<name>")
+// and every explicitly mounted mutation this app registers must pass, and an
+// ordinary page path must not — that path is what routes a stray POST to
+// the CSRF page's "session expired" framing to the honest 405 instead.
+func TestCSRFMutationCapableTargetRecognizesActionsAndKnownMutations(t *testing.T) {
+	capable := []string{
+		"/settings/__actions/notification-set",
+		"/locker/__actions/locker-post",
+		"/__actions/whatever",
+		"/auth/invite/some-token",
+		"/setup",
+		"/setup/commissioner",
+		"/draft/queue",
+		"/avatar/upload",
+		"/avatar/badge",
+		"/auth/logout",
+	}
+	for _, path := range capable {
+		if !csrfMutationCapableTarget(path) {
+			t.Errorf("csrfMutationCapableTarget(%q) = false, want true", path)
+		}
+	}
+	notCapable := []string{"/scoring", "/", "/wire", "/blitz", "/help", "/nope-404"}
+	for _, path := range notCapable {
+		if csrfMutationCapableTarget(path) {
+			t.Errorf("csrfMutationCapableTarget(%q) = true, want false", path)
+		}
+	}
+}
+
+// TestCSRFFailurePageNameNamesKnownRoutesAndFallsBackForUnknown pins F6's
+// "Go back to <page name>" recovery button: a recognized route names itself,
+// an unrecognized one falls back rather than printing a raw path, and a
+// query string on the target does not defeat the lookup.
+func TestCSRFFailurePageNameNamesKnownRoutesAndFallsBackForUnknown(t *testing.T) {
+	tests := map[string]string{
+		"/":                  "Home",
+		"/locker":            "the Locker Room",
+		"/locker?page=2":     "the Locker Room",
+		"/settings":          "Notification Settings",
+		"/some/unknown/path": "that page",
+	}
+	for target, want := range tests {
+		if got := csrfFailurePageName(target); got != want {
+			t.Errorf("csrfFailurePageName(%q) = %q, want %q", target, got, want)
+		}
+	}
+}
+
+// TestPostToGetOnlyRouteReturns405WithItsOwnPage pins the other half of F6:
+// a POST to a GET-only page route (here /scoring, which registers no
+// __actions handler for "reset" or anything else at its bare path) must
+// never land on the CSRF failure page — the token was never the problem —
+// and instead gets a 405 naming the real cause, on both surfaces.
+func TestPostToGetOnlyRouteReturns405WithItsOwnPage(t *testing.T) {
+	t.Run("native", func(t *testing.T) {
+		handler := buildHarnessApp(t, false)
+		request := httptest.NewRequest(http.MethodPost, "/scoring", nil)
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("status = %d, want 405; body=%s", recorder.Code, recorder.Body.String())
+		}
+		body := recorder.Body.String()
+		if !strings.Contains(body, csrfMethodNotAllowedMessage) {
+			t.Fatalf("405 page omitted the truthful cause: %s", body)
+		}
+		if strings.Contains(body, csrfFailureMessage) || strings.Contains(body, "This form expired") {
+			t.Fatalf("405 page wrongly borrowed the CSRF page's copy: %s", body)
+		}
+		if !strings.Contains(body, "<a ") {
+			t.Fatalf("405 page omitted a link back: %s", body)
+		}
+	})
+	t.Run("managed", func(t *testing.T) {
+		handler := buildHarnessApp(t, false)
+		request := httptest.NewRequest(http.MethodPost, "/scoring", nil)
+		request.Header.Set("Accept", "application/json")
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("status = %d, want 405; body=%s", recorder.Code, recorder.Body.String())
+		}
+		var payload struct {
+			OK      bool   `json:"ok"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("decode 405 JSON body: %v; body=%s", err, recorder.Body.String())
+		}
+		if payload.OK {
+			t.Fatalf("405 JSON ok = true, want false: %s", recorder.Body.String())
+		}
+		if payload.Message != csrfMethodNotAllowedMessage {
+			t.Fatalf("405 JSON message = %q, want %q", payload.Message, csrfMethodNotAllowedMessage)
+		}
+	})
 }
 
 // TestCSRFFailureBackTargetSanitizesReferer covers the shell error page's

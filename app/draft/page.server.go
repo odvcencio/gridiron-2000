@@ -701,20 +701,41 @@ func teamColumnsProps(teams []league.TeamColumn) []draftTeamColumnView {
 // into the page-level draftHistoryView above. A fixture that never sets
 // "history" (every non-league test fixture in this package) type-asserts
 // to the zero value, so the pane still renders — empty, never a panic.
-// draftLiveMode reads DRAFT_LIVE_MODE (review item 8, 2026-08-30): "target"
-// (the default, and anything else) keeps gosx@v0.53.10's fetchless
-// data-gosx-live-* binds; "fallback" (case-insensitive) restores the pre-
-// Task-8 data-gosx-region*-driven refetch-and-swap wiring in the exact
-// same page.gsx, gated by <If cond={data.live_mode == "target"}> pairs. A
-// plain process env var, the same simplicity PICK_CLOCK/GOSX_APP_ROOT
-// already use (sim_child_test.go) — no additional local-env gate, since
-// this selects a rendering strategy, not a privileged or destructive
-// action.
+// draftLiveMode reads DRAFT_LIVE_MODE (review item 8, 2026-08-30, default
+// flipped by the spruce audit, J1 F1/F5/F7/F8, J2 F7/F8/F15, 2026-09-04):
+// "target" keeps gosx@v0.53.10's fetchless data-gosx-live-* binds;
+// "fallback" (case-insensitive, and now the default, and anything else)
+// restores the pre-Task-8 data-gosx-region*-driven refetch-and-swap wiring
+// in the exact same page.gsx, gated by <If cond={data.live_mode ==
+// "target"}> pairs. A plain process env var, the same simplicity
+// PICK_CLOCK/GOSX_APP_ROOT already use (sim_child_test.go) — no additional
+// local-env gate, since this selects a rendering strategy, not a
+// privileged or destructive action.
+//
+// Why the flip: target mode's binds only ever cover the fields that
+// carry an explicit data-gosx-live-bind span (pick number, clock, a
+// handful of counts). Every branch a hub event can flip — "YOU'RE UP" vs
+// "ON CLOCK: <name>", the row DRAFT button's can_pick gate, the h1's
+// round/pick numbers, the paused-clock banner, the phone pick bar — is a
+// server-time <If> with no bind of its own, so target mode never
+// re-renders it: two live auditors (J1 F1, J2 F7/F15) found a manager
+// whose turn arrived saw no DRAFT button until reload, a stale h1 nine
+// picks behind the pill, and a paused draft that told other managers
+// nothing. Fallback mode already refetches the whole command bar, pool,
+// and (after this same fix) the h1 and pick bar on every draft:pick/
+// undo/clock/state event, so every one of those branches renders from
+// current server state instead of page-load state. The trade-off:
+// fallback costs a handful of small JSON-sized HTML fetches per event
+// where target cost zero (TestBrowserRoomMeetsRefreshBudgetAndKeepsClockIdentity
+// measures both); given the choice between a manager missing their pick
+// and a few extra kilobytes over a websocket-adjacent fetch, correctness
+// wins for Sunday. DRAFT_LIVE_MODE=target stays available for anyone who
+// wants the old fetchless behavior back, with its documented gaps intact.
 func draftLiveMode() string {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("DRAFT_LIVE_MODE")), "fallback") {
-		return "fallback"
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("DRAFT_LIVE_MODE")), "target") {
+		return "target"
 	}
-	return "target"
+	return "fallback"
 }
 
 func buildDraftHistoryView(data map[string]any, liveMode string) draftHistoryView {
@@ -1135,6 +1156,22 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	if _, ok := viewData["practice"].(map[string]any); !ok {
 		viewData["practice"] = league.PracticeInactiveMap(league.PracticeAvailability{})
 	}
+	// The five room keys default to the real room's own literals for the
+	// same reason: a data map built without draftData must never render
+	// an href="" or an empty hub name.
+	for key, fallback := range map[string]string{
+		"room_path": "/draft", "fragment_base": "/draft/fragment", "live_src": "/draft/live.json",
+		"live_hub": "draft-live", "queue_move_url": "POST /draft/queue",
+	} {
+		if stringField(viewData, key) == "" {
+			viewData[key] = fallback
+		}
+	}
+	// region_interval is "" for the real room (the runtime ignores an
+	// empty value and never polls) and practicePollInterval for a practice.
+	if _, ok := viewData["region_interval"]; !ok {
+		viewData["region_interval"] = ""
+	}
 	// pool_sort/pool_position_chips/pool_sort_options (D7/D9, spruce
 	// audit): built here, off this ONE viewData map, so the available
 	// pane's RK-column ordering and the head's chip/sort rows (both read
@@ -1266,7 +1303,12 @@ func draftRoomStatus(data map[string]any) string {
 	if !boolField(draftView, "started") {
 		return fmt.Sprintf("Draft not started; %d of %d ready; opens %s at %s.", intField(data, "ready_count"), intField(data, "manager_count"), stringField(draftView, "date"), stringField(draftView, "time"))
 	}
-	onClock := stringField(mapField(data, "on_clock"), "abbreviation")
+	// F8 (J2, spruce audit, 2026-09-04): this used to read "abbreviation"
+	// ("AQ2"), a seat code that appears nowhere else on the visible page —
+	// a screen-reader listener heard a code, not a team. "name" is the
+	// same field the sighted pill/turn text already reads (page.gsx,
+	// onclock.name).
+	onClock := stringField(mapField(data, "on_clock"), "name")
 	clockView := mapField(data, "clock")
 	clockPhrase := "the clock is not running"
 	if boolField(clockView, "paused") {

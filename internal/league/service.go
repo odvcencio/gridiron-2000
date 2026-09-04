@@ -2007,7 +2007,7 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 	livePoll := live.State != MatchupStateFinal && live.State != MatchupStatePreseason
 	return map[string]any{
 		"viewer":                viewer,
-		"practice":              PracticeInactiveMap(s.PracticeAvailability(r)),
+		"practice":              PracticeInactiveMap(s.practiceAvailabilityForState(r, state)),
 		"public_entry":          s.publicEntryDataForViewerState(r, viewer, state),
 		"playoff_truth":         s.playoffTruthMap(state, now, s.IsCommissioner(r)),
 		"has_seat":              hasSeat,
@@ -3376,7 +3376,7 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 		"live_hub":             liveHub,
 		"fragment_base":        roomPath + "/fragment",
 		"queue_move_url":       "POST " + roomPath + "/queue",
-		"practice":             PracticeInactiveMap(s.PracticeAvailability(r)),
+		"practice":             PracticeInactiveMap(s.practiceAvailabilityForState(r, state)),
 	}
 }
 
@@ -4189,6 +4189,44 @@ func (s *Service) formatBlurb() string {
 	default:
 		return "custom fantasy format"
 	}
+}
+
+// scoringFormatLabel renders scoring_format's short display name: "Half
+// PPR" / "Full PPR" / "Standard", the same three-way switch scoringNote
+// and ReceptionPointsForScoringFormat already apply to this field.
+func scoringFormatLabel(format string) string {
+	switch format {
+	case "standard":
+		return "Standard"
+	case "ppr":
+		return "Full PPR"
+	default:
+		return "Half PPR"
+	}
+}
+
+// scoringFormatSummary renders /scoring's one-line format summary (F7/F36,
+// 2026-09-04 UX pass): the page's first-viewport paragraph never named the
+// scoring format, so an arriving manager had to read three separate
+// tables to learn PPR value, superflex, and the house punter slot. Every
+// segment reads the live config/roster shape, never a retyped literal, so
+// a redraft or standard-preset league prints its own truthful line.
+func (s *Service) scoringFormatSummary() string {
+	roster := CurrentRoster()
+	segments := []string{scoringFormatLabel(s.cfg.ScoringFormat)}
+	if roster.Slots["SUPERFLEX"] > 0 {
+		segments = append(segments, "superflex")
+	}
+	if mode := strings.ToLower(strings.TrimSpace(s.cfg.ModeLabel)); mode != "" {
+		segments = append(segments, mode)
+	}
+	segments = append(segments, CountNoun(CurrentDraftRounds(), "round"))
+	starters := CountNoun(roster.Starters(), "starter")
+	if roster.Slots["P"] > 0 {
+		starters += " including a punter"
+	}
+	segments = append(segments, starters)
+	return strings.Join(segments, " · ") + "."
 }
 
 // leagueMap is the identity block every page's data map carries as

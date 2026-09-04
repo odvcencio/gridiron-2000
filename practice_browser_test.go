@@ -88,7 +88,7 @@ func TestBrowserPracticeDraftRunsBesideAnUnstartedRealDraft(t *testing.T) {
 	if mine != "yes" {
 		t.Fatal("the viewer's practice pick never appeared on the tape as their own")
 	}
-	if strip := evalString(t, ctx, `document.querySelector('.draft-practice-strip').textContent`); !strings.Contains(strip, "Picks here do not count") {
+	if strip := evalString(t, ctx, `document.querySelector('.draft-practice-strip').textContent`); !strings.Contains(strip, "picks here do not count") {
 		t.Fatalf("practice strip lost its copy: %q", strip)
 	}
 
@@ -107,5 +107,71 @@ func TestBrowserPracticeDraftRunsBesideAnUnstartedRealDraft(t *testing.T) {
 	}
 	if evalString(t, ctx, `document.querySelector('.draft-practice-strip') ? 'yes' : ''`) == "yes" {
 		t.Fatal("the real room must not render the practice strip")
+	}
+}
+
+// TestBrowserPracticeStripStaysOneRowOnPhones is the coordinator's polish
+// item from the real-league copy (2026-09-04): at 390x844 the strip used
+// to be a 370 px box (chip, a three-line sentence, a full-width button)
+// that left the pool three rows. Now it is one row — chip, short line,
+// Details, a compact Leave — and the pool keeps at least three rows in
+// the first viewport.
+func TestBrowserPracticeStripStaysOneRowOnPhones(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	child, league, ctx := startSeatedBrowserChild(t)
+	viewer := league.bots[0]
+	navigateSignedInTo(t, ctx, child, viewer, "/draft/practice", 390, 844)
+	if err := chromedp.Run(ctx, chromedp.WaitVisible(`.practice-start__form`, chromedp.ByQuery)); err != nil {
+		t.Fatalf("the practice lobby never rendered its start form: %v", err)
+	}
+	if err := chromedp.Run(ctx, chromedp.Click(`.practice-start__form button[type="submit"]`, chromedp.ByQuery)); err != nil {
+		t.Fatalf("start the practice: %v", err)
+	}
+	paint, cancelPaint := context.WithTimeout(ctx, browserFirstPaint)
+	defer cancelPaint()
+	if err := chromedp.Run(paint, chromedp.WaitVisible(`.draft-practice-strip`, chromedp.ByQuery)); err != nil {
+		t.Fatalf("the practice room never rendered its strip: %v", err)
+	}
+	strip := elementBoundingRect(t, ctx, ".draft-practice-strip")
+	if strip.Height > 72 {
+		t.Errorf("practice strip is %.0fpx tall at 390x844, want one row (<= 72px)", strip.Height)
+	}
+	if evalString(t, ctx, `getComputedStyle(document.querySelector('.draft-practice-strip__text')).display`) != "none" {
+		t.Error("the full sentence must sit behind Details on phones")
+	}
+	if evalString(t, ctx, `getComputedStyle(document.querySelector('.draft-practice-strip__details')).display`) == "none" {
+		t.Error("the Details disclosure must be reachable on phones")
+	}
+	// The short line is fully visible: no ellipsis, no clipped second line,
+	// at 390 and at the narrowest phone the room supports.
+	for _, width := range []int64{390, 360} {
+		if err := chromedp.Run(ctx, chromedp.EmulateViewport(width, 844)); err != nil {
+			t.Fatalf("emulate %dx844: %v", width, err)
+		}
+		time.Sleep(browserPollInterval)
+		line := evalString(t, ctx, `(function(){var e=document.querySelector('.draft-practice-strip__line');if(!e)return 'missing';var cs=getComputedStyle(e);if(cs.display==='none')return 'hidden';return (e.textContent||'').trim()+'|'+(e.scrollWidth<=e.clientWidth+1?'fits':'clipped-w')+'|'+(e.scrollHeight<=e.clientHeight+1?'fits':'clipped-h')})()`)
+		if line != "Picks don't count|fits|fits" {
+			t.Errorf("%dpx: practice strip short line = %q, want the full text visible", width, line)
+		}
+		if strip := elementBoundingRect(t, ctx, ".draft-practice-strip"); strip.Height > 72 {
+			t.Errorf("%dpx: practice strip is %.0fpx tall, want <= 72px", width, strip.Height)
+		}
+	}
+	if err := chromedp.Run(ctx, chromedp.EmulateViewport(390, 844)); err != nil {
+		t.Fatalf("emulate 390x844: %v", err)
+	}
+	time.Sleep(browserPollInterval)
+	leave := elementBoundingRect(t, ctx, `.draft-practice-strip form[action$="practice-leave"] button`)
+	if leave.Height < 44 || leave.Right > 390 {
+		t.Errorf("Leave control = %.0fpx tall, right edge %.0fpx; want a 44px target inside the 390px viewport", leave.Height, leave.Right)
+	}
+	visibleRows := evalString(t, ctx, `String(Array.from(document.querySelectorAll('#draft-available-rows tr.avail-row')).filter(function(r){var b=r.getBoundingClientRect();return b.top>=0&&b.bottom<=844}).length)`)
+	if visibleRows < "3" {
+		t.Errorf("only %s pool rows fit the first phone viewport under the practice strip, want at least 3", visibleRows)
+	}
+	if scrollW, innerW := documentOverflowPx(t, ctx); scrollW > innerW {
+		t.Errorf("horizontal overflow in the practice room at 390 (scrollWidth %d > innerWidth %d)", scrollW, innerW)
 	}
 }

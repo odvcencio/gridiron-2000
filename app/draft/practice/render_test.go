@@ -135,6 +135,25 @@ func TestPracticeRoomRendersFromTheSandboxFixtureProcess(t *testing.T) {
 			t.Errorf("real room lost %q after the practice change", want)
 		}
 	}
+	if strings.Contains(real, `data-gosx-region-interval="8s"`) {
+		t.Error("the real room must never poll its regions")
+	}
+	for _, mark := range []string{"01", "02", "03", "04", "05"} {
+		if !strings.Contains(real, `<span class="checklist-mark mono">`+mark+`</span>`) {
+			t.Errorf("seated checklist missing item %s", mark)
+		}
+	}
+	seatlessRoom := getAs(t, handler, "nobody@example.com", "/")
+	for _, mark := range []string{"01", "02", "03"} {
+		if !strings.Contains(seatlessRoom, `<span class="checklist-mark mono">`+mark+`</span>`) {
+			t.Errorf("seatless checklist missing item %s", mark)
+		}
+	}
+	for _, mark := range []string{"04", "05"} {
+		if strings.Contains(seatlessRoom, `<span class="checklist-mark mono">`+mark+`</span>`) {
+			t.Errorf("seatless checklist must not skip to item %s", mark)
+		}
+	}
 
 	// 2. The lobby: start options for a seated viewer, the reason for a
 	// seatless one.
@@ -143,6 +162,20 @@ func TestPracticeRoomRendersFromTheSandboxFixtureProcess(t *testing.T) {
 		if !strings.Contains(lobby, want) {
 			t.Errorf("lobby missing %q", want)
 		}
+	}
+	// The masthead's real-draft card: the fixture league ships the
+	// placeholder date, so the card reads NOT SET, and the seated viewer
+	// has not checked in yet.
+	for _, want := range []string{"Real draft", "NOT SET", "Draft time not published yet", `data-checked-in="false"`, "Not checked in", `href="/draft"`, "Open the real room →"} {
+		if !strings.Contains(lobby, want) {
+			t.Errorf("lobby real-draft card missing %q", want)
+		}
+	}
+	if code := postAs(t, handler, seated, "/__actions/toggle-ready", url.Values{}); code != http.StatusSeeOther {
+		t.Fatalf("toggle-ready = %d, want 303", code)
+	}
+	if checked := getAs(t, handler, seated, "/practice"); !strings.Contains(checked, `data-checked-in="true"`) || !strings.Contains(checked, "Checked in ✓") {
+		t.Error("lobby real-draft card must show the viewer's check-in once they are ready")
 	}
 	seatless := getAs(t, handler, "nobody@example.com", "/practice")
 	if !strings.Contains(seatless, "PRACTICE UNAVAILABLE") || !strings.Contains(seatless, "You need a seat to practice.") {
@@ -155,12 +188,14 @@ func TestPracticeRoomRendersFromTheSandboxFixtureProcess(t *testing.T) {
 	}
 	room := getAs(t, handler, seated, "/practice")
 	for _, want := range []string{
-		`class="draft-practice-strip"`, "PRACTICE", "Picks here do not count", "practice rounds 5 to 7",
+		`class="draft-practice-strip"`, "PRACTICE", "Practice draft · picks here do not count · rounds 5 to 7", `class="draft-practice-strip__line mono">Picks don`,
+		`class="draft-practice-strip__details"`, `aria-label="Leave practice"`,
 		"Practice draft · Round 5 · Pick", `class="draft-shell`, `data-draft-live-mode="fallback"`,
 		`action="/draft/practice/__actions/make-pick"`, `action="/draft/practice/__actions/practice-leave"`,
 		`data-gosx-region-url="/draft/practice/fragment/queue"`, `data-gosx-region-url="/draft/practice/fragment/command"`,
 		`data-gosx-region-url="/draft/practice/fragment/practice"`,
 		"Your Big Board is read-only in practice", `class="draft-tabbar"`, `href="/draft/practice?view=board"`,
+		`data-gosx-region-interval="8s"`,
 	} {
 		if !strings.Contains(room, want) {
 			t.Errorf("practice room missing %q", want)
@@ -194,10 +229,37 @@ func TestPracticeRoomRendersFromTheSandboxFixtureProcess(t *testing.T) {
 		t.Fatalf("the real draft holds picks after a practice: %v", snapshot["picks_empty"])
 	}
 
-	// 5. A live real draft closes the lobby with its reason, and the real
-	// room's checklist entry is gone with the checklist itself.
+	// 5. The real draft goes live under an open practice: the room says so
+	// with a link to the real room, a restart is refused with the reason
+	// on the page, and after leaving, the lobby refuses with the same.
+	if code := postAs(t, handler, seated, "/practice/__actions/practice-start", url.Values{"round": {"1"}}); code != http.StatusSeeOther {
+		t.Fatalf("practice-start = %d, want 303", code)
+	}
 	if code := postAs(t, handler, practiceCommissioner, "/__actions/draft-start", url.Values{"confirm": {"START"}}); code != http.StatusSeeOther {
 		t.Fatalf("draft-start = %d, want 303", code)
+	}
+	underway := getAs(t, handler, seated, "/practice")
+	for _, want := range []string{`data-real-started="true"`, "The real draft has started.", `href="/draft">Go to the real draft room →</a>`} {
+		if !strings.Contains(underway, want) {
+			t.Errorf("practice room with the real draft live missing %q", want)
+		}
+	}
+	if strings.Contains(underway, `class="btn btn-sm btn-primary" type="submit">Draft</button>`) {
+		t.Error("no practice pick may be offered once the real draft is live")
+	}
+	restart := postBodyAs(t, handler, seated, "/practice/__actions/practice-restart", url.Values{"round": {"1"}})
+	if restart.code == http.StatusSeeOther {
+		t.Fatal("practice-restart must not succeed while the real draft is live")
+	}
+	refused := restart.body
+	if !strings.Contains(refused, "The real draft is live.") {
+		refused = getAs(t, handler, seated, "/practice")
+	}
+	if !strings.Contains(refused, "The real draft is live.") {
+		t.Errorf("a refused restart must show its reason on the page: %s", refused)
+	}
+	if code := postAs(t, handler, seated, "/practice/__actions/practice-leave", url.Values{}); code != http.StatusSeeOther {
+		t.Fatalf("practice-leave = %d, want 303", code)
 	}
 	closed := getAs(t, handler, seated, "/practice")
 	if !strings.Contains(closed, "The real draft is live.") {
@@ -206,6 +268,23 @@ func TestPracticeRoomRendersFromTheSandboxFixtureProcess(t *testing.T) {
 	if code := postAs(t, handler, seated, "/practice/__actions/practice-start", url.Values{"round": {"1"}}); code == http.StatusSeeOther {
 		t.Error("practice-start must not succeed while the real draft is live")
 	}
+}
+
+type postResult struct {
+	code int
+	body string
+}
+
+// postBodyAs is postAs with the response body kept, for a refusal that
+// re-renders the page in the POST response itself.
+func postBodyAs(t *testing.T, handler http.Handler, email, path string, fields url.Values) postResult {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(fields.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Test-User", email)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	return postResult{code: recorder.Code, body: recorder.Body.String()}
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }

@@ -19,19 +19,25 @@ func Page() Node {
 			</div>
 			<div class="draft-clock-panel">
 				<span>Real draft</span>
-				<If cond={data.draft.published}>
-					<strong class="mono">{data.draft.date}</strong>
+				<If cond={data.real_draft.published}>
+					<strong class="mono">{data.real_draft.date}</strong>
 					<div class="draft-clock-meta">
-						<span class="mono">{data.draft.time} · {data.draft.timezone}</span>
+						<span class="mono">{data.real_draft.time} · {data.real_draft.relative}</span>
 						<span class="mono">{data.rounds} rounds · {data.pick_clock_label} per pick</span>
 					</div>
 				</If>
-				<If cond={data.draft.published == false}>
+				<If cond={data.real_draft.published == false}>
 					<strong class="mono">NOT SET</strong>
 					<div class="draft-clock-meta">
+						<span class="mono">Draft time not published yet</span>
 						<span class="mono">{data.rounds} rounds · {data.pick_clock_label} per pick</span>
 					</div>
 				</If>
+				<div class="draft-clock-meta practice-checkin">
+					<If cond={data.real_draft.has_seat && data.real_draft.checked_in}><span class="mono practice-checkin__state" data-checked-in="true">Checked in ✓</span></If>
+					<If cond={data.real_draft.has_seat && data.real_draft.checked_in == false}><span class="mono practice-checkin__state" data-checked-in="false">Not checked in</span></If>
+					<a href={data.real_draft.room_href} data-gosx-link>Open the real room →</a>
+				</div>
 			</div>
 		</header>
 		<div class="draft-notice" aria-live="polite">

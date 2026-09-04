@@ -33,6 +33,6 @@ func Page() Node {
 				Ask the commissioner to remove you from the league. Signing out ends your session on this device.
 			</p>
 		</section>
-		<a href="/login" data-gosx-link class="button button--primary">Return to league access</a>
+		<a href="/" data-gosx-link class="button button--primary">Back to Home</a>
 	</main>
 }
