@@ -1320,16 +1320,22 @@ func TestPlayersDataClaimResolutionStates(t *testing.T) {
 		t.Fatalf("deferred claim resolution = %+v, want no invented time", unknown)
 	}
 
-	degradedSvc, degradedNow := newWaiversTestService(t)
-	if err := degradedSvc.store.FileClaim(WaiverClaim{ID: "degraded-claim", TeamID: "team-1", AddID: "fa-open", FiledAt: degradedNow}); err != nil {
-		t.Fatalf("seed degraded claim: %v", err)
+	// J3 F15: a claim locked on a normal kickoff is "pending", not
+	// "degraded" — DEGRADED is reserved for a real processor fault, which
+	// this ordinary kickoff-lock case is not.
+	pendingSvc, pendingNow := newWaiversTestService(t)
+	if err := pendingSvc.store.FileClaim(WaiverClaim{ID: "pending-claim", TeamID: "team-1", AddID: "fa-open", FiledAt: pendingNow}); err != nil {
+		t.Fatalf("seed pending claim: %v", err)
 	}
-	degradedSvc.SetScheduleSource(func() []GameInfo {
-		return []GameInfo{{ID: "in-progress", Week: 1, Kickoff: degradedNow.Add(-time.Hour), Away: "PIT", Home: "NYJ"}}
+	pendingSvc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "in-progress", Week: 1, Kickoff: pendingNow.Add(-time.Hour), Away: "PIT", Home: "NYJ"}}
 	})
-	degraded := claimRow(degradedSvc)
-	if degraded == nil || degraded["resolution_state"] != "degraded" || degraded["resolution_at"] != "" || degraded["resolution_relative"] != "" {
-		t.Fatalf("degraded claim resolution = %+v, want explicit degraded state", degraded)
+	pending := claimRow(pendingSvc)
+	if pending == nil || pending["resolution_state"] != "pending" || pending["resolution_at"] != "" || pending["resolution_relative"] != "" {
+		t.Fatalf("kickoff-locked claim resolution = %+v, want explicit pending state, not degraded", pending)
+	}
+	if pending["resolution_label"] != waiverKickoffPendingLabel {
+		t.Fatalf("pending claim resolution_label = %q, want the shared kickoff-pending label %q", pending["resolution_label"], waiverKickoffPendingLabel)
 	}
 }
 

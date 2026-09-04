@@ -67,7 +67,11 @@ func waiverClaimResolutionView(state PersistedState, cfg Config, games []GameInf
 			// F7: share the exact same label the pool row renders
 			// (waiverKickoffPendingLabel), so this player's kickoff-locked
 			// resolve time can never disagree between the two surfaces.
-			view["resolution_state"] = "degraded"
+			// J3 F15: this is an ordinary, expected lock — the player's
+			// game has not gone final yet — not a processor fault, so it
+			// is "pending", not "degraded". DEGRADED stays reserved for a
+			// real data-degradation case.
+			view["resolution_state"] = "pending"
 			view["resolution_label"] = waiverKickoffPendingLabel
 			return view
 		}

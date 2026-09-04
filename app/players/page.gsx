@@ -629,6 +629,10 @@ func WaiverDeskRegion() Node {
 								<span class="position-chip position-chip--warn">RESOLUTION OVERDUE</span>
 								<small>{claim.resolution_at} ({claim.resolution_relative})</small>
 							</If>
+							<If cond={claim.resolution_state == "pending"}>
+								<span class="position-chip">LOCKED UNTIL WAIVERS RUN</span>
+								<small>{claim.resolution_label}</small>
+							</If>
 							<If cond={claim.resolution_state == "degraded"}>
 								<span class="position-chip position-chip--warn">RESOLUTION DEGRADED</span>
 								<small>{claim.resolution_label}</small>
