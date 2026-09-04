@@ -107,7 +107,7 @@ func TestAdminAttentionReadoutRendersFriendlyDraftDateAndPresenceWords(t *testin
 func TestAdminAttentionReadoutFromDataNamesManagersAndSummarizesNotCheckedIn(t *testing.T) {
 	data := map[string]any{
 		"seats": []map[string]any{
-			{"name": "In Shedeur Time", "abbreviation": "AQ1", "manager": "Oscar Villavicencio", "claimed": true, "ready": true, "presence": "here"},
+			{"name": "In Shedeur Time", "abbreviation": "AQ1", "manager": "Alex Rivera", "claimed": true, "ready": true, "presence": "here"},
 			{"name": "Los Delfines del Norte", "abbreviation": "AQ2", "manager": "Jorge V", "claimed": true, "ready": false, "presence": "not_seen", "presence_detail": "No room heartbeat since this server started."},
 			{"name": "Placeholder go here", "abbreviation": "AQ4", "manager": "", "claimed": false, "ready": false, "presence": "unclaimed"},
 		},
@@ -118,8 +118,8 @@ func TestAdminAttentionReadoutFromDataNamesManagersAndSummarizesNotCheckedIn(t *
 	}
 
 	ready, notReady, unclaimed := view.Seats[0], view.Seats[1], view.Seats[2]
-	if ready.Manager != "Oscar Villavicencio" {
-		t.Errorf("ready seat Manager = %q, want %q", ready.Manager, "Oscar Villavicencio")
+	if ready.Manager != "Alex Rivera" {
+		t.Errorf("ready seat Manager = %q, want %q", ready.Manager, "Alex Rivera")
 	}
 	if notReady.Manager != "Jorge V" || notReady.ManagerFirstName != "Jorge" {
 		t.Errorf("not-ready seat Manager/ManagerFirstName = %q/%q, want %q/%q", notReady.Manager, notReady.ManagerFirstName, "Jorge V", "Jorge")
@@ -148,7 +148,7 @@ func TestAdminAttentionReadoutFromDataNamesManagersAndSummarizesNotCheckedIn(t *
 func TestAdminAttentionReadoutFromDataHasNoNotCheckedInSummaryWhenEveryoneIsReady(t *testing.T) {
 	data := map[string]any{
 		"seats": []map[string]any{
-			{"name": "In Shedeur Time", "abbreviation": "AQ1", "manager": "Oscar Villavicencio", "claimed": true, "ready": true},
+			{"name": "In Shedeur Time", "abbreviation": "AQ1", "manager": "Alex Rivera", "claimed": true, "ready": true},
 		},
 	}
 	view := adminAttentionReadoutFromData(data)
