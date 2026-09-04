@@ -43,16 +43,15 @@ RUN go build -trimpath -ldflags="-s -w -X main.appVersion=${APP_VERSION} -X main
 # GOSX_SKIP_VERSION_CHECK stays set: the project standard is to skip the
 # CLI's own self-reported-version check rather than depend on it matching
 # exactly; the pinned CLI version below is what actually governs the build.
-# v0.55.2-0.20260904025313-4762baf45121 includes v0.55.1 (a Scene3D
-# fill-height layout fix, unused by this app; soft navigation that
-# reconciles the body in place instead of replacing it wholesale;
-# selective runtime asset emission; bundle-budget review bands) plus
-# odvcencio/gosx#316's "comments inside GSX markup compile away" fix,
-# pinned by pseudo-version because the fix has not yet reached a tagged
-# release. A `//` line inside GSX element children, and `{/* ... */}` /
-# `{// ...}` expressions, compile away instead of rendering as page text
-# or failing to parse; a `//` line inside <script>/<style>/<pre>/
-# <textarea>, or inside an attribute value, still renders verbatim.
+# v0.55.2 includes v0.55.1 (a Scene3D fill-height layout fix, unused by
+# this app; soft navigation that reconciles the body in place instead of
+# replacing it wholesale; selective runtime asset emission; bundle-budget
+# review bands) plus odvcencio/gosx#316's "comments inside GSX markup
+# compile away" fix. A `//` line inside GSX element children, and
+# `{/* ... */}` / `{// ...}` expressions, compile away instead of
+# rendering as page text or failing to parse; a `//` line inside
+# <script>/<style>/<pre>/<textarea>, or inside an attribute value, still
+# renders verbatim.
 # v0.53.10 includes event-mode live binds, attribute and class binds, region
 # append and prepend, countdown retarget, cue mute, and hub backoff.
 # v0.53.9 includes region-aware re-registration. It re-registers countdowns,
@@ -69,7 +68,7 @@ RUN go build -trimpath -ldflags="-s -w -X main.appVersion=${APP_VERSION} -X main
 # negotiation, and the last good declarative-region DOM across HTTP failures.
 # The avatar route keeps its outer multipart envelope cap until the production
 # consumer adopts a bounded-multipart contract.
-RUN go install m31labs.dev/gosx/cmd/gosx@v0.55.2-0.20260904025313-4762baf45121 && GOSX_SKIP_VERSION_CHECK=1 /go/bin/gosx build --dev .
+RUN go install m31labs.dev/gosx/cmd/gosx@v0.55.2 && GOSX_SKIP_VERSION_CHECK=1 /go/bin/gosx build --dev .
 
 # Prune build-only and duplicate assets from dist/ before it is COPY'd into
 # the runtime stage (GC-3 app lane).

@@ -49,7 +49,7 @@ Every page in Gridiron follows the same product contract:
 
 ## Run locally
 
-Requirements: Go 1.26 and GoSX v0.55.2-0.20260904025313-4762baf45121.
+Requirements: Go 1.26 and GoSX v0.55.2.
 
 ```bash
 cp .env.example .env

@@ -621,7 +621,7 @@ func fantasyPositionFloors(teams int, slots map[string]int) map[string]int {
 // file's). Scoped to the runtime asset path only, not every response,
 // so no other route's CSP/cache posture changes.
 //
-// Re-verified against m31labs.dev/gosx@v0.55.2-0.20260904025313-4762baf45121
+// Re-verified against m31labs.dev/gosx@v0.55.2
 // (2026-09-04): island.Renderer.PreloadHints still hard-codes
 // crossorigin="anonymous" on the preload link with no matching change to
 // the consuming <script>'s own attributes; this middleware is still
@@ -673,7 +673,7 @@ const (
 // wrap()'s own last-added-runs-first order) compresses whatever this
 // middleware ultimately writes, not the other way around.
 //
-// Re-verified against m31labs.dev/gosx@v0.55.2-0.20260904025313-4762baf45121
+// Re-verified against m31labs.dev/gosx@v0.55.2
 // (2026-09-04, v0.55.0/v0.55.1's soft-navigation and Scene3D changes):
 // island.Renderer.PreloadHints (island/island.go) still emits the hubs
 // feature bundle's <link rel="preload" as="script" crossorigin="anonymous"

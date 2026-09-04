@@ -10,7 +10,7 @@ require (
 	golang.org/x/net v0.52.0
 	golang.org/x/sys v0.47.0
 	m31labs.dev/arbiter v1.9.0
-	m31labs.dev/gosx v0.55.2-0.20260904025313-4762baf45121
+	m31labs.dev/gosx v0.55.2
 	modernc.org/sqlite v1.56.0
 )
 

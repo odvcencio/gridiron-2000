@@ -76,7 +76,7 @@ func chromePath(t *testing.T) string {
 // never re-registered, and a clock test would report a tick it never had to
 // earn. Build the assets first:
 //
-//	go install m31labs.dev/gosx/cmd/gosx@v0.55.2-0.20260904025313-4762baf45121
+//	go install m31labs.dev/gosx/cmd/gosx@v0.55.2
 //	GOSX_SKIP_VERSION_CHECK=1 gosx build --dev .
 //
 // The gate (2026-08-30 review): a plain local `go test .` (no GOSX_APP_ROOT
