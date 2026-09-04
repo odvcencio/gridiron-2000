@@ -5,7 +5,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- The Help Center glossary shows its 75 terms, definitions, and topic links instead of 75 blank cards linking to a 404.
+- The Help Center's "coming from another app" table shows its nine rows instead of nine blank rows.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 
