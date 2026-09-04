@@ -205,7 +205,7 @@ func evalString(t *testing.T, ctx context.Context, expression string) string {
 // TestBrowserDraftRoomNeverScrollsAtPhoneWidth and
 // TestBrowserDraftRoomTouchTargetsAtPhoneWidth. The room now always
 // renders data-draft-live-mode="target" (Task 8, page.server.go's
-// prepareDraftData) once gosx@v0.53.11-0.20260903011141-48af3189fe1f is pinned; mode is still read from
+// prepareDraftData) once gosx@v0.55.2 is pinned; mode is still read from
 // the DOM rather than assumed, so this same test would keep working
 // unchanged against a fallback-mode render (DRAFT_LIVE_MODE=fallback) too.
 //

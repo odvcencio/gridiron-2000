@@ -24,6 +24,12 @@ import (
 // both a targeted and a blanket "*://*/*" pattern), so this reproduces
 // the resulting DOM state — script tag present, no boot attribute — the
 // same state a genuinely blocked or 404'd request would leave, directly.
+//
+// gosx v0.55.0 update (linden, 2026-09-04): re-run unchanged against the
+// v0.55.0 body-reconciliation runtime. html[data-gosx-navigation-state]
+// is set once at boot, before any navigation (soft or otherwise) can
+// run, so v0.55.0's in-place body reconciliation for LATER navigations
+// does not touch this contract.
 func TestBrowserStaticNavigationFallsBackWhenRuntimeNeverBoots(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
