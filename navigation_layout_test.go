@@ -318,25 +318,41 @@ func railIndex(complete bool, n int) string {
 	return fmt.Sprintf("%02d", n)
 }
 
-func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigationGroup {
-	gameDay := []string{"/draft|08 Draft"}
-	if viewer.draftComplete {
-		gameDay = append(gameDay, "/draft/results|09 Draft results")
+// railIndexPrefix (F14) mirrors layout.gsx's own second numbering gate:
+// Trades (07) is the one item hidden for a seatless, non-commissioner
+// viewer with no index-shifting counterpart (unlike DraftComplete, which
+// railIndex already renumbers around). Rather than renumber every
+// following item — a much larger, riskier change — layout.gsx drops
+// their index number entirely for that one viewer, closing the visible
+// gap without ever printing a wrong number. tradesShown mirrors Trades'
+// own visibility condition (props.HasSeat || props.Commissioner) exactly.
+func railIndexPrefix(tradesShown bool, index string) string {
+	if !tradesShown {
+		return ""
 	}
-	gameDay = append(gameDay, "/blitz|"+railIndex(viewer.draftComplete, 10)+" Preseason Blitz")
+	return index + " "
+}
+
+func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigationGroup {
+	tradesShown := viewer.hasSeat || viewer.commissioner
+	gameDay := []string{"/draft|" + railIndexPrefix(tradesShown, "08") + "Draft"}
+	if viewer.draftComplete {
+		gameDay = append(gameDay, "/draft/results|"+railIndexPrefix(tradesShown, "09")+"Draft results")
+	}
+	gameDay = append(gameDay, "/blitz|"+railIndexPrefix(tradesShown, railIndex(viewer.draftComplete, 10))+"Preseason Blitz")
 	groups := []renderedNavigationGroup{
 		{Name: "today", Links: []string{"/|01 Home", "/pickem|02 Pick'em", "/matchups|03 Matchups"}},
 		{Name: "my-team"},
 		{Name: "game-day", Links: gameDay},
 		{Name: "league", Links: []string{
-			"/wire|" + railIndex(viewer.draftComplete, 11) + " Signal Wire",
-			"/activity|" + railIndex(viewer.draftComplete, 12) + " Activity",
-			"/locker|" + railIndex(viewer.draftComplete, 13) + " Locker Room",
-			"/scoring|" + railIndex(viewer.draftComplete, 14) + " Rules & scoring",
+			"/wire|" + railIndexPrefix(tradesShown, railIndex(viewer.draftComplete, 11)) + "Signal Wire",
+			"/activity|" + railIndexPrefix(tradesShown, railIndex(viewer.draftComplete, 12)) + "Activity",
+			"/locker|" + railIndexPrefix(tradesShown, railIndex(viewer.draftComplete, 13)) + "Locker Room",
+			"/scoring|" + railIndexPrefix(tradesShown, railIndex(viewer.draftComplete, 14)) + "Rules & scoring",
 		}},
 		{Name: "help", Links: []string{
-			"/guide|" + railIndex(viewer.draftComplete, 15) + " Manager guide",
-			"/help|" + railIndex(viewer.draftComplete, 16) + " Help center",
+			"/guide|" + railIndexPrefix(tradesShown, railIndex(viewer.draftComplete, 15)) + "Manager guide",
+			"/help|" + railIndexPrefix(tradesShown, railIndex(viewer.draftComplete, 16)) + "Help center",
 		}},
 	}
 	team := &groups[1].Links
@@ -346,12 +362,17 @@ func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigati
 	case viewer.seatsOpen && viewer.canClaimSeat:
 		*team = append(*team, "/join|04 Join a team")
 	default:
-		// One name per object (wave 6): every role with a /team
-		// destination reads "Team terminal" — the seatless branch used
-		// to say "Team status" while the document title said Terminal.
-		*team = append(*team, "/team|04 Team terminal")
+		// F5: a viewer with no seat and no open, claimable seat gets a
+		// disabled Team terminal item (a <div>, never an <a>) naming the
+		// reason "Needs a franchise seat" beside it — excluded from this
+		// <a>-only extraction by design, so no entry belongs here.
 	}
-	*team = append(*team, "/board|05 Big Board")
+	if viewer.hasSeat {
+		// F5: Big Board is a disabled <div> (same reason) for any viewer
+		// with no seat, so it only appears in this <a>-only extraction
+		// once a seat is held.
+		*team = append(*team, "/board|05 Big Board")
+	}
 	if viewer.hasSeat || viewer.signedIn {
 		*team = append(*team, "/players|06 Player pool")
 	}
@@ -439,6 +460,108 @@ func TestPrimaryNavigationRoleSeatAndSurfaceMatrix(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPrimaryNavigationSeatlessGroupIsDisabledWithReason (F5): a seatless
+// member's rail offered Team terminal and Big Board with no disabled
+// state and no reason, under a group still labelled "MY TEAM" — a
+// possessive claim about a team the member does not have. A seatless
+// viewer must see the group renamed "TEAM", Team terminal and Big Board
+// rendered as non-interactive items (never an <a>) naming "Needs a
+// franchise seat" beside them, and Player Pool must stay a live link.
+func TestPrimaryNavigationSeatlessGroupIsDisabledWithReason(t *testing.T) {
+	body := renderNavigationLayout(t, "/pickem?week=2", navigationViewerFixture{signedIn: true})
+	document := parseNavigationDocument(t, body)
+	surfaces := findNodes(document, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && hasClass(node, "primary-navigation")
+	})
+	if len(surfaces) != 3 {
+		t.Fatalf("primary navigation surface count = %d, want desktop/enhanced/static", len(surfaces))
+	}
+	for index, surface := range surfaces {
+		group := findNodes(surface, func(node *html.Node) bool {
+			return node.Type == html.ElementNode && nodeAttr(node, "data-navigation-group") == "my-team"
+		})
+		if len(group) != 1 {
+			t.Fatalf("surface %d has %d my-team groups, want 1", index, len(group))
+		}
+		label := findNodes(group[0], func(node *html.Node) bool {
+			return node.Type == html.ElementNode && hasClass(node, "navigation-group__label")
+		})
+		if len(label) != 1 || descendantText(label[0]) != "TEAM" {
+			t.Errorf("surface %d seatless group label = %q, want \"TEAM\"", index, descendantTextOrEmpty(label))
+		}
+
+		teamLinks := findNodes(group[0], func(node *html.Node) bool {
+			return node.Type == html.ElementNode && node.Data == "a" && nodeAttr(node, "href") == "/team"
+		})
+		if len(teamLinks) != 0 {
+			t.Errorf("surface %d rendered a live /team link for a seatless viewer", index)
+		}
+		boardLinks := findNodes(group[0], func(node *html.Node) bool {
+			return node.Type == html.ElementNode && node.Data == "a" && nodeAttr(node, "href") == "/board"
+		})
+		if len(boardLinks) != 0 {
+			t.Errorf("surface %d rendered a live /board link for a seatless viewer", index)
+		}
+
+		disabled := findNodes(group[0], func(node *html.Node) bool {
+			return node.Type == html.ElementNode && hasClass(node, "navigation-link--disabled")
+		})
+		if len(disabled) != 2 {
+			t.Fatalf("surface %d has %d disabled nav items, want 2 (Team terminal, Big Board)", index, len(disabled))
+		}
+		for _, item := range disabled {
+			if item.Data == "a" {
+				t.Errorf("surface %d disabled nav item is an <a>, want a non-interactive element", index)
+			}
+			if nodeAttr(item, "aria-disabled") != "true" {
+				t.Errorf("surface %d disabled nav item missing aria-disabled=\"true\": %s", index, nodeAttr(item, "title"))
+			}
+			if !strings.Contains(descendantText(item), "Needs a franchise seat") {
+				t.Errorf("surface %d disabled nav item %q missing its reason", index, nodeAttr(item, "title"))
+			}
+		}
+
+		playersLinks := findNodes(group[0], func(node *html.Node) bool {
+			return node.Type == html.ElementNode && node.Data == "a" && nodeAttr(node, "href") == "/players"
+		})
+		if len(playersLinks) != 1 {
+			t.Errorf("surface %d player-pool link count = %d, want 1 (Player Pool must stay enabled)", index, len(playersLinks))
+		}
+	}
+}
+
+// TestMobileBottomBarSeatlessTeamTabCarriesReason (F5): the phone bottom
+// bar's Team tab still points at a page that explains itself, but the tab
+// itself carried no reason a screen-reader user could hear before
+// following it.
+func TestMobileBottomBarSeatlessTeamTabCarriesReason(t *testing.T) {
+	body := renderNavigationLayout(t, "/pickem?week=2", navigationViewerFixture{signedIn: true})
+	document := parseNavigationDocument(t, body)
+	teamTab := findNodes(document, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && node.Data == "a" && nodeAttr(node, "href") == "/team" && hasClass(node, "app-tabbar__tab")
+	})
+	if len(teamTab) != 1 {
+		t.Fatalf("app-tabbar Team link count = %d, want 1", len(teamTab))
+	}
+	describedBy := nodeAttr(teamTab[0], "aria-describedby")
+	if describedBy == "" {
+		t.Fatal("seatless app-tabbar Team tab has no aria-describedby")
+	}
+	reason := findNodes(document, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && nodeAttr(node, "id") == describedBy
+	})
+	if len(reason) != 1 || !strings.Contains(descendantText(reason[0]), "Needs a franchise seat") {
+		t.Fatalf("app-tabbar Team tab's aria-describedby target = %#v, want the seat reason", reason)
+	}
+}
+
+func descendantTextOrEmpty(nodes []*html.Node) string {
+	if len(nodes) == 0 {
+		return ""
+	}
+	return descendantText(nodes[0])
 }
 
 func TestPrimaryNavigationPublicAndDisclosureContracts(t *testing.T) {

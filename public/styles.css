@@ -16779,3 +16779,37 @@ a.skip-link {
 .co-manager-welcome {
   margin-bottom: var(--space-md);
 }
+
+/* F5: a seatless member's rail offered Team terminal and Big Board with
+   no disabled state and no reason. .navigation-link--disabled renders a
+   non-interactive rail item (a <div>, never an <a>) with its own second
+   line naming the reason, the same "disabled control names its reason
+   beside it" promise the rest of the app already keeps. The compound
+   selector (.navigation-link.navigation-link--disabled) out-specifies
+   the earlier .navigation-link rule for the properties both declare. */
+.navigation-link.navigation-link--disabled {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.125rem;
+  cursor: default;
+  color: var(--color-text-muted);
+}
+
+.navigation-link--disabled:hover {
+  color: var(--color-text-muted);
+  background: none;
+}
+
+.navigation-link--disabled .navigation-link__row {
+  display: flex;
+  align-items: center;
+}
+
+.navigation-link--disabled .navigation-link__reason {
+  padding-left: calc(1.1rem + var(--space-sm));
+  color: var(--color-text-muted);
+  font-size: var(--type-2xs);
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+}
