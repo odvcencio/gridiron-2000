@@ -129,7 +129,20 @@ func TestBrowserReplayScoreReachesMatchupsWithinTenSeconds(t *testing.T) {
 		last = current
 	}
 	if changes < 3 {
-		t.Fatalf("only %d score changes observed in %s", changes, browserReplayScoreLoop)
+		// Diagnose which half stalled: the replay child (served_index stops
+		// advancing) or the page (binds present, hub state, visibility).
+		status := readTestLive(t, child)
+		var page string
+		_ = chromedp.Run(ctx, chromedp.Evaluate(`(function(){
+			return 'binds=' + document.querySelectorAll('[data-gosx-live-bind]').length +
+				' srcs=' + document.querySelectorAll('[data-gosx-live-src]').length +
+				' readyState=' + document.readyState +
+				' visibility=' + document.visibilityState +
+				' hubs=' + (window.gosx && window.gosx.hubs ? 'present' : 'absent');
+		})()`, &page))
+		t.Fatalf("only %d score changes observed in %s (replay served_index=%d of %d frames, served_at=%s, last cells=%q, page: %s)",
+			changes, browserReplayScoreLoop, status.Replay.ServedIndex, status.Replay.Frames,
+			status.Replay.ServedAt.Format(time.RFC3339Nano), last, page)
 	}
 	t.Logf("browser replay latencies: %v", latencies)
 	var fetches int
