@@ -593,8 +593,8 @@ func Page() Node {
 								<If cond={data.draft.time != ""}>
 									<strong>
 										At
-										{data.draft.time}
-										, confirm everyone is present and start the draft
+										{data.draft.time},
+										confirm everyone is present and start the draft
 									</strong>
 								</If>
 								<If cond={data.draft.time == ""}>

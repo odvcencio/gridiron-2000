@@ -16985,3 +16985,18 @@ a.skip-link {
 .admin-datetime-input {
   width: 15rem;
 }
+
+/* F31: .commissioner-hq__masthead h1 (line ~9367) clamps to
+   var(--type-display)'s own 5.96rem (95.36px) maximum at desktop widths
+   — wide enough that "COMMISSIONER" alone does not fit its own line
+   inside the masthead's ~700px column, so overflow-wrap: anywhere broke
+   it after "COMMISSION" even with room below to wrap the whole word.
+   Lowering this heading's own maximum (unlike var(--type-display),
+   shared sitewide) to 4.5rem lets "Commissioner HQ" wrap at the space
+   between the two words instead of splitting the first one; break-word
+   only breaks a word as a last resort, when it still would not fit
+   alone on its own line. */
+.commissioner-hq__masthead h1 {
+  font-size: clamp(2.25rem, 6vw, 4.5rem);
+  overflow-wrap: break-word;
+}
