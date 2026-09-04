@@ -16786,6 +16786,14 @@ a.skip-link {
   line-height: 1.4;
 }
 
+/* The one-line summary and its Details disclosure are the PHONE shape
+   (below); on desktop the full sentence shows inline and these two stay
+   out of the flow entirely. */
+.draft-practice-strip__line,
+.draft-practice-strip__details {
+  display: none;
+}
+
 .draft-practice-strip__actions {
   display: flex;
   flex-wrap: wrap;
@@ -16860,4 +16868,80 @@ a.skip-link {
 .practice-start__detail {
   grid-column: 2;
   color: var(--color-text-secondary);
+}
+
+/* Phone and tablet: the strip is ONE row — the chip, the short line
+   ("picks don't count · round 1 of 3"), a Details disclosure for the full
+   sentence, and a compact Leave control at the right — so the pool keeps
+   at least three rows in the first viewport (coordinator review of the
+   real-league copy, 2026-09-04: the wrapped sentence plus a full-width
+   button cost 370 px at 390 wide). Open, Details claims a full-width
+   second row, the room's notice banner's own [open] pattern. */
+@media (width <= 56.1875rem) {
+  .draft-practice-strip {
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    margin: var(--space-xs) var(--space-sm) 0;
+    padding: 0.3rem var(--space-xs);
+    min-height: 3.5rem;
+  }
+
+  .draft-practice-strip__text {
+    display: none;
+  }
+
+  .draft-practice-strip__line {
+    display: block;
+    flex: 1 1 0;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: var(--type-xs);
+  }
+
+  .draft-practice-strip__details {
+    display: block;
+    flex: 0 0 auto;
+  }
+
+  .draft-practice-strip__details[open] {
+    flex: 1 1 100%;
+  }
+
+  .draft-practice-strip__details summary {
+    cursor: pointer;
+    color: var(--color-text-muted);
+    font-size: var(--type-xs);
+    text-decoration: underline dotted;
+    text-underline-offset: 0.2em;
+    min-height: var(--control-h);
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .draft-practice-strip__details summary:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 0.25rem;
+  }
+
+  .draft-practice-strip__details p {
+    margin: var(--space-xs) 0 0;
+    font-size: var(--type-xs);
+    line-height: 1.4;
+  }
+
+  .draft-practice-strip__actions {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+}
+
+.practice-checkin {
+  flex-wrap: wrap;
+}
+
+.practice-checkin__state[data-checked-in="true"] {
+  color: var(--color-accent);
 }

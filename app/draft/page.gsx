@@ -1499,18 +1499,12 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 func DraftPracticeStrip(props DraftCommandBarProps) Node {
 	return <div class="draft-practice-strip" role="status" data-practice-complete={props.Data.practice.complete}>
 		<span class="draft-practice-strip__tag mono">PRACTICE</span>
-		<If cond={props.Data.practice.complete == false}>
-			<p class="draft-practice-strip__text">
-				<strong>Practice draft.</strong> Picks here do not count. Round {props.Data.practice.round} of {props.Data.practice.end_round}, practice rounds {props.Data.practice.start_round} to {props.Data.practice.end_round}.
-				<If cond={props.Data.practice.real_draft_known}> The real draft starts {props.Data.practice.real_draft_label}, {props.Data.practice.real_draft_relative}.</If>
-			</p>
-		</If>
-		<If cond={props.Data.practice.complete}>
-			<p class="draft-practice-strip__text">
-				<strong>Practice complete.</strong> You drafted rounds {props.Data.practice.start_round} to {props.Data.practice.end_round}. Nothing was saved.
-				<If cond={props.Data.practice.real_draft_known}> The real draft starts {props.Data.practice.real_draft_label}, {props.Data.practice.real_draft_relative}.</If>
-			</p>
-		</If>
+		<p class="draft-practice-strip__text">{props.Data.practice.summary_full}</p>
+		<p class="draft-practice-strip__line mono">{props.Data.practice.summary_short}</p>
+		<details class="draft-practice-strip__details">
+			<summary>Details</summary>
+			<p>{props.Data.practice.summary_full}</p>
+		</details>
 		<div class="draft-practice-strip__actions">
 			<If cond={props.Data.practice.complete}>
 				<form method="post" action={props.Actions.practice_restart} data-gosx-managed="false">
@@ -1521,7 +1515,7 @@ func DraftPracticeStrip(props DraftCommandBarProps) Node {
 			</If>
 			<form method="post" action={props.Actions.practice_leave} data-gosx-managed="false">
 				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-				<button class="btn btn-sm btn-ghost" type="submit">Leave practice</button>
+				<button class="btn btn-sm btn-ghost" type="submit" aria-label="Leave practice">Leave</button>
 			</form>
 		</div>
 	</div>
