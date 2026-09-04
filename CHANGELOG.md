@@ -5,7 +5,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- The home page marks a waiting trade offer URGENT, matching the count the attention chip already shows.
+- The home page tells a manager waivers are open and names the next run, even before a claim is filed.
+- A waiver claim locked on a normal kickoff reads "Locked until waivers run" instead of "Resolution degraded."
+- Every page that names a waiver's resolve time — the team page, the player pool, and the claim card — now prints the same sentence: the event, the league-local run time, the zone, and a relative phrase.
+- The team page explains the "H###" house-rank code the same way the player pool and Big Board already do.
+- Pick'em marks your own pick with the words "Your pick," not color alone, on an open game as well as a locked one.
+- A saved lineup, a filed claim, and every other result message announce once instead of twice.
+- The matchups page's previous/next week arrows carry a real accessible name.
+- The matchups page's freshness clock drops literal seconds and adds a relative phrase.
+- League HQ's sidebar numbers every destination and shows "Draft results," matching the league settings console.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 
