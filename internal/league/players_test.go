@@ -807,6 +807,11 @@ func TestPlayersDataOnWaiversRowRendersClaimNotAdd(t *testing.T) {
 // the same deadline showed "(in 2 days)" via the same deadlineRelativeTime
 // helper (lineup_deadline.go). The pool row must append " · " plus that same
 // helper's output, so the two surfaces never disagree.
+//
+// J3 F17 folds this same absolute-plus-relative pairing into
+// waiverResolutionPhrase's one shared sentence ("Resolves <time> ·
+// <relative>."), the same helper /team's Signal Watch and the MY CLAIMS
+// card now call too, so all three surfaces render identical text.
 func TestPlayersDataWaiverResolvesAppendsRelativeTime(t *testing.T) {
 	svc, now := newWaiversTestService(t)
 	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
@@ -829,9 +834,9 @@ func TestPlayersDataWaiverResolvesAppendsRelativeTime(t *testing.T) {
 	if status.Reason == "kickoff" {
 		t.Fatal("this fixture's wv-open must resolve on the plain waiver-window path, not the kickoff estimate — the appended-relative-time claim doesn't apply to that branch")
 	}
-	want := formatResolvesAt(svc.cfg, status.ResolvesAt) + " · " + deadlineRelativeTime(now, status.ResolvesAt)
+	want := "Resolves " + formatResolvesAt(svc.cfg, status.ResolvesAt) + " · " + deadlineRelativeTime(now, status.ResolvesAt) + "."
 	if resolves != want {
-		t.Fatalf("waiver_resolves = %q, want %q (the absolute time plus the shared relative-time suffix)", resolves, want)
+		t.Fatalf("waiver_resolves = %q, want %q (the shared waiverResolutionPhrase sentence)", resolves, want)
 	}
 }
 
