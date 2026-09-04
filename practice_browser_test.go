@@ -132,6 +132,25 @@ func TestBrowserPracticeStripStaysOneRowOnPhones(t *testing.T) {
 	if evalString(t, ctx, `getComputedStyle(document.querySelector('.draft-practice-strip__details')).display`) == "none" {
 		t.Error("the Details disclosure must be reachable on phones")
 	}
+	// The short line is fully visible: no ellipsis, no clipped second line,
+	// at 390 and at the narrowest phone the room supports.
+	for _, width := range []int64{390, 360} {
+		if err := chromedp.Run(ctx, chromedp.EmulateViewport(width, 844)); err != nil {
+			t.Fatalf("emulate %dx844: %v", width, err)
+		}
+		time.Sleep(browserPollInterval)
+		line := evalString(t, ctx, `(function(){var e=document.querySelector('.draft-practice-strip__line');if(!e)return 'missing';var cs=getComputedStyle(e);if(cs.display==='none')return 'hidden';return (e.textContent||'').trim()+'|'+(e.scrollWidth<=e.clientWidth+1?'fits':'clipped-w')+'|'+(e.scrollHeight<=e.clientHeight+1?'fits':'clipped-h')})()`)
+		if line != "Picks don't count|fits|fits" {
+			t.Errorf("%dpx: practice strip short line = %q, want the full text visible", width, line)
+		}
+		if strip := elementBoundingRect(t, ctx, ".draft-practice-strip"); strip.Height > 72 {
+			t.Errorf("%dpx: practice strip is %.0fpx tall, want <= 72px", width, strip.Height)
+		}
+	}
+	if err := chromedp.Run(ctx, chromedp.EmulateViewport(390, 844)); err != nil {
+		t.Fatalf("emulate 390x844: %v", err)
+	}
+	time.Sleep(browserPollInterval)
 	leave := elementBoundingRect(t, ctx, `.draft-practice-strip form[action$="practice-leave"] button`)
 	if leave.Height < 44 || leave.Right > 390 {
 		t.Errorf("Leave control = %.0fpx tall, right edge %.0fpx; want a 44px target inside the 390px viewport", leave.Height, leave.Right)

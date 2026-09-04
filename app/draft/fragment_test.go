@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -781,7 +782,18 @@ func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 			t.Errorf("draft region contract missing %q", want)
 		}
 	}
-	for _, forbidden := range []string{"data-gosx-revalidate", "data-gosx-region-interval", "Reload the room", "Reload the player list"} {
+	// data-gosx-region-interval (practice draft): the attribute may appear
+	// ONLY as the data-driven form below — "" for the real room, which the
+	// runtime treats as "never poll", and the practice room's own interval
+	// for a practice — never as a literal duration in this template.
+	if literal := regexp.MustCompile(`data-gosx-region-interval=(?:"[^"]*"|\{[^}]*\})`); literal.MatchString(source) {
+		for _, match := range literal.FindAllString(source, -1) {
+			if match != `data-gosx-region-interval={data.region_interval}` {
+				t.Errorf("draft page polls a region with a literal interval: %s", match)
+			}
+		}
+	}
+	for _, forbidden := range []string{"data-gosx-revalidate", "Reload the room", "Reload the player list"} {
 		if strings.Contains(source, forbidden) {
 			t.Errorf("draft page retains refresh-driven behavior %q", forbidden)
 		}

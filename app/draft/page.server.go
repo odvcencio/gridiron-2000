@@ -1074,6 +1074,22 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	if _, ok := viewData["practice"].(map[string]any); !ok {
 		viewData["practice"] = league.PracticeInactiveMap(league.PracticeAvailability{})
 	}
+	// The five room keys default to the real room's own literals for the
+	// same reason: a data map built without draftData must never render
+	// an href="" or an empty hub name.
+	for key, fallback := range map[string]string{
+		"room_path": "/draft", "fragment_base": "/draft/fragment", "live_src": "/draft/live.json",
+		"live_hub": "draft-live", "queue_move_url": "POST /draft/queue",
+	} {
+		if stringField(viewData, key) == "" {
+			viewData[key] = fallback
+		}
+	}
+	// region_interval is "" for the real room (the runtime ignores an
+	// empty value and never polls) and practicePollInterval for a practice.
+	if _, ok := viewData["region_interval"]; !ok {
+		viewData["region_interval"] = ""
+	}
 	// pool_sort/pool_position_chips/pool_sort_options (D7/D9, spruce
 	// audit): built here, off this ONE viewData map, so the available
 	// pane's RK-column ordering and the head's chip/sort rows (both read
