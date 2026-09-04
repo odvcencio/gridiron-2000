@@ -42,7 +42,7 @@ type WeekBrowserProps struct {
 func WeekBrowser(props WeekBrowserProps) Node {
 	return <nav class="pickem-weeknav" aria-label="Matchup week navigation">
 		<If cond={props.HasPrevious}>
-			<a href={props.PreviousHref} data-gosx-link class="board-button" rel="prev">◀</a>
+			<a href={props.PreviousHref} data-gosx-link class="board-button" aria-label="Previous week" rel="prev">◀</a>
 		</If>
 		<form method="get" action="/matchups" class="lineup-week-form">
 			<label class="visually-hidden" for="matchups-week-select">Select matchup week</label>
@@ -54,7 +54,7 @@ func WeekBrowser(props WeekBrowserProps) Node {
 			<button class="visually-hidden" type="submit">Go</button>
 		</form>
 		<If cond={props.HasNext}>
-			<a href={props.NextHref} data-gosx-link class="board-button" rel="next">▶</a>
+			<a href={props.NextHref} data-gosx-link class="board-button" aria-label="Next week" rel="next">▶</a>
 		</If>
 		<If cond={props.IsCurrent == false}>
 			<a href={props.CurrentHref} data-gosx-link class="access-link">Back to current week</a>
