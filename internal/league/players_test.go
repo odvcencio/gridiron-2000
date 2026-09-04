@@ -1268,8 +1268,11 @@ func TestPlayersDataKickoffLockedResolveTimeAgreesBetweenPoolRowAndMyClaims(t *t
 	if poolResolves != claims[0]["resolution_label"] {
 		t.Fatalf("pool row waiver_resolves = %q, MY CLAIMS resolution_label = %q; the two surfaces must agree", poolResolves, claims[0]["resolution_label"])
 	}
-	if poolResolves != waiverKickoffPendingLabel {
-		t.Fatalf("waiver_resolves = %q, want the shared kickoff-pending label %q", poolResolves, waiverKickoffPendingLabel)
+	resolves, _ := poolResolves.(string)
+	for _, want := range []string{"Resolves after the PIT game ends, at the next waiver run", "·"} {
+		if !strings.Contains(resolves, want) {
+			t.Fatalf("waiver_resolves = %q, want it to contain %q", resolves, want)
+		}
 	}
 }
 
@@ -1334,8 +1337,9 @@ func TestPlayersDataClaimResolutionStates(t *testing.T) {
 	if pending == nil || pending["resolution_state"] != "pending" || pending["resolution_at"] != "" || pending["resolution_relative"] != "" {
 		t.Fatalf("kickoff-locked claim resolution = %+v, want explicit pending state, not degraded", pending)
 	}
-	if pending["resolution_label"] != waiverKickoffPendingLabel {
-		t.Fatalf("pending claim resolution_label = %q, want the shared kickoff-pending label %q", pending["resolution_label"], waiverKickoffPendingLabel)
+	pendingLabel, _ := pending["resolution_label"].(string)
+	if !strings.Contains(pendingLabel, "Resolves after the PIT game ends, at the next waiver run") {
+		t.Fatalf("pending claim resolution_label = %q, want the shared kickoff-resolution phrase", pending["resolution_label"])
 	}
 }
 

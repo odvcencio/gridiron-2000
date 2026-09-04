@@ -64,15 +64,16 @@ func waiverClaimResolutionView(state PersistedState, cfg Config, games []GameInf
 	status := playerWaiverStatus(state, cfg, games, player.ID, player.NFLTeam, now)
 	if status.State == AvailabilityOnWaivers {
 		if status.Reason == "kickoff" {
-			// F7: share the exact same label the pool row renders
-			// (waiverKickoffPendingLabel), so this player's kickoff-locked
-			// resolve time can never disagree between the two surfaces.
+			// J3 F17: share the exact same sentence the pool row and
+			// /team's Signal Watch render (waiverResolutionPhrase), so
+			// this player's kickoff-locked resolve time can never
+			// disagree across the three surfaces.
 			// J3 F15: this is an ordinary, expected lock — the player's
 			// game has not gone final yet — not a processor fault, so it
 			// is "pending", not "degraded". DEGRADED stays reserved for a
 			// real data-degradation case.
 			view["resolution_state"] = "pending"
-			view["resolution_label"] = waiverKickoffPendingLabel
+			view["resolution_label"] = waiverResolutionPhrase(cfg, player.NFLTeam, status, now)
 			return view
 		}
 		if status.ResolvesAt.IsZero() {
@@ -281,25 +282,14 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		row["on_waivers"] = onWaivers
 		row["waiver_resolves"] = ""
 		if onWaivers {
-			// F7: one shared answer for a kickoff-locked player's resolve
-			// time, so this pool row can never disagree with the same
-			// player's MY CLAIMS row (waiverClaimResolutionView) — a
-			// kickoff-lock's ResolvesAt is only ever an estimate the live
-			// processor does not itself use to decide "due".
-			if status.Reason == "kickoff" {
-				row["waiver_resolves"] = waiverKickoffPendingLabel
-			} else {
-				// Append the same relative-time idiom the MY CLAIMS row
-				// already carries (waiverClaimResolutionView's
-				// resolution_relative, deadlineRelativeTime) — the pool row
-				// used to show only the absolute time, so "ON WAIVERS · Sep
-				// 4, 9:00 AM EDT" disagreed with the desk's own "(in 2
-				// days)" for the exact same deadline (2026-08-31 gap audit).
-				row["waiver_resolves"] = formatResolvesAt(s.cfg, status.ResolvesAt)
-				if relative := deadlineRelativeTime(now, status.ResolvesAt); relative != "" {
-					row["waiver_resolves"] = row["waiver_resolves"].(string) + " · " + relative
-				}
-			}
+			// J3 F17: one shared sentence (waiverResolutionPhrase) for
+			// this pool row, the same player's MY CLAIMS row
+			// (waiverClaimResolutionView), and /team's Signal Watch, so
+			// no two surfaces can ever disagree about when a waiver
+			// resolves — a kickoff-lock's ResolvesAt is only ever an
+			// estimate the live processor does not itself use to decide
+			// "due".
+			row["waiver_resolves"] = waiverResolutionPhrase(s.cfg, player.NFLTeam, status, now)
 		}
 		// owner_name (item 9, 2026-08-31 post-wave audit) rides beside
 		// owner_abbr so the compact chip that shows the abbreviation
