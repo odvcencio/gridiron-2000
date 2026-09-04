@@ -36,7 +36,7 @@ spec:
           # reconciles the body in place. Also ships the phone layout pass
           # and the self-hosted fonts. No schema change: `rollout undo` to
           # the previous revision is valid.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:a1307b9580ec39ff4d289622e0aa47a5cdb7f35d39c3eb033917e23f73208e16
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:dce3ae2caf92f18596d4b7481c4ab50e22994be9b94e27d43304eb596dc05a12
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

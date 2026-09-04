@@ -5,8 +5,18 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+No changes yet.
+
+## [release-2026.09.04-972461d-uxpass] — 2026-09-04
+
+Scope: the UX pass before the Sunday draft: six persona-journey audits on faithful copies of the live league (214 findings), the practice draft at /draft/practice, and 109 pre-draft fixes across the draft room, console, arrival, home, team, board, players, trades, settings, help, and scoring. No schema change.
+
 ### Added
 - A practice draft at `/draft/practice`: a seated manager takes a few picks on the clock in a private copy of the draft room, in their real seat, against the other seats played by bots that draft from each seat's real Big Board. It uses the real pool, draft order, and pick clock, starts from round 1, 5, 10, or 15, runs three rounds, and saves nothing. Entry points sit on the home page, in the pre-draft checklist, and in /help.
+
+### Changed
+- /scoring states the league's scoring format, superflex, mode, draft rounds, and starter count in one line under the heading.
+
 ### Fixed
 - The draft room's RK column is wide enough for the house-rank code, so the code no longer paints over the player name at desktop widths.
 - Before the draft, the command bar and the phone menu carry a "Practice the draft room" link, so the practice draft is visible without opening the checklist.
@@ -16,21 +26,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The session-expired page after a stale form submission now says the form expired, not the session, and names the page its back link returns to. A form posted to a page that does not accept one gets its own short 405 page instead of the same message.
 - The Preseason Blitz notice's action button no longer paints its top border across the sentence above it.
 - Every "back to home" link across `/settings`, `/terms`, `/open-source`, `/privacy`, and the 404 page uses the same label and destination; `/settings`'s sign-in link is named for what it does.
-### Changed
-- /scoring states the league's scoring format, superflex, mode, draft rounds, and starter count in one line under the heading.
-
-### Fixed
 - The Help Center glossary shows its 75 terms, definitions, and topic links instead of 75 blank cards linking to a 404.
 - The Help Center's "coming from another app" table shows its nine rows instead of nine blank rows, and a long unbroken run of text in that table wraps instead of pushing the page into a sideways scroll.
 - /scoring's "editable until" deadline shows only to the commissioner; a manager reads a true sentence about when the rules become final instead.
 - /scoring and /matchups now name the same season-opening kickoff instead of disagreeing by a day; scoring locks at the earlier of the configured start and the schedule's real week-1 kickoff.
 - The 404 page leads with a plain sentence and adds links back to Home and to Search help, alongside its existing joke.
 - /terms no longer calls itself the commissioner edition for every manager, and now carries a last-updated date like /privacy does.
-
-### Fixed
 - The draft room now updates itself while you keep it open: the DRAFT button, the "you're up" pill, the page heading, the paused-clock state, and the phone pick bar all refresh live instead of freezing at the state the page had when you loaded it. Live updates now default to the mode that refetches these regions on every pick, clock change, and state change; the faster fetchless mode stays available as an override for anyone who needs it.
 - The draft room's screen-reader announcement now names the team on the clock ("Los Delfines del Norte on the clock") instead of an internal seat code ("AQ2 on the clock").
-### Fixed
 - The home page marks a waiting trade offer URGENT, matching the count the attention chip already shows.
 - The home page tells a manager waivers are open and names the next run, even before a claim is filed.
 - A waiver claim locked on a normal kickoff reads "Locked until waivers run" instead of "Resolution degraded."
@@ -41,7 +44,6 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The matchups page's previous/next week arrows carry a real accessible name.
 - The matchups page's freshness clock drops literal seconds and adds a relative phrase.
 - League HQ's sidebar numbers every destination and shows "Draft results," matching the league settings console.
-### Fixed
 - The waiver claim form states the roster consequence and asks for confirmation before a claim that would drop a player, matching the free-agent add form.
 - An accepted trade in a commissioner-veto league now says the commissioner is reviewing it, with the review deadline, instead of a league-vote count that never applies.
 - The trade desk states the veto rule and review window above the offer form, and the accept confirmation names the actual outcome instead of hedging between two policies.
@@ -51,7 +53,6 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A long player name on the team page shows in full at phone width instead of clipping to a few characters.
 - Opening the player pool's phone filter panel no longer jumps the page or draws the panel outside its card.
 - The player pool's roster-full error names the player you tried to add or claim.
-### Fixed
 - The draft room's pre-draft checklist checks a manager in directly; the check-in and autopick items post the same controls the Room tab uses, at every width, instead of a link to a hidden panel.
 - One name for the draft check-in everywhere it appears: "Check in for the draft" to act, "Undo check-in" to reverse it.
 - The anonymous landing page keeps "Sign in to enter." as its headline at every seat count; a full league states the fact in the detail line instead of the headline.
@@ -61,8 +62,6 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The draft room tells a member with no seat "You are watching this draft" and, once a seat cannot be claimed, "Ask your commissioner for a seat" instead of "Get your seat ready."
 - Signing in with a saved destination names the destination ("the Draft room") instead of "the page you requested."
 - An unconfigured Google sign-in reads "Google sign-in is not set up on this server yet" instead of "Sign-in is not open yet," which read as a league policy.
-
-### Fixed
 - On a phone, a live draft no longer tells you the room has not opened yet: the pick bar now shows your own on-clock prompt while the draft is live, and a link to results once it is complete.
 - The draft pool's player names stay readable once the draft goes live, on both phone and desktop, instead of collapsing to one or two characters once the value-versus-ADP column appears.
 - The phone pick bar's Draft button no longer breaks its own label into three stacked letters.
@@ -79,7 +78,6 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `/board` rows keep the same shape from row to row, and the move-up/move-down buttons meet the 44px touch-target floor on a phone.
 - The room's pick-history tabs ("Picks", "Draft grid", "Teams") stay on one line at desktop width instead of wrapping one letter per line.
 - The room flags the on-clock team as "Not in the room" when that seat has not been seen recently.
-### Fixed
 - The co-manager welcome flash on sign-in names the seat's primary manager, not the invitee reading it.
 - A freshly bound co-manager sees a first-session panel on the home page naming the team and the primary manager by first name, and a CO-MANAGER chip beside the team name in the rail and phone menu.
 - Public pages, sign-in, and the seatless states on the team page and the Big Board name the commissioner by first name and team when one is seated, instead of a generic, unreachable "ask the commissioner."
@@ -91,8 +89,6 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Renaming the team with JavaScript on now shows a visible confirmation naming the new team name.
 - A franchise still named its configured default gets an Action Center card prompting a rename, and the setup checklist stops marking personalization done until it is renamed.
 - The team page's pre-draft empty-starter warning collapses to one line instead of naming each empty slot and telling the manager to sign a player before the draft has run.
-
-### Fixed
 - The commissioner drawer's seat coverage grid no longer squeezes into four overlapping columns at desktop width; it stays one column inside the drawer at every viewport.
 - On a phone, the commissioner drawer's "Force current pick now" and "Undo last pick" controls no longer sit off-screen in hidden side columns.
 - Undoing a pick from the draft room's commissioner drawer returns to the room instead of throwing the commissioner onto the console's Danger Zone.
