@@ -2923,6 +2923,19 @@ func DraftPreflight(props DraftPreflightProps) Node {
 					<a href="#autopick-toggle" class="board-button">Autopick toggle ↑</a>
 				</div>
 			</If>
+			{/* F28 (gap-audit J2): this checklist was manager-only and never
+			    pointed the commissioner to the runbook — the commissioner
+			    arrived in the room to prepare and read someone else's list. */}
+			<If cond={props.Data.viewer.is_commissioner}>
+				<div class="checklist-item">
+					<span class="checklist-mark mono">06</span>
+					<div class="checklist-item__text">
+						<strong>Run the draft-night runbook</strong>
+						<small>Confirm seat readiness and the start sequence before you open the room.</small>
+					</div>
+					<a href="/admin?section=draft-control" data-gosx-link class="board-button">Run the draft-night runbook →</a>
+				</div>
+			</If>
 		</div>
 	</details>
 }

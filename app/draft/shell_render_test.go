@@ -199,6 +199,18 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 	if panesAt, mineAt, readyAt := strings.Index(pre, `class="draft-panes"`), strings.Index(pre, `draft-pane--mine`), strings.Index(pre, `id="ready-toggle"`); panesAt < 0 || mineAt < 0 || readyAt < 0 || readyAt < panesAt || readyAt < mineAt {
 		t.Errorf("pre-draft shell: ready-toggle (%d) must render inside the Room tab (draft-panes at %d, draft-pane--mine at %d)", readyAt, panesAt, mineAt)
 	}
+	// F28 (gap-audit J2): the pre-draft checklist was manager-only and
+	// never pointed the commissioner (shellCommissioner here: seatless,
+	// COMMISSIONER_EMAILS-only) to the runbook. A commissioner viewing the
+	// room before it opens must see a checklist item into the runbook; a
+	// manager (the "pre" render above) must not.
+	preCommissioner := renderDraftForUser(t, handler, shellCommissioner)
+	if !strings.Contains(preCommissioner, "Run the draft-night runbook") || !strings.Contains(preCommissioner, `href="/admin?section=draft-control"`) {
+		t.Errorf("pre-draft commissioner shell missing the runbook checklist item")
+	}
+	if strings.Contains(pre, "Run the draft-night runbook") {
+		t.Error("pre-draft manager shell must not render the commissioner-only runbook checklist item")
+	}
 	postDraftAction(t, handler, shellCommissioner, "draft-start", url.Values{"confirm": {"START"}})
 	live := renderDraftForUser(t, handler, seated)
 	check("live", live)

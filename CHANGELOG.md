@@ -26,6 +26,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The console shows the live pick deadline in league-local time with a relative phrase, instead of a raw UTC timestamp.
 - The draft-night runbook's fourth step reads without a stray space before its comma.
 - Commissioner HQ's heading wraps between "Commissioner" and "HQ" instead of splitting "Commissioner" itself mid-word.
+- The draft room's pre-draft checklist points commissioners to the draft-night runbook.
+- The console's published draft order shows each seat's real pick number and marks the viewer's own seat.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 

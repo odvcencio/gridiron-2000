@@ -342,8 +342,14 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		orderIDs = defaultTeamIDs()
 	}
 	draftOrder := make([]map[string]any, 0, len(orderIDs))
-	for _, teamID := range orderIDs {
-		draftOrder = append(draftOrder, s.teamMap(s.teamView(state, teamID)))
+	for index, teamID := range orderIDs {
+		row := s.teamMap(s.teamView(state, teamID))
+		// pick_number (F29, gap-audit J2): the published order listed eight
+		// teams with a division chip and no ordinal — "who picks seventh?"
+		// is the week's most common question, and this card never
+		// answered it directly.
+		row["pick_number"] = index + 1
+		draftOrder = append(draftOrder, row)
 	}
 	previewSubject, previewText, previewHTML := s.InviteEmailTemplate(r, "their-email@example.com")
 	now := s.clock()

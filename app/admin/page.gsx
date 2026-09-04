@@ -1041,6 +1041,13 @@ func Page() Node {
 						</If>
 					</div>
 					<div class="order-list">
+						{/* F29 (gap-audit J2): "who picks seventh?" is the
+						    week's most common question; the order used to
+						    list eight teams with a division chip and no
+						    ordinal at all. Pick numbers here name the real
+						    draft slot, not a seat index — Commissioner HQ's
+						    own numbered order (a different card) already
+						    used seat indexes and stays unchanged. */}
 						<Each of={data.draft_order} as="team">
 							<article class="order-row">
 								<span class={"team-mark tone-" + team.tone}>
@@ -1052,9 +1059,12 @@ func Page() Node {
 									</If>
 								</span>
 								<div class="seat-identity">
-									<strong>{team.name}</strong>
+									<strong><span class="mono">Pick {team.pick_number} ·</span> {team.name}</strong>
 									<small>{team.manager}</small>
 									<span class="position-chip">{team.division}</span>
+									<If cond={team.id == data.viewer.team_id}>
+										<span class="position-chip">YOUR SEAT</span>
+									</If>
 								</div>
 							</article>
 						</Each>

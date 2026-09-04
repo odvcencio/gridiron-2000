@@ -527,6 +527,38 @@ func TestAdminInviteMapNudgesASeatedManagerInsteadOfInviting(t *testing.T) {
 	}
 }
 
+// TestAdminDataDraftOrderCarriesPickNumbers pins F29 (gap-audit J2): the
+// published draft order listed eight teams with a division chip and no
+// ordinal at all — "who picks seventh?" is the week's most common
+// question, and neither commissioner page answered it directly.
+// pick_number must be 1-indexed and match each team's own position in
+// the persisted draft order.
+func TestAdminDataDraftOrderCarriesPickNumbers(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	order := defaultTeamIDs()
+	if err := service.store.SetDraftOrder(order); err != nil {
+		t.Fatal(err)
+	}
+
+	data := service.AdminData(request)
+	draftOrder, ok := data["draft_order"].([]map[string]any)
+	if !ok || len(draftOrder) != len(order) {
+		t.Fatalf("draft_order = %#v, want %d entries", data["draft_order"], len(order))
+	}
+	for index, row := range draftOrder {
+		want := index + 1
+		got, _ := row["pick_number"].(int)
+		if got != want {
+			t.Fatalf("draft_order[%d] pick_number = %v, want %d (team %v)", index, row["pick_number"], want, row["id"])
+		}
+		if row["id"] != order[index] {
+			t.Fatalf("draft_order[%d] id = %v, want %v (pick_number must track the real order, not a seat index)", index, row["id"], order[index])
+		}
+	}
+}
+
 func TestAdminDataMailFieldsAndMailto(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
