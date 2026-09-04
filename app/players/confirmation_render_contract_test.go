@@ -30,7 +30,10 @@ func TestPlayersIrreversibleActionsExposeNativeConfirmation(t *testing.T) {
 		`required="required"`,
 		"Adding {player.name} will immediately replace",
 		"Dropping this player removes them from your roster",
+		`value="claim-drop-player"`,
+		"it will replace the player you select above",
 		"Confirm add and drop",
+		"Confirm claim and drop",
 		"Confirm drop",
 		"cannot be undone from this screen",
 	} {

@@ -6,6 +6,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- The waiver claim form states the roster consequence and asks for confirmation before a claim that would drop a player, matching the free-agent add form.
 - An accepted trade in a commissioner-veto league now says the commissioner is reviewing it, with the review deadline, instead of a league-vote count that never applies.
 - The trade desk states the veto rule and review window above the offer form, and the accept confirmation names the actual outcome instead of hedging between two policies.
 - The player pool's position filter chips show and work at desktop width; the phone filter rail still collapses to one row.
