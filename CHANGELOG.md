@@ -5,7 +5,18 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- The co-manager welcome flash on sign-in names the seat's primary manager, not the invitee reading it.
+- A freshly bound co-manager sees a first-session panel on the home page naming the team and the primary manager by first name, and a CO-MANAGER chip beside the team name in the rail and phone menu.
+- Public pages, sign-in, and the seatless states on the team page and the Big Board name the commissioner by first name and team when one is seated, instead of a generic, unreachable "ask the commissioner."
+- The claim page's headline matches the member's true admission state instead of always promising a claim.
+- The claim page's primary button no longer renders a doubled arrow.
+- A member with no franchise seat sees the rail's team group renamed "TEAM," with Team Terminal and Big Board shown as disabled items naming "Needs a franchise seat"; Player Pool stays enabled, and the phone tab bar's Team entry names the same reason.
+- The rail's numbered list no longer skips a number when Trades is hidden for a seatless member.
+- Reordering or removing a ranked player on the Big Board with no JavaScript returns to the ranked panel instead of scrolling past it to the player pool, and the panel clears the sticky phone header on landing.
+- Renaming the team with JavaScript on now shows a visible confirmation naming the new team name.
+- A franchise still named its configured default gets an Action Center card prompting a rename, and the setup checklist stops marking personalization done until it is renamed.
+- The team page's pre-draft empty-starter warning collapses to one line instead of naming each empty slot and telling the manager to sign a player before the draft has run.
 
 ## [release-2026.09.04-b96bb85-gosx0552] — 2026-09-04
 
