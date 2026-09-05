@@ -130,6 +130,9 @@ func TestPracticeRoomRendersFromTheSandboxFixtureProcess(t *testing.T) {
 	if strings.Contains(real, `class="draft-practice-strip"`) {
 		t.Error("the real room must never render the practice strip")
 	}
+	if strings.Contains(real, "Practice unavailable") {
+		t.Error("the checklist never renders a disabled practice entry")
+	}
 	for _, want := range []string{`data-gosx-region-url="/draft/fragment/queue"`, "+ RANK", `action="/draft/__actions/make-pick"`} {
 		if !strings.Contains(real, want) {
 			t.Errorf("real room lost %q after the practice change", want)
@@ -158,7 +161,7 @@ func TestPracticeRoomRendersFromTheSandboxFixtureProcess(t *testing.T) {
 	// 2. The lobby: start options for a seated viewer, the reason for a
 	// seatless one.
 	lobby := getAs(t, handler, seated, "/practice")
-	for _, want := range []string{"<h1>Practice draft</h1>", "Choose where to start", `name="round"`, "Early rounds", "Middle rounds", "Late rounds", "Specialists", `action="/draft/practice/__actions/practice-start"`, "Nothing you do here is saved."} {
+	for _, want := range []string{"<h1>Practice draft</h1>", "See what a live draft looks like before the real draft.", "Choose where to start", `name="round"`, "Early rounds", "Middle rounds", "Late rounds", "Specialists", `action="/draft/practice/__actions/practice-start"`, "Nothing you do here is saved.", "until the last pick of the sandbox draft, or until you leave"} {
 		if !strings.Contains(lobby, want) {
 			t.Errorf("lobby missing %q", want)
 		}
@@ -188,7 +191,7 @@ func TestPracticeRoomRendersFromTheSandboxFixtureProcess(t *testing.T) {
 	}
 	room := getAs(t, handler, seated, "/practice")
 	for _, want := range []string{
-		`class="draft-practice-strip"`, "PRACTICE", "Practice draft · picks here do not count · rounds 5 to 7", `class="draft-practice-strip__line mono">Picks don`,
+		`class="draft-practice-strip"`, "PRACTICE", "Practice draft · picks here do not count · leave whenever you like", `class="draft-practice-strip__line mono">Picks don`,
 		`class="draft-practice-strip__details"`, `aria-label="Leave practice"`,
 		"Practice draft · Round 5 · Pick", `class="draft-shell`, `data-draft-live-mode="fallback"`,
 		`action="/draft/practice/__actions/make-pick"`, `action="/draft/practice/__actions/practice-leave"`,
@@ -242,6 +245,15 @@ func TestPracticeRoomRendersFromTheSandboxFixtureProcess(t *testing.T) {
 	for _, want := range []string{`data-real-started="true"`, "The real draft has started.", `href="/draft">Go to the real draft room →</a>`} {
 		if !strings.Contains(underway, want) {
 			t.Errorf("practice room with the real draft live missing %q", want)
+		}
+	}
+	// Every entry point is gone once the real draft has started: the real
+	// room's command bar and phone menu, the checklist (not rendered at
+	// all now), and the home card's gate all key on practice.allowed.
+	liveRoom := getAs(t, handler, seated, "/")
+	for _, gone := range []string{"Practice the draft room", `href="/draft/practice"`, "Practice unavailable"} {
+		if strings.Contains(liveRoom, gone) {
+			t.Errorf("the live real room still carries the practice entry %q", gone)
 		}
 	}
 	if strings.Contains(underway, `class="btn btn-sm btn-primary" type="submit">Draft</button>`) {

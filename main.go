@@ -325,6 +325,31 @@ func redirectSeatedFromJoin(next http.Handler) http.Handler {
 	})
 }
 
+// redirectPracticeAfterDraftStart makes the practice draft disappear once
+// the real draft has started (live or complete): /draft/practice and its
+// actions answer a 303 to the real room. GoSX applies this middleware only
+// to a matched file page or action, so the practice fragment, live.json,
+// and hub mounts (app_build.go) are untouched — an open session keeps
+// serving its "real draft has started" strip until the registry evicts it.
+func redirectPracticeAfterDraftStart(next http.Handler) http.Handler {
+	return redirectPracticeAfterDraftStartWith(next, func() bool {
+		started, _ := league.Default().DraftLifecycle()
+		return started
+	})
+}
+
+func redirectPracticeAfterDraftStartWith(next http.Handler, started func() bool) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimSuffix(r.URL.Path, "/")
+		practice := path == league.PracticeRoomPath || strings.HasPrefix(path, league.PracticeRoomPath+"/__actions/")
+		if practice && started != nil && started() {
+			http.Redirect(w, r, "/draft", http.StatusSeeOther)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func redirectSeatedFromJoinWithViewer(next http.Handler, hasSeat func(*http.Request) bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && strings.TrimSuffix(r.URL.Path, "/") == "/join" {

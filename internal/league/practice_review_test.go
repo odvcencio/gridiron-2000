@@ -59,6 +59,24 @@ func TestPracticeStopsWhenTheRealDraftStarts(t *testing.T) {
 	if got := len(practice.Snapshot().Picks); got != picks {
 		t.Fatalf("a finished practice kept drafting: %d -> %d", picks, got)
 	}
+	// The session stays through the grace (so an open room can fetch the
+	// line), then the sweep evicts it.
+	if evicted := registry.Sweep(*clock); evicted != 0 {
+		t.Fatalf("sweep evicted %d sessions inside the grace", evicted)
+	}
+	if _, ok := registry.Current(viewer); !ok {
+		t.Fatal("the session must survive the grace window")
+	}
+	*clock = clock.Add(practiceRealStartedGrace + time.Second)
+	if evicted := registry.Sweep(*clock); evicted != 1 {
+		t.Fatalf("sweep evicted %d sessions after the grace, want 1", evicted)
+	}
+	if _, ok := registry.Current(viewer); ok {
+		t.Fatal("a practice the real draft ended must be evicted after the grace")
+	}
+	if _, err := registry.Start(viewer, 1); err == nil {
+		t.Fatal("no new practice once the real draft is live")
+	}
 }
 
 func TestPracticeStartKeepsTheOldSessionWhenTheNewBuildFails(t *testing.T) {

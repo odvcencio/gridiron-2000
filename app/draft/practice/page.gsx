@@ -15,7 +15,8 @@ func Page() Node {
 					{data.league.name}
 				</span>
 				<h1>Practice draft</h1>
-				<p class="lede">Take a few picks on the clock in a copy of the draft room. The other seats are played by bots. Nothing you do here is saved.</p>
+				<p class="lede">See what a live draft looks like before {data.real_draft.day_name}.</p>
+				<p class="muted">You take picks on the clock in a copy of the draft room. The other seats are played by bots. Nothing you do here is saved.</p>
 			</div>
 			<div class="draft-clock-panel">
 				<span>Real draft</span>
@@ -54,7 +55,7 @@ func Page() Node {
 		<If cond={data.practice.allowed}>
 			<section class="practice-start" aria-labelledby="practice-start-title">
 				<h2 id="practice-start-title">Choose where to start</h2>
-				<p class="muted">You sit in your real seat, <strong>{data.practice_team_name}</strong>, in the real draft order. Earlier rounds are filled in for you. The practice runs for {data.practice_span} rounds, then stops.</p>
+				<p class="muted">You sit in your real seat, <strong>{data.practice_team_name}</strong>, in the real draft order. Earlier rounds are filled in for you. The practice runs until the last pick of the sandbox draft, or until you leave.</p>
 				<form method="post" action={data.start_action} class="practice-start__form" data-gosx-managed="false">
 					<input type="hidden" name="csrf_token" value={data.csrf}></input>
 					<fieldset class="practice-start__options">

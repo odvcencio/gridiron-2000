@@ -5,7 +5,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Changed
+- The practice draft has no round cap: a practice runs until the manager leaves, until the real draft starts, or until the sandbox draft reaches its final pick; "Practice complete" appears only at that final pick. A practice session now keeps for twelve idle hours, so a tab left open through draft weekend resumes where it stopped. Once the real draft has started, the practice draft is gone: no home card, no checklist item, no command-bar or phone-menu link, and `/draft/practice` and its actions redirect to `/draft`; an open practice ends with the "The real draft has started" line and its link, then the session is evicted. The strip reads "Practice draft · picks here do not count · leave whenever you like · the real draft starts …", and the lobby opens with "See what a live draft looks like before Sunday."
 
 ## [release-2026.09.04-972461d-uxpass] — 2026-09-04
 

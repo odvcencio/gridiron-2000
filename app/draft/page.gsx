@@ -3051,19 +3051,9 @@ func DraftPreflight(props DraftPreflightProps) Node {
 					<span class="checklist-mark mono">02</span>
 					<div class="checklist-item__text">
 						<strong>Practice the draft room</strong>
-						<small>Take a few picks on the clock against the other seats, played by bots. Nothing you do there counts.</small>
+						<small>See what a live draft looks like: take picks on the clock against the other seats, played by bots. Nothing you do there counts, and you can leave whenever you like.</small>
 					</div>
 					<a href={props.Data.practice.href} data-gosx-link class="board-button">Practice now →</a>
-				</div>
-			</If>
-			<If cond={props.Data.practice.allowed == false && props.Data.viewer.has_seat}>
-				<div class="checklist-item checklist-item--practice">
-					<span class="checklist-mark mono">02</span>
-					<div class="checklist-item__text">
-						<strong>Practice the draft room</strong>
-						<small>{props.Data.practice.reason}</small>
-					</div>
-					<span class="board-button board-button--disabled" aria-disabled="true">Practice unavailable</span>
 				</div>
 			</If>
 			<If cond={props.Data.viewer.has_seat}>

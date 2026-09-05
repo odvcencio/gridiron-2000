@@ -26,9 +26,16 @@ import (
 // real store after construction, so the real room cannot see it either.
 //
 // One session per member email lives in a PracticeRegistry, evicted after
-// practiceIdleTTL without a page load or action, and capped at
-// practiceMaxSessions. The registry's single one-second ticker drives every
-// session's bots and clocks; there is no goroutine per session.
+// practiceIdleTTL without a page load or action (twelve hours: a manager
+// who leaves the tab open through draft weekend finds the practice where
+// they left it), and capped at practiceMaxSessions. The registry's single
+// one-second ticker drives every session's bots and clocks; there is no
+// goroutine per session. A practice has no round cap: it runs until the
+// manager leaves, until the real draft starts, or until the sandbox draft
+// reaches its final pick. Once the real draft has started the practice
+// disappears entirely (main.go's redirectPracticeAfterDraftStart and the
+// practice.allowed gate on every entry point); an open session ends with
+// the "real draft has started" line and is evicted after a short grace.
 
 const (
 	// PracticeRoomPath is the practice room's own route; every pool href,
@@ -38,14 +45,14 @@ const (
 	// PracticeLiveHubName names the practice room's own hub, so the page's
 	// live binds and regions never listen on the real room's "draft-live".
 	PracticeLiveHubName = "practice-live"
-	// PracticeRoundSpan is how many rounds one practice runs from its start
-	// round: "a few picks in a round" — enough to feel the clock and the
-	// snake turn without drafting a whole roster.
-	PracticeRoundSpan = 3
-
-	practiceIdleTTL     = 30 * time.Minute
+	practiceIdleTTL     = 12 * time.Hour
 	practiceMaxSessions = 32
 	practiceTickPeriod  = time.Second
+	// practiceRealStartedGrace keeps a session that the real draft ended
+	// around long enough for its open room to fetch the "real draft has
+	// started" strip (the 8 s region poll, or the draft:state push), then
+	// the sweep evicts it.
+	practiceRealStartedGrace = 2 * time.Minute
 )
 
 // PracticeStartOption is one start-round choice the practice page offers.
@@ -314,7 +321,7 @@ func (p *PracticeRegistry) Sweep(now time.Time) int {
 func (p *PracticeRegistry) sweepLocked(now time.Time) int {
 	evicted := 0
 	for key, session := range p.sessions {
-		if now.Sub(session.lastTouchedAt()) > p.ttl {
+		if now.Sub(session.lastTouchedAt()) > p.ttl || session.evictableAfterRealStart(now) {
 			session.close()
 			delete(p.sessions, key)
 			evicted++
@@ -376,6 +383,9 @@ type PracticeDraft struct {
 	botDue      time.Time
 	done        bool
 	closed      bool
+	// realStartedAt is the instant Tick saw the real draft go live; the
+	// sweep evicts the session practiceRealStartedGrace later.
+	realStartedAt time.Time
 }
 
 // newPracticeDraft builds the sandbox: a second Service over an in-memory
@@ -445,11 +455,10 @@ func newPracticeDraft(base *Service, key, teamID string, startRound int, now tim
 	}
 	svc.feed = newLiveFeed(nil, svc)
 
-	last := CurrentDraftRounds()
-	endRound := startRound + PracticeRoundSpan - 1
-	if endRound > last {
-		endRound = last
-	}
+	// No round cap (owner's rule, 2026-09-04): the practice runs to the
+	// sandbox draft's final pick unless the manager leaves or the real
+	// draft starts first.
+	endRound := CurrentDraftRounds()
 	session := &PracticeDraft{
 		svc:         svc,
 		base:        base,
@@ -577,8 +586,12 @@ func (d *PracticeDraft) Tick(now time.Time) {
 	}
 	// The real draft going live ends every practice: the manager's real
 	// clock is what matters now, and the strip says so (real_started,
-	// practiceMap) with a link to the real room.
+	// practiceMap) with a link to the real room. The sweep evicts the
+	// session once that line has had time to render.
 	if d.base.store.draftStartedQuick() {
+		if d.realStartedAt.IsZero() {
+			d.realStartedAt = now
+		}
 		d.finishLocked(d.svc.store.Snapshot(), now)
 		return
 	}
@@ -630,14 +643,18 @@ func (d *PracticeDraft) Tick(now time.Time) {
 	}
 }
 
-// overLocked reports whether the next pick falls past the end round (or
-// the draft itself is complete).
+// overLocked reports whether the sandbox draft has reached its final pick:
+// the only end a practice reaches on its own.
 func (d *PracticeDraft) overLocked(state PersistedState) bool {
-	if draftComplete(state) {
-		return true
-	}
-	next := len(state.Picks) + 1
-	return pickRound(activeTeamCount(state.DraftOrder), next) > d.endRound
+	return draftComplete(state)
+}
+
+// evictableAfterRealStart reports whether the real draft ended this
+// session long enough ago for the sweep to drop it.
+func (d *PracticeDraft) evictableAfterRealStart(now time.Time) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return !d.realStartedAt.IsZero() && now.Sub(d.realStartedAt) > practiceRealStartedGrace
 }
 
 // finishLocked closes the live part of the practice: the clock stops and
@@ -759,10 +776,6 @@ func (d *PracticeDraft) practiceMap(now time.Time, round int, complete bool, rea
 	// summary_short is the phone strip's one line; summary_full is the
 	// desktop sentence and the phone Details body. Both are built here so
 	// the room's own template carries no copy of its own for either.
-	rounds := fmt.Sprintf("rounds %d to %d", d.startRound, d.endRound)
-	if span == 1 {
-		rounds = fmt.Sprintf("round %d", d.startRound)
-	}
 	realDraft := ""
 	if label != "" {
 		realDraft = " · the real draft starts " + label + " (" + relative + ")"
@@ -771,10 +784,10 @@ func (d *PracticeDraft) practiceMap(now time.Time, round int, complete bool, rea
 	// it, and at 360-390 px the chip, the line, Details, and Leave must
 	// share one row.
 	short := "Picks don't count"
-	full := "Practice draft · picks here do not count · " + rounds + realDraft + "."
+	full := "Practice draft · picks here do not count · leave whenever you like" + realDraft + "."
 	if complete {
 		short = "Practice complete"
-		full = "Practice complete · you drafted " + rounds + " · nothing was saved" + realDraft + "."
+		full = "Practice complete · the sandbox draft reached its final pick · nothing was saved" + realDraft + "."
 	}
 	if realStarted {
 		short = "The real draft has started"
@@ -833,6 +846,7 @@ func (s *Service) PracticeLobby(r *http.Request) map[string]any {
 		"long_date":  summary["long_date"],
 		"label":      "",
 		"relative":   "",
+		"day_name":   "the real draft",
 		"started":    state.DraftStarted,
 		"complete":   draftComplete(state),
 		"has_seat":   availability.HasSeat,
@@ -843,6 +857,10 @@ func (s *Service) PracticeLobby(r *http.Request) map[string]any {
 	if published {
 		out["label"] = at.In(location).Format(practiceTimeLayout)
 		out["relative"] = relativeTime(now, at)
+		// day_name is the lobby's one-sentence purpose line ("See what a
+		// live draft looks like before Sunday."): the real draft's own
+		// weekday in league-local time, never a hard-coded day.
+		out["day_name"] = at.In(location).Format("Monday")
 	}
 	return out
 }

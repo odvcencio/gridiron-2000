@@ -1344,6 +1344,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		Middleware: []route.Middleware{
 			requireLeagueSession,
 			redirectSeatedFromJoin,
+			redirectPracticeAfterDraftStart,
 		},
 	}); err != nil {
 		return nil, nil, err

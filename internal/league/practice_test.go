@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -253,8 +254,9 @@ func TestPracticeFastForwardsToTheStartRound(t *testing.T) {
 			t.Fatalf("%s holds %d picks after nine rounds", teamID, perTeam[teamID])
 		}
 	}
-	if practice.StartRound() != 10 || practice.EndRound() != 12 {
-		t.Fatalf("rounds = %d..%d, want 10..12", practice.StartRound(), practice.EndRound())
+	last := CurrentDraftRounds()
+	if practice.StartRound() != 10 || practice.EndRound() != last {
+		t.Fatalf("rounds = %d..%d, want 10..%d (no round cap)", practice.StartRound(), practice.EndRound(), last)
 	}
 	if practice.Complete() {
 		t.Fatal("practice must be open at the start of round 10")
@@ -266,17 +268,24 @@ func TestPracticeFastForwardsToTheStartRound(t *testing.T) {
 			t.Fatalf("%s has no legal candidate after the fast-forward", teamID)
 		}
 	}
-	// Drive to the end of round 12 (three practice rounds): the viewer's
-	// own turns fall to the clock's autopick once the deadline passes.
-	for i := 0; i < 3*teams*12 && !practice.Complete(); i++ {
+	// Drive to the sandbox draft's final pick: the viewer's own turns fall
+	// to the clock's autopick once the deadline passes. Nothing short of
+	// the final pick completes a practice.
+	for i := 0; i < 20*teams*last && !practice.Complete(); i++ {
 		*clock = clock.Add(10 * time.Second)
 		practice.Tick(*clock)
+		if picks := len(practice.Snapshot().Picks); picks < last*teams && practice.Complete() {
+			t.Fatalf("practice completed early at pick %d of %d", picks, last*teams)
+		}
 	}
 	if !practice.Complete() {
 		t.Fatalf("practice never completed: %d picks", len(practice.Snapshot().Picks))
 	}
-	if got, want := len(practice.Snapshot().Picks), 12*teams; got != want {
-		t.Fatalf("practice ended with %d picks, want %d (through round 12)", got, want)
+	if got, want := len(practice.Snapshot().Picks), last*teams; got != want {
+		t.Fatalf("practice ended with %d picks, want %d (the final pick)", got, want)
+	}
+	if view, _ := practice.Data(viewer)["practice"].(map[string]any); !strings.Contains(view["summary_full"].(string), "final pick") {
+		t.Fatalf("summary_full at the end = %v", view["summary_full"])
 	}
 	if deadline := practice.Snapshot().ClockDeadline; !deadline.IsZero() {
 		t.Fatalf("clock still armed after practice completed: %v", deadline)
@@ -299,8 +308,8 @@ func TestPracticeStartRoundIsClampedToTheDraft(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := CurrentDraftRounds()
-	if practice.StartRound() != 1 {
-		t.Fatalf("an unknown round must fall back to round 1, got %d", practice.StartRound())
+	if practice.StartRound() != 1 || practice.EndRound() != last {
+		t.Fatalf("an unknown round must fall back to round 1 and run to round %d, got %d..%d", last, practice.StartRound(), practice.EndRound())
 	}
 	practice, err = registry.Start(viewer, 15)
 	if err != nil {
@@ -402,7 +411,11 @@ func TestPracticeRegistryEvictsIdleSessionsAndCapsThem(t *testing.T) {
 	if registry.Len() != 2 {
 		t.Fatalf("restart grew the registry to %d", registry.Len())
 	}
-	// Idle for the TTL: swept. A recent touch keeps the other alive.
+	// Idle for the TTL (twelve hours, so a tab left open through draft
+	// weekend survives): swept. A recent touch keeps the other alive.
+	if practiceIdleTTL < 12*time.Hour {
+		t.Fatalf("idle TTL = %v, want at least 12h", practiceIdleTTL)
+	}
 	*clock = clock.Add(practiceIdleTTL + time.Minute)
 	if _, ok := registry.Current(second); !ok {
 		t.Fatal("Current must still find the second session before the sweep")
