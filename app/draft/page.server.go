@@ -181,6 +181,19 @@ func draftActionSuccess(ctx *action.Context, target, message string) error {
 	return nil
 }
 
+// draftCommissionerDrawerTarget (F24, gap-audit J2) is the redirect target
+// for every clock/seat action the commissioner drawer itself renders a
+// form for. The real draft-night sequence is pause, then extend, then
+// resume, or force one seat's autopick, then check another — the drawer
+// used to close on every one of those, costing a fresh "Commissioner"
+// click and a re-scroll each time. prepareDraftData reads the
+// "commissioner=open" query back and renders the drawer already open on
+// the response this redirects to (see commissioner_drawer_open there).
+// draft-start (a one-time action, not part of that repeat sequence) and
+// draft-undo (app/admin/page.server.go, shared with the console's own
+// Danger Zone form) are handled on their own terms instead.
+const draftCommissionerDrawerTarget = "/draft?commissioner=open"
+
 type draftBreakdownRowView struct {
 	Scored bool
 	Label  string
@@ -241,6 +254,11 @@ type draftPlayerCardView struct {
 	// them. Sourced from service.go's queuePanel board_can_move_up/down.
 	CanMoveUp   bool
 	CanMoveDown bool
+	// SpecialistEarly (J1 F12): true for a K/P/DST row while more than
+	// three rounds remain — set only for typedPlayers (prepareDraftData),
+	// never for the queue, which never renders the confirm panel this
+	// backs.
+	SpecialistEarly bool
 }
 
 type draftRoomView struct {
@@ -265,6 +283,18 @@ type draftCommandView struct {
 	CSRF          string
 	Actions       map[string]string
 	StatusSummary string
+}
+
+// draftPreflightView backs the pre-draft "get your seat ready" checklist
+// (DraftPreflight, page.gsx). It carries Actions/CSRF (comb — maple, F1,
+// 2026-09-04) so the checklist's own check-in item can post the real
+// toggle-ready form the Room tab's control already uses, instead of a
+// fragment link to an element a collapsed radio pane hides at every
+// desktop width.
+type draftPreflightView struct {
+	Data    map[string]any
+	CSRF    string
+	Actions map[string]string
 }
 
 // draftHistoryView backs the pick-tape pane's Tape/Board/Teams tabs (D4):
@@ -363,6 +393,7 @@ type draftTapePickView struct {
 	AvatarImageURL                                string
 	PlayerID, PlayerName, Position, NFLTeam       string
 	MadeBy                                        string
+	AttributionLine                               string
 	IsAuto, IsCommissioner, Mine                  bool
 	TimeToPickSec                                 int
 	TimeToPick                                    string
@@ -517,7 +548,7 @@ func tapePickProps(pick league.TapePick) draftTapePickView {
 		TeamName: pick.TeamName, TeamAbbr: pick.TeamAbbr, TeamTone: pick.TeamTone, Manager: tapeRowManager(pick.TeamName, pick.Manager),
 		HasAvatarImage: pick.HasAvatarImage, AvatarImageURL: pick.AvatarImageURL,
 		PlayerID: pick.PlayerID, PlayerName: pick.PlayerName, Position: pick.Position, NFLTeam: pick.NFLTeam,
-		MadeBy: pick.MadeBy, IsAuto: pick.IsAuto, IsCommissioner: pick.IsCommissioner, Mine: pick.Mine,
+		MadeBy: pick.MadeBy, AttributionLine: pick.AttributionLine, IsAuto: pick.IsAuto, IsCommissioner: pick.IsCommissioner, Mine: pick.Mine,
 		TimeToPickSec: pick.TimeToPickSec, TimeToPick: pick.TimeToPick,
 		HasValue: pick.HasValue, Value: pick.Value, ValueLabel: pick.ValueLabel, MadeAt: pick.MadeAt,
 	}
@@ -696,20 +727,41 @@ func teamColumnsProps(teams []league.TeamColumn) []draftTeamColumnView {
 // into the page-level draftHistoryView above. A fixture that never sets
 // "history" (every non-league test fixture in this package) type-asserts
 // to the zero value, so the pane still renders — empty, never a panic.
-// draftLiveMode reads DRAFT_LIVE_MODE (review item 8, 2026-08-30): "target"
-// (the default, and anything else) keeps gosx@v0.53.10's fetchless
-// data-gosx-live-* binds; "fallback" (case-insensitive) restores the pre-
-// Task-8 data-gosx-region*-driven refetch-and-swap wiring in the exact
-// same page.gsx, gated by <If cond={data.live_mode == "target"}> pairs. A
-// plain process env var, the same simplicity PICK_CLOCK/GOSX_APP_ROOT
-// already use (sim_child_test.go) — no additional local-env gate, since
-// this selects a rendering strategy, not a privileged or destructive
-// action.
+// draftLiveMode reads DRAFT_LIVE_MODE (review item 8, 2026-08-30, default
+// flipped by the spruce audit, J1 F1/F5/F7/F8, J2 F7/F8/F15, 2026-09-04):
+// "target" keeps gosx@v0.53.10's fetchless data-gosx-live-* binds;
+// "fallback" (case-insensitive, and now the default, and anything else)
+// restores the pre-Task-8 data-gosx-region*-driven refetch-and-swap wiring
+// in the exact same page.gsx, gated by <If cond={data.live_mode ==
+// "target"}> pairs. A plain process env var, the same simplicity
+// PICK_CLOCK/GOSX_APP_ROOT already use (sim_child_test.go) — no additional
+// local-env gate, since this selects a rendering strategy, not a
+// privileged or destructive action.
+//
+// Why the flip: target mode's binds only ever cover the fields that
+// carry an explicit data-gosx-live-bind span (pick number, clock, a
+// handful of counts). Every branch a hub event can flip — "YOU'RE UP" vs
+// "ON CLOCK: <name>", the row DRAFT button's can_pick gate, the h1's
+// round/pick numbers, the paused-clock banner, the phone pick bar — is a
+// server-time <If> with no bind of its own, so target mode never
+// re-renders it: two live auditors (J1 F1, J2 F7/F15) found a manager
+// whose turn arrived saw no DRAFT button until reload, a stale h1 nine
+// picks behind the pill, and a paused draft that told other managers
+// nothing. Fallback mode already refetches the whole command bar, pool,
+// and (after this same fix) the h1 and pick bar on every draft:pick/
+// undo/clock/state event, so every one of those branches renders from
+// current server state instead of page-load state. The trade-off:
+// fallback costs a handful of small JSON-sized HTML fetches per event
+// where target cost zero (TestBrowserRoomMeetsRefreshBudgetAndKeepsClockIdentity
+// measures both); given the choice between a manager missing their pick
+// and a few extra kilobytes over a websocket-adjacent fetch, correctness
+// wins for Sunday. DRAFT_LIVE_MODE=target stays available for anyone who
+// wants the old fetchless behavior back, with its documented gaps intact.
 func draftLiveMode() string {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("DRAFT_LIVE_MODE")), "fallback") {
-		return "fallback"
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("DRAFT_LIVE_MODE")), "target") {
+		return "target"
 	}
-	return "target"
+	return "fallback"
 }
 
 func buildDraftHistoryView(data map[string]any, liveMode string) draftHistoryView {
@@ -827,6 +879,38 @@ func draftBreakdownProps(raw []map[string]any) []draftBreakdownRowView {
 	return out
 }
 
+// draftSpecialistPositions are the picks a manager rarely wants before
+// the bench rounds (J1 F12's own evidence: a round-2 punter, "the mistake
+// that ends a season and a friendship").
+var draftSpecialistPositions = map[string]bool{"K": true, "P": true, "DST": true}
+
+// draftPlayerNeedsSpecialistWarning reports whether the available pane's
+// row-level confirm panel (page.gsx, J1 F12) should show its "Specialists
+// usually go late" line for position, given the draft is currently in
+// round. totalRounds <= 0 (an unpublished/fixture draft with no round
+// count at all) never warns — there is no "last three rounds" to compare
+// against.
+// draftPickRefusalError wraps MakePick's own refusal text (internal/
+// league/store.go — out of this file's reach, and off limits for a
+// draft-week UX pass regardless: the pick path itself is frozen until
+// after Sunday's real draft) in one plain sentence (J1 F15). Before this
+// wrap, a refusal like "that player has already been drafted" reached
+// the toast as a bare, lower-case fragment with no lead-in and no next
+// step; "That pick is not allowed: <reason>." at least reads as a
+// sentence a manager under a running clock can act on. store.go's own
+// team-ID-bearing refusals ("<id> is on the clock") still need a fix at
+// their own source — a wrapper here cannot rename an ID it never sees.
+func draftPickRefusalError(err error) error {
+	return fmt.Errorf("That pick is not allowed: %s.", err.Error())
+}
+
+func draftPlayerNeedsSpecialistWarning(position string, round, totalRounds int) bool {
+	if totalRounds <= 0 || draftSpecialistPositions[position] == false {
+		return false
+	}
+	return round <= totalRounds-3
+}
+
 func draftPlayerProps(raw []map[string]any) []draftPlayerCardView {
 	out := make([]draftPlayerCardView, 0, len(raw))
 	for _, player := range raw {
@@ -910,12 +994,11 @@ func draftTeamProps(raw []map[string]any) []DraftTeamCard {
 // heartbeat since this server started." is an implementation fact (a
 // server-uptime clock, not a room fact), and "NOT SEEN" plus that
 // sentence read as an error rather than the plain truth — nobody from
-// that franchise has opened the draft room yet.
+// that franchise has opened the draft room yet. Delegates to
+// league.FriendlyPresenceDetail (F19, gap-audit J2) so /admin's own
+// readiness rows read the identical sentence instead of a drifted copy.
 func friendlyPresenceDetail(detail string) string {
-	if detail == "No room heartbeat since this server started." {
-		return "No manager has opened the room yet."
-	}
-	return detail
+	return league.FriendlyPresenceDetail(detail)
 }
 
 func draftSeatControlProps(raw []map[string]any) []DraftSeatControlCard {
@@ -1044,6 +1127,29 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	typedTeams := draftTeamProps(teams)
 	typedPlayers := draftPlayerProps(players)
 	typedQueue := draftPlayerProps(queueRaw)
+	// J1 F12: the row-level confirm panel's specialist warning applies to
+	// the available pool only (the queue never renders that panel — a
+	// player is queued, not drafted, from there), computed once here off
+	// the SAME round/rounds this request's own command bar already reads,
+	// never a second, possibly-stale copy.
+	currentRound := intField(data, "round")
+	totalRounds := league.CurrentDraftRounds()
+	for i := range typedPlayers {
+		typedPlayers[i].SpecialistEarly = draftPlayerNeedsSpecialistWarning(typedPlayers[i].Position, currentRound, totalRounds)
+	}
+	// J2 F34: "not in the room" reads the on-clock seat's own presence
+	// bucket off typedTeams (draftTeamMaps/draftTeamProps already compute
+	// it, real presence-tracker data, for the commissioner drawer's seat
+	// cards) rather than a second presence lookup — a plain match by ID
+	// against data this same request already built.
+	onClockID := stringField(data, "on_clock_id")
+	onClockNotInRoom := false
+	for _, team := range typedTeams {
+		if team.TeamID == onClockID {
+			onClockNotInRoom = team.Presence == "not_seen"
+			break
+		}
+	}
 
 	// viewData is the one map every view's Data field shares (room,
 	// workspace, command, history, available, queue below). It must never
@@ -1056,6 +1162,16 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	for key, value := range data {
 		viewData[key] = value
 	}
+	// commissioner_drawer_open (F24, gap-audit J2): every commissioner
+	// action inside the drawer used to close it on its own re-render — the
+	// server always rendered <aside ... hidden>, with no memory of "the
+	// commissioner had this open." The drawer's own action forms
+	// (draft-start, clock-pause/resume/extend/set-duration/force-autopick,
+	// seat-autopick, seat-ready) redirect to "/draft?commissioner=open",
+	// which this reads back to render the drawer already open on the very
+	// next response — real sequences like pause, then extend, then
+	// resume no longer cost three re-opens under a clock.
+	viewData["commissioner_drawer_open"] = request != nil && request.URL.Query().Get("commissioner") == "open"
 	viewData["teams"] = typedTeams
 	viewData["seat_controls"] = draftSeatControlProps(teams)
 	// has_adp gates the available pane's whole VS ADP column, header and
@@ -1065,6 +1181,7 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	// .draft-available[data-has-adp="false"] .avail-row rule) so the
 	// column's grid track drops with it, never an empty cell.
 	viewData["has_adp"] = boolField(data, "has_adp")
+	viewData["on_clock_not_in_room"] = onClockNotInRoom
 	// practice (practice draft, internal/league/practice.go): every render
 	// carries the key, so page.gsx's "practice.active == false" branches
 	// (the real room's board edits, ready check-in, and League button) hold
@@ -1183,6 +1300,7 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 		Data: viewData, Queue: typedQueue,
 		QueueRemoveAction: actionPath("queue-remove"), QueueMoveAction: actionPath("queue-move"), Actions: actions,
 	}
+	output["preflight"] = draftPreflightView{Data: viewData, Actions: actions}
 	return output
 }
 
@@ -1221,7 +1339,12 @@ func draftRoomStatus(data map[string]any) string {
 	if !boolField(draftView, "started") {
 		return fmt.Sprintf("Draft not started; %d of %d ready; opens %s at %s.", intField(data, "ready_count"), intField(data, "manager_count"), stringField(draftView, "date"), stringField(draftView, "time"))
 	}
-	onClock := stringField(mapField(data, "on_clock"), "abbreviation")
+	// F8 (J2, spruce audit, 2026-09-04): this used to read "abbreviation"
+	// ("AQ2"), a seat code that appears nowhere else on the visible page —
+	// a screen-reader listener heard a code, not a team. "name" is the
+	// same field the sighted pill/turn text already reads (page.gsx,
+	// onclock.name).
+	onClock := stringField(mapField(data, "on_clock"), "name")
 	clockView := mapField(data, "clock")
 	clockPhrase := "the clock is not running"
 	if boolField(clockView, "paused") {
@@ -1238,12 +1361,14 @@ func attachDraftRequestState(data map[string]any, request *http.Request) map[str
 	command, _ := data["command"].(draftCommandView)
 	available, _ := data["available"].(draftAvailableView)
 	queue, _ := data["queue"].(draftQueueView)
+	preflight, _ := data["preflight"].(draftPreflightView)
 	token := session.Token(request)
 	room.CSRF = token
 	workspace.CSRF = token
 	command.CSRF = token
 	available.CSRF = token
 	queue.CSRF = token
+	preflight.CSRF = token
 	seats, _ := room.Data["seat_controls"].([]DraftSeatControlCard)
 	for i := range seats {
 		seats[i].CSRF = token
@@ -1255,6 +1380,7 @@ func attachDraftRequestState(data map[string]any, request *http.Request) map[str
 	data["command"] = command
 	data["available"] = available
 	data["queue"] = queue
+	data["preflight"] = preflight
 	return data
 }
 
@@ -1343,31 +1469,36 @@ func init() {
 				if err := league.Default().AdminPauseClock(ctx.Request); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				return draftActionSuccess(ctx, "/draft", "Pick clock paused.")
+				return draftActionSuccess(ctx, draftCommissionerDrawerTarget, "Pick clock paused.")
 			},
 			"clock-resume": func(ctx *action.Context) error {
 				if err := league.Default().AdminResumeClock(ctx.Request); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				return draftActionSuccess(ctx, "/draft", "Pick clock resumed.")
+				return draftActionSuccess(ctx, draftCommissionerDrawerTarget, "Pick clock resumed.")
 			},
 			"clock-force-autopick": func(ctx *action.Context) error {
 				pick, player, team, err := league.Default().AdminForceAutopick(ctx.Request, ctx.FormData["confirm"], ctx.FormData["current_pick_token"])
 				if err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("Pick %d: %s auto-selects %s.", pick.Number, team.Name, player.Name))
+				return draftActionSuccess(ctx, draftCommissionerDrawerTarget, fmt.Sprintf("Pick %d: %s auto-selects %s.", pick.Number, team.Name, player.Name))
 			},
 			"clock-extend": func(ctx *action.Context) error {
 				secs, err := strconv.Atoi(strings.TrimSpace(ctx.FormData["seconds"]))
 				if err != nil {
-					message := "enter seconds as a whole number"
+					// F22 (gap-audit J2): named the field and gave a concrete
+					// example instead of the bare, lowercase "enter seconds as
+					// a whole number" — a sentence identical in weight and
+					// styling to a success toast, with nothing marking it an
+					// error (see the new .gsx-toast--error rule, styles.css).
+					message := "Type how many seconds to add to the seconds field, for example 60."
 					return action.Validation(message, map[string]string{"player_id": message}, ctx.FormData)
 				}
 				if err := league.Default().AdminExtendClock(ctx.Request, secs, ctx.FormData["current_pick_token"]); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("Clock extended by %d seconds.", secs))
+				return draftActionSuccess(ctx, draftCommissionerDrawerTarget, fmt.Sprintf("Clock extended by %d seconds.", secs))
 			},
 			"clock-set-duration": func(ctx *action.Context) error {
 				secs, err := strconv.Atoi(strings.TrimSpace(ctx.FormData["seconds"]))
@@ -1378,7 +1509,7 @@ func init() {
 				if err := league.Default().AdminSetClockSeconds(ctx.Request, secs); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("Pick clock set to %d seconds.", secs))
+				return draftActionSuccess(ctx, draftCommissionerDrawerTarget, fmt.Sprintf("Pick clock set to %d seconds.", secs))
 			},
 			"toggle-ready": func(ctx *action.Context) error {
 				ready, teamName, err := league.Default().ToggleReady(ctx.Request, ctx.FormData["team_id"])
@@ -1394,7 +1525,7 @@ func init() {
 			"make-pick": func(ctx *action.Context) error {
 				pick, player, team, err := league.Default().MakePick(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
 				if err != nil {
-					return actionui.Validation(ctx, "draft", "player_id", err)
+					return actionui.Validation(ctx, "draft", "player_id", draftPickRefusalError(err))
 				}
 				return draftActionSuccess(ctx, draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), fmt.Sprintf("Pick %d: %s selects %s.", pick.Number, team.Name, player.Name))
 			},
@@ -1460,7 +1591,7 @@ func init() {
 				if on {
 					status = "AUTO mode enabled"
 				}
-				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("%s for %s.", status, league.Default().TeamLabel(teamID)))
+				return draftActionSuccess(ctx, draftCommissionerDrawerTarget, fmt.Sprintf("%s for %s.", status, league.Default().TeamLabel(teamID)))
 			},
 			// seat-ready sets a claimed seat's Ready flag on the commissioner's
 			// own authority (compare toggle-ready, the manager's own path).
@@ -1480,7 +1611,7 @@ func init() {
 				if on {
 					status = "locked in"
 				}
-				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("%s is %s for draft night.", league.Default().TeamLabel(teamID), status))
+				return draftActionSuccess(ctx, draftCommissionerDrawerTarget, fmt.Sprintf("%s is %s for draft night.", league.Default().TeamLabel(teamID), status))
 			},
 		},
 	}); err != nil {

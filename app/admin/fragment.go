@@ -34,18 +34,39 @@ type adminAttentionReadoutProps struct {
 	GeneratedAtISO      string
 	GeneratedAtRelative string
 	Seats               []adminAttentionSeatView
+	// HasNotCheckedIn/NotCheckedInSummary (F6 + F19, gap-audit J2): the
+	// console used to report "READY 4 / 8" with no way to see WHO that
+	// left out or act on it — the ready toggles exist only in the draft
+	// room's own drawer. This names the claimed-but-not-ready seats by
+	// their manager's own first name plain-language, next to a link
+	// straight into the room where the toggle actually lives.
+	HasNotCheckedIn     bool
+	NotCheckedInSummary string
 }
 
 type adminAttentionSeatView struct {
-	Name           string
-	Abbreviation   string
-	Claimed        bool
-	Ready          bool
-	Presence       string
-	PresenceLabel  string
-	PresenceDetail string
-	BoardCount     int
-	BoardGap       bool
+	Name             string
+	Abbreviation     string
+	Manager          string
+	ManagerFirstName string
+	Claimed          bool
+	Ready            bool
+	Presence         string
+	PresenceLabel    string
+	PresenceDetail   string
+	BoardCount       int
+	BoardGap         bool
+}
+
+// firstNameOf returns name's first whitespace-separated token, or name
+// itself when it carries no space (a single-word display name, or
+// already empty).
+func firstNameOf(name string) string {
+	name = strings.TrimSpace(name)
+	if fields := strings.Fields(name); len(fields) > 0 {
+		return fields[0]
+	}
+	return name
 }
 
 func emptyAdminAttentionReadout() adminAttentionReadoutProps {
@@ -88,19 +109,41 @@ func adminAttentionReadoutFromData(data map[string]any) adminAttentionReadoutPro
 	}
 	if rawSeats, ok := data["seats"].([]map[string]any); ok {
 		view.Seats = make([]adminAttentionSeatView, 0, len(rawSeats))
+		notCheckedIn := make([]string, 0, len(rawSeats))
 		for _, seat := range rawSeats {
+			manager := stringValue(seat, "manager", "")
+			claimed := boolValue(seat, "claimed")
+			ready := boolValue(seat, "ready")
 			view.Seats = append(view.Seats, adminAttentionSeatView{
-				Name:           stringValue(seat, "name", "UNKNOWN"),
-				Abbreviation:   stringValue(seat, "abbreviation", ""),
-				Claimed:        boolValue(seat, "claimed"),
-				Ready:          boolValue(seat, "ready"),
-				Presence:       stringValue(seat, "presence", "not_seen"),
-				PresenceLabel:  stringValue(seat, "presence_label", "Not seen yet"),
-				PresenceDetail: stringValue(seat, "presence_detail", "No presence report."),
+				Name:             stringValue(seat, "name", "UNKNOWN"),
+				Abbreviation:     stringValue(seat, "abbreviation", ""),
+				Manager:          manager,
+				ManagerFirstName: firstNameOf(manager),
+				Claimed:          claimed,
+				Ready:            ready,
+				Presence:         stringValue(seat, "presence", "not_seen"),
+				PresenceLabel:    stringValue(seat, "presence_label", "Not seen yet"),
+				// FriendlyPresenceDetail (F19): "No room heartbeat since
+				// this server started." read as a server error, not the
+				// plain fact that nobody from that seat has opened the
+				// room yet — the exact same rewrite the draft room's own
+				// commissioner drawer already carries.
+				PresenceDetail: league.FriendlyPresenceDetail(stringValue(seat, "presence_detail", "No presence report.")),
 				BoardCount:     intValue(seat, "board_count"),
 				BoardGap:       boolValue(seat, "board_gap"),
 			})
+			if claimed && !ready {
+				label := strings.TrimSpace(manager)
+				if label == "" {
+					label = stringValue(seat, "name", "that seat")
+				} else {
+					label = firstNameOf(manager) + " (" + stringValue(seat, "name", "") + ")"
+				}
+				notCheckedIn = append(notCheckedIn, label)
+			}
 		}
+		view.HasNotCheckedIn = len(notCheckedIn) > 0
+		view.NotCheckedInSummary = strings.Join(notCheckedIn, ", ")
 	}
 	return view
 }

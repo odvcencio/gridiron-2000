@@ -98,7 +98,7 @@ func Page() Node {
 				</div>
 			</If>
 		</section>
-		<div class="notice-stack" aria-live="polite">
+		<div class="notice-stack">
 			<If cond={data.has_notice && (data.notice_count < 2 || data.notice_first_kind == "flash")}>
 				<p class="flash-message">{data.notice}</p>
 			</If>
@@ -482,7 +482,20 @@ func PlayerPoolRegion() Node {
 									<label class="visually-hidden" for={"players-bid-" + player.id}>{"Bid FAAB for " + player.name}</label>
 									<input id={"players-bid-" + player.id} type="number" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" name="bid" min="0" max={data.my_faab_remaining} placeholder="Bid FAAB"></input>
 								</If>
-								<button class="draft-button" type="submit">CLAIM</button>
+								<If cond={player.needs_drop == false}>
+									<button class="draft-button" type="submit">CLAIM</button>
+								</If>
+								<If cond={player.needs_drop}>
+									<details class="action-confirmation">
+										<summary>Claim and drop a player</summary>
+										<p>{"If this claim for " + player.name + " wins, it will replace the player you select above."} That drop is recorded and cannot be undone from this screen.</p>
+										<label>
+											<input type="checkbox" name="confirmation" value="claim-drop-player" required="required"></input>
+											I understand a won claim replaces a rostered player.
+										</label>
+										<button class="draft-button" type="submit">Confirm claim and drop</button>
+									</details>
+								</If>
 							</form>
 						</If>
 						<If cond={player.claimed_by_me}>
@@ -628,6 +641,10 @@ func WaiverDeskRegion() Node {
 							<If cond={claim.resolution_state == "overdue"}>
 								<span class="position-chip position-chip--warn">RESOLUTION OVERDUE</span>
 								<small>{claim.resolution_at} ({claim.resolution_relative})</small>
+							</If>
+							<If cond={claim.resolution_state == "pending"}>
+								<span class="position-chip">LOCKED UNTIL WAIVERS RUN</span>
+								<small>{claim.resolution_label}</small>
 							</If>
 							<If cond={claim.resolution_state == "degraded"}>
 								<span class="position-chip position-chip--warn">RESOLUTION DEGRADED</span>

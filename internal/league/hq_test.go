@@ -68,6 +68,44 @@ func TestBuildActionCenterEntryAndPredraftMeetingTruth(t *testing.T) {
 	}
 }
 
+// TestBuildActionCenterNamesAPlaceholderTeam (F9): nothing prompted a
+// manager to rename a franchise still called its configured seed name
+// ("Placeholder go here" in the audited copy) — the Action Center never
+// mentioned it, and the /team checklist marked personalization complete
+// on seat claim alone. A pre-draft manager whose team name still equals
+// its seed name now gets a preparation card naming it.
+func TestBuildActionCenterNamesAPlaceholderTeam(t *testing.T) {
+	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+
+	placeholder := BuildActionCenter(ActionCenterFacts{
+		Now: now, Location: time.UTC, Admitted: true, HasSeat: true,
+		BoardCount: 3, Ready: true, TeamName: "Placeholder go here",
+		TeamNameIsSeedPlaceholder: true,
+	})
+	action, ok := findAction(placeholder.Actions, "rename-placeholder")
+	if !ok {
+		t.Fatalf("placeholder team got no rename card: %+v", placeholder.Actions)
+	}
+	if action.Priority != ActionCenterPriorityPreparation {
+		t.Fatalf("rename-placeholder priority = %q, want preparation", action.Priority)
+	}
+	if action.Href != "/team?identity=edit#team-identity" {
+		t.Fatalf("rename-placeholder href = %q", action.Href)
+	}
+	if !strings.Contains(action.Detail, `"Placeholder go here"`) {
+		t.Fatalf("rename-placeholder detail = %q, want the team's own placeholder name quoted", action.Detail)
+	}
+
+	renamed := BuildActionCenter(ActionCenterFacts{
+		Now: now, Location: time.UTC, Admitted: true, HasSeat: true,
+		BoardCount: 3, Ready: true, TeamName: "Antonio's Aces",
+		TeamNameIsSeedPlaceholder: false,
+	})
+	if _, ok := findAction(renamed.Actions, "rename-placeholder"); ok {
+		t.Fatalf("renamed team still got the placeholder-rename card: %+v", renamed.Actions)
+	}
+}
+
 func TestActionCenterUsesRescheduledDraftMeeting(t *testing.T) {
 	service := newTestService(t, false)
 	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
@@ -99,6 +137,42 @@ func TestActionCenterUsesRescheduledDraftMeeting(t *testing.T) {
 		return
 	}
 	t.Fatalf("no predraft action in %#v", actions)
+}
+
+// TestBuildActionCenterOrdersByNearestDeadlineNotFixedPriority is F12
+// (comb — maple, 2026-09-04 UX pass): a Wednesday Pick'em lock used to sort
+// ahead of a Sunday draft meeting because "deadline" was a fixed-rank
+// priority ahead of "preparation", regardless of which one the calendar
+// actually put first. The draft is Sunday here, three days before the
+// Wednesday Pick'em lock; the draft cards must lead.
+func TestBuildActionCenterOrdersByNearestDeadlineNotFixedPriority(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)        // Thursday
+	sunday := time.Date(2026, 9, 6, 16, 5, 0, 0, time.UTC)     // draft meeting
+	wednesday := time.Date(2026, 9, 9, 20, 20, 0, 0, time.UTC) // pick'em lock
+	got := BuildActionCenter(ActionCenterFacts{
+		Now: now, Location: time.UTC, Admitted: true, HasSeat: true,
+		DraftAt: sunday, BoardCount: 0, Ready: false,
+		Pickem: ActionCenterPickemFacts{Week: 1, GameCount: 16, OpenUnpicked: 16, HasNextOpenLock: true, NextOpenLock: wednesday},
+	})
+	var order []string
+	for _, action := range got.Actions {
+		order = append(order, action.ID)
+	}
+	index := func(id string) int {
+		for i, want := range order {
+			if want == id {
+				return i
+			}
+		}
+		return -1
+	}
+	pickemAt, boardAt, readyAt := index("pickem-open"), index("draft-board"), index("draft-ready")
+	if pickemAt < 0 || boardAt < 0 || readyAt < 0 {
+		t.Fatalf("expected draft-board, draft-ready, and pickem-open all present: %v", order)
+	}
+	if boardAt > pickemAt || readyAt > pickemAt {
+		t.Fatalf("draft cards (Sunday, nearer) must sort before the pick'em card (Wednesday, later): %v", order)
+	}
 }
 
 func TestBuildActionCenterSeasonCompleteSuppressesWeeklyTasks(t *testing.T) {
@@ -215,6 +289,148 @@ func TestBuildActionCenterWaiverResolutionTruth(t *testing.T) {
 	due, ok := findAction(BuildActionCenter(facts).Actions, "waiver-claims")
 	if !ok || !due.Urgent || !strings.Contains(due.Detail, "processing is due now") {
 		t.Fatalf("due waiver = %+v", due)
+	}
+}
+
+// TestBuildActionCenterAnnouncesOpenWaiverDeskWithNoClaims pins J3 F9: a
+// manager with zero claims filed still needs to hear waivers are open and
+// when they next run — before this fix waiverAction returned nil unless
+// OpenClaims > 0, so the home page never mentioned waivers at all until a
+// claim already existed.
+func TestBuildActionCenterAnnouncesOpenWaiverDeskWithNoClaims(t *testing.T) {
+	now := time.Date(2026, 9, 15, 8, 0, 0, 0, time.UTC)
+	nextRun := now.Add(9 * time.Hour)
+	facts := ActionCenterFacts{
+		Now: now, Location: time.UTC, Admitted: true, HasSeat: true, DraftComplete: true,
+		SeasonPhase: PhaseRegularSeason,
+		Waivers:     ActionCenterWaiverFacts{OpenClaims: 0, DeskNextRun: nextRun, HasDeskNextRun: true},
+	}
+	action, ok := findAction(BuildActionCenter(facts).Actions, "waiver-open")
+	if !ok {
+		t.Fatalf("waiver-open action missing with an open desk and no claims filed")
+	}
+	if action.Href != "/players" {
+		t.Fatalf("waiver-open href = %q, want /players", action.Href)
+	}
+	if !strings.Contains(action.Detail, "Waivers run") || !strings.Contains(action.Detail, "in 9 hours") {
+		t.Fatalf("waiver-open detail = %q, want the run time and a relative phrase", action.Detail)
+	}
+
+	// A claim already filed keeps the existing waiver-claims card, not a
+	// duplicate waiver-open card.
+	facts.Waivers.OpenClaims = 1
+	if _, ok := findAction(BuildActionCenter(facts).Actions, "waiver-open"); ok {
+		t.Fatalf("waiver-open action present alongside a filed claim; want waiver-claims only")
+	}
+}
+
+// TestActionCenterDataWiresWaiverDeskFromThePerfPriorityConfig pins the
+// service-level wiring for J3 F9 against the league's real perf-priority
+// waiver config (DefaultConfig's mode and 09:00 process time): a seated
+// manager with no claim filed still gets a waiver-open card naming the
+// desk's next scheduled run.
+func TestActionCenterDataWiresWaiverDeskFromThePerfPriorityConfig(t *testing.T) {
+	svc := newTestService(t, false)
+	if svc.cfg.Waivers.Mode != "perf-priority" {
+		t.Fatalf("test fixture waivers mode = %q, want perf-priority", svc.cfg.Waivers.Mode)
+	}
+	teamID := svc.Teams()[0].ID
+	email := "manager@example.com"
+	now := time.Date(2026, 9, 15, 8, 0, 0, 0, time.UTC)
+
+	state := svc.store.Snapshot()
+	state.Members[email] = Member{Email: email, Name: "Manager", TeamID: teamID}
+	total := len(defaultTeams()) * CurrentDraftRounds()
+	for i := 0; i < total; i++ {
+		state.Picks = append(state.Picks, DraftPick{Number: i + 1, TeamID: defaultTeamIDs()[i%len(defaultTeamIDs())]})
+	}
+	viewer := map[string]any{"signed_in": true, "email": email, "has_seat": true, "team_id": teamID}
+	request, err := http.NewRequest(http.MethodGet, "/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := svc.actionCenterDataForSnapshot(request, state, viewer, map[string]any{}, now)
+	actions, _ := data["actions"].([]map[string]any)
+	var open map[string]any
+	for _, action := range actions {
+		if action["id"] == "waiver-open" {
+			open = action
+		}
+	}
+	if open == nil {
+		t.Fatalf("actions = %#v, want a waiver-open card with no claims filed", actions)
+	}
+	if open["href"] != "/players" {
+		t.Fatalf("waiver-open href = %v, want /players", open["href"])
+	}
+	detail, _ := open["detail"].(string)
+	if !strings.Contains(detail, "Waivers run") {
+		t.Fatalf("waiver-open detail = %q, want it to open with \"Waivers run\"", detail)
+	}
+}
+
+// TestBuildActionCenterPromotesCommissionerPreDraftTaskToTheMainList pins
+// F11 (gap-audit J2): two days before the draft, the home page's primary
+// slot went to a manager's own pick'em review — the commissioner's real
+// job (seat readiness, starting the draft) lived only in the always-
+// secondary "COMMISSIONER OVERLAY" aside. The commissioner's own task now
+// also appears in the SAME sorted list a manager's tasks share, at
+// deadline priority with the draft's own start time as its DueAt, so it
+// sorts ahead of a manager's lower-priority preparation task under the
+// existing, unmodified time-remaining sort. It must not appear once the
+// draft has started or completed — the "COMMISSIONER OVERLAY" aside
+// already carries the commissioner's task for those stages.
+func TestBuildActionCenterPromotesCommissionerPreDraftTaskToTheMainList(t *testing.T) {
+	draftAt := time.Date(2026, 9, 6, 20, 5, 0, 0, time.UTC) // a Sunday
+	predraft := BuildActionCenter(ActionCenterFacts{
+		Now: time.Now(), Location: time.UTC, Admitted: true, HasSeat: true, Commissioner: true,
+		DraftAt: draftAt, SeatCapacity: 8, ClaimedSeats: 8, ReadySeats: 4,
+		BoardCount: 1, Ready: true, // the commissioner's own manager prep is already done
+	})
+	if predraft.Stage != ActionCenterPreDraft {
+		t.Fatalf("stage = %q, want predraft", predraft.Stage)
+	}
+	commissionerTask, ok := findAction(predraft.Actions, "commissioner-start-draft")
+	if !ok {
+		t.Fatalf("commissioner-start-draft missing from the main Actions list: %+v", predraft.Actions)
+	}
+	if commissionerTask.Priority != ActionCenterPriorityDeadline {
+		t.Fatalf("commissioner-start-draft priority = %q, want %q", commissionerTask.Priority, ActionCenterPriorityDeadline)
+	}
+	if !commissionerTask.HasDueAt || !commissionerTask.DueAt.Equal(draftAt) {
+		t.Fatalf("commissioner-start-draft DueAt = %+v, want %v", commissionerTask, draftAt)
+	}
+	if want := "Start the draft Sunday"; commissionerTask.Label != want {
+		t.Fatalf("commissioner-start-draft label = %q, want %q", commissionerTask.Label, want)
+	}
+	if want := "4 of 8 checked in · open the runbook."; commissionerTask.Detail != want {
+		t.Fatalf("commissioner-start-draft detail = %q, want %q", commissionerTask.Detail, want)
+	}
+	// Ahead of a lower (preparation) priority task, unmodified sort rule.
+	if len(predraft.Actions) == 0 || predraft.Actions[0].ID != "commissioner-start-draft" {
+		t.Fatalf("commissioner-start-draft did not sort first: %+v", predraft.Actions)
+	}
+
+	live := BuildActionCenter(ActionCenterFacts{
+		Now: time.Now(), Admitted: true, HasSeat: true, Commissioner: true, DraftStarted: true, DraftAt: draftAt,
+	})
+	if _, ok := findAction(live.Actions, "commissioner-start-draft"); ok {
+		t.Fatalf("commissioner-start-draft must not appear once the draft has started: %+v", live.Actions)
+	}
+
+	complete := BuildActionCenter(ActionCenterFacts{
+		Now: time.Now(), Admitted: true, HasSeat: true, Commissioner: true, DraftComplete: true, DraftAt: draftAt,
+		SeasonPhase: PhaseRegularSeason,
+	})
+	if _, ok := findAction(complete.Actions, "commissioner-start-draft"); ok {
+		t.Fatalf("commissioner-start-draft must not appear once the draft is complete: %+v", complete.Actions)
+	}
+
+	nonCommissioner := BuildActionCenter(ActionCenterFacts{
+		Now: time.Now(), Admitted: true, HasSeat: true, DraftAt: draftAt,
+	})
+	if _, ok := findAction(nonCommissioner.Actions, "commissioner-start-draft"); ok {
+		t.Fatalf("commissioner-start-draft must not appear for a non-commissioner viewer: %+v", nonCommissioner.Actions)
 	}
 }
 

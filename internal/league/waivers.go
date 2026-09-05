@@ -180,14 +180,35 @@ type waiverStatus struct {
 	Reason string
 }
 
-// waiverKickoffPendingLabel is the one shared answer for a kickoff-locked
-// claim's resolve time (F7): the live processing run decides "due" by
-// reading the game's current Final flag, never gameFinalAt's
-// kickoff-plus-five-hours estimate, so no surface may promise a specific
-// instant for it. Both the pool row (PlayersData) and MY CLAIMS
-// (waiverClaimResolutionView) render this exact string so the same
-// kickoff-locked player can never show two different answers.
-const waiverKickoffPendingLabel = "Pending — resolves once this player's game is marked final."
+// waiverResolutionPhrase (J3 F17) is the one shared sentence /team's
+// Signal Watch, /players' pool row, and /players' MY CLAIMS card all use
+// to answer "when does this waiver resolve" — before this fix /team
+// printed a bare exact clock time straight off the kickoff-lock estimate
+// while /players printed only the locking event with no time at all, and
+// /scoring stated the daily run time in a third form; the three pages
+// could not agree. A kickoff lock's ResolvesAt is only ever an estimate
+// (section 5.1's kickoff-plus-five-hours default) the live processor does
+// not itself use to decide "due" — the live Final flag does — so the
+// phrasing names the mechanism ("at the next waiver run") rather than
+// promising the estimate as an exact instant. Empty outside
+// AvailabilityOnWaivers or with no resolve instant at all.
+func waiverResolutionPhrase(cfg Config, nflTeam string, status waiverStatus, now time.Time) string {
+	if status.State != AvailabilityOnWaivers || status.ResolvesAt.IsZero() {
+		return ""
+	}
+	when := formatResolvesAt(cfg, status.ResolvesAt)
+	if relative := deadlineRelativeTime(now, status.ResolvesAt); relative != "" {
+		when += " · " + relative
+	}
+	if status.Reason == "kickoff" {
+		team := strings.TrimSpace(nflTeam)
+		if team == "" {
+			return "Resolves after the player's game ends, at the next waiver run — " + when + "."
+		}
+		return "Resolves after the " + team + " game ends, at the next waiver run — " + when + "."
+	}
+	return "Resolves " + when + "."
+}
 
 // isFreeAgencyDrop reports whether txn moves a Drops-named player into free
 // agency — the one filter lastDropInstant and waiverClearBoundaryDigest

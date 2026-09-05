@@ -121,6 +121,23 @@ func playersRegionParityFixtureData() map[string]any {
 				"can_add":       true, "can_claim": false, "needs_drop": true,
 				"can_drop": false, "drop_locked": false, "drop_lock_reason": "",
 			},
+			{
+				"id": "p-claim", "name": "On Waivers Guy", "position": "TE", "nfl_team": "GB",
+				"rank": 3, "has_house_rank": false, "house_rank": "",
+				"has_headshot": false, "headshot": "",
+				"has_draft_capital": false, "draft_capital": "",
+				"detail":       "GB · BYE 10",
+				"has_opponent": false, "opponent": "", "has_matchup": false, "matchup_chip": "", "matchup_tier": "", "matchup_detail": "",
+				"has_hist": false, "hist": "", "hist_label": "",
+				"has_news": false, "news": "", "has_injury": false, "injury": "",
+				"projection": "6.4",
+				"rostered":   false, "owner_abbr": "", "owner_name": "", "is_drafted": false, "drafted_label": "",
+				"on_waivers": true, "waiver_resolves": "Pending — resolves once this player's game is marked final.",
+				"free_agent":    false,
+				"claimed_by_me": false,
+				"can_add":       false, "can_claim": true, "needs_drop": true,
+				"can_drop": false, "drop_locked": false, "drop_lock_reason": "",
+			},
 		},
 	}
 }
@@ -205,6 +222,31 @@ func TestPlayersPageEmbedsTheSameRegionComponentsAsTheFragmentHandlers(t *testin
 		for _, marker := range addDropGateMarkers {
 			if !strings.Contains(render.html, marker) {
 				t.Errorf("%s render missing add-and-drop confirmation marker %q", render.name, marker)
+			}
+		}
+	}
+
+	// F16 (UX-pass, comb audit J3): the waiver claim form used to state no
+	// consequence and carry no confirm gate at all when a drop is
+	// required, even though a won claim removes a rostered player exactly
+	// like an add-and-drop does. The claim form now carries the same
+	// two-step disclosure pattern, adapted for the claim's conditional
+	// ("if this claim wins") outcome.
+	claimDropGateMarkers := []string{
+		`<summary>Claim and drop a player</summary>`,
+		"If this claim for On Waivers Guy wins, it will replace the player you select above.",
+		"That drop is recorded and cannot be undone from this screen.",
+		`value="claim-drop-player"`,
+		"I understand a won claim replaces a rostered player.",
+		"Confirm claim and drop",
+	}
+	for _, render := range []struct {
+		name string
+		html string
+	}{{"Page", pageHTML}, {"PlayerPoolRegion", poolHTML}} {
+		for _, marker := range claimDropGateMarkers {
+			if !strings.Contains(render.html, marker) {
+				t.Errorf("%s render missing claim-and-drop confirmation marker %q", render.name, marker)
 			}
 		}
 	}

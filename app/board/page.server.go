@@ -18,6 +18,14 @@ import (
 
 const boardPoolAnchor = "#board-pool"
 
+// boardRankAnchor is the Big Board panel's own id (F7: reordering or
+// removing a ranked player with no JavaScript returned to #board-pool,
+// scrolling a phone manager PAST the list they were just working on and
+// off the flash confirming the move happened). board-move and
+// board-remove return here; board-add keeps the discovery pool anchor
+// above, since adding a player is discovery work, not ranked-list work.
+const boardRankAnchor = "#board-rank"
+
 // boardReturnTargetField is populated into each add form as GoSX's reserved
 // progressive-enhancement field. The framework removes this field before an
 // action handler or flashed validation values can observe it.
@@ -28,6 +36,19 @@ const boardReturnTargetField = action.ReturnTargetField
 // turn a successful add into an open redirect. The pool anchor keeps a
 // manager adding several names anchored at the current discovery surface.
 func boardRedirectTarget(pos, query, page string) string {
+	return boardTargetWithAnchor(pos, query, page, boardPoolAnchor)
+}
+
+// boardRankRedirectTarget is boardRedirectTarget's own #board-rank
+// counterpart (F7), for the two actions that mutate the ranked list
+// itself — board-move and board-remove — so their result lands back on
+// the list, not the discovery pool below it. See boardRankAnchor's own
+// doc comment.
+func boardRankRedirectTarget(pos, query, page string) string {
+	return boardTargetWithAnchor(pos, query, page, boardRankAnchor)
+}
+
+func boardTargetWithAnchor(pos, query, page, anchor string) string {
 	values := url.Values{}
 	if position := league.BoardPositionFilter(pos); position != "" {
 		values.Set("pos", position)
@@ -42,7 +63,7 @@ func boardRedirectTarget(pos, query, page string) string {
 	if encoded := values.Encode(); encoded != "" {
 		target += "?" + encoded
 	}
-	return target + boardPoolAnchor
+	return target + anchor
 }
 
 // boardRequestWithActionFilters restores the submitted discovery state when
@@ -87,6 +108,18 @@ func boardReturnTargetForData(data map[string]any) string {
 	)
 }
 
+// boardRankReturnTargetForData is boardReturnTargetForData's own
+// #board-rank counterpart (F7), fed to every row's move/remove form so
+// the no-JavaScript path returns to the ranked list, not the discovery
+// pool below it.
+func boardRankReturnTargetForData(data map[string]any) string {
+	return boardRankRedirectTarget(
+		fmt.Sprint(data["pool_position"]),
+		fmt.Sprint(data["pool_query"]),
+		fmt.Sprint(data["pool_page"]),
+	)
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
@@ -106,6 +139,7 @@ func init() {
 			// a bar action here would have to point at an arbitrary row.
 			data["board_return_target_field"] = boardReturnTargetField
 			data["board_return_target"] = boardReturnTargetForData(data)
+			data["board_rank_return_target"] = boardRankReturnTargetForData(data)
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {
@@ -150,7 +184,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "board", "player_id", err)
 				}
-				actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), "Board order updated.")
+				actionui.RedirectBackWithNotice(ctx, boardRankRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), "Board order updated.")
 				return nil
 			},
 			// board-move-to is the absolute-index action the declarative
@@ -173,7 +207,7 @@ func init() {
 				if err := league.Default().BoardRemove(ctx.Request, ctx.FormData["player_id"]); err != nil {
 					return actionui.Validation(ctx, "board", "player_id", err)
 				}
-				actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), "Player removed from your board.")
+				actionui.RedirectBackWithNotice(ctx, boardRankRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), "Player removed from your board.")
 				return nil
 			},
 			"board-clear": func(ctx *action.Context) error {

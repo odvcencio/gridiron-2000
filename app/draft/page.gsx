@@ -72,6 +72,13 @@ type DraftPlayerCard struct {
 	// renders these controls.
 	CanMoveUp   bool
 	CanMoveDown bool
+	// SpecialistEarly (comb — larch, 2026-09-04, J1 F12): true for a K/P/
+	// DST row while more than three rounds remain in the draft — the
+	// available pane's own row-level confirm panel shows its "Specialists
+	// usually go late" line only then. Always false for a queue-pane
+	// entry (draftPlayerProps never sets it there), which never renders
+	// the confirm panel this backs.
+	SpecialistEarly bool
 }
 
 type DraftQueueProps struct {
@@ -637,10 +644,19 @@ func DraftRoom(props DraftRoomProps) Node {
 					<div class="checklist-item">
 						<span class="checklist-mark mono">02</span>
 						<div class="checklist-item__text">
-							<strong>Check in as ready</strong>
-							<small>Mark yourself ready after your Big Board is set. Then keep this tab open so the commissioner can also see that you are HERE.</small>
+							<strong>Check in for the draft</strong>
+							<small>Mark yourself checked in after your Big Board is set. Then keep this tab open so the commissioner can also see that you are HERE.</small>
 						</div>
-						<a href="#ready-toggle" class="board-button">Check in now ↑</a>
+						<form method="post" action={props.Actions.toggle_ready} class="checklist-item__form" data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
+							<If cond={props.Data.viewer_ready}>
+								<button class="board-button checklist-item__checkin" type="submit">Undo check-in</button>
+							</If>
+							<If cond={props.Data.viewer_ready == false}>
+								<button class="board-button checklist-item__checkin" type="submit">Check in for the draft</button>
+							</If>
+						</form>
 					</div>
 					</If>
 					<If cond={props.Data.viewer.has_seat == false && props.Data.public_entry.can_claim}>
@@ -683,7 +699,18 @@ func DraftRoom(props DraftRoomProps) Node {
 							<strong>Autopick covers you if you disappear</strong>
 							<small>Turn it on before the draft if you might miss your pick.</small>
 						</div>
-						<a href="#autopick-toggle" class="board-button">Autopick toggle ↑</a>
+						<form method="post" action={props.Actions.toggle_autopick} class="checklist-item__form" data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
+							<If cond={props.Data.viewer_autopick}>
+								<input type="hidden" name="on" value="false"></input>
+								<button class="board-button checklist-item__checkin" type="submit">Turn autopick off</button>
+							</If>
+							<If cond={props.Data.viewer_autopick == false}>
+								<input type="hidden" name="on" value="true"></input>
+								<button class="board-button checklist-item__checkin" type="submit">Turn autopick on</button>
+							</If>
+						</form>
 					</div>
 					</If>
 				</div>
@@ -767,7 +794,8 @@ func DraftRoom(props DraftRoomProps) Node {
 					<form method="post" action={props.Actions.clock_extend} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="current_pick_token" value={props.Data.current_pick_token}></input>
-						<input class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
+						<label class="visually-hidden" for="draft-team-extend-seconds">Seconds to add to the running pick</label>
+						<input id="draft-team-extend-seconds" class="scoring-input" type="number" name="seconds" value="60" min="1" max="600"></input>
 						<button class="button button--compact" type="submit">Extend pick</button>
 					</form>
 					<form method="post" action={props.Actions.clock_duration} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
@@ -958,6 +986,7 @@ type TapePick struct {
 	AvatarImageURL                                 string
 	PlayerID, PlayerName, Position, NFLTeam        string
 	MadeBy                                         string
+	AttributionLine                                string
 	IsAuto, IsCommissioner, Mine                   bool
 	TimeToPickSec                                  int
 	TimeToPick                                     string
@@ -1287,6 +1316,27 @@ type DraftHistoryHeadProps struct {
 //     five ungrouped children did in an earlier draft of this fix
 //     (measured live: pick/turn/clock/toggle spread across 3 separate
 //     flex lines instead of shrinking to fit one).
+// DraftCommandHeader wraps the page's one visible h1 together with
+// DraftCommandBar (spruce audit, J1 F1/F7, J2 F7, 2026-09-04): Page()
+// used to render the h1 If-chain as a plain sibling of DraftCommandBar,
+// outside whatever refetch/rebind mechanism covered the bar itself, so it
+// never moved after first paint. Folding it into this one component lets
+// CommandFragmentHandler's existing "/draft/fragment/command" fetch
+// (fallback mode's own region) carry a fresh h1 on every draft:pick/undo/
+// clock/state event with no second network round trip. Same three
+// mutually exclusive branches Page() used to render inline; reads
+// props.Data (the same viewData map DraftCommandBar already reads
+// props.Data.draft.started/practice.active/etc. from), so no new field
+// wiring was needed in page.server.go.
+func DraftCommandHeader(props DraftCommandBarProps) Node {
+	return <>
+		<If cond={props.Data.practice.active}><h1 class="draft-command__title">Practice draft · Round {props.Data.round} · Pick {props.Data.pick_number} of {props.Data.picks_total}</h1></If>
+		<If cond={props.Data.practice.active == false && props.Data.draft.started}><h1 class="draft-command__title">Draft room · Round {props.Data.round} · Pick {props.Data.pick_number} of {props.Data.picks_total}</h1></If>
+		<If cond={props.Data.practice.active == false && props.Data.draft.started == false}><h1 class="draft-command__title">Draft room · {props.Data.draft.opens_label}</h1></If>
+		<DraftCommandBar {...props}></DraftCommandBar>
+	</>
+}
+
 func DraftCommandBar(props DraftCommandBarProps) Node {
 	return <div class="draft-command__inner">
 		<p class="draft-region-stale mono" role="status">The room did not update. This is the last confirmed state. <a href={props.Data.room_path}>Refresh room →</a></p>
@@ -1313,6 +1363,9 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 					<span class="idx">Before the room opens</span>
 					<strong class="display">Draft not started</strong>
 					<small class="muted"><span data-gosx-live-bind="room.ready">{props.Data.ready_count}</span> of <span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> ready</small>
+					<If cond={props.Data.practice.allowed}>
+						<a href={props.Data.practice.href} data-gosx-link class="draft-command__practice">Practice the draft room →</a>
+					</If>
 					<If cond={props.Data.viewer.is_commissioner}>
 						<button type="button" class="btn btn-sm btn-primary draft-command__start" data-gosx-disclosure-target="#draft-commissioner" aria-controls="draft-commissioner" aria-expanded="false">Start the draft →</button>
 					</If>
@@ -1326,12 +1379,34 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 					<If cond={props.Data.viewer_on_clock == false}><span class="idx">On the clock</span></If>
 					<strong class="display" data-gosx-live-bind="onclock.name">{props.Data.on_clock.name}</strong>
 					<small class="muted">Next: {props.Data.next_team.name} · then {props.Data.after_next_team.name}</small>
+					{/* comb — larch (2026-09-04), J2 F34 (opportunity): the
+					    room's own header carried only an AGGREGATE count
+					    ("N/8 here"), never the one seat that matters most
+					    the second a pick arms — whether the seat NOW on
+					    the clock has opened the room at all. presence
+					    already tracks this per seat (draftTeamMaps,
+					    service.go) for the commissioner drawer's own seat
+					    cards; on_clock_not_in_room (page.server.go) is
+					    that same seat's own bucket, read once per
+					    request, off data this request already built. */}
+					<If cond={props.Data.on_clock_not_in_room}>
+						<small class="draft-command__not-in-room">Not in the room</small>
+					</If>
 				</If>
 				<span class="draft-command__pill-status mono">
 					<If cond={props.Data.draft.started == false}>DRAFT NOT STARTED · <span data-gosx-live-bind="room.ready">{props.Data.ready_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> READY</If>
 					<If cond={props.Data.draft.started && props.Data.draft.complete}>DRAFT COMPLETE</If>
 					<If cond={props.Data.draft.started && props.Data.draft.complete == false && props.Data.viewer_on_clock}>YOU’RE UP</If>
-					<If cond={props.Data.draft.started && props.Data.draft.complete == false && props.Data.viewer_on_clock == false}>ON CLOCK: <span data-gosx-live-bind="onclock.name">{props.Data.on_clock.name}</span></If>
+					{/* comb — larch (2026-09-04), J2 F14: "ON CLOCK: " ate 10
+					    characters of this line's own one-line ellipsis
+					    budget before the team's name even started, so a
+					    long name (or this pill's own narrowest phone width)
+					    clipped to a single letter — "P…" for a whole team.
+					    The pill-status line's OWN idx sibling above already
+					    reads "On the clock"/"You are on the clock" for
+					    sighted users with more room; dropping the inline
+					    prefix here hands its width back to the name. */}
+					<If cond={props.Data.draft.started && props.Data.draft.complete == false && props.Data.viewer_on_clock == false}><span data-gosx-live-bind="onclock.name">{props.Data.on_clock.name}</span></If>
 				</span>
 			</div>
 		</div>
@@ -1354,15 +1429,42 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 				<If cond={props.Data.draft.complete}>
 					<strong class="pick-clock mono" data-pick-clock data-gosx-countdown-format="mm:ss" aria-live="off">FINAL</strong>
 				</If>
-				<If cond={props.Data.draft.complete == false}>
+				{/* F4 (gap-audit J2): a seat on the 20s not-seen safety clock
+				    showed "0:16 of 2:00", implying the full pick clock still
+				    applied. The commissioner and every manager in the room
+				    read the wrong deadline; this names the real cap and why
+				    it applies instead. */}
+				<If cond={props.Data.draft.complete == false && props.Data.clock.short_clock}>
+					<span class="idx">Short clock: {props.Data.on_clock.name} is not in the room ({props.Data.clock.short_clock_seconds} s)</span>
+				</If>
+				{/* comb — larch (2026-09-04), J1 F32: this "of <duration>"
+				    suffix used to render unconditionally, so a paused
+				    clock read "PAUSED OF 2:00" — a sentence that stops
+				    parsing in the one state a manager most wants the
+				    remaining time named clearly. RUNNING keeps "of
+				    <duration>" beside its own live countdown ("1:12 of
+				    2:00" still reads as a fraction); every other
+				    unfinished state names the same figure as time left
+				    instead. */}
+				<If cond={props.Data.draft.complete == false && props.Data.clock.short_clock == false && props.Data.clock.state == "RUNNING"}>
 					<span class="idx">of <span data-gosx-live-bind="clock.duration_label">{props.Data.clock.duration_label}</span></span>
+				</If>
+				<If cond={props.Data.draft.complete == false && props.Data.clock.short_clock == false && props.Data.clock.state != "RUNNING"}>
+					<span class="idx">· <span data-gosx-live-bind="clock.duration_label">{props.Data.clock.duration_label}</span> left</span>
 				</If>
 			</If>
 		</div>
 		<details class="draft-command__pill-toggle">
+			{/* comb — larch (2026-09-04), J1 F14: the open-state rotate
+			    (public/styles.css, "[open] .draft-command__pill-caret")
+			    targeted the WHOLE summary, so the "MENU" label rotated
+			    with the ▾ glyph — mirrored and upside-down once open, on
+			    the one control that leads out of the room. A class on
+			    the glyph alone gives this comb's own override something
+			    narrower to rotate. */}
 			<summary class="draft-command__pill-caret" aria-controls="draft-command-sheet">
 				<span class="draft-command__pill-caret-label mono">MENU</span>
-				<span aria-hidden="true">▾</span>
+				<span class="draft-command__pill-caret-glyph" aria-hidden="true">▾</span>
 			</summary>
 			<div class="draft-command__sheet" id="draft-command-sheet">
 				<div class="draft-command__sheet-room mono">
@@ -1372,16 +1474,19 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 					</If>
 				</div>
 				<div class="draft-command__sheet-controls">
+					<If cond={props.Data.draft.started == false && props.Data.practice.allowed}>
+						<a href={props.Data.practice.href} data-gosx-link class="btn btn-sm draft-command__practice">Practice the draft room →</a>
+					</If>
 					<If cond={props.Data.viewer.has_seat && props.Data.draft.complete == false}>
 						<If cond={props.Data.practice.active == false}>
 						<form method="post" action={props.Actions.toggle_ready} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 							<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
 							<If cond={props.Data.viewer_ready}>
-								<button class="btn btn-sm" type="submit" aria-pressed="true">Undo ready check-in</button>
+								<button class="btn btn-sm" type="submit" aria-pressed="true">Undo check-in</button>
 							</If>
 							<If cond={props.Data.viewer_ready == false}>
-								<button class="btn btn-sm btn-primary" type="submit" aria-pressed="false">Mark me ready</button>
+								<button class="btn btn-sm btn-primary" type="submit" aria-pressed="false">Check in for the draft</button>
 							</If>
 						</form>
 						</If>
@@ -1533,10 +1638,19 @@ func DraftPracticeStrip(props DraftCommandBarProps) Node {
 // leaves the clock untouched), so keeping it up costs nothing and saves a
 // commissioner from a dead end if the room ever needs a manual restart.
 func DraftCommissionerDrawer(props DraftCommandBarProps) Node {
-	return <aside id="draft-commissioner" class="draft-drawer" data-gosx-disclosure data-gosx-disclosure-modal hidden role="dialog" aria-modal="true" aria-labelledby="draft-commissioner-title">
+	return <aside id="draft-commissioner" class="draft-drawer" data-gosx-disclosure data-gosx-disclosure-modal hidden={props.Data.commissioner_drawer_open == false} role="dialog" aria-modal="true" aria-labelledby="draft-commissioner-title">
 		<header class="draft-drawer__head">
 			<h2 id="draft-commissioner-title">Commissioner</h2>
-			<button type="button" class="btn btn-sm" aria-label="Close commissioner controls" data-gosx-disclosure-close="#draft-commissioner" data-gosx-disclosure-initial-focus>✕</button>
+			{/* F24 (gap-audit J2): a real href, not just a JS-only button.
+			    Every commissioner action inside this drawer re-renders the
+			    page through a soft navigation that re-opens the drawer from
+			    server-rendered state below (commissioner_drawer_open), with
+			    no client-side disclosure "record" left from the original
+			    open click — closing normally re-focuses that record's saved
+			    trigger, which no longer exists. A plain link back to the
+			    room works whether or not one does, in exactly the no-JS
+			    case this app already promises to support everywhere else. */}
+			<a href="/draft" class="btn btn-sm" aria-label="Close commissioner controls" data-gosx-disclosure-close="#draft-commissioner" data-gosx-disclosure-initial-focus>✕</a>
 		</header>
 		<div class="draft-drawer__body">
 			<If cond={props.Data.draft.complete == false && props.Data.draft.started == false}>
@@ -1548,22 +1662,55 @@ func DraftCommissionerDrawer(props DraftCommandBarProps) Node {
 				</form>
 			</If>
 			<If cond={props.Data.draft.complete == false && props.Data.draft.started}>
-				<p class="mono draft-drawer__note">Draft is running. The clock controls below are live.</p>
+				{/* F9 (gap-audit J2): this line used to read "Draft is
+				    running" unconditionally, even while paused — the
+				    commissioner read a false state and reached for the
+				    wrong button under time pressure. It now names the
+				    clock's own two true states. */}
+				<If cond={props.Data.clock.paused}>
+					<p class="mono draft-drawer__note">Paused · {props.Data.clock.remaining_label} left. The clock controls below are live.</p>
+				</If>
+				<If cond={props.Data.clock.paused == false}>
+					<p class="mono draft-drawer__note">Running. The clock controls below are live.</p>
+				</If>
+				{/* F4 (gap-audit J2): the on-clock seat's 20s not-seen safety
+				    cap had no room-visible label at all; the commissioner
+				    read "of 2:00" and believed the full clock still applied. */}
+				<If cond={props.Data.clock.short_clock}>
+					<p class="mono draft-drawer__note draft-drawer__note--warning">Short clock: {props.Data.on_clock.name} is not in the room ({props.Data.clock.short_clock_seconds} s)</p>
+				</If>
 			</If>
 			<If cond={props.Data.draft.started && props.Data.draft.complete == false}>
 				<div class="clock-controls">
-					<form method="post" action={props.Actions.clock_pause} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
-						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-						<button class="button button--compact" type="submit">Pause clock</button>
-					</form>
-					<form method="post" action={props.Actions.clock_resume} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
-						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-						<button class="button button--compact button--primary" type="submit">Resume clock</button>
-					</form>
+					{/* F9: the ONE action actually available now is the bright
+					    button; the other names its reason, matching /admin's
+					    own established disabled-with-reason pattern
+					    (app/admin/page.gsx's "Pause unavailable - clock is
+					    {state}") instead of leaving Resume permanently bright
+					    even while the clock was already running. */}
+					<If cond={props.Data.clock.can_pause}>
+						<form method="post" action={props.Actions.clock_pause} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<button class="button button--compact button--primary" type="submit">Pause clock</button>
+						</form>
+					</If>
+					<If cond={props.Data.clock.can_pause == false}>
+						<button class="button button--compact" type="button" disabled="disabled">Pause unavailable - clock is {props.Data.clock.state}</button>
+					</If>
+					<If cond={props.Data.clock.can_resume}>
+						<form method="post" action={props.Actions.clock_resume} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<button class="button button--compact button--primary" type="submit">Resume clock</button>
+						</form>
+					</If>
+					<If cond={props.Data.clock.can_resume == false}>
+						<button class="button button--compact" type="button" disabled="disabled">Resume unavailable - {props.Data.clock.state}</button>
+					</If>
 					<form method="post" action={props.Actions.clock_extend} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="current_pick_token" value={props.Data.current_pick_token}></input>
-						<input class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
+						<label class="visually-hidden" for="draft-drawer-extend-seconds">Seconds to add to the running pick</label>
+						<input id="draft-drawer-extend-seconds" class="scoring-input" type="number" name="seconds" value="60" min="1" max="600"></input>
 						<button class="button button--compact" type="submit">Extend pick</button>
 					</form>
 					<div class="draft-drawer__presets" aria-label="Pick clock presets">
@@ -1614,6 +1761,17 @@ func DraftCommissionerDrawer(props DraftCommandBarProps) Node {
 						<form method="post" action="/admin/__actions/draft-undo" data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 							<input type="hidden" name="previous_pick_token" value={props.Data.previous_pick_token}></input>
+							{/* origin=draft (F5): draft-undo's own handler
+							    (app/admin/page.server.go) is shared with the
+							    console's Danger Zone form, which posts no such
+							    field and keeps landing on /admin's own danger
+							    section — this is the one signal that tells the
+							    handler the commissioner submitted this from
+							    inside the live room and must stay there. */}
+							<input type="hidden" name="origin" value="draft"></input>
+							{/* F25: name the exact pick this removes before asking
+							    for the destructive confirmation. */}
+							<p>This removes {props.Data.previous_pick_summary} and re-arms the clock for that slot.</p>
 							<label class="mono" for="draft-undo-confirm">TYPE UNDO //</label>
 							<input id="draft-undo-confirm" class="scoring-input" name="confirm" autocomplete="off" placeholder="UNDO" required="required"></input>
 							<button class="button button--compact button--ghost" type="submit">Confirm undo</button>
@@ -1625,7 +1783,7 @@ func DraftCommissionerDrawer(props DraftCommandBarProps) Node {
 				{/* comb — oleander, item 7: same plain-language rewrite as
 				    the "By Team" panel's own copy above — see that
 				    location's doc comment for the full rationale. */}
-				<p class="draft-drawer__help">Seat presence is informational; autopick runs from the seat's own setting. Seats get two minutes after a restart before they count as unseen for the short backup clock. Turn on AUTO for a seat you know will be away; it then drafts from that seat's own Big Board.</p>
+				<p class="draft-seat-controls__intro">Seat presence is informational; autopick runs from the seat's own setting. Seats get two minutes after a restart before they count as unseen for the short backup clock. Turn on AUTO for a seat you know will be away; it then drafts from that seat's own Big Board.</p>
 				<Each of={props.Data.seat_controls} as="seat"><DraftSeatControl {...seat}></DraftSeatControl></Each>
 			</section>
 		</div>
@@ -1779,10 +1937,42 @@ func DraftMobileTabs(props DraftMobileTabsProps) Node {
 // desktop keeps in pane 3's Room tab (DraftMyTeam) — so a phone never
 // shows an empty gap between the panes and the tab bar, and nothing about
 // ready/autopick ever renders between the command bar and the panes.
+//
+// comb — larch (2026-09-04), J1 F2: the six branches below used to be
+// four, gated by "(started && on_clock && queued) == false", which never
+// tested started at all — a live draft with the viewer on the clock but
+// no queued player, or simply not their turn, still fell into the FIRST
+// false branch, "Before the room opens · Check in for draft night," the
+// exact pre-draft-only copy a live manager saw mid-draft (root cause).
+// Every branch now names one of three top-level states explicitly —
+// complete (a results link), on the clock (queued pick or "open the
+// pool"), or neither (pre-draft check-in, or the ready/autopick status a
+// live-but-not-on-clock or pre-draft seat both still need) — so no two
+// branches can ever paint at once and no live state falls through to
+// pre-draft copy.
+//
+// spruce audit (J1 F1, 2026-09-04): Page() used to call this with no
+// region and no live bind at all, in EITHER live_mode — the one pane
+// this whole shell never refreshed. A manager whose turn arrived kept
+// seeing the pre-draft "Check in for draft night" prompt, not the Draft
+// button, until a reload. Page() now wraps the call in a plain
+// data-gosx-region pointed at the new "/pickbar" fragment (fragment.go's
+// draftPickBarRegion), refetching on the same events the command bar
+// already lists — unconditional, not gated on data.live_mode, since
+// neither mode ever covered it before. Together with F2's branch fix
+// above, the bar both names the right state on first render AND keeps
+// naming it as the draft moves without a reload.
 func DraftPickBar(props DraftAvailableProps) Node {
-	return <If cond={props.Data.viewer.has_seat && props.Data.draft.complete == false}>
+	return <If cond={props.Data.viewer.has_seat}>
 		<div class="draft-pickbar">
-			<If cond={props.Data.draft.started && props.Data.viewer_on_clock && props.Data.next_queued.has}>
+			<If cond={props.Data.draft.complete}>
+				<div>
+					<span class="idx">Draft complete</span>
+					<strong>See your results</strong>
+				</div>
+				<a class="btn btn-primary" href="/draft/results" data-gosx-link>View results</a>
+			</If>
+			<If cond={props.Data.draft.complete == false && props.Data.draft.started && props.Data.viewer_on_clock && props.Data.next_queued.has}>
 				<div>
 					<span class="idx idx--hot">Your pick · queue #1</span>
 					<strong>{props.Data.next_queued.name} · {props.Data.next_queued.position} · {props.Data.next_queued.nfl_team}</strong>
@@ -1794,7 +1984,14 @@ func DraftPickBar(props DraftAvailableProps) Node {
 					<button class="btn btn-primary" type="submit">Draft</button>
 				</form>
 			</If>
-			<If cond={(props.Data.draft.started && props.Data.viewer_on_clock && props.Data.next_queued.has) == false && props.Data.viewer_ready == false}>
+			<If cond={props.Data.draft.complete == false && props.Data.draft.started && props.Data.viewer_on_clock && props.Data.next_queued.has == false}>
+				<div>
+					<span class="idx idx--hot">Your pick</span>
+					<strong>Pick from the pool</strong>
+				</div>
+				<label class="btn btn-primary" for="tab-players">Open the pool</label>
+			</If>
+			<If cond={props.Data.draft.complete == false && props.Data.draft.started == false && props.Data.viewer_ready == false}>
 				<div>
 					<span class="idx">Before the room opens</span>
 					<strong>Check in for draft night</strong>
@@ -1806,7 +2003,13 @@ func DraftPickBar(props DraftAvailableProps) Node {
 					<button class="btn btn-primary" id="mobile-ready-toggle" type="submit">Check in now</button>
 				</form>
 			</If>
-			<If cond={(props.Data.draft.started && props.Data.viewer_on_clock && props.Data.next_queued.has) == false && props.Data.viewer_ready && props.Data.viewer_autopick == false}>
+			<If cond={props.Data.draft.complete == false && (props.Data.draft.started && props.Data.viewer_on_clock) == false && props.Data.draft.started && props.Data.viewer_ready == false}>
+				<div>
+					<span class="idx">Room is live</span>
+					<strong>Waiting for your turn</strong>
+				</div>
+			</If>
+			<If cond={props.Data.draft.complete == false && (props.Data.draft.started && props.Data.viewer_on_clock) == false && props.Data.viewer_ready && props.Data.viewer_autopick == false}>
 				<div>
 					<span class="idx">Ready ✓</span>
 					<strong>Autopick is off</strong>
@@ -1818,7 +2021,7 @@ func DraftPickBar(props DraftAvailableProps) Node {
 					<button class="btn btn-sm" id="mobile-autopick-toggle" type="submit">Turn autopick on</button>
 				</form>
 			</If>
-			<If cond={(props.Data.draft.started && props.Data.viewer_on_clock && props.Data.next_queued.has) == false && props.Data.viewer_ready && props.Data.viewer_autopick}>
+			<If cond={props.Data.draft.complete == false && (props.Data.draft.started && props.Data.viewer_on_clock) == false && props.Data.viewer_ready && props.Data.viewer_autopick}>
 				<div>
 					<span class="idx">Ready ✓</span>
 					<strong>Autopick on</strong>
@@ -1924,7 +2127,7 @@ func DraftAvailable(props DraftAvailableProps) Node {
 					<th scope="col" class="idx">PLAYER</th>
 					<th scope="col" class="idx">POS</th>
 					<th scope="col" class="idx"><abbr title="projected points per game">PROJ</abbr></th>
-					<If cond={props.Data.has_adp && props.Data.draft.started}><th scope="col" class="idx"><abbr title="value if drafted at the next pick, versus average draft position">VS ADP</abbr></th></If>
+					<If cond={props.Data.has_adp && props.Data.draft.started}><th scope="col" class="idx avail-row__vsadp"><abbr title="value if drafted at the next pick, versus average draft position">VS ADP</abbr></th></If>
 					<th scope="col" class="idx avail-row__info-head"><span class="visually-hidden">Player info</span></th>
 					<th scope="col" class="idx">ACTION</th>
 				</tr>
@@ -1958,13 +2161,13 @@ func DraftAvailable(props DraftAvailableProps) Node {
 							    neighbour, which drops the POS chip under the name. */}
 							<div class="avail-row__player-body">
 								<span class="avail-row__rank-chip mono"><AvailRowRank Sort={props.Data.pool_sort} HasHouseRank={player.HasHouseRank} HouseRank={player.HouseRank} Rank={player.Rank}></AvailRowRank></span>
-								<strong>{player.Name}</strong> <small>· {player.Detail}</small>
+								<strong>{player.Name}</strong> <If cond={player.Detail != ""}><small>· {player.Detail}</small></If>
 							</div>
 						</td>
 						<td class={"pos pos-" + player.Position}>{player.Position}</td>
 						<td class="num">{player.Projection}</td>
-						<If cond={props.Data.has_adp && props.Data.draft.started && player.HasValue}><td class="num" title={player.ValueLabel + " vs ADP: value if drafted at the next pick, versus average draft position"}>{player.ValueLabel}</td></If>
-						<If cond={props.Data.has_adp && props.Data.draft.started && player.HasValue == false}><td class="num" title="no market ADP for punters">—</td></If>
+						<If cond={props.Data.has_adp && props.Data.draft.started && player.HasValue}><td class="num avail-row__vsadp" title={player.ValueLabel + " vs ADP: value if drafted at the next pick, versus average draft position"}>{player.ValueLabel}</td></If>
+						<If cond={props.Data.has_adp && props.Data.draft.started && player.HasValue == false}><td class="num avail-row__vsadp" title="no market ADP for punters">—</td></If>
 						<td class="avail-row__info">
 							<If cond={player.HasNews}><details class="stat-tip stat-tip--news"><summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + player.Name}>📰</summary><div class="stat-tip__panel"><p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.News}</p><If cond={player.HasInjury}><p class="stat-tip__hist-note">{player.Injury}</p></If></div></details></If>
 						</td>
@@ -1977,9 +2180,26 @@ func DraftAvailable(props DraftAvailableProps) Node {
 								<input type="hidden" name="pos" value={props.Data.pool_position}></input>
 								<input type="hidden" name="q" value={props.Data.pool_query}></input>
 								<input type="hidden" name="page" value={props.Data.pool_page}></input>
-								<button class="button button--ghost" type="submit">+ RANK</button>
+								<button class="button button--ghost" type="submit" aria-label={"Add " + player.Name + " to your Big Board"}>+ RANK</button>
 							</form>
 							</If>
+							{/* comb — larch (2026-09-04), J1 F12: one tap used to
+							    post the pick outright — the row's own Draft
+							    button WAS the form's only submit control, so a
+							    mis-tap on a 44px-tall row of fifty identical
+							    buttons drafted whoever it landed on, with no
+							    undo. <details> turns the same button into a
+							    two-tap disclosure, the exact no-JS pattern
+							    /players' own "Confirm drop" (public/styles.css
+							    .action-confirmation, this file's own doc
+							    comment) already ships: the first tap only
+							    opens it (native <summary> behavior, no request
+							    sent); the SECOND tap hits the real submit
+							    button inside, still in this one <form>, so the
+							    pick posts exactly like before once confirmed.
+							    Tapping the summary again (or anywhere outside,
+							    for a mouse) closes it with no server round
+							    trip — the built-in Cancel. */}
 							<form method="post" action={props.MakePickAction} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 								<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
@@ -1988,7 +2208,19 @@ func DraftAvailable(props DraftAvailableProps) Node {
 								<input type="hidden" name="q" value={props.Data.pool_query}></input>
 								<input type="hidden" name="page" value={props.Data.pool_page}></input>
 								<If cond={props.Data.can_pick && player.CanDraft}>
-									<button class="btn btn-sm btn-primary" type="submit">Draft</button>
+									<details class="draft-row-confirm">
+										<summary class="btn btn-sm btn-primary" aria-label={"Draft " + player.Name}>
+											<span class="draft-row-confirm__closed-label">Draft</span>
+											<span class="draft-row-confirm__open-label">{"Confirm " + player.Name}</span>
+										</summary>
+										<div class="draft-row-confirm__panel">
+											<If cond={player.SpecialistEarly}>
+												<p class="draft-row-confirm__warning">Specialists usually go late. Draft anyway?</p>
+											</If>
+											<button class="btn btn-sm btn-primary" type="submit">{"Confirm " + player.Name}</button>
+											<p class="draft-row-confirm__cancel-hint muted">Tap Draft again to cancel.</p>
+										</div>
+									</details>
 								</If>
 								<If cond={props.Data.can_pick && player.CanDraft == false}>
 									<span class="control-locked">
@@ -2155,10 +2387,10 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
 						<If cond={props.Data.viewer_ready}>
-							<button class="btn btn-sm" type="submit" aria-pressed="true">Undo ready check-in</button>
+							<button class="btn btn-sm" type="submit" aria-pressed="true">Undo check-in</button>
 						</If>
 						<If cond={props.Data.viewer_ready == false}>
-							<button class="btn btn-sm btn-primary" type="submit" aria-pressed="false">Mark me ready</button>
+							<button class="btn btn-sm btn-primary" type="submit" aria-pressed="false">Check in for the draft</button>
 						</If>
 					</form>
 				</div>
@@ -2260,7 +2492,16 @@ func DraftHistoryHead(props DraftHistoryHeadProps) Node {
 	return <div class="draft-history-head">
 		<h2 id="draft-history-title" class="visually-hidden">Pick history</h2>
 		<div class="draft-history-head__row">
-			<span class="draft-history-head__label mono">PICK HISTORY</span>
+			{/* comb — larch (2026-09-04), J1 F19: this label used to read
+			    "PICK HISTORY" for every one of the pane's three views —
+			    a manager who tapped TEAMS or Draft grid landed on a panel
+			    whose own heading named the tab they had just left, a
+			    second of doubt every time (consistency). Three names, one
+			    per view, in the same order the segment nav beside it
+			    already offers them. */}
+			<If cond={props.ShowBoard}><span class="draft-history-head__label mono">DRAFT GRID</span></If>
+			<If cond={props.ShowTeams}><span class="draft-history-head__label mono">TEAMS</span></If>
+			<If cond={props.ShowBoard == false && props.ShowTeams == false}><span class="draft-history-head__label mono">PICK HISTORY</span></If>
 			<nav class="segment" aria-label="Pick history panels">
 				<a class="segment__option" href={props.TapeHref} data-gosx-link aria-current={props.ShowTape}>Picks</a>
 				<a class="segment__option" href={props.BoardHref} data-gosx-link aria-current={props.ShowBoard}>Draft grid</a>
@@ -2340,9 +2581,17 @@ func DraftPickDetail(props TapePick) Node {
 						<If cond={props.TimeToPickSec > 0}> · {props.TimeToPick}</If>
 					</small>
 				</div>
+				{/* F3 (gap-audit J2): the AUTO/COMM chip above marks the fact;
+				    this states it in the plain sentence a manager who never
+				    learned the chip meaning can still read -- a no-show's
+				    autopick must never look like their own pick. Empty (no
+				    render) for an ordinary manager pick. */}
+				<If cond={props.AttributionLine != ""}>
+					<p class="tape-row__attribution">{props.AttributionLine}</p>
+				</If>
 			</div>
 			<div class="tape-row__meta">
-				<span class="mono">#{props.Number}</span>
+				<span class="mono tape-row__number">#{props.Number}</span>
 				<span class="pick-detail__chevron" aria-hidden="true"></span>
 			</div>
 		</a>
@@ -2722,15 +2971,29 @@ func DraftHistory(props DraftHistoryProps) Node {
 // would add a sixth top-level child to .draft-shell's own explicit
 // grid-template-rows track list, which is sized for exactly the five
 // existing children (notice, command, tabbar, panes, pickbar) — see
-// the ≤56.1875rem block's own comment on that grid. Inside the fallback
-// branch's header, the h1 sits ahead of a NEW inner div that now alone
-// carries data-gosx-region: CommandFragmentHandler's own response is
-// still DraftCommandBar's .draft-command__inner alone (fragment_test.go
-// pins that exact class), so had the h1 stayed a direct child of the
-// region-carrying header itself, it would render once at first load and
-// vanish on the header's first region-swap. Sentence case, matching
-// every other heading on this page (h2 "Available now", "Pick history",
-// etc.).
+// the ≤56.1875rem block's own comment on that grid.
+//
+// spruce audit (J1 F1/F7, J2 F7, 2026-09-04): the h1 above used to be a
+// plain sibling of the region-carrying div in the fallback branch, and a
+// plain sibling of the live-mode header in the target branch. Neither
+// place ever refetches or rebinds it, so a manager who kept the room open
+// watched the heading freeze at pick 1 while the pill counted up to pick
+// 24 (J2 F7's own repro). DraftCommandHeader below now wraps the h1
+// If-chain AND DraftCommandBar in one component, and CommandFragmentHandler
+// (fragment.go) renders that SAME component — so the h1 travels inside
+// the one existing "/draft/fragment/command" fetch (fallback's region) as
+// a plain sibling of .draft-command__inner, not a second root: the old
+// worry that the h1 must stay OUTSIDE the region because
+// CommandFragmentHandler answered with .draft-command__inner alone no
+// longer applies, since that handler answers with DraftCommandHeader now.
+// fragment_test.go's own check (Contains, not exact-root) still passes.
+// Target mode's header keeps calling DraftCommandHeader directly with no
+// region (Task 8's fetchless design, review item 8's own doc comment,
+// draftLiveMode below) — the h1 there stays as stale as before this fix;
+// DRAFT_LIVE_MODE defaults to fallback now (draftLiveMode's own doc
+// comment), so this is a known, documented gap in the non-default mode
+// only. Sentence case, matching every other heading on this page (h2
+// "Available now", "Pick history", etc.).
 
 // DraftPreflight is the pre-draft "get your seat ready" checklist (D4,
 // spruce audit): it used to open DraftAvailable's own swapped body,
@@ -2757,14 +3020,21 @@ func DraftHistory(props DraftHistoryProps) Node {
 // page controls — the copy now describes it that way instead of
 // contradicting the button.
 type DraftPreflightProps struct {
-	Data map[string]any
+	Data    map[string]any
+	CSRF    string
+	Actions map[string]string
 }
 
 func DraftPreflight(props DraftPreflightProps) Node {
 	return <details class="draft-preflight" aria-labelledby="draft-preflight-title">
 		<summary class="draft-preflight__summary">
 			<span class="section-index">BEFORE THE ROOM OPENS</span>
-			<h2 id="draft-preflight-title">Get your seat ready</h2>
+			<If cond={props.Data.viewer.has_seat}>
+				<h2 id="draft-preflight-title">Get your seat ready</h2>
+			</If>
+			<If cond={props.Data.viewer.has_seat == false}>
+				<h2 id="draft-preflight-title">You are watching this draft</h2>
+			</If>
 			<small class="draft-preflight__hint mono">Open the checklist</small>
 		</summary>
 		<div class="checklist">
@@ -2800,10 +3070,19 @@ func DraftPreflight(props DraftPreflightProps) Node {
 				<div class="checklist-item">
 					<span class="checklist-mark mono">03</span>
 					<div class="checklist-item__text">
-						<strong>Check in as ready</strong>
-						<small>Mark yourself ready after your Big Board is set. Then keep this tab open so the commissioner can also see that you are HERE.</small>
+						<strong>Check in for the draft</strong>
+						<small>Mark yourself checked in after your Big Board is set. Then keep this tab open so the commissioner can also see that you are HERE.</small>
 					</div>
-					<a href="#ready-toggle" class="board-button">Check in now ↑</a>
+					<form method="post" action={props.Actions.toggle_ready} class="checklist-item__form" data-gosx-managed="true">
+						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+						<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
+						<If cond={props.Data.viewer_ready}>
+							<button class="board-button checklist-item__checkin" type="submit">Undo check-in</button>
+						</If>
+						<If cond={props.Data.viewer_ready == false}>
+							<button class="board-button checklist-item__checkin" type="submit">Check in for the draft</button>
+						</If>
+					</form>
 				</div>
 			</If>
 			<If cond={props.Data.viewer.has_seat == false && props.Data.public_entry.can_claim}>
@@ -2821,7 +3100,12 @@ func DraftPreflight(props DraftPreflightProps) Node {
 					<span class="checklist-mark mono">02</span>
 					<div class="checklist-item__text">
 						<strong>{props.Data.public_entry.state_label}</strong>
-						<small>{props.Data.public_entry.detail}</small>
+						<If cond={props.Data.public_entry.admitted && props.Data.public_entry.league_full}>
+							<small>Ask your commissioner for a seat.</small>
+						</If>
+						<If cond={(props.Data.public_entry.admitted && props.Data.public_entry.league_full) == false}>
+							<small>{props.Data.public_entry.detail}</small>
+						</If>
 					</div>
 					<a href={props.Data.public_entry.action_href} data-gosx-link class="board-button">{props.Data.public_entry.action_label}</a>
 					<If cond={props.Data.public_entry.admitted == false}>
@@ -2847,7 +3131,31 @@ func DraftPreflight(props DraftPreflightProps) Node {
 						<strong>Autopick covers you if you disappear</strong>
 						<small>Turn it on before the draft if you might miss your pick.</small>
 					</div>
-					<a href="#autopick-toggle" class="board-button">Autopick toggle ↑</a>
+					<form method="post" action={props.Actions.toggle_autopick} class="checklist-item__form" data-gosx-managed="true">
+						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+						<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
+						<If cond={props.Data.viewer_autopick}>
+							<input type="hidden" name="on" value="false"></input>
+							<button class="board-button checklist-item__checkin" type="submit">Turn autopick off</button>
+						</If>
+						<If cond={props.Data.viewer_autopick == false}>
+							<input type="hidden" name="on" value="true"></input>
+							<button class="board-button checklist-item__checkin" type="submit">Turn autopick on</button>
+						</If>
+					</form>
+				</div>
+			</If>
+			{/* F28 (gap-audit J2): this checklist was manager-only and never
+			    pointed the commissioner to the runbook — the commissioner
+			    arrived in the room to prepare and read someone else's list. */}
+			<If cond={props.Data.viewer.is_commissioner}>
+				<div class="checklist-item">
+					<span class="checklist-mark mono">06</span>
+					<div class="checklist-item__text">
+						<strong>Run the draft-night runbook</strong>
+						<small>Confirm seat readiness and the start sequence before you open the room.</small>
+					</div>
+					<a href="/admin?section=draft-control" data-gosx-link class="board-button">Run the draft-night runbook →</a>
 				</div>
 			</If>
 		</div>
@@ -2862,36 +3170,30 @@ func Page() Node {
 		</div>
 		<If cond={data.live_mode == "target"}>
 		<header class="draft-command" data-gosx-live-mode="event" data-gosx-live-src={data.live_src} data-gosx-live-hub={data.live_hub} data-gosx-live-on="draft:pick draft:undo draft:clock draft:seat draft:state">
-			<If cond={data.practice.active}><h1 class="draft-command__title">Practice draft · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
-			<If cond={data.practice.active == false && data.draft.started}><h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
-			<If cond={data.practice.active == false && data.draft.started == false}><h1 class="draft-command__title">Draft room · {data.draft.opens_label}</h1></If>
 			<If cond={data.practice.active}>
 				<div class="draft-practice-region" data-gosx-region data-gosx-region-url={data.fragment_base + "/practice"} data-gosx-region-on="draft:pick draft:undo draft:clock draft:state" data-gosx-region-interval={data.region_interval}>
 					<DraftPracticeStrip {...data.command}></DraftPracticeStrip>
 				</div>
 			</If>
-			<DraftCommandBar {...data.command}></DraftCommandBar>
+			<DraftCommandHeader {...data.command}></DraftCommandHeader>
 		</header>
 		</If>
 		<If cond={data.live_mode != "target"}>
 		<header class="draft-command">
-			<If cond={data.practice.active}><h1 class="draft-command__title">Practice draft · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
-			<If cond={data.practice.active == false && data.draft.started}><h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
-			<If cond={data.practice.active == false && data.draft.started == false}><h1 class="draft-command__title">Draft room · {data.draft.opens_label}</h1></If>
 			<If cond={data.practice.active}>
 				<div class="draft-practice-region" data-gosx-region data-gosx-region-url={data.fragment_base + "/practice"} data-gosx-region-on="draft:pick draft:undo draft:clock draft:state" data-gosx-region-interval={data.region_interval}>
 					<DraftPracticeStrip {...data.command}></DraftPracticeStrip>
 				</div>
 			</If>
 			<div data-gosx-region data-gosx-region-url={data.fragment_base + "/command"} data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:pick draft:undo draft:clock draft:state" data-gosx-region-interval={data.region_interval}>
-				<DraftCommandBar {...data.command}></DraftCommandBar>
+				<DraftCommandHeader {...data.command}></DraftCommandHeader>
 			</div>
 		</header>
 		</If>
 		<DraftMobileTabs Complete={data.draft.complete} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams} TapeExplicit={data.history_tape_explicit} PicksHref={data.history_tape_href} BoardHref={data.history_board_href} TeamsHref={data.history_teams_href}></DraftMobileTabs>
 		<div class="draft-panes" data-history-board={data.history_view_board}>
 			<If cond={data.draft.started == false}>
-				<DraftPreflight Data={data}></DraftPreflight>
+				<DraftPreflight {...data.preflight}></DraftPreflight>
 			</If>
 			<section class="draft-pane draft-pane--history" aria-labelledby="draft-history-title">
 				<DraftHistoryHead Started={data.draft.started} Complete={data.draft.complete} ShowTape={data.history_view_tape} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams} TapeHref={data.history_tape_href} BoardHref={data.history_board_href} TeamsHref={data.history_teams_href}></DraftHistoryHead>
@@ -2936,7 +3238,9 @@ func Page() Node {
 				</If>
 			</section>
 		</div>
-		<DraftPickBar {...data.available}></DraftPickBar>
+		<div data-gosx-region data-gosx-region-url={data.fragment_base + "/pickbar"} data-gosx-region-on="draft:pick draft:undo draft:clock draft:seat draft:state">
+			<DraftPickBar {...data.available}></DraftPickBar>
+		</div>
 		<If cond={data.viewer.is_commissioner}><DraftCommissionerDrawer {...data.command}></DraftCommissionerDrawer></If>
 	</main>
 }

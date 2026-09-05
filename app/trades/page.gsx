@@ -15,6 +15,7 @@ func Page() Node {
 			</div>
 			<div class="draft-clock-panel draft-clock-panel--sentence">
 				<strong class="mono">{data.veto_policy_label}</strong>
+				<p class="scoring-note">{data.veto_summary_sentence}</p>
 				<div class="draft-clock-meta">
 					<div class="trades-veto-links">
 						<a href="/activity" data-gosx-link>Transaction feed →</a>
@@ -35,7 +36,7 @@ func Page() Node {
 				</div>
 			</div>
 		</section>
-		<div class="notice-stack" aria-live="polite">
+		<div class="notice-stack">
 			<If cond={data.demo_mode}>
 				<p class="demo-message">
 					<strong>REHEARSAL MODE:</strong>
@@ -285,7 +286,8 @@ func TradeDeskRegion() Node {
 									<details class="action-confirmation">
 										<summary>Accept this trade</summary>
 										<p>
-											Accepting records your agreement. This either opens the league review window or executes immediately, depending on league policy. The roster change cannot be undone from this screen.
+											{data.trade_accept_consequence}
+											The roster change cannot be undone from this screen.
 										</p>
 										<label>
 											<input type="checkbox" name="confirmation" value="accept-trade" required="required"></input>
@@ -411,15 +413,25 @@ func TradeDeskRegion() Node {
 								</Each>
 							</small>
 							<If cond={offer.Status == "accepted"}>
-								<small>
-									Review window ends
-									{offer.ReviewDeadline}
-									·
-									{offer.VetoesCount}
-									of
-									{offer.VetoesThreshold}
-									vetoes filed
-								</small>
+								<If cond={data.veto_mode == "commissioner"}>
+									<small>
+										Waiting for the commissioner's review ·
+										{offer.ReviewDeadline}
+										·
+										{offer.ReviewDeadlineRelative}
+									</small>
+								</If>
+								<If cond={data.veto_mode != "commissioner"}>
+									<small>
+										Review window ends
+										{offer.ReviewDeadline}
+										·
+										{offer.VetoesCount}
+										of
+										{offer.VetoesThreshold}
+										vetoes filed
+									</small>
+								</If>
 							</If>
 							<If cond={offer.HasExpiry}>
 								<If cond={offer.ExpiryState == "upcoming"}>
@@ -500,15 +512,25 @@ func TradeDeskRegion() Node {
 								</Each>
 							</small>
 							<If cond={offer.HasReviewDeadline}>
-								<small>
-									Review window ends
-									{offer.ReviewDeadline}
-									·
-									{offer.VetoesCount}
-									of
-									{offer.VetoesThreshold}
-									vetoes filed
-								</small>
+								<If cond={data.veto_mode == "commissioner"}>
+									<small>
+										Waiting for the commissioner's review ·
+										{offer.ReviewDeadline}
+										·
+										{offer.ReviewDeadlineRelative}
+									</small>
+								</If>
+								<If cond={data.veto_mode != "commissioner"}>
+									<small>
+										Review window ends
+										{offer.ReviewDeadline}
+										·
+										{offer.VetoesCount}
+										of
+										{offer.VetoesThreshold}
+										vetoes filed
+									</small>
+								</If>
 							</If>
 						</div>
 					</article>

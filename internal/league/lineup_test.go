@@ -3,6 +3,7 @@ package league
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -910,8 +911,32 @@ func TestLineupAutoOmitsEmptySlotWarningWhenEveryStarterFills(t *testing.T) {
 // the starters count for as long as the slot stays empty — not just at the
 // moment of the action. newLineupTestService's fixture leaves K, TE, DST,
 // and RB2 empty even with no action taken at all.
+//
+// F17 gates this per-slot detail on the draft actually being complete
+// (teamStartersEmptyLabel): before completion, "Sign from the Player
+// Pool." names an action the manager cannot yet take, so the warning
+// collapses to one honest line instead. newLineupTestService's own
+// fixture only makes team-1's five targeted picks (interspersed with
+// filler picks for every other team's turn) and never finishes the
+// remaining rounds, so this test completes the rest of the draft with
+// harmless, pool-unresolvable filler picks — team-1's own roster
+// composition (and so its empty slots) is unaffected, since
+// rosterForTeam silently skips a pick whose player ID the pool does not
+// carry — to reach the post-draft state this warning's own per-slot
+// detail is scoped to.
 func TestTeamDataWarnsWhenAStartingSlotStaysEmpty(t *testing.T) {
-	svc, _, _ := newLineupTestService(t)
+	svc, _, now := newLineupTestService(t)
+	total := len(svc.Teams()) * CurrentDraftRounds()
+	for number := len(svc.store.Snapshot().Picks) + 1; number <= total; number++ {
+		teamID := teamOnClock(nil, number)
+		if _, err := svc.store.MakePick(teamID, fmt.Sprintf("lineup-filler-%d", number), "manager", now, time.Time{}); err != nil {
+			t.Fatalf("complete pick %d (%s): %v", number, teamID, err)
+		}
+	}
+	if !draftComplete(svc.store.Snapshot()) {
+		t.Fatal("fixture did not reach draft-complete")
+	}
+
 	request, _ := http.NewRequest(http.MethodGet, "/team", nil)
 	data := svc.TeamData(request)
 
@@ -923,6 +948,28 @@ func TestTeamDataWarnsWhenAStartingSlotStaysEmpty(t *testing.T) {
 		if !strings.Contains(label, want) {
 			t.Fatalf("starters_empty_label = %q, missing %q", label, want)
 		}
+	}
+}
+
+// TestTeamDataCollapsesStartersWarningBeforeDraftCompletes is
+// TestTeamDataWarnsWhenAStartingSlotStaysEmpty's own pre-draft
+// counterpart (F17): newLineupTestService's fixture, used exactly as it
+// ships (no completion), leaves the draft short of every team's full
+// round count, so the same empty slots must report the one-line
+// collapsed warning instead of the per-slot detail.
+func TestTeamDataCollapsesStartersWarningBeforeDraftCompletes(t *testing.T) {
+	svc, _, _ := newLineupTestService(t)
+	if draftComplete(svc.store.Snapshot()) {
+		t.Fatal("fixture unexpectedly reached draft-complete without completion")
+	}
+	request, _ := http.NewRequest(http.MethodGet, "/team", nil)
+	data := svc.TeamData(request)
+
+	if data["starters_empty"] != true {
+		t.Fatalf("starters_empty = %#v, want true (RB2/TE/FLEX/DST/K are all empty)", data["starters_empty"])
+	}
+	if got := data["starters_empty_label"]; got != "Your starters fill in on draft night." {
+		t.Fatalf("pre-draft starters_empty_label = %q, want the collapsed line", got)
 	}
 }
 
@@ -1210,5 +1257,137 @@ func TestStarterRowMapsCarriesNewsAndHouseRank(t *testing.T) {
 	}
 	if row["has_house_rank"] != true || row["house_rank"] != "H007" {
 		t.Fatalf("row house rank = %v/%q, want true/\"H007\"", row["has_house_rank"], row["house_rank"])
+	}
+}
+
+// TestTeamStartersEmptyLabelCollapsesBeforeTheDraftCompletes (F17): before
+// the draft completes, an empty starter slot is correct, not a problem —
+// free agency is not open, so "Sign from the Player Pool." names an
+// instruction the manager cannot follow. teamStartersEmptyLabel collapses
+// every per-slot phrase into one honest line pre-draft, and restores the
+// full per-slot list once the draft actually completes.
+func TestTeamStartersEmptyLabelCollapsesBeforeTheDraftCompletes(t *testing.T) {
+	missing := []SlotInstance{
+		{ID: "QB", Def: SlotDef{Eligible: []string{"QB"}}},
+		{ID: "RB1", Def: SlotDef{Eligible: []string{"RB"}}},
+	}
+	preDraft := teamStartersEmptyLabel(false, missing)
+	if preDraft != "Your starters fill in on draft night." {
+		t.Fatalf("pre-draft label = %q, want the collapsed line", preDraft)
+	}
+	if strings.Contains(preDraft, "Sign from the Player Pool") {
+		t.Fatalf("pre-draft label still tells the manager to sign a player: %q", preDraft)
+	}
+
+	postDraft := teamStartersEmptyLabel(true, missing)
+	if postDraft != lineupEmptySlotsWarning(missing) {
+		t.Fatalf("post-draft label = %q, want the full per-slot warning %q", postDraft, lineupEmptySlotsWarning(missing))
+	}
+	if !strings.Contains(postDraft, "QB is empty") || !strings.Contains(postDraft, "Sign from the Player Pool") {
+		t.Fatalf("post-draft label lost its per-slot detail: %q", postDraft)
+	}
+
+	if got := teamStartersEmptyLabel(false, nil); got != "" {
+		t.Fatalf("no missing slots pre-draft = %q, want empty", got)
+	}
+	if got := teamStartersEmptyLabel(true, nil); got != "" {
+		t.Fatalf("no missing slots post-draft = %q, want empty", got)
+	}
+}
+
+// TestTeamDataStartersEmptyLabelCollapsesPreDraftAndDetailsPostDraft
+// (F17) proves teamStartersEmptyLabel's own draft-phase gate reaches
+// /team's real data map through Service.TeamData, in both directions:
+// pre-draft collapses to the one honest line, post-draft still names an
+// empty starter slot in full (rows keep rendering either way — the
+// change is only ever to the plain-language label beside the count).
+func TestTeamDataStartersEmptyLabelCollapsesPreDraftAndDetailsPostDraft(t *testing.T) {
+	service := newTestService(t, true) // demo mode: every request acts as team-1, commissioner
+	service.SetPlayerSource(func() ([]Player, int64, string) { return testPool(200), 1, "live" })
+	request := httptest.NewRequest(http.MethodGet, "/team", nil)
+
+	preDraft := service.TeamData(request)
+	if preDraft["starters_empty"] != true {
+		t.Fatalf("pre-draft starters_empty = %v, want true (an unclaimed roster has no players)", preDraft["starters_empty"])
+	}
+	if got := preDraft["starters_empty_label"]; got != "Your starters fill in on draft night." {
+		t.Fatalf("pre-draft starters_empty_label = %q, want the collapsed line", got)
+	}
+
+	if _, err := service.AdminStartDraft(request); err != nil {
+		t.Fatalf("start draft: %v", err)
+	}
+	limit := len(service.Teams())*CurrentDraftRounds() + 1
+	for n := 0; n < limit; n++ {
+		view := service.DraftDataReadOnly(httptest.NewRequest(http.MethodGet, "/", nil))
+		if complete, _ := view["draft_complete"].(bool); complete {
+			break
+		}
+		token, _ := view["current_pick_token"].(string)
+		if _, _, _, err := service.AdminForceAutopick(request, ForceCurrentPickConfirmation, token); err != nil {
+			t.Fatalf("force pick %d: %v", n, err)
+		}
+	}
+	if !draftComplete(service.store.Snapshot()) {
+		t.Fatal("fixture did not reach draft-complete")
+	}
+
+	// A normal, balanced complete draft auto-fills every starter for
+	// every team (effectiveLineup's own auto-fill), so this test corrupts
+	// the specific drafted player currently occupying one of team-1's own
+	// starter slots directly at the store (same package: internal/league's
+	// own test files already reach into Store internals this way — see
+	// sqlstore_test.go) to a player ID the pool no longer carries.
+	// rosterForTeam already skips an unresolvable pick silently
+	// (service.go), so team-1 genuinely loses that one rostered player
+	// and a real starter slot for its position — the exact "SET BEST
+	// LINEUP reported success while a slot stayed empty" case this
+	// warning exists for, reached without needing a contrived
+	// undraftable position.
+	preDraftCompleteState := service.store.Snapshot()
+	roster, _ := service.rosterForTeam(preDraftCompleteState, "team-1")
+	general, _, _ := splitRosterZones(preDraftCompleteState, "team-1", roster)
+	lineup := effectiveLineup(CurrentRoster(), general, nil, 1, service.schedule(), time.Now())
+	var eligible []string
+	for _, a := range lineup.Slots {
+		if a.HasPlayer {
+			eligible = a.Slot.Def.Eligible
+			break
+		}
+	}
+	if len(eligible) == 0 {
+		t.Fatal("team-1's post-draft lineup has no starter to corrupt")
+	}
+	eligiblePosition := make(map[string]bool, len(eligible))
+	for _, position := range eligible {
+		eligiblePosition[position] = true
+	}
+	pool := service.pool()
+	corrupted := 0
+	for i, pick := range service.store.state.Picks {
+		if pick.TeamID != "team-1" {
+			continue
+		}
+		player, ok := pool.byID[pick.PlayerID]
+		if !ok || !eligiblePosition[player.Position] {
+			continue
+		}
+		service.store.state.Picks[i].PlayerID = fmt.Sprintf("removed-from-pool-%d", i)
+		corrupted++
+	}
+	if corrupted == 0 {
+		t.Fatal("could not find any of team-1's own picks at the target starter's eligible position")
+	}
+
+	postDraft := service.TeamData(request)
+	if postDraft["starters_empty"] != true {
+		t.Fatalf("post-draft starters_empty = %v, want true (one drafted player is no longer resolvable)", postDraft["starters_empty"])
+	}
+	label, _ := postDraft["starters_empty_label"].(string)
+	if label == "Your starters fill in on draft night." {
+		t.Fatal("post-draft starters_empty_label still shows the pre-draft collapsed line")
+	}
+	if !strings.Contains(label, "is empty") || !strings.Contains(label, "Sign from the Player Pool") {
+		t.Fatalf("post-draft starters_empty_label = %q, want the full per-slot warning", label)
 	}
 }

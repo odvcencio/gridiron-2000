@@ -27,7 +27,7 @@ type NotificationRowProps struct {
 }
 
 component NotificationRow(props: NotificationRowProps) {
-	return <fieldset class="notification-preference" data-notification-category={props.Category}>
+	return <fieldset class="notification-preference" id={"notify-" + props.Category} data-notification-category={props.Category}>
 		<legend>{props.Label}</legend>
 		<div class="notification-preference__body">
 			<div>
@@ -64,13 +64,13 @@ component NotificationRow(props: NotificationRowProps) {
 			<span class="notification-preference__state">Current state: ON</span>
 		</If>
 		<If cond={props.OnAndNoTransport}>
-			<span class="notification-preference__state">On · sends once email is configured</span>
+			<span class="notification-preference__state">On · sends once email is set up</span>
 		</If>
 		<If cond={props.OffAndReady}>
 			<span class="notification-preference__state">Current state: OFF</span>
 		</If>
 		<If cond={props.OffAndNoTransport}>
-			<span class="notification-preference__state">Off · sends once email is configured</span>
+			<span class="notification-preference__state">Off · will not send, even after email is set up</span>
 		</If>
 	</fieldset>
 }
@@ -95,7 +95,7 @@ func Page() Node {
 				</If>
 				<If cond={data.has_email && data.delivery_ready == false}>
 					<p class="notification-settings-account">
-						Preferences saved for <strong>{data.email}</strong>. Email delivery is not configured yet.
+						Preferences saved for <strong>{data.email}</strong>.
 					</p>
 				</If>
 			</div>
@@ -112,8 +112,13 @@ func Page() Node {
 			</div>
 		</section>
 
-		<div class="notice-stack" aria-live="polite">
+		<div class="notice-stack">
 			<p class="notification-settings-delivery" role="status">{data.delivery_message}</p>
+			<If cond={data.delivery_ready == false}>
+				<p class="notification-settings-ask">
+					<a href="/locker" data-gosx-link>Ask the commissioner to turn on email</a>
+				</p>
+			</If>
 			<If cond={data.has_notice}>
 				<p class="flash-message">{data.notice}</p>
 			</If>
@@ -255,8 +260,8 @@ func Page() Node {
 		</If>
 
 		<nav class="notification-settings-footer" aria-label="Account settings navigation">
-			<a href="/" data-gosx-link class="button button--ghost">Back to league HQ</a>
-			<a href="/login" data-gosx-link class="button button--compact">Account access</a>
+			<a href="/" data-gosx-link class="button button--ghost">Back to Home</a>
+			<a href="/login" data-gosx-link class="button button--compact">Sign-in and account</a>
 		</nav>
 	</main>
 }

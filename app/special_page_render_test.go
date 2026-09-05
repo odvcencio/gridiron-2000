@@ -97,6 +97,59 @@ func TestSpecialPagesCarryViewerAndLeagueDataWithoutMutation(t *testing.T) {
 	}
 }
 
+// TestNotFoundPageOffersHomeAndHelp is F32 (2026-09-04 UX pass): the 404
+// heading was a pure metaphor ("Nothing on this frequency.") and the one
+// button, "Return to HQ", offered no way to reach the Help Center. The
+// heading now leads with a plain sentence, keeps the joke as the second
+// line, and adds two links: Back to Home and Search help. The page must
+// keep rendering the full navigation shell (it already did; this test
+// pins that it still does after the copy change).
+func TestNotFoundPageOffersHomeAndHelp(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "league-state.json")
+	leagueFile, err := filepath.Abs(filepath.Join("..", "internal", "league", "testdata", "sk-league.json"))
+	if err != nil {
+		t.Fatalf("league fixture path: %v", err)
+	}
+	t.Setenv("DATA_FILE", statePath)
+	t.Setenv("DEMO_MODE", "false")
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("GOOGLE_CLIENT_ID", "configured-for-special-page-test")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "configured-for-special-page-test")
+	t.Setenv("LEAGUE_FILE", leagueFile)
+	t.Setenv("COMMISSIONER_EMAILS", "")
+	t.Setenv("LEAGUE_ALLOWED_EMAILS", "")
+
+	handler := specialPageTestRouter(t)
+	authn := auth.New(nil, auth.Options{
+		Provider: auth.ProviderFunc(func(r *http.Request) (auth.User, bool) {
+			return auth.User{ID: "kathleen-404-test", Email: "kathleen.crucet@example.com", Name: "Kathleen Crucet"}, true
+		}),
+	})
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/nope-404", nil)
+	authn.Middleware(handler).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("GET /nope-404 = %d, want 404; body: %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+
+	if !strings.Contains(body, "We could not find that page.") {
+		t.Error("404 page lost the plain-language heading")
+	}
+	if !strings.Contains(body, "the commissioner moved it, or someone traded it for a future second") {
+		t.Error("404 page lost its second-line joke")
+	}
+	if !strings.Contains(body, `href="/" data-gosx-link`) || !strings.Contains(body, "Back to Home") {
+		t.Error("404 page is missing a Back to Home link to /")
+	}
+	if !strings.Contains(body, `href="/help" data-gosx-link`) || !strings.Contains(body, "Search help") {
+		t.Error("404 page is missing a Search help link to /help")
+	}
+	if !strings.Contains(body, `aria-label="Primary navigation"`) {
+		t.Error("404 page lost the full navigation shell for a signed-in manager")
+	}
+}
+
 func specialPageTestRouter(t *testing.T) http.Handler {
 	t.Helper()
 	router := route.NewRouter()

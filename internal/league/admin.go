@@ -188,6 +188,11 @@ func (s *Service) CommissionerAttentionDataReadOnly(_ *http.Request) map[string]
 		presenceCounts[presence]++
 		seats = append(seats, map[string]any{
 			"id": configured.ID, "name": team.Name, "abbreviation": team.Abbreviation,
+			// manager (F19, gap-audit J2): the readiness row named only the
+			// seat's own code and team name ("AQ4 · PLACEHOLDER GO HERE"),
+			// with nothing to nudge a specific person by — the manager's own
+			// display name, empty for an unclaimed seat.
+			"manager": member.Name,
 			"claimed": isClaimed, "ready": isReady, "presence": presence,
 			"presence_label":  presenceReadableLabel(presence),
 			"presence_detail": detail, "presence_seen_at": formatClockInstant(seenAt),
@@ -337,8 +342,14 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		orderIDs = defaultTeamIDs()
 	}
 	draftOrder := make([]map[string]any, 0, len(orderIDs))
-	for _, teamID := range orderIDs {
-		draftOrder = append(draftOrder, s.teamMap(s.teamView(state, teamID)))
+	for index, teamID := range orderIDs {
+		row := s.teamMap(s.teamView(state, teamID))
+		// pick_number (F29, gap-audit J2): the published order listed eight
+		// teams with a division chip and no ordinal — "who picks seventh?"
+		// is the week's most common question, and this card never
+		// answered it directly.
+		row["pick_number"] = index + 1
+		draftOrder = append(draftOrder, row)
 	}
 	previewSubject, previewText, previewHTML := s.InviteEmailTemplate(r, "their-email@example.com")
 	now := s.clock()
@@ -665,6 +676,11 @@ func (s *Service) adminInviteMap(state PersistedState, r *http.Request, email, s
 	item["has_team"] = true
 	item["team_name"] = team.Name
 	item["role_label"] = role
+	// F20 (gap-audit J2): a manager who already holds this seat must never
+	// receive the "You're invited... you've got a seat waiting" copy —
+	// nudgeMailto carries no claim language, just the room link and the
+	// draft time.
+	item["mailto"] = nudgeMailto(s, r, email)
 	item["status"] = "SEATED"
 	item["status_detail"] = team.Name + " · " + role + " · not ready"
 	if ready {
@@ -773,6 +789,36 @@ func clockDurationSource(state PersistedState) string {
 // links cannot carry HTML, so the text version is the only option here).
 func inviteMailto(s *Service, r *http.Request, email string) string {
 	subject, text, _ := s.InviteEmailTemplate(r, email)
+	return "mailto:" + email + "?subject=" + url.QueryEscape(subject) + "&body=" + url.QueryEscape(text)
+}
+
+// nudgeMailto builds a prefilled mailto: link reminding an already-seated
+// manager to check in for the draft (F20, gap-audit J2): the console's
+// only outbound control (inviteMailto) sent this exact address the same
+// "You're invited... you've got a seat waiting" copy it sends someone who
+// has never claimed a seat at all — the one way the commissioner could
+// chase a not-ready manager doubled as inviting them to a seat they
+// already own. This carries no claim language: just the room link and
+// the draft time.
+func nudgeMailto(s *Service, r *http.Request, email string) string {
+	draft := s.draftSummary(time.Now())
+	longDate, _ := draft["long_date"].(string)
+	draftTime, _ := draft["time"].(string)
+	roomURL := s.leagueDraftRoomURL(r)
+	subject := fmt.Sprintf("Please check in for the %s draft", s.cfg.Name)
+	draftSentence := fmt.Sprintf("The draft is %s at %s.", longDate, draftTime)
+	if draftTime == "" {
+		draftSentence = "The draft date is not published yet."
+	}
+	text := fmt.Sprintf(`Hi there,
+
+Please check in for the draft.
+
+%s
+
+Open the draft room and mark yourself ready: %s
+
+— The Commissioner`, draftSentence, roomURL)
 	return "mailto:" + email + "?subject=" + url.QueryEscape(subject) + "&body=" + url.QueryEscape(text)
 }
 
@@ -1003,6 +1049,22 @@ func (s *Service) leagueJoinURL(r *http.Request) string {
 		return strings.TrimRight(origin, "/") + "/join"
 	}
 	return s.leaguePathURL("join")
+}
+
+// leagueDraftRoomURL is leagueJoinURL's own shape, pointed at the draft
+// room instead of the seat-claim page — nudgeMailto's own link for a
+// manager who already holds a seat and has nothing left to claim.
+func (s *Service) leagueDraftRoomURL(r *http.Request) string {
+	if s.leagueURLIsConfigured(r) {
+		return s.leaguePathURL("draft")
+	}
+	if origin := requestOrigin(r); origin != "" {
+		if joined, err := url.JoinPath(origin, "draft"); err == nil {
+			return joined
+		}
+		return strings.TrimRight(origin, "/") + "/draft"
+	}
+	return s.leaguePathURL("draft")
 }
 
 // leagueURLIsConfigured reports whether the effective league URL
@@ -1683,15 +1745,22 @@ func draftStartReadiness(pool playerPool, demo bool, required int) error {
 // re-arm while the clock is paused, so this always passes a computed
 // deadline; it is simply unused in that case (see AdminResumeClock for
 // the same "state, then one store call" shape).
-func (s *Service) AdminUndoPick(r *http.Request, expectedToken string) error {
+//
+// It returns the removed pick and its resolved player/team (gap-audit
+// F25): the caller builds "undid pick 42: In Shedeur Time / Bucky Irving"
+// for both the commissioner-event log (the /activity record a manager
+// asking "what did the commissioner undo?" reads) and the drawer's own
+// confirm-panel consequence sentence, matching the shape
+// AdminForceAutopick already returns for the same reason.
+func (s *Service) AdminUndoPick(r *http.Request, expectedToken string) (DraftPick, Player, Team, error) {
 	if err := s.requireCommissioner(r); err != nil {
-		return err
+		return DraftPick{}, Player{}, Team{}, err
 	}
 	now := s.clock()
 	state := s.store.Snapshot()
 	token := strings.TrimSpace(expectedToken)
 	if token == "" || token != draftPreviousPickToken(state) {
-		return errAdminActionStale
+		return DraftPick{}, Player{}, Team{}, errAdminActionStale
 	}
 	// draftPreviousPickToken returns "" for zero picks (confirmations.go),
 	// which the check above already rejects (token == "" fails it before
@@ -1699,11 +1768,11 @@ func (s *Service) AdminUndoPick(r *http.Request, expectedToken string) error {
 	// assertion, not dead code: a future change to that token function must
 	// not turn a stale-token rejection into an index panic on the next line.
 	if len(state.Picks) == 0 {
-		return errors.New("no picks to undo")
+		return DraftPick{}, Player{}, Team{}, errors.New("no picks to undo")
 	}
 	removed := state.Picks[len(state.Picks)-1]
 	if err := s.store.UndoLastPickIfCurrent(now, s.pickClock(state), token); err != nil {
-		return err
+		return DraftPick{}, Player{}, Team{}, err
 	}
 	snapshot := s.store.Snapshot()
 	s.emitDraftUndo(snapshot, removed, now)
@@ -1715,10 +1784,13 @@ func (s *Service) AdminUndoPick(r *http.Request, expectedToken string) error {
 		s.draftCompleteEmitted.Store(false)
 		s.emitDraftState(snapshot, now, true, false)
 	}
-	if _, err := s.RecordCommissionerEvent(r, "draft.undo_pick", "undid the last pick", CommissionerEventRefs{TeamID: removed.TeamID, PlayerID: removed.PlayerID}); err != nil {
+	player := s.pool().byID[removed.PlayerID]
+	team := s.teamByID(removed.TeamID)
+	summary := fmt.Sprintf("undid pick %d: %s / %s", removed.Number, team.Name, player.Name)
+	if _, err := s.RecordCommissionerEvent(r, "draft.undo_pick", summary, CommissionerEventRefs{TeamID: removed.TeamID, PlayerID: removed.PlayerID}); err != nil {
 		log.Printf("commissioner event: draft.undo_pick: %v", err)
 	}
-	return nil
+	return removed, player, team, nil
 }
 
 // AdminExtendClock adds secs to the running deadline, clamped to

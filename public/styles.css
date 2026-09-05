@@ -16885,6 +16885,309 @@ a.skip-link {
   color: var(--color-text-secondary);
 }
 
+/* comb — larch (2026-09-04 UX pass) --------------------------------------
+   Wave P, draft-room manager phone/desktop fixes (J1/J2 audit reports).
+   Every rule below is an ADDITIVE override: later source order (this is
+   the end of the file) settles any equal-specificity conflict with a
+   pinned rule earlier up, one property at a time, per this file's own
+   append convention (WORKER-RULES item 4) — nothing above is edited in
+   place. */
+
+/* J1 F3 + J2 F13/F14 (+ coordinator addendum): the available pool's VS
+   ADP column and the Big Board rail's own name column both carried NO
+   explicit width (public/styles.css' own .avail-row column-width block,
+   and the shared .q-row__player rule) — table-layout: fixed and flexbox
+   alike then split the leftover space evenly between that column and the
+   player name once VS ADP appeared, collapsing names to one or two
+   characters at 390, 1280, AND 1440 alike (has_adp && draft.started is
+   what shows the column at all — pre-draft never regresses). A fixed,
+   modest width here hands ALL of that leftover back to PLAYER, the pane's
+   one real growable column by design (this file's own comment on the
+   base .avail-row rule). Hidden outright at <=38rem: the row's own
+   two-line name/detail grid at that width (this file, ~16614) already
+   has no spare row for a fifth cell. */
+.avail-row__vsadp {
+  width: 3.5rem;
+}
+
+@media (width <= 38rem) {
+  .avail-row__vsadp {
+    display: none;
+  }
+}
+
+/* Coordinator addendum to J1 F3 (2026-09-04): even with VS ADP's own
+   width fixed above, the name and its "· team · bye" detail still share
+   ONE ellipsis line at desktop (.avail-row__player-body's own base
+   rule, this file, ~16730) — a 316-408px PLAYER column in the desktop
+   three-pane layout measured live truncating names around 16 characters
+   ("Jonathan Taylor · I…", "Jaxon Smith-Njig…") once the detail text
+   used any of that shared budget. The <=38rem-only two-line grid below
+   (name on its own line, rank+detail on a second) already solves this
+   exact collision for phones; reused here with NO media-query scope at
+   all, it solves the identical collision at every width instead of a
+   second, drifting copy of the same four rules. */
+.avail-row__player-body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "name name"
+    "rank detail";
+  column-gap: var(--space-xs);
+  align-items: baseline;
+  white-space: nowrap;
+}
+
+.avail-row__player-body > strong {
+  grid-area: name;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.avail-row__player-body > small {
+  grid-area: detail;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.avail-row__rank-chip {
+  grid-area: rank;
+  margin-right: 0;
+}
+
+/* J1 F7: the pick bar's own primary control (Draft, Check in now, Open
+   the pool) had no flex-shrink protection of its own — .draft-pickbar's
+   flex row let the button shrink below its label's own content width,
+   wrapping "Draft" into "DR"/"AF"/"T" on three stacked lines under a
+   running two-minute clock. flex: 0 0 auto plus white-space: nowrap
+   matches the same protection this file already gives the pill's other
+   small, fixed-label children (.draft-command__pick, ~14520). */
+.draft-pickbar > form,
+.draft-pickbar > a,
+.draft-pickbar > label {
+  flex: 0 0 auto;
+}
+
+.draft-pickbar button,
+.draft-pickbar > a,
+.draft-pickbar > label {
+  white-space: nowrap;
+}
+
+/* J1 F8: "your pick in N" (.draft-command__yourpick) is hidden at phone
+   width (this file, ~14680) so the one-line room strip ("N/8 here · N/8
+   ready") always fits — but the SAME class, reused verbatim inside the
+   MENU sheet (.draft-command__sheet-room, page.gsx), had no room
+   constraint at all and still lost the figure to that blanket rule. The
+   sheet is a full-width bottom panel (this file, ~14762), not a one-line
+   strip, so the figure has room there even though the strip cannot
+   spare it. */
+.draft-command__sheet .draft-command__yourpick {
+  display: inline;
+}
+
+/* J1 F14: the pill's ▾/MENU disclosure rotated its own whole <summary>
+   on open (this file's own .draft-command__pill-toggle[open] .draft-
+   command__pill-caret rule, ~14738), so the "MENU" label span inside it
+   rotated too — mirrored and upside-down, not just the caret glyph. A
+   later, more specific selector on the glyph's own new class (page.gsx)
+   confines the rotation to the glyph in every browser that reads BOTH
+   rules (equal specificity, source order settles it) without editing the
+   pinned rule itself. */
+.draft-command__pill-toggle[open] .draft-command__pill-caret-glyph {
+  transform: rotate(180deg);
+}
+
+/* J1 F32 pairs with a page.gsx copy split (RUNNING keeps "of <duration>";
+   every other unfinished state now reads "<duration> left") — no CSS of
+   its own needed beyond what already exists; kept here as the marker for
+   where this comb's page.gsx changes land, so a future diff of this
+   block and page.gsx's own "comb — larch" markers stay easy to match up.
+   (Intentionally no rule: F32 is a text-only fix.) */
+
+/* J1 F6 + J2 F23: the shared .toast-stack (this file, ~9220) anchors
+   top-center on every route by default, and the wave-7b bottom-sheet
+   override (~9296) only ever matched .page-action-bar — a class the
+   draft room does not render. Two width-scoped rules give the room its
+   own equivalent: desktop (nothing fixed at the bottom of that layout)
+   drops the toast to the bottom-right, clear of .draft-command entirely;
+   narrower widths keep the bottom-sheet shape but clear BOTH of the
+   room's own fixed bars (.draft-pickbar, then .draft-tabbar under it —
+   R7's own comment on .draft-pane__body's padding-bottom puts the pick
+   bar's own worst-case reservation at 4.5rem, the tab bar's own shared
+   .draft-tabbar__tab rule at a flat 3.5rem; 8rem covers both with a
+   half-rem to spare in every case this file's own audits measured,
+   including the compacted landscape pair). */
+@media (min-width: 56.25rem) {
+  body:has(.draft-shell) .toast-stack {
+    inset: auto max(0.75rem, env(safe-area-inset-right)) max(0.75rem, env(safe-area-inset-bottom)) auto;
+    width: min(26rem, calc(100vw - 2rem));
+    transform: none;
+  }
+}
+
+@media (max-width: 56.1875rem) {
+  body:has(.draft-shell) .toast-stack {
+    inset: auto 0 calc(8rem + env(safe-area-inset-bottom)) 0;
+    width: min(34rem, calc(100vw - 1rem));
+    margin-inline: auto;
+    transform: none;
+  }
+}
+
+/* J1 F9 + J2 F13: the Big Board rail's own .q-row (page.gsx's DraftMyTeam)
+   gave .q-row__player (the name) and .q-row__actions (move up/down/clear)
+   the same single flex line, with only .q-row__player's own min-width: 0
+   letting it shrink — a rail narrower than the actions' own worst-case
+   content (measured live: names down to one or two characters at 1440
+   AND 390) forced that shrink every time the row also carried a Clear
+   button. flex-wrap plus a 100% flex-basis on .q-row__actions (the same
+   "force a wrap" idiom .q-row__info's sibling .board-controls already
+   uses in the /board row, this file's own 8016 block) moves the
+   buttons to their own second line instead, handing the first line's
+   full width back to the name. */
+.q-row {
+  flex-wrap: wrap;
+}
+
+.q-row__actions {
+  flex-basis: 100%;
+  margin-top: 0.2rem;
+}
+
+/* J1 F12: the row-level confirm panel (page.gsx's own <details class=
+   "draft-row-confirm">, wrapping the existing make-pick form/button) is
+   NEW markup, so it needs its own rules rather than reusing .action-
+   confirmation's padded/bordered box wholesale — that box's own always-
+   on padding/border/background (this file, ~8457) would visually change
+   the pool row's CLOSED resting state, breaking the row's one-line-
+   height contract (.avail-row__player's own doc comment) for every row,
+   not just an opened one. Closed, this reads exactly like the plain
+   "Draft" button it replaces; only the open panel gets its own box. */
+.draft-row-confirm {
+  display: inline-block;
+}
+
+.draft-row-confirm > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.draft-row-confirm > summary::-webkit-details-marker,
+.draft-row-confirm > summary::marker {
+  display: none;
+  content: "";
+}
+
+.draft-row-confirm__open-label {
+  display: none;
+}
+
+.draft-row-confirm[open] > summary .draft-row-confirm__closed-label {
+  display: none;
+}
+
+.draft-row-confirm[open] > summary .draft-row-confirm__open-label {
+  display: inline;
+}
+
+.draft-row-confirm__panel {
+  display: grid;
+  gap: 0.35rem;
+  width: max-content;
+  max-width: 16rem;
+  margin-top: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-white-faint);
+}
+
+.draft-row-confirm__warning {
+  margin: 0;
+  color: var(--color-accent-hot);
+  font-size: var(--type-xs);
+}
+
+.draft-row-confirm__cancel-hint {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--type-xs);
+}
+
+/* J2 F12: the pick-history segment's own three tabs (page.gsx's
+   DraftHistoryHead, .segment/.segment__option shared with the my-team
+   Queue/Roster/Room segment) had no white-space/flex-shrink protection —
+   a narrow column (measured live: 316px at 1440, the desktop three-pane
+   layout's own Picks column) shrank each option below its own label's
+   content width, wrapping "TEAMS"/"DRAFT GRID" one character per line.
+   flex-shrink: 0 stops the option itself from shrinking; the row's own
+   flex-wrap lets the WHOLE segment drop to its own line if the row ever
+   still runs short, rather than crushing an option instead. */
+.segment__option {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.draft-history-head__row {
+  flex-wrap: wrap;
+}
+
+/* J1 F26: /board's own .board-row (public/styles.css ~5707) is a fixed
+   six-track CSS grid at desktop, matching /draft's own "N children, N
+   tracks" idiom (this file's doc comment on .board-row) — but the
+   tablet/phone override at <= 54rem (this file, ~8016) drops that grid
+   for a bare flex-wrap row with none of the six children's widths
+   pinned, so which item lands on which visual line (and therefore the
+   position chip, projection, and move/cut controls' own left edge) moved
+   row by row depending on which OPTIONAL content (a headshot, a rookie
+   badge, a news icon) a given player carried. A two-row CSS grid keeps
+   every row the same shape: handle/rank/name/position/projection stay on
+   one explicit line in document order (grid auto-placement, five tracks,
+   nothing conditional about their own widths), and .board-controls
+   (unstyled here beyond placement — its own base rule already gives it
+   display: flex/justify-content: end, ~5869) spans the full row on a
+   second, explicit line. */
+@media (max-width: 54rem) {
+  .board-row {
+    display: grid;
+    grid-template-columns: 1.75rem 3rem minmax(0, 1fr) 3.5rem 4rem;
+    grid-template-rows: auto auto;
+    align-items: center;
+    gap: 0.35rem var(--space-sm);
+  }
+
+  .board-controls {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+/* J1 F26 (touch target): .board-controls' own move buttons carry the
+   SAME min-width conflict this file's own #main-content .q-row__actions
+   .board-button--move rule (~15089) already found and fixed for the
+   draft room's rail — the generic mobile touch-floor rule (this file,
+   "Mobile interaction baseline") zeroes min-width on every .site-frame
+   button at a coarse pointer/narrow viewport, and its #main-content-
+   anchored specificity beats .board-button--move's plain two-class
+   selector. /board's own row never got the matching fix; this is that
+   same fix, scoped to .board-controls instead of .q-row__actions. */
+.site-frame #main-content .board-controls .board-button--move {
+  min-width: var(--control-h);
+}
+
+/* J2 F34 (opportunity): a small, plain-language marker beside the
+   on-clock team's own name/next-up block (page.gsx's DraftCommandBar),
+   rendered only while props.Data.on_clock_not_in_room is true
+   (page.server.go: the same seat's own presence bucket the commissioner
+   drawer's seat cards already read, here || not_seen). */
+.draft-command__not-in-room {
+  display: block;
+  color: var(--color-accent-hot);
+}
+
 /* Phone and tablet: the strip is ONE row — the chip, the short line
    ("picks don't count · round 1 of 3"), a Details disclosure for the full
    sentence, and a compact Leave control at the right — so the pool keeps
@@ -16961,4 +17264,493 @@ a.skip-link {
 
 .practice-checkin__state[data-checked-in="true"] {
   color: var(--color-accent);
+}
+
+/* comb — sorrel (2026-09-04 UX pass) */
+
+/* F16: .filter-button's shared rule (~line 1612) sets display: inline-flex
+   with a 44px min-height (--control-h) — the touch-target floor every
+   button on this app keeps. Placed inline inside a <p class="demo-message">
+   (line-height ~21px) on /blitz, the button shares its paragraph's last
+   wrapped text line; a 44px inline box vertically centered on a ~21px line
+   grows that line's own box upward past the top of the (already-laid-out)
+   line above it, so the button's top border paints across that line,
+   reading as struck-through. inline-block plus vertical-align alone still
+   reproduces this (measured: the button's box remains centered on its
+   shared line and still overlaps the line above by 10-20px, since a line
+   box already laid out never grows retroactively to make room). display:
+   block removes the button from inline flow entirely — it always starts
+   its own fresh line, which stacks normally below the paragraph's text
+   with no vertical-align math to overlap it — and keeps the shared
+   min-height, so the 44px touch floor survives.
+
+   The #main-content prefix is load-bearing, not decoration: "Mobile
+   interaction baseline" (~line 521) already targets this exact button
+   with #main-content p a, whose ID beats a plain .demo-message
+   a.filter-button selector regardless of source order, silently keeping
+   display: inline-block (and a padding-block/margin-block pair sized for
+   a plain text link's invisible tap zone, not this button's own visible
+   44px box) no matter what this rule said. Matching that ID's specificity
+   and restating padding-block/margin-block here is what actually makes
+   display: block take effect. */
+#main-content .demo-message a.filter-button {
+  display: block;
+  width: fit-content;
+  padding-block: var(--space-xs);
+  margin-block: var(--space-xs) 0;
+}
+
+/* comb — juniper (2026-09-04 UX pass): F1/F2 (app/help/page.server.go) made
+   the migration table's third column render real prose for the first time
+   (it used to reach the template as an empty struct field). One row's
+   difference text carries an unbroken slash-joined run ("Provisional/
+   stale/degraded/final/corrected") with no space or hyphen for the browser
+   to break on; .help-mapping-row > * already sets min-width: 0 for normal
+   wrapping, but that does not stop one unbreakable token from overflowing
+   its cell and, since nothing on this row clips it, bleeding out to
+   document.documentElement.scrollWidth (TestBrowserRailBandNoHorizontalOverflow
+   caught it at the 900/960px rail band). overflow-wrap lets a cell break an
+   unbreakable run as a last resort, matching the audit's own "wrap, never
+   sideways-scroll" contract (see the wave 7b — ash block above) instead of
+   letting the row scroll or the page overflow. */
+.help-mapping-row > * {
+  overflow-wrap: break-word;
+}
+/* comb — fir (2026-09-04 UX pass) ------------------------------------------
+   File-scoped block, appended after every other rule so it cannot collide
+   with a concurrent edit elsewhere in this stylesheet — the same append
+   convention every earlier "wave N — codename"/"comb — codename" block in
+   this file already uses. Every selector below is new, or a deliberate
+   later-cascade override of an earlier rule's own property (called out
+   inline); nothing above this comment is edited in place. Covers: J3
+   (weekly-loop comb audit) F5, F6, F3, F24, F30. */
+
+/* F5: the desktop /players and /board toolbars hide .pool-filter-
+   disclosure's <summary> and rely on ".pool-filter-disclosure >
+   .position-filters { display: flex }" (comb — fern, above) to defeat the
+   <details> UA stylesheet's own "hide non-summary children unless [open]"
+   rule. Current Chrome instead hides a CLOSED <details>'s non-summary
+   content through the ::details-content pseudo-element
+   (content-visibility: hidden), which a child's own display value does
+   not override — measured live: .position-filters computed
+   checkVisibility() = false and elementFromPoint at a chip's own
+   coordinates returned the rail, not the link, even though the chip's
+   display was flex. content-visibility is the one property that actually
+   defeats it. Scoped to the same 56.1875rem line the phone/tablet query
+   above uses, inverted, so the collapsed one-row phone rail (fern's own
+   fix, above) is untouched — a phone's <details> must stay genuinely
+   closed until tapped. */
+@media (width >= 56.1875rem) {
+  .pool-filter-disclosure::details-content {
+    content-visibility: visible;
+  }
+}
+
+/* F6: /players' pool row ACTION column (.pool-row--status's 6th track)
+   was a fixed 5rem (80px) — enough for a short "SIGN"/"CLAIM" button or
+   a status chip, not for the .action-confirmation gate's own paragraph
+   and "CONFIRM ADD AND DROP" button once opened. A grid item's automatic
+   minimum size (its content's own min-content width) is not capped by a
+   FIXED-length track, so the open panel (measured 219px) overflowed the
+   80px track outward — and because .board-controls packs its one child
+   against the row's own right edge (justify-content: end, above), that
+   overflow ran LEFTWARD, straight over the STATUS chip (the 5th track)
+   beside it, not off the row's own right edge. minmax(5rem, auto) keeps
+   every ordinary closed row's column at its current compact width (auto
+   bottoms out at the short button/chip content already there) while
+   letting THIS row's own column grow to fit an open confirmation panel —
+   each .pool-row--status is its own independent grid, so this never
+   widens any OTHER row's action column. The row's own minmax(12rem, 1fr)
+   name column absorbs the difference; it never drops below its own
+   12rem floor. */
+.pool-row--status {
+  grid-template-columns: 3rem minmax(12rem, 1fr) 3.5rem 4rem 8rem minmax(5rem, auto);
+}
+
+/* F3: at phone width, .rank-row--wide (the /trades inbox/outbox/pending-
+   review/vote-panel card, app/trades/page.gsx) still used its desktop
+   two-track grid-template-columns: minmax(0, 1fr) auto — at 390px the
+   auto action track (Accept/Decline, ~301px unwrapped) claimed most of
+   the 339px row, leaving minmax(0, 1fr)'s own content track to resolve
+   to 0px (measured live: "0px 301.281px"). The offer text and the
+   Accept/Decline buttons then painted on top of each other. A single
+   minmax(0, 1fr) column lets the identity text take the full row width
+   and the action buttons wrap onto their own row beneath it — the exact
+   shape .board-controls' own flex-wrap already gives the buttons once
+   they are no longer sharing a column with the text. Scoped to the
+   existing 38rem phone line other /trades-adjacent rules in this file
+   already use for .rank-row (not a new breakpoint value). */
+@media (width <= 38rem) {
+  .rank-row--wide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rank-row--wide > .board-controls {
+    grid-column: 1;
+  }
+}
+
+/* F24: /team's starter (.lineup-slot) and bench (.roster-row) identity
+   rows share the same .stat-tip__summary flex row as every other
+   avatar+name trigger in this file (photo, .player-identity__text, the
+   ::after "DETAILS +" affordance) — but unlike /players' and /board's
+   own photo rows, neither markup carries the "--photo" modifier
+   .pool-player.pool-player--photo::after's own rule (above) keys off to
+   hide that affordance, so it stays a real, non-shrinking flex item here.
+   At phone width that left only ~124px of a ~259px row for the name
+   (measured live, both a .lineup-slot starter and a .roster-row bench
+   row), while .player-identity__text's own flex: 1 1 0% (wave-7 elm,
+   above) already gives it every last px of what remains — the DETAILS+
+   label, not the name's own flex settings, was the actual ceiling.
+   Removing the label's generated content at phone width (the same
+   content: none technique .stat-tip__summary--news::after already uses,
+   above) hands that space back to the name/meta column; the row is
+   still fully tappable through the rest of the summary. Scoped to the
+   existing 26.75rem /team phone-card line (wave-7 hazel item 8, above),
+   not a new breakpoint value. */
+@media (width <= 26.75rem) {
+  .lineup-slot .stat-tip__summary::after,
+  .roster-row .stat-tip__summary::after {
+    content: none;
+  }
+}
+
+/* F30: /players' and /board's phone Filters disclosure
+   (.pool-filter-disclosure[open] > .position-filters, comb — fern,
+   above) opens with right: 0 and width: max-content — with eight chips
+   (ALL/QB/RB/WR/TE/DST/K/P) that combined max-content width runs past
+   the toolbar's own left edge, so the panel's own left edge measured at
+   x=0, outside the card, and the search input beside the (now very wide)
+   toggle summary shrank to a five-character sliver. Capping the panel to
+   the toolbar's own available width (left: 0 alongside the existing
+   right: 0 pins both edges to the rail) lets it wrap onto more rows
+   inside the card instead of growing sideways past it. The scroll jump
+   the audit measured came from the browser's own focus-follows-summary
+   behavior scrolling the newly two-row-tall <details> into view;
+   scroll-margin-top on the disclosure keeps that native scroll (still
+   useful when the toggle sits near the viewport edge) from ever needing
+   to move the page further than the fixed mobile bar's own height. */
+@media (width <= 56.1875rem) {
+  .pool-filter-disclosure {
+    scroll-margin-top: var(--mobile-bar-height);
+  }
+
+  .pool-filter-disclosure[open] > .position-filters {
+    left: 0;
+    width: auto;
+  }
+}
+
+/* comb — maple (2026-09-04 UX pass) */
+
+/* F1: the checklist's own check-in/autopick controls (app/draft/page.gsx,
+   DraftPreflight) now post a real <form> instead of a #ready-toggle/
+   #autopick-toggle fragment link into the Room tab's own pane, hidden at
+   every desktop width. .checklist-item > .board-button already holds its
+   own width against the flexible label column beside it (D16/D17 fix,
+   above); the form wrapper needs the same treatment now that a <form>,
+   not the button itself, is the direct flex child of .checklist-item. */
+.checklist-item > .checklist-item__form {
+  flex: 0 0 auto;
+}
+
+/* F15: the rail's "ACTION CENTER · N URGENT" attention chip wrapped to
+   three lines with an orphaned "·" alone on the last line
+   (app/layout.gsx, .rail-head .rail-attention-chip's own white-space:
+   normal, above). Two explicit, non-breaking lines replace the loose,
+   separator-joined text run: "ACTION CENTER" over "N URGENT", each its
+   own nowrap unit, so the chip can wrap at most once, between the lines,
+   never inside one. */
+.rail-head .rail-attention-chip {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+}
+.rail-attention-chip__line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  white-space: nowrap;
+}
+
+/* F3: the anonymous home hero's sign-in button was clipped at the
+   1440x900 fold and off-screen entirely at 720x450 (200% zoom) because
+   two explanatory paragraphs (.entry-note, .entry-policy-detail) sat
+   ABOVE .hero-actions in visual order at every width except phone. The
+   phone-only reorder (.hero-command__copy, width<=38rem block above) is
+   now unconditional: .hero-actions renders right after the short
+   .entry-status line at every width, the same order the phone layout
+   already proved out. Source order (and the tab order that follows it)
+   is unchanged; only the visual order moves. */
+.hero-command__copy {
+  display: flex;
+  flex-direction: column;
+}
+.hero-command__copy > .entry-note,
+.hero-command__copy > .entry-policy-detail,
+.hero-command__copy > .demo-message {
+  order: 1;
+}
+.hero-command__copy > .entry-note {
+  margin-top: var(--space-md);
+}
+
+/* F3: a short-but-wide viewport landing between the two existing
+   .display--hero overrides (the width<=38rem phone rule and the
+   max-height:520px short-viewport rule, both above) still sized the
+   headline by viewport WIDTH alone, so it could still consume a
+   disproportionate share of a short window's height. This adds a
+   viewport-height ceiling for exactly that gap, without touching either
+   pinned rule. */
+@media (width > 38rem) and (height > 520px) {
+  .display--hero {
+    font-size: min(var(--type-display), 12vh);
+  }
+}
+
+/* F3: at 720x450 (200% zoom), the headline cap and the .hero-actions
+   reorder above still left the sign-in button's bottom edge ~13px past
+   the fold — .hero-deck's own --space-lg bottom margin, tuned for a full-
+   height viewport, was the remaining slack. Reusing the same short-
+   viewport gate .display--hero's own max-height:520px rule already
+   applies (above) keeps this change scoped to exactly the viewports that
+   need it. */
+@media (max-height: 520px) {
+  .hero-deck {
+    margin-bottom: var(--space-sm);
+  }
+}
+
+/* comb — hickory (2026-09-04 UX pass) */
+
+/* F11b: a truthful "CO-MANAGER" chip beside the team name in every
+   PrimaryNavigation account block (desktop rail, mobile-enhanced dialog,
+   no-JS static disclosure). Deliberately never shown for a primary
+   manager — see PrimaryNavigationProps.IsCoManager's own doc comment
+   (app/layout.gsx). flex: 0 0 auto keeps it from squeezing the team
+   name's own ellipsis/wrap behavior in .navigation-account .user-name. */
+.user-role-chip {
+  flex: 0 0 auto;
+  padding: 0 var(--space-xs);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  background: var(--color-accent-haze);
+  font-size: var(--type-2xs);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* F11a: the co-manager first-session arrival panel on / (app/page.gsx).
+   Reuses the existing .flash-message pinned rule for its box treatment;
+   this just gives the panel breathing room above the Action Center it
+   sits in front of. */
+.co-manager-welcome {
+  margin-bottom: var(--space-md);
+}
+
+/* F5: a seatless member's rail offered Team terminal and Big Board with
+   no disabled state and no reason. .navigation-link--disabled renders a
+   non-interactive rail item (a <div>, never an <a>) with its own second
+   line naming the reason, the same "disabled control names its reason
+   beside it" promise the rest of the app already keeps. The compound
+   selector (.navigation-link.navigation-link--disabled) out-specifies
+   the earlier .navigation-link rule for the properties both declare. */
+.navigation-link.navigation-link--disabled {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.125rem;
+  cursor: default;
+  color: var(--color-text-muted);
+}
+
+.navigation-link--disabled:hover {
+  color: var(--color-text-muted);
+  background: none;
+}
+
+.navigation-link--disabled .navigation-link__row {
+  display: flex;
+  align-items: center;
+}
+
+.navigation-link--disabled .navigation-link__reason {
+  padding-left: calc(1.1rem + var(--space-sm));
+  color: var(--color-text-muted);
+  font-size: var(--type-2xs);
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+/* F7: board-move and board-remove now return to #board-rank (the Big
+   Board panel itself) instead of #board-pool (the discovery pool below
+   it), so a phone manager lands back on the list they were reordering.
+   Neither anchor previously carried a scroll-margin-top, so the sticky
+   phone header (--mobile-bar-height, the same idiom #main-content and
+   #wire-feed/#wire-sources/#community-input already use) could still
+   cover the top of the landed panel. Unconditional, like #main-content's
+   own rule: harmless at desktop width, where no fixed header exists to
+   clear. */
+#board-rank,
+#board-pool {
+  scroll-margin-top: var(--mobile-bar-height);
+}
+/* comb — elm (2026-09-04 UX pass) */
+
+/* F1: .draft-seat-controls' own base rule (line ~4804) keys its 4-column
+   grid off the VIEWPORT width, with a one-column override only inside
+   the (width <= 38rem) breakpoint. The commissioner drawer is a fixed
+   28rem panel at every desktop width, so at 1440px the drawer rendered
+   four ~100px columns of the same seat-coverage grid the "By team" pane
+   shows at full page width, overlapping every line of text inside it.
+   Scoping to .draft-drawer keeps the wide-page grid untouched and always
+   collapses the drawer's own copy to one column, regardless of the
+   viewport it happens to render at. */
+.draft-drawer .draft-seat-controls {
+  grid-template-columns: 1fr;
+}
+
+.draft-drawer .draft-seat-controls__intro {
+  grid-column: auto;
+}
+
+/* F2: the phone breakpoint's own .clock-controls override (line ~7982)
+   sets flex-direction: column but never resets the base rule's
+   flex-wrap: wrap. A wrapping COLUMN flex container lays out overflow
+   items into new columns to the right instead of new rows below, which
+   pushed "Force current pick now" and "Undo last pick" off the right
+   edge of a 390px phone with no visible way to reach them. Reusing the
+   exact same breakpoint text keeps this a same-range override, not a
+   fourth spelling of it. */
+@media (width <= 38rem) {
+  .clock-controls {
+    flex-wrap: nowrap;
+  }
+}
+
+/* F4: the drawer's not-seen safety-clock sentence is a warning, not the
+   neutral state line above it. */
+.draft-drawer__note--warning {
+  color: var(--color-warning);
+}
+
+/* F22: the client runtime already tags every managed-action toast with
+   data-gosx-toast-kind="error"/"success" and a matching .gsx-toast--
+   error/--success class (gosx client runtime, navigation.ts), but this
+   stylesheet never styled either class — an error toast ("enter seconds
+   as a whole number") rendered in the exact same unstyled, colourless
+   panel as a success toast ("Pick clock resumed."), with no colour,
+   border, or capital letter telling the two apart. Deliberately declared
+   here rather than editing .toast-stack (positioning only, F23's own
+   concern): these are new class names this file never claimed. */
+.gsx-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel-deep);
+  color: var(--color-text-primary);
+  font-size: var(--type-sm);
+  pointer-events: auto;
+}
+
+.gsx-toast--success {
+  border-color: var(--color-accent-cyan);
+  background: var(--color-cyan-haze);
+}
+
+.gsx-toast--error {
+  border-color: var(--color-danger);
+  background: var(--color-hot-haze);
+}
+
+.gsx-toast--error .gsx-toast__message::before {
+  content: "Error: ";
+  font-weight: 700;
+  color: var(--color-danger);
+}
+
+.gsx-toast__message {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gsx-toast__dismiss {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: var(--type-md);
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* F3: the tape row's attribution sentence (auto/commissioner picks only)
+   sits under the muted "who" line inside .tape-row__body's own flex
+   column, which truncates to one line by design (see that rule's own
+   doc comment) — this one wraps instead of truncating, since it is the
+   one sentence on the row that must stay fully readable. */
+.tape-row__attribution {
+  margin: 0;
+  font-size: .8125rem;
+  color: var(--color-text-secondary);
+  white-space: normal;
+}
+
+/* F6 + F19: the "who is not checked in" plain-language line on /admin's
+   own Attention and readiness card. */
+.admin-attention-not-checked-in {
+  margin: var(--space-sm) 0 0;
+  padding: var(--space-sm) var(--space-md);
+  border-left: 3px solid var(--color-warning);
+  background: var(--color-hot-haze);
+  font-size: var(--type-sm);
+}
+
+/* F10: #admin-draft-meeting-at is a datetime-local input carrying only
+   .scoring-input's own 6rem width (line ~6308), sized for a short
+   numeric confirm field — a full "MM/DD/YYYY, HH:MM AM/PM" value
+   clipped to "09/06" with the year, time, and AM/PM all cut off. Wins
+   the cascade over .scoring-input's width at equal specificity by
+   coming later in the file. */
+.admin-datetime-input {
+  width: 15rem;
+}
+
+/* F31: .commissioner-hq__masthead h1 (line ~9367) clamps to
+   var(--type-display)'s own 5.96rem (95.36px) maximum at desktop widths
+   — wide enough that "COMMISSIONER" alone does not fit its own line
+   inside the masthead's ~700px column, so overflow-wrap: anywhere broke
+   it after "COMMISSION" even with room below to wrap the whole word.
+   Lowering this heading's own maximum (unlike var(--type-display),
+   shared sitewide) to 4.5rem lets "Commissioner HQ" wrap at the space
+   between the two words instead of splitting the first one; break-word
+   only breaks a word as a last resort, when it still would not fit
+   alone on its own line. */
+.commissioner-hq__masthead h1 {
+  font-size: clamp(2.25rem, 6vw, 4.5rem);
+  overflow-wrap: break-word;
+}
+
+/* comb — sequoia (2026-09-04 UX pass) */
+
+/* RK column: HOUSE sort (the default) leads the cell with a four-character
+   H### code, and the 2rem track set above (~11750) was sized for the
+   three-digit market rank. table-layout: fixed does not grow the track,
+   so the code painted into the PLAYER cell ("H001Jahmyr Gibbs" at 1440).
+   3.25rem holds "H###" plus the cell's own padding at the mono size. */
+.avail-row--head > :nth-child(1),
+.avail-row > :nth-child(1) {
+  width: 3.25rem;
+}
+
+/* Practice entry in the command bar (desktop block and phone sheet)
+   before the draft: one plain link, no new pane child. */
+.draft-command__practice {
+  display: inline-block;
+  margin-top: 0.35rem;
+  font-size: var(--type-sm);
 }

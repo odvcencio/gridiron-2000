@@ -55,11 +55,15 @@ func TestPublicEntryAnonymousOnlyPromisesAuthenticationAcrossModes(t *testing.T)
 	}
 }
 
-// TestPublicEntryAnonymousLeagueFullDoesNotPromiseASeat guards wave-6 item
-// 3: an anonymous viewer of a full league previously kept the open-seat
-// "SIGN IN TO ENTER." headline even beside "0 of N seats open". A full
-// league must tell the anonymous viewer seats are taken and that sign-in
-// gets them admission and the waitlist/Pick'em posture, not a franchise.
+// TestPublicEntryAnonymousLeagueFullDoesNotPromiseASeat guards two, now
+// distinct, promises for an anonymous viewer of a full league. Wave-6 item
+// 3 first shipped a headline swap to "EVERY FRANCHISE SEAT IS TAKEN.",
+// which a J5 comb audit (F2, 2026-09-04) found read as a rejection notice
+// to a seated manager who has not signed in yet — the wrong instruction
+// for every anonymous visitor, seated or not. The headline now stays
+// "SIGN IN TO ENTER." at every seat count; this test instead pins the
+// full-league truth to the detail line (and confirms it never claims a
+// seat is available).
 func TestPublicEntryAnonymousLeagueFullDoesNotPromiseASeat(t *testing.T) {
 	t.Run("open seats keep the sign-in-to-enter promise", func(t *testing.T) {
 		service := newTestService(t, false)
@@ -88,8 +92,11 @@ func TestPublicEntryAnonymousLeagueFullDoesNotPromiseASeat(t *testing.T) {
 		if view.State != PublicEntryAnonymous || view.SignedIn || view.Admitted || view.CanClaim {
 			t.Fatalf("full anonymous entry changed identity state: %+v", view)
 		}
-		if view.Headline == "SIGN IN TO ENTER." {
-			t.Fatalf("full league still promises a seat with the open-seat headline: %+v", view)
+		// F2: the headline is the one instruction every anonymous visitor
+		// needs, seated manager or not — it stays constant regardless of
+		// seat count. The full-league truth belongs in the detail line.
+		if view.Headline != "SIGN IN TO ENTER." {
+			t.Fatalf("full league changed the anonymous headline away from the sign-in instruction: %+v", view)
 		}
 		lower := strings.ToLower(view.Headline + " " + view.Detail)
 		if !strings.Contains(lower, "taken") && !strings.Contains(lower, "full") && !strings.Contains(lower, "assigned") {
@@ -143,6 +150,78 @@ func TestPublicEntryAdmittedSeatlessOpenAndFull(t *testing.T) {
 			t.Fatalf("full entry offered a false seat claim: %+v", view)
 		}
 	})
+}
+
+// TestPublicEntryNamesTheCommissionerWhenSeatedAndNamed (F10, name part):
+// "Ask the commissioner" appeared fourteen times with no name and no
+// route. This pins the three surfaces the fix covers through
+// PublicEntryView (anonymous membership_detail feeds / and /login;
+// authenticated_pending and admitted_seatless_full's own Detail feed
+// /login, /join, /team, /board) with a real seated, named commissioner —
+// and proves no email address ever appears.
+func TestPublicEntryNamesTheCommissionerWhenSeatedAndNamed(t *testing.T) {
+	service := newTestService(t, false)
+	t.Setenv("LEAGUE_ALLOWED_EMAILS", "allowed@example.com")
+	t.Setenv("COMMISSIONER_EMAILS", "commish@example.com")
+	commissioner, _, err := service.store.AssignMember("commish@example.com", "Jordan Fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	commissionerTeamName := service.teamByID(commissioner.TeamID).Name
+	wantAsk := "Ask your commissioner, Jordan (" + commissionerTeamName + ")."
+
+	anon := service.PublicEntryView(httptest.NewRequest(http.MethodGet, "/", nil))
+	if !strings.Contains(anon.MembershipDetail, wantAsk) {
+		t.Fatalf("anonymous membership_detail = %q, want to contain %q", anon.MembershipDetail, wantAsk)
+	}
+	if strings.Contains(anon.MembershipDetail, "@") {
+		t.Fatalf("membership_detail must never print an email address: %q", anon.MembershipDetail)
+	}
+
+	pendingView := publicEntryForEmail(t, service, "unrecorded@example.com")
+	if pendingView.State != PublicEntryAuthenticatedPending || !strings.Contains(pendingView.Detail, wantAsk) {
+		t.Fatalf("authenticated-pending entry = %+v, want detail to contain %q", pendingView, wantAsk)
+	}
+
+	for _, team := range service.Teams() {
+		if team.ID == commissioner.TeamID {
+			continue
+		}
+		if _, _, err := service.store.AssignMember(team.ID+"@example.com", team.Name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := service.EnsureMember("full@example.com", "Full"); err != nil {
+		t.Fatal(err)
+	}
+	fullView := publicEntryForEmail(t, service, "full@example.com")
+	if fullView.State != PublicEntryAdmittedSeatlessFull || !strings.Contains(fullView.Detail, wantAsk) {
+		t.Fatalf("full seatless entry = %+v, want detail to contain %q", fullView, wantAsk)
+	}
+	if strings.Contains(fullView.Detail, "@") {
+		t.Fatalf("seatless-full detail must never print an email address: %q", fullView.Detail)
+	}
+}
+
+// TestPublicEntryKeepsGenericCommissionerPhraseWithoutANamedCommissioner
+// (F10): when no commissioner is seated or named, every surface keeps the
+// existing generic phrase rather than a broken or empty sentence.
+func TestPublicEntryKeepsGenericCommissionerPhraseWithoutANamedCommissioner(t *testing.T) {
+	service := newTestService(t, false)
+	t.Setenv("LEAGUE_ALLOWED_EMAILS", "allowed@example.com")
+
+	anon := service.PublicEntryView(httptest.NewRequest(http.MethodGet, "/", nil))
+	if strings.Contains(anon.MembershipDetail, "Ask your commissioner,") {
+		t.Fatalf("named commissioner ask leaked with no commissioner seated: %q", anon.MembershipDetail)
+	}
+	if !strings.Contains(anon.MembershipDetail, "Ask the commissioner for access.") {
+		t.Fatalf("generic commissioner phrase missing: %q", anon.MembershipDetail)
+	}
+
+	pendingView := publicEntryForEmail(t, service, "unrecorded@example.com")
+	if strings.Contains(pendingView.Detail, "Ask your commissioner,") {
+		t.Fatalf("named commissioner ask leaked in authenticated-pending detail: %q", pendingView.Detail)
+	}
 }
 
 func TestPublicEntryPrimaryAndCoManagerStates(t *testing.T) {

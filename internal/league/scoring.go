@@ -231,10 +231,43 @@ func seasonStartAt() time.Time {
 	return start
 }
 
+// scheduleWeek1Kickoff returns the earliest real NFL kickoff among the
+// persisted fantasy schedule's opening week, once a schedule is loaded —
+// the same source and week feed.go's weekState already reads for
+// /matchups' masthead (earliestKickoffForWeek, schedule.go). Returns
+// ok=false before a schedule exists, so a caller can fall back to the
+// configured season_start_at.
+func (s *Service) scheduleWeek1Kickoff() (time.Time, bool) {
+	if s == nil || s.store == nil {
+		return time.Time{}, false
+	}
+	state := s.store.Snapshot()
+	if state.Schedule == nil || len(state.Schedule.Weeks) == 0 {
+		return time.Time{}, false
+	}
+	return s.earliestKickoffForWeek(seasonStartWeekForSchedule(state.Schedule))
+}
+
+// scoringLockAt is the actual instant scoring settings lock (F29,
+// 2026-09-04 UX pass): the earlier of the configured season_start_at and
+// the schedule's real week-1 kickoff, so scoring can never remain
+// editable past whichever candidate happens first. /scoring's masthead
+// used to print seasonStartAt() alone, disagreeing with /matchups'
+// schedule-derived week-1 kickoff by a full day on this league (config
+// said Thursday 8:20 PM; the real schedule's first game was Wednesday
+// 8:20 PM).
+func (s *Service) scoringLockAt() time.Time {
+	lock := seasonStartAt()
+	if kickoff, ok := s.scheduleWeek1Kickoff(); ok && kickoff.Before(lock) {
+		lock = kickoff
+	}
+	return lock
+}
+
 // ScoringLocked reports whether the season has started. Locked scoring
 // settings reject commissioner edits.
 func (s *Service) ScoringLocked(now time.Time) bool {
-	return !now.Before(seasonStartAt())
+	return !now.Before(s.scoringLockAt())
 }
 
 // ScoringRuleRow is one rendered scoring-rule line: its key, label, and
@@ -299,12 +332,15 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 	scoringValues := s.currentScoringValues()
 
 	// The masthead "Scoring editable until" line reads the same
-	// seasonStartAt() the lock check above uses, so it must carry the same
-	// DraftDatePublished guard as rulesIdentityMap's season_start below: a
-	// sentinel season start (config.go's placeholderSeasonStartAt) is not a
-	// scheduled boundary, and must not print as one.
+	// scoringLockAt() the lock check above uses (F29, 2026-09-04 UX pass:
+	// the earlier of the configured season start and the schedule's real
+	// week-1 kickoff, so this line can never disagree with /matchups'
+	// own week-1 masthead), and it carries the same DraftDatePublished
+	// guard as rulesIdentityMap's season_start below: a sentinel season
+	// start (config.go's placeholderSeasonStartAt) is not a scheduled
+	// boundary, and must not print as one.
 	seasonStartLabel := "Season start not published yet"
-	if start := seasonStartAt(); DraftDatePublished(now, start) {
+	if start := s.scoringLockAt(); DraftDatePublished(now, start) {
 		seasonStartLabel = start.In(location).Format("Monday, January 2 · 3:04 PM MST")
 	}
 
@@ -317,7 +353,15 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 		"season_start":    seasonStartLabel,
 		"groups":          groups,
 		"scoring_note":    s.scoringNote(),
-		"league":          s.leagueMapForViewer(r),
+		"format_summary":  s.scoringFormatSummary(),
+		// manager_lock_note (F24, 2026-09-04 UX pass): the "editable until"
+		// deadline is a commissioner-only fact — a manager has no Set
+		// buttons and no Danger zone on this same page — so the masthead
+		// card must not show it to every viewer. A manager instead reads
+		// this true, role-appropriate sentence, with the season read from
+		// cfg.Season rather than retyped.
+		"manager_lock_note": fmt.Sprintf("These rules are final for the %d season once week 1 kicks off.", s.cfg.Season),
+		"league":            s.leagueMapForViewer(r),
 		// Every section below renders THIS instance's live ruleset: config
 		// (s.cfg), the runtime roster/draft accessors (CurrentRoster,
 		// CurrentDraftRounds), the scoring values store, and each system's

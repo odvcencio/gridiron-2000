@@ -55,6 +55,86 @@ func TestTradeVetoPolicyLabelCoversEveryConfigValue(t *testing.T) {
 	}
 }
 
+// TestTradeVetoSummarySentenceCoversEveryConfigValue is the UX-pass fix
+// for F11/F20 (comb audit J3): the Trade Desk masthead used to show only
+// the three-word "Veto policy: ..." fragment above the composer, with no
+// sentence naming the review window or what happens after it. One plain
+// sentence, keyed off the configured review-hours knob so it never drifts
+// from the real deadline.
+func TestTradeVetoSummarySentenceCoversEveryConfigValue(t *testing.T) {
+	cases := map[string]string{
+		"commissioner": "Trades are reviewed by the commissioner for 24 hours after acceptance, then execute.",
+		"vote":         "Trades are open to a league veto vote for 24 hours after acceptance, then execute.",
+		"both":         "Trades are reviewed by the commissioner and open to a league veto vote for 24 hours after acceptance, then execute.",
+		"none":         "Trades execute immediately once both managers accept.",
+	}
+	for veto, want := range cases {
+		if got := tradeVetoSummarySentence(veto, 24); got != want {
+			t.Errorf("tradeVetoSummarySentence(%q, 24) = %q, want %q", veto, got, want)
+		}
+	}
+}
+
+// TestTradeAcceptConsequenceSentenceCoversEveryConfigValue is F19's fix:
+// the accept gate used to hedge ("This either opens the league review
+// window or executes immediately, depending on league policy") even
+// though the league's own veto policy is a fixed, known setting. The
+// gate now names the actual outcome.
+func TestTradeAcceptConsequenceSentenceCoversEveryConfigValue(t *testing.T) {
+	cases := map[string]string{
+		"commissioner": "Accept: the trade goes to commissioner review for 24 hours, then executes.",
+		"vote":         "Accept: the trade goes to a league veto vote for 24 hours, then executes.",
+		"both":         "Accept: the trade goes to commissioner review and a league veto vote for 24 hours, then executes.",
+		"none":         "Accept: the trade executes immediately.",
+	}
+	for veto, want := range cases {
+		if got := tradeAcceptConsequenceSentence(veto, 24); got != want {
+			t.Errorf("tradeAcceptConsequenceSentence(%q, 24) = %q, want %q", veto, got, want)
+		}
+	}
+}
+
+// TestTradesDataCarriesVetoSummarySentenceAndAcceptConsequence pins both
+// sentences at the TradesData boundary, using the fixture's own
+// ReviewHours (24) rather than a re-derived literal.
+func TestTradesDataCarriesVetoSummarySentenceAndAcceptConsequence(t *testing.T) {
+	service := newTestService(t, true)
+	service.cfg.Trades.Veto = "vote"
+	request, _ := http.NewRequest(http.MethodGet, "/trades", nil)
+	data := service.TradesData(request)
+	wantSummary := "Trades are open to a league veto vote for 24 hours after acceptance, then execute."
+	if data["veto_summary_sentence"] != wantSummary {
+		t.Fatalf("veto_summary_sentence = %v, want %q", data["veto_summary_sentence"], wantSummary)
+	}
+	wantAccept := "Accept: the trade goes to a league veto vote for 24 hours, then executes."
+	if data["trade_accept_consequence"] != wantAccept {
+		t.Fatalf("trade_accept_consequence = %v, want %q", data["trade_accept_consequence"], wantAccept)
+	}
+}
+
+// TestTradeOfferRowReviewDeadlineRelative is F11's row-level fix: an
+// accepted offer's row now carries a relative phrase alongside the review
+// deadline stamp, the same "stamp + relative" idiom every other league
+// deadline in this app uses, so the commissioner-review copy branch (F11,
+// page.gsx) never has to reformat the instant itself.
+func TestTradeOfferRowReviewDeadlineRelative(t *testing.T) {
+	svc, now := newTradesTestService(t, "")
+	offer := TradeOffer{
+		ID: "trd-review", FromTeamID: "team-1", ToTeamID: "team-2",
+		Give: []string{"t1-a"}, Get: []string{"t2-a"},
+		Status:     TradeStatusAccepted,
+		CreatedAt:  now.Add(-3 * time.Hour).UTC(),
+		AcceptedAt: now.UTC(),
+	}
+	row := svc.tradeOfferRow(svc.pool(), offer, "team-1", false, false, false, 0)
+	if !row.HasReviewDeadline {
+		t.Fatal("HasReviewDeadline = false for an accepted offer")
+	}
+	if row.ReviewDeadlineRelative != "tomorrow" {
+		t.Fatalf("ReviewDeadlineRelative = %q, want %q", row.ReviewDeadlineRelative, "tomorrow")
+	}
+}
+
 // TestTradesDataCarriesVetoPolicyLabel covers wave-8 audit item 7 at the
 // TradesData boundary: veto_policy_label reads the league's configured
 // veto mode through tradeVetoPolicyLabel.

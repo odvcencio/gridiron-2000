@@ -97,52 +97,63 @@ type ActionCenterWaiverFacts struct {
 	OpenClaims int
 	NextRun    time.Time
 	HasNextRun bool
+	// DeskNextRun/HasDeskNextRun (J3 F9) is the waiver desk's own next
+	// scheduled processing instant, populated whenever waivers are open
+	// (draft complete) whether or not the viewer has a claim filed, so the
+	// home page can name the run even for a manager with nothing pending.
+	DeskNextRun    time.Time
+	HasDeskNextRun bool
 }
 
 // ActionCenterFacts is the service-to-pure-model boundary. BuildActionCenter
 // performs no store, clock, or request access.
 type ActionCenterFacts struct {
-	Now                 time.Time
-	Location            *time.Location
-	EntryState          PublicEntryState
-	EntryStateLabel     string
-	EntryHeadline       string
-	EntryActionHref     string
-	EntryActionLabel    string
-	EntryDetail         string
-	Admitted            bool
-	HasSeat             bool
-	TeamID              string
-	TeamName            string
-	Commissioner        bool
-	DraftStarted        bool
-	DraftComplete       bool
-	DraftAt             time.Time
-	ViewerOnClock       bool
-	OnClockTeamName     string
-	ClockDeadline       time.Time
-	ClockPaused         bool
-	Ready               bool
-	BoardCount          int
-	SeatCapacity        int
-	ClaimedSeats        int
-	ReadySeats          int
-	DraftOrderSet       bool
-	DraftPoolCount      int
-	DraftPoolTarget     int
-	SeasonPhase         string
-	ScheduleExists      bool
-	WeekCloseWeek       int
-	WeekCloseFinal      bool
-	WeekCloseReady      bool
-	WeekCloseGamesFinal int
-	WeekCloseGamesTotal int
-	WeekCloseStatsFresh bool
-	WeekCloseReason     string
-	Pickem              ActionCenterPickemFacts
-	Lineup              ActionCenterLineupFacts
-	Trades              ActionCenterTradeFacts
-	Waivers             ActionCenterWaiverFacts
+	Now              time.Time
+	Location         *time.Location
+	EntryState       PublicEntryState
+	EntryStateLabel  string
+	EntryHeadline    string
+	EntryActionHref  string
+	EntryActionLabel string
+	EntryDetail      string
+	Admitted         bool
+	HasSeat          bool
+	TeamID           string
+	TeamName         string
+	// TeamNameIsSeedPlaceholder (F9) reports whether TeamName still equals
+	// teamID's configured seed name (Service.TeamNameIsSeedPlaceholder) —
+	// nothing previously prompted a manager to personalize a franchise
+	// still named, for example, "Placeholder go here."
+	TeamNameIsSeedPlaceholder bool
+	Commissioner              bool
+	DraftStarted              bool
+	DraftComplete             bool
+	DraftAt                   time.Time
+	ViewerOnClock             bool
+	OnClockTeamName           string
+	ClockDeadline             time.Time
+	ClockPaused               bool
+	Ready                     bool
+	BoardCount                int
+	SeatCapacity              int
+	ClaimedSeats              int
+	ReadySeats                int
+	DraftOrderSet             bool
+	DraftPoolCount            int
+	DraftPoolTarget           int
+	SeasonPhase               string
+	ScheduleExists            bool
+	WeekCloseWeek             int
+	WeekCloseFinal            bool
+	WeekCloseReady            bool
+	WeekCloseGamesFinal       int
+	WeekCloseGamesTotal       int
+	WeekCloseStatsFresh       bool
+	WeekCloseReason           string
+	Pickem                    ActionCenterPickemFacts
+	Lineup                    ActionCenterLineupFacts
+	Trades                    ActionCenterTradeFacts
+	Waivers                   ActionCenterWaiverFacts
 }
 
 type ActionCenterAction struct {
@@ -215,6 +226,17 @@ func BuildActionCenter(f ActionCenterFacts) ActionCenter {
 			}
 		}
 		actions = append(actions, preparationActions(f)...)
+	}
+	// F11 (gap-audit J2): two days out, the commissioner's real job is
+	// seat readiness and starting the draft, but the home page ranked a
+	// manager's pick'em review first and carried the commissioner's own
+	// task only in the always-secondary "COMMISSIONER OVERLAY" aside
+	// below. This promotes it into the SAME sorted list every manager
+	// task shares — DueAt is the draft's own start time, so it sorts
+	// first under sortActionCenterActions' own unchanged time-remaining
+	// rule, exactly like any other deadline-priority task.
+	if f.Commissioner && resolveActionCenterStage(f) == ActionCenterPreDraft {
+		actions = append(actions, commissionerPreDraftAction(f))
 	}
 	sortActionCenterActions(actions)
 	if len(actions) == 0 {
@@ -368,7 +390,11 @@ func tradeActions(f ActionCenterFacts) []ActionCenterAction {
 		out = append(out, ActionCenterAction{ID: "trade-review", Priority: ActionCenterPriorityDeadline, PriorityLabel: "TRADE REVIEW", Label: "Review accepted trade", Detail: fmt.Sprintf("%d accepted trade", f.Trades.AcceptedReview) + pluralSuffix(f.Trades.AcceptedReview) + " still in the review window.", Href: "/trades", DueAt: f.Trades.NextReviewDeadline, HasDueAt: f.Trades.HasReviewDeadline, DueLabel: "REVIEW DEADLINE", Urgent: true})
 	}
 	if f.Trades.IncomingOpen > 0 {
-		out = append(out, ActionCenterAction{ID: "trade-inbox", Priority: ActionCenterPriorityStable, PriorityLabel: actionCenterLabelNeedsYou, Label: "Review incoming trade", Detail: fmt.Sprintf("%d trade offer", f.Trades.IncomingOpen) + pluralSuffix(f.Trades.IncomingOpen) + " waiting in your inbox.", Href: "/trades", Primary: true})
+		// Urgent: true (J3 F7) makes the card carry the same URGENT badge
+		// the attention chip already counts an open incoming offer toward;
+		// Priority stays ActionCenterPriorityStable so card order is
+		// unaffected here.
+		out = append(out, ActionCenterAction{ID: "trade-inbox", Priority: ActionCenterPriorityStable, PriorityLabel: actionCenterLabelNeedsYou, Label: "Review incoming trade", Detail: fmt.Sprintf("%d trade offer", f.Trades.IncomingOpen) + pluralSuffix(f.Trades.IncomingOpen) + " waiting in your inbox.", Href: "/trades", Urgent: true, Primary: true})
 	}
 	if f.DraftComplete && f.Trades.HasTradeDeadline && f.Now.Before(f.Trades.TradeDeadline) {
 		out = append(out, ActionCenterAction{ID: "trade-deadline", Priority: ActionCenterPriorityDeadline, PriorityLabel: "DEADLINE", Label: "Review trade desk", Detail: "Trades remain available until the configured league deadline.", Href: "/trades", DueAt: f.Trades.TradeDeadline, HasDueAt: true, DueLabel: "TRADE DEADLINE"})
@@ -381,7 +407,7 @@ func tradeActions(f ActionCenterFacts) []ActionCenterAction {
 
 func waiverAction(f ActionCenterFacts) *ActionCenterAction {
 	if f.Waivers.OpenClaims <= 0 {
-		return nil
+		return waiverOpenAction(f)
 	}
 	detail := fmt.Sprintf("%d open waiver claim", f.Waivers.OpenClaims) + pluralSuffix(f.Waivers.OpenClaims) + " are filed for your team."
 	priority, priorityLabel := ActionCenterPriorityStable, actionCenterLabelOnTrack
@@ -402,6 +428,22 @@ func waiverAction(f ActionCenterFacts) *ActionCenterAction {
 	return &ActionCenterAction{ID: "waiver-claims", Priority: priority, PriorityLabel: priorityLabel, Label: "Review waiver claims", Detail: detail, Href: "/players", DueAt: f.Waivers.NextRun, HasDueAt: f.Waivers.HasNextRun, DueLabel: "WAIVER PROCESSING", Urgent: urgent}
 }
 
+// waiverOpenAction (J3 F9) tells a manager with no claim filed that the
+// waiver desk is open and names the next run — before this fix the home
+// page never mentioned waivers until a claim already existed.
+func waiverOpenAction(f ActionCenterFacts) *ActionCenterAction {
+	if !f.DraftComplete || !f.Waivers.HasDeskNextRun || resolveActionCenterStage(f) == ActionCenterSeasonComplete {
+		return nil
+	}
+	location := f.Location
+	if location == nil {
+		location = time.UTC
+	}
+	when := f.Waivers.DeskNextRun.In(location).Format("Mon Jan 2 · 3:04 PM MST")
+	detail := fmt.Sprintf("Waivers run %s · %s. File a claim from the Player Pool.", when, relativeTime(f.Now, f.Waivers.DeskNextRun))
+	return &ActionCenterAction{ID: "waiver-open", Priority: ActionCenterPriorityInfo, PriorityLabel: "WAIVERS OPEN", Label: "Waivers are open", Detail: detail, Href: "/players", DueAt: f.Waivers.DeskNextRun, HasDueAt: true, DueLabel: "WAIVER PROCESSING"}
+}
+
 func preparationActions(f ActionCenterFacts) []ActionCenterAction {
 	if f.DraftComplete || f.DraftStarted {
 		return nil
@@ -412,6 +454,9 @@ func preparationActions(f ActionCenterFacts) []ActionCenterAction {
 	}
 	if !f.Ready {
 		out = append(out, ActionCenterAction{ID: "draft-ready", Priority: ActionCenterPriorityPreparation, PriorityLabel: "PREPARATION", Label: "Check in for the draft", Detail: "Mark this seat ready from the draft room when your board is set. " + draftMeetingDetail(f), Href: "/draft", DueAt: f.DraftAt, HasDueAt: !f.DraftAt.IsZero(), DueLabel: "DRAFT MEETING"})
+	}
+	if f.TeamNameIsSeedPlaceholder {
+		out = append(out, ActionCenterAction{ID: "rename-placeholder", Priority: ActionCenterPriorityPreparation, PriorityLabel: "PREPARATION", Label: "Name your franchise", Detail: fmt.Sprintf("Your team is still called %q.", f.TeamName), Href: "/team?identity=edit#team-identity"})
 	}
 	return out
 }
@@ -437,6 +482,35 @@ func informationalAction(f ActionCenterFacts) ActionCenterAction {
 		return ActionCenterAction{ID: "record-info", Priority: ActionCenterPriorityInfo, PriorityLabel: "INFORMATION", Label: "Review final record", Detail: "Open the matchup center for the completed season record.", Href: "/matchups"}
 	default:
 		return ActionCenterAction{ID: "matchups-info", Priority: ActionCenterPriorityInfo, PriorityLabel: "INFORMATION", Label: "Open matchup center", Detail: "Follow the league's current matchups and standings.", Href: "/matchups"}
+	}
+}
+
+// commissionerPreDraftAction (F11, gap-audit J2) is the commissioner's own
+// pre-draft task, promoted into BuildActionCenter's main sorted list (see
+// that function's own doc comment). Label names the draft's own weekday
+// ("Start the draft Sunday") rather than a fixed day name, since the
+// scheduled meeting can fall on any day; Detail states plain readiness
+// counts and points at the runbook that walks the rest of the sequence.
+func commissionerPreDraftAction(f ActionCenterFacts) ActionCenterAction {
+	capacity := f.SeatCapacity
+	if capacity <= 0 {
+		capacity = f.ClaimedSeats
+	}
+	location := f.Location
+	if location == nil {
+		location = time.UTC
+	}
+	weekday := "the scheduled meeting"
+	if !f.DraftAt.IsZero() {
+		weekday = f.DraftAt.In(location).Format("Monday")
+	}
+	return ActionCenterAction{
+		ID: "commissioner-start-draft", Priority: ActionCenterPriorityDeadline, PriorityLabel: "COMMISSIONER",
+		Label:  "Start the draft " + weekday,
+		Detail: fmt.Sprintf("%d of %d checked in · open the runbook.", f.ReadySeats, capacity),
+		Href:   "/admin?section=draft-control#admin-draft-control",
+		DueAt:  f.DraftAt, HasDueAt: !f.DraftAt.IsZero(), DueLabel: "DRAFT MEETING",
+		Primary: true,
 	}
 }
 
@@ -483,17 +557,39 @@ func weekCloseAction(f ActionCenterFacts) *ActionCenterAction {
 	}
 }
 
+// actionCenterSortBucket groups actions for sortActionCenterActions (comb —
+// maple, F12, 2026-09-04). Entry/on-clock actions describe something the
+// viewer must resolve right now, unrelated to a calendar deadline, so they
+// always lead. Every other action with a real due date sorts by how much
+// time is actually left before it (bucket 1): a Sunday draft meeting reads
+// before a Wednesday Pick'em lock even though "deadline" outranked
+// "preparation" as a fixed label before this fix — the priority word stays
+// as a chip, not a sort key. Actions with no due date at all (a reviewed
+// lineup, an open trade inbox) have no clock to compare, so they fall back
+// to the old fixed priority order, last.
+func actionCenterSortBucket(a ActionCenterAction) int {
+	switch a.Priority {
+	case ActionCenterPriorityEntry, ActionCenterPriorityOnClock:
+		return 0
+	}
+	if a.HasDueAt {
+		return 1
+	}
+	return 2
+}
+
 func sortActionCenterActions(actions []ActionCenterAction) {
 	sort.SliceStable(actions, func(i, j int) bool {
+		bi, bj := actionCenterSortBucket(actions[i]), actionCenterSortBucket(actions[j])
+		if bi != bj {
+			return bi < bj
+		}
+		if bi == 1 && !actions[i].DueAt.Equal(actions[j].DueAt) {
+			return actions[i].DueAt.Before(actions[j].DueAt)
+		}
 		ri, rj := actionCenterPriorityRank(actions[i].Priority), actionCenterPriorityRank(actions[j].Priority)
 		if ri != rj {
 			return ri < rj
-		}
-		if actions[i].HasDueAt != actions[j].HasDueAt {
-			return actions[i].HasDueAt
-		}
-		if actions[i].HasDueAt && !actions[i].DueAt.Equal(actions[j].DueAt) {
-			return actions[i].DueAt.Before(actions[j].DueAt)
 		}
 		return actions[i].ID < actions[j].ID
 	})

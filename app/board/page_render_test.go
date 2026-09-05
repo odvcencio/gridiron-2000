@@ -108,6 +108,24 @@ func TestBoardRedirectTargetIsCanonicalAndAnchored(t *testing.T) {
 	}
 }
 
+// TestBoardRankRedirectTargetReturnsToTheRankedPanel (F7): reordering or
+// removing a ranked player with no JavaScript used to return to
+// #board-pool, scrolling a phone manager past the list they were just
+// working on and off the flash confirming the move happened. board-move
+// and board-remove's own return target must end in #board-rank instead —
+// the Big Board panel's own id — while every other canonical field stays
+// identical to boardRedirectTarget's.
+func TestBoardRankRedirectTargetReturnsToTheRankedPanel(t *testing.T) {
+	got := boardRankRedirectTarget(" wR ", " Tom & / ", "3")
+	want := "/board?page=3&pos=WR&q=Tom+%26+%2F#board-rank"
+	if got != want {
+		t.Fatalf("boardRankRedirectTarget = %q, want %q", got, want)
+	}
+	if !strings.HasSuffix(got, "#board-rank") {
+		t.Fatalf("boardRankRedirectTarget = %q, want a target ending in #board-rank", got)
+	}
+}
+
 func TestBoardValidationStateRestoresCanonicalFilters(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/board?old=discard", nil)
 	view := action.View{Result: action.Result{Values: map[string]string{
@@ -162,8 +180,8 @@ func TestBoardNativeReorderControlsPreserveContextAndManagedFeedback(t *testing.
 	serverSource := string(server)
 	for _, want := range []string{
 		"return ctx.Success(\"Board order updated.\", nil)",
-		"actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData[\"pos\"], ctx.FormData[\"q\"], ctx.FormData[\"page\"]), \"Board order updated.\")",
-		"actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData[\"pos\"], ctx.FormData[\"q\"], ctx.FormData[\"page\"]), \"Player removed from your board.\")",
+		"actionui.RedirectBackWithNotice(ctx, boardRankRedirectTarget(ctx.FormData[\"pos\"], ctx.FormData[\"q\"], ctx.FormData[\"page\"]), \"Board order updated.\")",
+		"actionui.RedirectBackWithNotice(ctx, boardRankRedirectTarget(ctx.FormData[\"pos\"], ctx.FormData[\"q\"], ctx.FormData[\"page\"]), \"Player removed from your board.\")",
 		"actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData[\"pos\"], ctx.FormData[\"q\"], ctx.FormData[\"page\"]), \"Your board is cleared.\")",
 	} {
 		if !strings.Contains(serverSource, want) {

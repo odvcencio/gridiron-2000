@@ -78,14 +78,21 @@ func Page() Node {
 					<p class="login-admission-note">Admission policy: {data.public_entry.membership_label} — {data.public_entry.membership_detail}</p>
 					<If cond={data.has_return_path}>
 						<p class="login-return-note">
-							After sign-in, we'll return you to the page you requested.
+							After sign-in, we'll return you to {data.return_path_label}.
 						</p>
 					</If>
 					<If cond={data.configured == false}>
 						<div class="setup-note" role="alert">
-							<p id="google-setup-note">
-								Sign-in is not open yet. Ask the commissioner.
-							</p>
+							<If cond={data.public_entry.commissioner_ask != ""}>
+								<p id="google-setup-note">
+									Google sign-in is not set up on this server yet. {data.public_entry.commissioner_ask}
+								</p>
+							</If>
+							<If cond={data.public_entry.commissioner_ask == ""}>
+								<p id="google-setup-note">
+									Google sign-in is not set up on this server yet. Ask the commissioner.
+								</p>
+							</If>
 						</div>
 					</If>
 					<If cond={data.configured}>

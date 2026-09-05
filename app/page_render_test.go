@@ -18,6 +18,7 @@ import (
 	"m31labs.dev/gosx/auth"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
+	"m31labs.dev/gosx/session"
 )
 
 // homeTagPattern replaces every tag with a newline, the same way this
@@ -111,6 +112,105 @@ func renderLandingPage(t *testing.T) string {
 		t.Fatalf("GET / = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
 	return rec.Body.String()
+}
+
+// TestCoManagerWelcomePanelReadsBoundFlash (F11a): a freshly bound
+// co-manager gets no on-screen consequence today — the generic sign-in
+// notice, once fixed by F6, still says nothing about shared roster/Big
+// Board/draft-clock control, and it renders on whatever page "next"
+// happens to be, not reliably on /. coManagerWelcomePanel decodes the
+// dedicated "co_manager_bound" flash main.go's sign-in callback sets the
+// instant BindCoManagerOnSignIn succeeds; pop-once flash semantics make
+// this a first-session-only panel with no new persisted state. This test
+// drives the exact two-request round trip (set on request 1, read on
+// request 2) internal/actionui/feedback_test.go's own
+// TestRedirectWithNoticePreservesNativeFlash already established for
+// flash assertions in this codebase.
+func TestCoManagerWelcomePanelReadsBoundFlash(t *testing.T) {
+	manager, err := session.New("co-manager-panel-test-secret-0123456789ab", session.Options{CookieName: "gridiron_comgr_test", AllowInsecure: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	setter := manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session.AddFlash(r, "co_manager_bound", map[string]any{
+			"team_name":          "Caleb's Corn Dogs",
+			"primary_first_name": "Melanie",
+		})
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	setReq := httptest.NewRequest(http.MethodPost, "/auth/google/callback", nil)
+	setRes := httptest.NewRecorder()
+	setter.ServeHTTP(setRes, setReq)
+	cookies := setRes.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("flash setter wrote %d cookies, want 1", len(cookies))
+	}
+
+	var shown bool
+	var teamName, primaryFirstName string
+	reader := manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		shown, teamName, primaryFirstName = coManagerWelcomePanel(session.Current(r))
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	getReq := httptest.NewRequest(http.MethodGet, "/", nil)
+	getReq.AddCookie(cookies[0])
+	getRes := httptest.NewRecorder()
+	reader.ServeHTTP(getRes, getReq)
+
+	if !shown {
+		t.Fatal("co-manager welcome panel did not fire from the bound flash")
+	}
+	if teamName != "Caleb's Corn Dogs" || primaryFirstName != "Melanie" {
+		t.Fatalf("panel fields = team %q primary %q, want Caleb's Corn Dogs / Melanie", teamName, primaryFirstName)
+	}
+}
+
+func TestCoManagerWelcomePanelStaysHiddenWithNoBoundFlash(t *testing.T) {
+	manager, err := session.New("co-manager-panel-test-secret-nobind-0123", session.Options{CookieName: "gridiron_comgr_test2", AllowInsecure: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shown bool
+	reader := manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		shown, _, _ = coManagerWelcomePanel(session.Current(r))
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	res := httptest.NewRecorder()
+	reader.ServeHTTP(res, req)
+	if shown {
+		t.Fatal("co-manager welcome panel fired with no bound flash")
+	}
+}
+
+// TestHomePageMarkupRendersCoManagerWelcomePanel pins page.gsx's own
+// gating and copy (F11a): "You now co-manage <team> with <primary first
+// name>. You share the roster, the Big Board, and the draft clock." must
+// sit inside the signed-in branch, ahead of the Action Center, gated on
+// data.co_manager_welcome_shown alone.
+func TestHomePageMarkupRendersCoManagerWelcomePanel(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	for _, want := range []string{
+		`<If cond={data.co_manager_welcome_shown}>`,
+		`class="flash-message co-manager-welcome"`,
+		"You now co-manage",
+		"{data.co_manager_welcome_team_name}",
+		"{data.co_manager_welcome_primary_first_name}",
+		"You share the roster, the Big Board, and the draft clock.",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page.gsx missing co-manager welcome panel contract %q", want)
+		}
+	}
+	panelAt := strings.Index(page, `class="flash-message co-manager-welcome"`)
+	actionCenterAt := strings.Index(page, "<ActionCenterPanel")
+	if panelAt < 0 || actionCenterAt < 0 || panelAt > actionCenterAt {
+		t.Fatalf("co-manager welcome panel must render before the Action Center: panel=%d actionCenter=%d", panelAt, actionCenterAt)
+	}
 }
 
 // TestHomePlayoffCardCollapsesToOneLineInPreseason is gap-audit item 2

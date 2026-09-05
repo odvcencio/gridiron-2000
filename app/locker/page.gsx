@@ -30,7 +30,7 @@ func Page() Node {
 			</div>
 		</section>
 
-		<div class="locker-notice" aria-live="polite">
+		<div class="locker-notice">
 			<If cond={data.demo_mode}>
 				<p class="demo-message">
 					<strong>REHEARSAL MODE:</strong>

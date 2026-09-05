@@ -74,3 +74,33 @@ func TestHelpIndexGuardsSentinelDraftDate(t *testing.T) {
 		t.Fatalf("help index did not render the unpublished-draft guard text: %s", body)
 	}
 }
+
+// TestHelpIndexGlossaryAndMigrationRenderContent pins F1/F2: the glossary and
+// migration table used to reach the template as []struct, so the template's
+// lowercase map-key reads (entry.term, mapping.canonical, ...) always
+// resolved empty and every glossary "Topic ->" link pointed at bare "/help/".
+func TestHelpIndexGlossaryAndMigrationRenderContent(t *testing.T) {
+	body := renderHelpRoute(t, "/")
+	firstGlossary := glossaryEntries[0]
+	if !strings.Contains(body, firstGlossary.Term) {
+		t.Errorf("help index glossary omitted the first term %q", firstGlossary.Term)
+	}
+	if !strings.Contains(body, firstGlossary.Definition) {
+		t.Errorf("help index glossary omitted the first definition %q", firstGlossary.Definition)
+	}
+	wantLink := "/help/" + firstGlossary.TopicID
+	if !strings.Contains(body, wantLink) {
+		t.Errorf("help index glossary link = missing %q", wantLink)
+	}
+	if strings.Contains(body, `href="/help/" data-gosx-link>Topic`) {
+		t.Error("help index glossary still links a blank topic id")
+	}
+
+	firstMapping := migrationMappings[0]
+	if !strings.Contains(body, firstMapping.Canonical) {
+		t.Errorf("help index migration table omitted the first canonical name %q", firstMapping.Canonical)
+	}
+	if !strings.Contains(body, firstMapping.Difference) {
+		t.Errorf("help index migration table omitted the first difference %q", firstMapping.Difference)
+	}
+}

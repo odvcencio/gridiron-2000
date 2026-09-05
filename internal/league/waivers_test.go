@@ -1260,6 +1260,51 @@ func TestPlayerWaiverStatusKickoffLockNormalizesTank01Abbreviations(t *testing.T
 	}
 }
 
+// TestWaiverResolutionPhrase pins J3 F17: /team's Signal Watch, /players'
+// pool row, and /players' MY CLAIMS card all call this one helper, so the
+// three surfaces can never print a different answer to "when does this
+// waiver resolve" again.
+func TestWaiverResolutionPhrase(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Timezone = "America/New_York"
+	now := time.Date(2026, 9, 15, 0, 0, 0, 0, time.UTC)
+
+	t.Run("not on waivers is empty", func(t *testing.T) {
+		if got := waiverResolutionPhrase(cfg, "PIT", waiverStatus{State: AvailabilityFreeAgent}, now); got != "" {
+			t.Fatalf("free-agent phrase = %q, want empty", got)
+		}
+	})
+
+	t.Run("kickoff names the event before the run time", func(t *testing.T) {
+		resolvesAt := now.Add(9 * time.Hour)
+		status := waiverStatus{State: AvailabilityOnWaivers, Reason: "kickoff", ResolvesAt: resolvesAt}
+		got := waiverResolutionPhrase(cfg, "PIT", status, now)
+		want := "Resolves after the PIT game ends, at the next waiver run — " + formatResolvesAt(cfg, resolvesAt) + " · " + deadlineRelativeTime(now, resolvesAt) + "."
+		if got != want {
+			t.Fatalf("kickoff phrase = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("dropped names the exact run time and a relative phrase", func(t *testing.T) {
+		resolvesAt := now.Add(2 * 24 * time.Hour)
+		status := waiverStatus{State: AvailabilityOnWaivers, Reason: "dropped", ResolvesAt: resolvesAt}
+		got := waiverResolutionPhrase(cfg, "PIT", status, now)
+		want := "Resolves " + formatResolvesAt(cfg, resolvesAt) + " · " + deadlineRelativeTime(now, resolvesAt) + "."
+		if got != want {
+			t.Fatalf("dropped phrase = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("no team name still names the event", func(t *testing.T) {
+		resolvesAt := now.Add(time.Hour)
+		status := waiverStatus{State: AvailabilityOnWaivers, Reason: "kickoff", ResolvesAt: resolvesAt}
+		got := waiverResolutionPhrase(cfg, "", status, now)
+		if !strings.Contains(got, "Resolves after the player's game ends, at the next waiver run") {
+			t.Fatalf("phrase with no team = %q, want the generic event phrasing", got)
+		}
+	})
+}
+
 func TestPlayerWaiverStatusRosteredPlayerNeverOnWaivers(t *testing.T) {
 	cfg := DefaultConfig()
 	state := PersistedState{Picks: []DraftPick{{Number: 1, TeamID: "team-1", PlayerID: "p-1"}}}
@@ -1353,7 +1398,7 @@ func TestFileClaimRosterFullRequiresDrop(t *testing.T) {
 	svc, _ := newWaiversTestService(t)
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
 	_, err := svc.FileClaim(request, "team-1", "wv-open", "", 0) // team-1 is at cap (3 of 3)
-	want := "your roster is full; choose a player to drop"
+	want := "your roster is full; choose a player to drop for Waived Wideout"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
 	}
@@ -1964,7 +2009,7 @@ func TestProcessWaiversRosterFullWithNoDropFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "your roster is full; choose a player to drop"
+	want := "your roster is full; choose a player to drop for Wire One"
 	if len(results) != 1 || results[0].Outcome != "failed" || results[0].Reason != want {
 		t.Fatalf("results = %+v, want one failure with %q", results, want)
 	}

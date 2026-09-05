@@ -51,8 +51,12 @@ func TestLoginPageRendersSanitizedReturnCTA(t *testing.T) {
 	if !strings.Contains(valid, `href="/auth/google/start?next=%2Fdraft%3Fweek%3D1"`) {
 		t.Fatalf("valid login CTA did not preserve encoded target: %s", valid)
 	}
-	if !strings.Contains(valid, "After sign-in, we&#39;ll return you to the page you requested.") {
-		t.Fatalf("valid login page omitted the return note: %s", valid)
+	// F24 (comb — maple, 2026-09-04 UX pass): the return note used to say
+	// "the page you requested" without naming it. It now names the
+	// destination (navigation.PageLabel) — /draft?week=1 resolves to "the
+	// Draft room", the same name the primary navigation gives that route.
+	if !strings.Contains(valid, "After sign-in, we&#39;ll return you to the Draft room.") {
+		t.Fatalf("valid login page omitted the named return note: %s", valid)
 	}
 	if !strings.Contains(valid, "SIGN IN TO ENTER.") {
 		t.Fatalf("login page omitted authentication-first headline: %s", valid)

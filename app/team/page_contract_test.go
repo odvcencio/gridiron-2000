@@ -38,6 +38,48 @@ func TestManagedTeamFormsCarryCSRFToken(t *testing.T) {
 	}
 }
 
+// TestTeamRenameFormCarriesAManagedFormStatusElement (F8): renaming the
+// team with JavaScript on produced no confirmation — the managed form
+// patched the input's value in place (a reload confirmed the rename
+// took) but the returned notice had nowhere to render, four screens away
+// from the field the manager just used. GoSX's client runtime fills the
+// FIRST element inside a managed form carrying class "form-status" or
+// "action-message" with the action's own result message on every
+// response, success or failure (client/runtime/host/navigation.ts,
+// managedFormStatus/projectManagedFormResult) — the exact convention
+// /join's #signup-form-status already relies on. This pins that the
+// element exists inside the team-rename form, after the field-level
+// error and before the submit button, so the client runtime's own
+// existing, already-tested behavior has something to fill.
+func TestTeamRenameFormCarriesAManagedFormStatusElement(t *testing.T) {
+	sourceBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	formStart := strings.Index(source, `action={actionPath("team-rename")}`)
+	if formStart < 0 {
+		t.Fatal("managed team-rename form not found")
+	}
+	formEnd := strings.Index(source[formStart:], "</form>")
+	if formEnd < 0 {
+		t.Fatal("managed team-rename form has no closing form tag")
+	}
+	form := source[formStart : formStart+formEnd]
+	if !strings.Contains(form, `class="form-status" role="status" aria-live="polite"`) {
+		t.Fatalf("team-rename form has no .form-status element for the client runtime to fill: %s", form)
+	}
+	errorAt := strings.Index(form, `data-gosx-field-error="name"`)
+	statusAt := strings.Index(form, `class="form-status"`)
+	submitAt := strings.Index(form, `type="submit"`)
+	if errorAt < 0 || statusAt < 0 || submitAt < 0 {
+		t.Fatalf("could not locate field error, status, and submit control in team-rename form: %s", form)
+	}
+	if !(errorAt < statusAt && statusAt < submitAt) {
+		t.Fatalf("team-rename form order = error@%d status@%d submit@%d, want error, then status, then submit", errorAt, statusAt, submitAt)
+	}
+}
+
 func TestTeamRoleStateRenderUsesCanonicalPublicEntry(t *testing.T) {
 	sourceBytes, err := os.ReadFile("page.gsx")
 	if err != nil {
@@ -441,6 +483,33 @@ func TestTeamMatchupRankGlossaryIsADetailsBesideTheLineup(t *testing.T) {
 	noticeStackEnd := strings.Index(page, `<If cond={data.has_co_error}>`)
 	if noticeStackEnd >= 0 && glossaryAt < noticeStackEnd {
 		t.Fatal("the matchup-rank glossary must not still live in the top notice-stack")
+	}
+}
+
+// TestTeamHouseRankLegendExplainsTheCode pins J3 F18: /team prints the
+// "H###" house-rank code on every lineup and bench row but, before this
+// fix, never defined it anywhere on the page — /players and /board both
+// carry a <details class="pool-legend"> disclosure explaining it. /team
+// must carry the same disclosure, directly under the lineup heading.
+func TestTeamHouseRankLegendExplainsTheCode(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+
+	if strings.Count(page, `<details class="pool-legend">`) != 1 {
+		t.Fatal("page.gsx must render exactly one house-rank pool-legend disclosure")
+	}
+	if !strings.Contains(page, "house rank") {
+		t.Error("page.gsx's legend never explains H### as house rank")
+	}
+
+	headingAt := strings.Index(page, `<span class="section-index">01 // STARTING LINEUP</span>`)
+	legendAt := strings.Index(page, `<details class="pool-legend">`)
+	slotListAt := strings.Index(page, `<div class="lineup-slot-list">`)
+	if headingAt < 0 || legendAt < 0 || slotListAt < 0 || !(headingAt < legendAt && legendAt < slotListAt) {
+		t.Fatal("the house-rank legend must render directly under the lineup heading, before the slot list")
 	}
 }
 

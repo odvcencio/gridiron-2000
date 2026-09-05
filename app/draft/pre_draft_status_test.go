@@ -52,20 +52,26 @@ func TestDraftRoomStatusStillReportsTheClockOnceStarted(t *testing.T) {
 			"complete": false,
 			"started":  true,
 		},
-		"on_clock":      map[string]any{"abbreviation": "OR2"},
+		"on_clock":      map[string]any{"name": "Los Delfines del Norte", "abbreviation": "OR2"},
 		"clock":         map[string]any{"paused": false, "armed": true},
 		"pick_number":   5,
 		"ready_count":   8,
 		"manager_count": 8,
 	}
 	got := draftRoomStatus(data)
-	for _, want := range []string{"Pick 5", "OR2 on the clock", "8 of 8 ready", "clock running"} {
+	// F8 (J2, spruce audit, 2026-09-04): the sentence names the team, not
+	// the internal seat code — a screen-reader listener should hear
+	// "Los Delfines del Norte on the clock", never "OR2 on the clock".
+	for _, want := range []string{"Pick 5", "Los Delfines del Norte on the clock", "8 of 8 ready", "clock running"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("in-progress status %q missing %q", got, want)
 		}
 	}
 	if strings.Contains(got, "Draft not started") {
 		t.Errorf("in-progress status %q must not claim the draft has not started", got)
+	}
+	if strings.Contains(got, "OR2") {
+		t.Errorf("in-progress status %q leaks the internal seat abbreviation, want the team name only", got)
 	}
 }
 

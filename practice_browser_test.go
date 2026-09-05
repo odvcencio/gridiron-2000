@@ -45,24 +45,36 @@ func TestBrowserPracticeDraftRunsBesideAnUnstartedRealDraft(t *testing.T) {
 
 	// Two bots pick first (think time 2-5 s each); the practice hub's
 	// draft:pick pushes refetch the available pane, which then offers the
-	// viewer a Draft button. No reload: this is the live path.
-	draftButton := `#draft-available-rows tr.avail-row .btn-primary`
+	// viewer a Draft control. No reload: this is the live path.
+	//
+	// J1 F12 (comb — larch, 2026-09-04): the row's plain one-tap Draft
+	// button is now a two-tap <details> confirm (page.gsx's own
+	// draft-row-confirm) — the first tap (the summary) only opens it, the
+	// second (the confirm panel's own submit button) posts the pick.
+	draftSummary := `#draft-available-rows tr.avail-row .draft-row-confirm > summary`
 	deadline := time.Now().Add(45 * time.Second)
 	for time.Now().Before(deadline) {
-		if evalString(t, ctx, `document.querySelector('`+draftButton+`') ? 'yes' : ''`) == "yes" {
+		if evalString(t, ctx, `document.querySelector('`+draftSummary+`') ? 'yes' : ''`) == "yes" {
 			break
 		}
 		time.Sleep(browserPollInterval)
 	}
-	if evalString(t, ctx, `document.querySelector('`+draftButton+`') ? 'yes' : ''`) != "yes" {
+	if evalString(t, ctx, `document.querySelector('`+draftSummary+`') ? 'yes' : ''`) != "yes" {
 		status := evalString(t, ctx, `(document.querySelector('.draft-command__pill-status')||{}).textContent||''`)
 		t.Fatalf("the viewer never came on the clock in the practice (status %q); the practice hub's push or the bot cadence is broken", strings.TrimSpace(status))
 	}
 	if tape := evalString(t, ctx, `String(document.querySelectorAll('.tape-row[data-pick-number]').length)`); tape != "2" {
 		t.Fatalf("tape shows %s picks before the viewer's turn, want the two bot picks", tape)
 	}
-	if err := chromedp.Run(ctx, chromedp.Click(draftButton, chromedp.ByQuery)); err != nil {
-		t.Fatalf("click Draft: %v", err)
+	if err := chromedp.Run(ctx, chromedp.Click(draftSummary, chromedp.ByQuery)); err != nil {
+		t.Fatalf("open the Draft confirm: %v", err)
+	}
+	confirmButton := `#draft-available-rows tr.avail-row .draft-row-confirm[open] .draft-row-confirm__panel button[type="submit"]`
+	if err := chromedp.Run(ctx, chromedp.WaitVisible(confirmButton, chromedp.ByQuery)); err != nil {
+		t.Fatalf("the confirm panel never opened: %v", err)
+	}
+	if err := chromedp.Run(ctx, chromedp.Click(confirmButton, chromedp.ByQuery)); err != nil {
+		t.Fatalf("click Confirm: %v", err)
 	}
 	deadline = time.Now().Add(browserRegionSwapWait)
 	mine := ""

@@ -21,11 +21,7 @@ func Page() Node {
 					FANTASY SIGNUP
 				</div>
 				<p class="hero-kicker">{data.league.hero_kicker}</p>
-				<h1>
-					CLAIM YOUR
-					{" "}
-					<span>FRANCHISE.</span>
-				</h1>
+				<h1>{data.public_entry.headline}</h1>
 				<If cond={data.public_entry.can_claim}>
 					<p class="hero-deck">
 						Open seats remaining:
@@ -92,10 +88,7 @@ func Page() Node {
 					</p>
 					<If cond={data.public_entry.action_href != "/join"}>
 						<div class="hero-actions">
-							<a href={data.public_entry.action_href} data-gosx-link class="button button--primary">
-								{data.public_entry.action_label}
-								<span aria-hidden="true">→</span>
-							</a>
+							<a href={data.public_entry.action_href} data-gosx-link class="button button--primary">{data.public_entry.action_label}</a>
 						</div>
 					</If>
 				</If>

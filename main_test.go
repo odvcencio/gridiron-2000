@@ -77,3 +77,21 @@ func TestStateSchemaPayloadExposesOnlyCompatibilityEvidence(t *testing.T) {
 		t.Fatalf("state schema payload exposed unexpected fields: %#v", payload)
 	}
 }
+
+// F6: the co-manager welcome flash must credit the seat's primary manager,
+// never the invitee who just signed in to consume the invite.
+func TestCoManagerWelcomeFlashNamesThePrimaryNotTheInvitee(t *testing.T) {
+	got := coManagerWelcomeFlash("Caleb's Corn Dogs", "Priya Anand Fixture")
+	want := "You're co-managing Caleb's Corn Dogs alongside its primary manager, Priya Anand Fixture."
+	if got != want {
+		t.Fatalf("coManagerWelcomeFlash = %q, want %q", got, want)
+	}
+}
+
+func TestCoManagerWelcomeFlashFallsBackWhenNoPrimaryName(t *testing.T) {
+	got := coManagerWelcomeFlash("Caleb's Corn Dogs", "")
+	want := "You're co-managing Caleb's Corn Dogs alongside its primary manager, the primary manager."
+	if got != want {
+		t.Fatalf("coManagerWelcomeFlash = %q, want %q", got, want)
+	}
+}
