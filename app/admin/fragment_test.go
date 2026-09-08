@@ -157,10 +157,16 @@ func TestAdminAttentionReadoutReprioritizesByDraftPhase(t *testing.T) {
 	if !strings.Contains(rendered, "Draft night (complete)") {
 		t.Errorf("post-draft disclosure missing its summary label: %s", rendered)
 	}
-	if !strings.Contains(rendered, "OPEN CLAIMS") || !strings.Contains(rendered, "TRADES IN REVIEW") {
+	// F35 (J4 console gap-audit): the bare OPEN CLAIMS/TRADES IN REVIEW
+	// stat row is now the "This week" card — same underlying counts, each
+	// one named in a sentence and linked to the section that answers it.
+	if !strings.Contains(rendered, `class="admin-this-week"`) {
+		t.Errorf("post-draft readout missing the This week card: %s", rendered)
+	}
+	if !strings.Contains(rendered, "open waiver claim") || !strings.Contains(rendered, "trade") {
 		t.Errorf("post-draft readout missing the week's own open-work summary: %s", rendered)
 	}
-	summaryAt := strings.Index(rendered, "OPEN CLAIMS")
+	summaryAt := strings.Index(rendered, `class="admin-this-week"`)
 	disclosureAt := strings.Index(rendered, `<details class="commissioner-hq__draft-night">`)
 	if summaryAt < 0 || disclosureAt < 0 || summaryAt > disclosureAt {
 		t.Errorf("week summary must lead the disclosure, not follow it: %s", rendered)

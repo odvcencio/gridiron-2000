@@ -59,7 +59,11 @@ func FleetReadout(props FleetReadoutProps) Node {
 				LEAGUE REPORT · {props.LeagueCount} {props.LeagueWord} · GENERATED {props.GeneratedAt}<If cond={props.GeneratedAtRelative != ""}> · {props.GeneratedAtRelative}</If>
 			</p>
 			<If cond={props.FederationEnabled == false}>
-				<p class="demo-message"><strong>LOCAL-ONLY:</strong> this league is independent until commissioner peers are configured. This league stands alone until the commissioner adds another league.</p>
+				{/* J4 F29 (gap-audit): this sentence used to say the same
+				    thing twice ("independent until commissioner peers are
+				    configured" / "stands alone until the commissioner adds
+				    another league"). One plain sentence now. */}
+				<p class="demo-message"><strong>LOCAL-ONLY:</strong> this league stands alone until the commissioner adds another league.</p>
 			</If>
 			<section id="commissioner-attention-queue" class="commissioner-hq__queue" aria-labelledby="commissioner-attention-heading">
 				<div class="commissioner-hq__subhead">
@@ -105,26 +109,24 @@ func FleetReadout(props FleetReadoutProps) Node {
 								</div>
 								<span class="position-chip">{card.draft_status}</span>
 							</div>
-							<section class="commissioner-hq__provenance" aria-label="Release metadata">
-								<span>
-									<strong>APP VERSION</strong>
-									<span class="mono"><If cond={card.app_version != ""}>{card.app_version}</If><If cond={card.app_version == ""}>UNKNOWN</If></span>
-								</span>
-								<span>
-									<strong>SOURCE GIT SHA</strong>
-									<span class="mono"><If cond={card.git_sha != ""}>{card.git_sha}</If><If cond={card.git_sha == ""}>UNKNOWN</If></span>
-								</span>
-								<span>
-									<strong>BUILD TIMESTAMP</strong>
-									<If cond={card.build_iso != ""}><time class="mono" datetime={card.build_iso}>{card.build}</time></If>
-									<If cond={card.build_iso == ""}><span class="mono">{card.build}</span></If>
-								</span>
-								<span>
-									<strong>FRAMEWORK VERSION</strong>
-									<span class="mono"><If cond={card.framework_version != ""}>{card.framework_version}</If><If cond={card.framework_version == ""}>UNKNOWN</If></span>
-								</span>
-							</section>
+							{/* J4 F29 (gap-audit): this release-metadata block used to
+							    lead the card — a git SHA and a build timestamp ahead of
+							    the seats, draft, and schedule facts a commissioner
+							    actually opens the card for. It now sits behind a closed
+							    "Build" disclosure at the end of the card. */}
 							<div class="commissioner-hq__details">
+								{/* J4 F29 (gap-audit): the card used to lead its detail
+								    list with the seat ledger; week and phase (the league
+								    state a commissioner opens the card to check first) now
+								    come first. */}
+								<section class="commissioner-hq__detail">
+									<h3>SCHEDULE / WEEK CLOSE</h3>
+									<p><strong>{card.season_phase}</strong> · week {card.current_week} · {card.schedule_range}</p>
+									<p>{card.schedule_text}</p>
+									<p class="mono">WEEK {card.week_close_week} · {card.week_close_badge} · {card.week_close_games}/{card.week_close_total} GAMES FINAL</p>
+									<If cond={card.week_close_waiting}><p class="scoring-note">{card.week_close_waiting_reason}</p></If>
+									<p>{card.schedule_final_text} · stats <If cond={card.week_close_stats}>FRESH</If><If cond={card.week_close_stats == false}>WAITING</If></p>
+								</section>
 								<section id={"commissioner-"+card.peer_id+"-seats"} class="commissioner-hq__detail">
 									<h3>SEATS · LEDGER</h3>
 									<p><strong>{card.claimed_seats} / {card.seats}</strong> claimed · {card.ready_seats} ready</p>
@@ -143,14 +145,6 @@ func FleetReadout(props FleetReadoutProps) Node {
 									<If cond={card.draft_at_iso == ""}>{card.draft_at}</If>
 									<If cond={card.draft_at_relative != ""}> ({card.draft_at_relative})</If> · {card.draft_order} · {card.clock_text}
 								</p>
-								</section>
-								<section class="commissioner-hq__detail">
-									<h3>SCHEDULE / WEEK CLOSE</h3>
-									<p><strong>{card.season_phase}</strong> · week {card.current_week} · {card.schedule_range}</p>
-									<p>{card.schedule_text}</p>
-									<p class="mono">WEEK {card.week_close_week} · {card.week_close_badge} · {card.week_close_games}/{card.week_close_total} GAMES FINAL</p>
-									<If cond={card.week_close_waiting}><p class="scoring-note">{card.week_close_waiting_reason}</p></If>
-									<p>{card.schedule_final_text} · stats <If cond={card.week_close_stats}>FRESH</If><If cond={card.week_close_stats == false}>WAITING</If></p>
 								</section>
 								<section class="commissioner-hq__detail">
 									<h3>PLAYER POOL</h3>
@@ -191,6 +185,28 @@ func FleetReadout(props FleetReadoutProps) Node {
 								<a href={card.admin_schedule_url}>Schedule →</a>
 								<a href={card.admin_data_url}>Data →</a>
 							</nav>
+							<details class="commissioner-hq__build">
+								<summary class="mono">Build</summary>
+								<section class="commissioner-hq__provenance" aria-label="Release metadata">
+									<span>
+										<strong>APP VERSION</strong>
+										<span class="mono"><If cond={card.app_version != ""}>{card.app_version}</If><If cond={card.app_version == ""}>UNKNOWN</If></span>
+									</span>
+									<span>
+										<strong>SOURCE GIT SHA</strong>
+										<span class="mono"><If cond={card.git_sha != ""}>{card.git_sha}</If><If cond={card.git_sha == ""}>UNKNOWN</If></span>
+									</span>
+									<span>
+										<strong>BUILD TIMESTAMP</strong>
+										<If cond={card.build_iso != ""}><time class="mono" datetime={card.build_iso}>{card.build}</time></If>
+										<If cond={card.build_iso == ""}><span class="mono">{card.build}</span></If>
+									</span>
+									<span>
+										<strong>FRAMEWORK VERSION</strong>
+										<span class="mono"><If cond={card.framework_version != ""}>{card.framework_version}</If><If cond={card.framework_version == ""}>UNKNOWN</If></span>
+									</span>
+								</section>
+							</details>
 						</If>
 					</section>
 				</Each>

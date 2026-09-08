@@ -19146,3 +19146,273 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
   color: var(--color-text-muted);
   font-size: var(--type-2xs);
 }
+
+/* comb — cedar (2026-09-08 wave C): console shell — navigation, section
+   order, headings, chips, task board, HQ header, backup copy,
+   announcements, and the "This week" card (J4 F5/F17/F18/F19/F20/F25/
+   F28/F29/F30/F34/F35, J2 F17/F21/F26/F32/F33). */
+
+/* J4 F5: the section strip never stuck on any viewport — the old sticky
+   rule only fired below 56.1875rem, and even there
+   .admin-section-strip-wrap was exactly as tall as the strip itself, so
+   the strip had no travel inside its own containing block and never
+   pinned. display: contents removes the wrapper from the box tree
+   entirely, so the strip's containing block becomes .admin-page — the
+   whole ~14,000px console — giving it real room to stick. Sticky now
+   applies at every width: pinned to the top on desktop (nothing else is
+   fixed there), pinned above the phone tab bar at the bottom on narrow
+   viewports (J4 F34's own ask, "visible from the first screen", pairs
+   with the reorder below). */
+.admin-section-strip-wrap {
+  display: contents;
+}
+
+.admin-section-strip {
+  position: sticky;
+  top: var(--space-sm);
+  z-index: 40;
+  flex-wrap: wrap;
+  padding: var(--space-xs);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-canvas-deep);
+}
+
+/* J4 F18: the strip carried no current-section marker at all. This page
+   has no client-side scroll tracking, so aria-current names the section
+   the commissioner last opened (data.admin_section) rather than the
+   section actually scrolled into view — a real, if partial, answer
+   instead of none. */
+.admin-section-strip > a[aria-current="true"] {
+  border-color: var(--color-accent-cyan);
+  background: var(--color-accent-cyan);
+  color: var(--color-ink-on-accent);
+}
+
+@media (width <= 56.1875rem) {
+  .admin-section-strip {
+    top: auto;
+    bottom: calc(var(--mobile-bar-height) + var(--space-xs));
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .admin-section-strip > a {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+  }
+
+  [data-admin-section] {
+    scroll-margin-top: var(--space-md);
+  }
+
+  /* J4 F34: the console's own first phone screen held the masthead, an
+     announcement banner, an eyebrow repeating the h1, and a draft-night
+     status card — nothing actionable — while the jump strip waited at
+     screen 4.2 behind the task board and the attention readout. A
+     column flex order promotes the strip (now sticky, see above) ahead
+     of both, so it is on screen from the first paint; source order in
+     page.gsx is unchanged; the reorder is purely visual so
+     TestAdminSectionStripCoversEveryConsoleSection's own "strip renders
+     after the task board's </nav>" source check still holds. */
+  .admin-page {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .admin-page > .draft-masthead {
+    order: 1;
+  }
+
+  .admin-page > .notice-stack {
+    order: 2;
+  }
+
+  .admin-section-strip {
+    order: 3;
+  }
+
+  .admin-page > .admin-attention-region {
+    order: 4;
+  }
+
+  .admin-page > .admin-task-nav {
+    order: 5;
+  }
+
+  .admin-page > .admin-grid {
+    order: 6;
+  }
+
+  /* J4 F34: "reorder the chips so week close, notes and seats come
+     first in season" — announcements (League notes) moves up beside
+     Week close, the two most common Sunday jobs, instead of sitting
+     eleventh of thirteen sections down a single-column phone page.
+     Danger Zone keeps the highest order, mirroring its own 99 eyebrow. */
+  #admin-draft-control {
+    order: 1;
+  }
+
+  #admin-schedule {
+    order: 2;
+  }
+
+  #admin-week-close {
+    order: 3;
+  }
+
+  #admin-announcements {
+    order: 4;
+  }
+
+  #admin-playoffs {
+    order: 5;
+  }
+
+  #admin-seats {
+    order: 6;
+  }
+
+  #admin-invites {
+    order: 7;
+  }
+
+  #admin-draft-order {
+    order: 8;
+  }
+
+  #admin-data {
+    order: 9;
+  }
+
+  #admin-clock {
+    order: 10;
+  }
+
+  #admin-roster {
+    order: 11;
+  }
+
+  #admin-backup {
+    order: 12;
+  }
+
+  #admin-danger {
+    order: 99;
+  }
+}
+
+/* J4 F20: six status chips overflowed their own rounded-rectangle
+   border at both desktop widths — .position-chip sits as a flex item
+   inside .pool-toolbar (display: flex, no wrap) and .position-filters
+   (display: flex, wrap), and its own min-width (2.55rem) is far short
+   of a word like GENERATED or IN PROGRESS, so the default flex-shrink
+   let the box shrink well below its content before the text ever had a
+   chance to wrap onto a second line inside it. flex-shrink: 0 keeps the
+   chip at its natural (content) width, wrapping the *row* around it
+   instead of squeezing the chip itself. */
+.position-chip {
+  flex-shrink: 0;
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+}
+
+/* J4 F20: the roster-shape tiles' own minmax(6rem, …) column floor is
+   narrower than "SUPERFLEX" plus its count needs — the value pushed
+   onto the tile's own border. 7.5rem is the shortest floor that keeps
+   every current slot label (SUPERFLEX is the longest) off the border. */
+.roster-shape-grid,
+.roster-shape-form-grid {
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+}
+
+/* J4 F17: "Set a lineup for a manager" used to be the only task-board
+   job rendered as a bare disclosure triangle after the </ul>, not a
+   boxed row like its siblings — the summary now wears
+   .admin-task-nav__link (public/styles.css, ~4339) directly, so this
+   only needs to drop the browser's own default marker, the same way
+   .seat-release-disclosure > summary already does. */
+.admin-task-nav__lineup-summary {
+  display: flex;
+  list-style: none;
+}
+
+.admin-task-nav__lineup-summary::-webkit-details-marker,
+.admin-task-nav__lineup-summary::marker {
+  display: none;
+  content: "";
+}
+
+/* J4 F35: a "This week" card at the top of the console — week, close
+   readiness with its reason, open waivers, trades in review, and one
+   line naming what needs the commissioner today, each a link into its
+   own section. Visually distinct from the plain .commissioner-hq__
+   provenance stat rows around it (an accent border), since this is the
+   one card meant to answer the whole job in a glance. */
+.admin-this-week {
+  margin: var(--space-md) 0;
+  padding: var(--space-md);
+  border: 1px solid var(--color-accent-cyan);
+  border-radius: var(--radius-sm);
+  background: var(--color-cyan-haze);
+}
+
+.admin-this-week__list {
+  display: grid;
+  gap: var(--space-xs);
+  margin: var(--space-sm) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-this-week__list a {
+  display: block;
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+.admin-this-week__list a:hover,
+.admin-this-week__list a:focus-visible {
+  color: var(--color-accent-cyan);
+}
+
+.admin-this-week__today {
+  margin: 0;
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+/* J2 F26: the task board's job rows overlapped in a ragged staircase at
+   phone width — not a spacing bug, a sizing one. .admin-task-nav__group
+   ul is display: grid with implicit auto-sized rows, but <li> keeps its
+   user-agent display: list-item even inside a grid (list-style: none
+   only hides the marker glyph, not the box's own display type), and a
+   list-item grid track's auto-height measurement does not reliably
+   include a wrapped flex child's real rendered height once the row's
+   status text wraps under its label at this width — measured 25.9375px
+   row height for a 49.9375px item. A plain block box measures correctly. */
+.admin-task-nav__item {
+  display: block;
+}
+
+/* J2 F26 (real root cause): .admin-task-nav__link's own display: flex
+   (public/styles.css ~4339) loses to #main-content li a's display:
+   inline-block (~522) — that rule's own selector list is a plain class
+   vs. an #id + two elements, which outranks a single class regardless
+   of source order. AdminTaskLink's <a> happens to sit inside an <li>,
+   so a rule written for an inline prose link (its own comment: "a
+   sentence inside a <p> or an <li>") silently overrides this component's
+   real button-shaped layout, plus stamps a padding-block/margin-block
+   zero-sum trick meant for inline text flow onto a box that does not
+   want it — together they under-measure the row's real height once its
+   status text wraps at phone width, and the next grid row overlaps it.
+   #main-content plus the component's own class matches that rule's own
+   specificity and wins on the tie (one more class). */
+#main-content .admin-task-nav__link {
+  display: flex;
+  padding-block: 0.45rem;
+  margin-block: 0;
+}
