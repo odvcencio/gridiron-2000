@@ -98,7 +98,10 @@ func TestQueueNativeReorderControlsPreserveContextAndManagedFeedback(t *testing.
 	for _, want := range []string{
 		`"queue-move": func(ctx *action.Context) error {`,
 		`league.Default().BoardMove(ctx.Request, ctx.FormData["player_id"], ctx.FormData["direction"])`,
-		`return draftActionSuccess(ctx, target, "Queue order updated.")`,
+		// "Big Board order updated." (Wave D item 8, J1 F18, 2026-09-08):
+		// one name for the list everywhere — /board's own reorder action
+		// already answered "Board order updated."
+		`return draftActionSuccess(ctx, target, "Big Board order updated.")`,
 		`QueueMoveAction: actionPath("queue-move")`,
 		`CanMoveUp:       boolField(player, "board_can_move_up")`,
 		`CanMoveDown:     boolField(player, "board_can_move_down")`,

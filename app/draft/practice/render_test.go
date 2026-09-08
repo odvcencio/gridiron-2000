@@ -133,7 +133,11 @@ func TestPracticeRoomRendersFromTheSandboxFixtureProcess(t *testing.T) {
 	if strings.Contains(real, "Practice unavailable") {
 		t.Error("the checklist never renders a disabled practice entry")
 	}
-	for _, want := range []string{`data-gosx-region-url="/draft/fragment/queue"`, "+ RANK", `action="/draft/__actions/make-pick"`} {
+	// "avail-row__rank-button" (Wave D item 2, 2026-09-07) replaces the
+	// literal "+ RANK" text pin: the label now splits across a leading
+	// "+" and a hideable span so it can shrink to a compact 44px control
+	// at phone width — the button's own class name is the stable marker.
+	for _, want := range []string{`data-gosx-region-url="/draft/fragment/queue"`, "avail-row__rank-button", `action="/draft/__actions/make-pick"`} {
 		if !strings.Contains(real, want) {
 			t.Errorf("real room lost %q after the practice change", want)
 		}
@@ -204,7 +208,7 @@ func TestPracticeRoomRendersFromTheSandboxFixtureProcess(t *testing.T) {
 			t.Errorf("practice room missing %q", want)
 		}
 	}
-	for _, forbidden := range []string{`id="draft-commissioner"`, "+ RANK", `class="draft-preflight"`, "Mark me ready", "Undo ready check-in", `data-gosx-region-url="/draft/fragment/`, `action="/draft/__actions/`, `data-gosx-live-hub="draft-live"`} {
+	for _, forbidden := range []string{`id="draft-commissioner"`, "avail-row__rank-button", `class="draft-preflight"`, "Mark me ready", "Undo ready check-in", `data-gosx-region-url="/draft/fragment/`, `action="/draft/__actions/`, `data-gosx-live-hub="draft-live"`} {
 		if strings.Contains(room, forbidden) {
 			t.Errorf("practice room must not render %q", forbidden)
 		}

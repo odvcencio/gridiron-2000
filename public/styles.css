@@ -17169,18 +17169,6 @@ a.skip-link {
   content: "";
 }
 
-.draft-row-confirm__open-label {
-  display: none;
-}
-
-.draft-row-confirm[open] > summary .draft-row-confirm__closed-label {
-  display: none;
-}
-
-.draft-row-confirm[open] > summary .draft-row-confirm__open-label {
-  display: inline;
-}
-
 .draft-row-confirm__panel {
   display: grid;
   gap: 0.35rem;
@@ -17193,16 +17181,20 @@ a.skip-link {
   background: var(--color-white-faint);
 }
 
+.draft-row-confirm__question {
+  margin: 0;
+  font-size: var(--type-sm);
+}
+
 .draft-row-confirm__warning {
   margin: 0;
   color: var(--color-accent-hot);
   font-size: var(--type-xs);
 }
 
-.draft-row-confirm__cancel-hint {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--type-xs);
+.draft-row-confirm__buttons {
+  display: flex;
+  gap: var(--space-xs);
 }
 
 /* J2 F12: the pick-history segment's own three tabs (page.gsx's
@@ -19098,4 +19090,121 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
    (a bare status word) now carries an explicit label ahead of it. */
 .footer-status__label {
   color: var(--color-text-muted);
+}
+
+/* comb — rowan (2026-09-08 wave D): owner debrief item 2, "selecting a
+   pick on a phone" — the pool row's action cell stacked +RANK above
+   DRAFT (each its own full-width form/button), costing roughly 250px of
+   row height at 390px and leaving under three rows on screen. Row
+   layout, both forms shrunk to inline compact controls, and the fixed
+   .avail-row__actions column widened enough to hold both side by side —
+   at least five rows now fit a 390x844 viewport. */
+@media (width <= 56.1875rem) {
+  .avail-row > .avail-row__actions {
+    width: 6.5rem;
+  }
+
+  .avail-row__actions {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 0.25rem;
+  }
+
+  .avail-row__actions form {
+    display: flex;
+    flex: 0 0 auto;
+  }
+
+  .avail-row__actions form button {
+    width: auto;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0.25rem 0.4rem;
+  }
+
+  /* "RANK" is decorative at this width — the button's own aria-label
+     ("Add {Name} to your Big Board") already carries the full meaning,
+     so hiding the word here (not the whole button) leaves a compact "+"
+     target beside DRAFT rather than a second stacked row. */
+  .avail-row__rank-button-label {
+    display: none;
+  }
+}
+
+/* comb — rowan (2026-09-08 wave D): owner debrief item 2 — the row-level
+   confirm sheet's own Confirm/Cancel pair (page.gsx's .draft-row-confirm
+   __buttons) match this row's other action controls, Cancel styled as
+   the lower-emphasis choice next to the primary Confirm. */
+.draft-row-confirm__buttons > .btn-ghost {
+  background: transparent;
+}
+
+/* comb — rowan (2026-09-08 wave D): owner debrief item 4 — the Big
+   Board's own row-level value warning (BoardRow, app/board/page.gsx),
+   the same warning tone the draft room's row-confirm specialist warning
+   already uses (.draft-row-confirm__warning). */
+.board-row__value-warning {
+  color: var(--color-accent-hot);
+}
+
+/* comb — rowan (2026-09-08 wave D): owner debrief item 6 (J1 F27) —
+   "in landscape the room shows one player". The extreme-aspect landscape
+   query (width <= 56.1875rem, height <= 28rem — 844x390 measured) already
+   trims the pill, banner, and available-head chrome (larch's wave 7
+   "Item 7" block, above); the pool's own column header and row padding
+   were still full desktop size, so after all of that only one row's
+   worth of the pane body remained. Dropping the header (its labels
+   repeat information the row's own rank chip and position chip already
+   carry at this width — item 5's own .avail-row__rank-chip, this file)
+   and trimming the row's own padding raises the row count the same
+   390px-tall pane body can show without shrinking either touch target
+   below the 44px floor. */
+@media (width <= 56.1875rem) and (height <= 28rem) {
+  .avail-table thead {
+    display: none;
+  }
+
+  .avail-row > * {
+    padding-block: 0.25rem;
+  }
+
+  .avail-row__player-body {
+    row-gap: 0;
+  }
+}
+
+/* comb — rowan (2026-09-08 wave D): owner debrief item 8 residue, J1 F4 —
+   the phone pill showed only the retro status span's own clipped code
+   ("DRAFT NO…", "ON CLOCK: I…", "DRAFT COMPLE…"); the plain-language
+   sentence (props.StatusSummary, page.gsx's DraftCommandBar) rendered
+   only inside a visually-hidden screen-reader paragraph. .draft-command
+   __pill-sentence is the same sentence, shown at phone width in place of
+   the clipped span; aria-hidden on the element itself (page.gsx) keeps
+   the visually-hidden <p role="status"> as the one live-announced copy. */
+.draft-command__pill-sentence {
+  display: none;
+}
+
+@media (width <= 56.1875rem) {
+  .draft-command__pill-status {
+    display: none;
+  }
+
+  .draft-command__pill-sentence {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--type-xs);
+    white-space: normal;
+  }
+
+  body.is-on-clock .draft-command__pill-sentence {
+    color: var(--color-accent-hot);
+  }
 }

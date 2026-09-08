@@ -913,7 +913,10 @@ func TestQueueAddAndQueueRemoveCarryThePoolStateInputs(t *testing.T) {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
 		body := response.Body.String()
-		for _, want := range []string{`name="pos"`, `name="q"`, `name="page"`} {
+		// Wave D (owner debrief, 2026-09-06): sort joins pos/q/page — a
+		// native queue-add or queue-remove submitted while HOUSE sort is
+		// active must not silently drop back to ADP on redirect.
+		for _, want := range []string{`name="pos"`, `name="q"`, `name="page"`, `name="sort"`} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s must carry a %s hidden input on its queue form: %s", test.path, want, body)
 			}
@@ -940,8 +943,20 @@ func TestAvailableFragmentNeverRendersALockedChip(t *testing.T) {
 	if strings.Contains(strings.ToUpper(body), "LOCKED") {
 		t.Fatalf("the available fragment must never render a LOCKED chip: %s", body)
 	}
-	if !strings.Contains(body, "+ RANK") {
-		t.Fatalf("a seated viewer must still see + RANK when not on the clock: %s", body)
+	// Wave D item 2 (owner debrief, 2026-09-06): "BOARD" now renders
+	// inside its own span (avail-row__rank-button-label), hidden at
+	// phone width so the button reads as a compact "+" beside DRAFT —
+	// the rendered text still reads "+ BOARD" once the span's own text
+	// node joins the leading "+", but the two are no longer one
+	// contiguous literal in the HTML source, so the pin checks the
+	// accessible name instead (still present at every width, unlike the
+	// visible label). Wave D item 8 (J1 F18) renamed the label itself
+	// from "RANK" to "BOARD" — one name for the list everywhere.
+	if !strings.Contains(body, `aria-label="Add Test Player to your Big Board"`) {
+		t.Fatalf("a seated viewer must still see a + BOARD control (by its accessible name) when not on the clock: %s", body)
+	}
+	if !strings.Contains(body, `avail-row__rank-button-label">`) || !strings.Contains(body, "BOARD</span>") {
+		t.Fatalf("the + BOARD control must still carry the word BOARD, even where it is visually hidden at phone width: %s", body)
 	}
 }
 

@@ -135,13 +135,18 @@ func draftFragmentBase(data map[string]any) string {
 
 func draftActionPathFor(roomPath, name string) string { return roomPath + "/__actions/" + name }
 
-func draftRedirectTarget(pos, query, page string) string {
-	return draftRedirectTargetFor("/draft", pos, query, page)
+func draftRedirectTarget(pos, query, page, sort string) string {
+	return draftRedirectTargetFor("/draft", pos, query, page, sort)
 }
 
 // draftRedirectTargetFor is draftRedirectTarget for any room path (the
-// practice room's own actions redirect under PracticeRoomPath).
-func draftRedirectTargetFor(roomPath, pos, query, page string) string {
+// practice room's own actions redirect under PracticeRoomPath). sort
+// (Wave D, owner debrief 2026-09-06) joins pos/query/page here for the
+// same reason those three already round-trip through every action form's
+// hidden fields: a no-JS pick used to land back on the room under the
+// roster-only default sort, dropping an active HOUSE view exactly like a
+// dropped position filter would.
+func draftRedirectTargetFor(roomPath, pos, query, page, sort string) string {
 	values := url.Values{}
 	if pos != "" {
 		values.Set("pos", pos)
@@ -151,6 +156,9 @@ func draftRedirectTargetFor(roomPath, pos, query, page string) string {
 	}
 	if parsed, err := strconv.Atoi(page); err == nil && parsed > 1 {
 		values.Set("page", strconv.Itoa(parsed))
+	}
+	if sort != "" {
+		values.Set("sort", sort)
 	}
 	if encoded := values.Encode(); encoded != "" {
 		return roomPath + "?" + encoded
@@ -178,6 +186,21 @@ func draftRedirectTargetFor(roomPath, pos, query, page string) string {
 // from it — see mutation_response_shape_test.go.
 func draftActionSuccess(ctx *action.Context, target, message string) error {
 	actionui.RedirectWithNotice(ctx, target, message)
+	return nil
+}
+
+// draftActionSuccessToRow is draftActionSuccess for a target whose own
+// fragment names one still-present element id (J1 F11, Wave D): unlike
+// draftActionSuccess (actionui.RedirectWithNotice), it never strips that
+// fragment on a managed request — actionui.RedirectWithNoticeToRow's own
+// doc comment explains why a generic section anchor gets stripped there
+// but a specific row/control id must not. make-pick is this file's own
+// caller: the pool's own search box (id="draft-search") is a stable
+// landing spot for keyboard focus after every pick, in place of the
+// managed-form runtime's own hash-less default (navigation.ts's
+// resolveNavigationA11y falls back to <main>).
+func draftActionSuccessToRow(ctx *action.Context, target, message string) error {
+	actionui.RedirectWithNoticeToRow(ctx, target, message)
 	return nil
 }
 
@@ -259,6 +282,11 @@ type draftPlayerCardView struct {
 	// never for the queue, which never renders the confirm panel this
 	// backs.
 	SpecialistEarly bool
+	// ConfirmPickLabel (Wave D item 2, 2026-09-07): the row-level confirm
+	// sheet's own pre-formatted "Draft {Name} ({Pos} · {Team}) at round
+	// R, pick P?" sentence — set only for typedPlayers, same scope as
+	// SpecialistEarly above.
+	ConfirmPickLabel string
 }
 
 type draftRoomView struct {
@@ -1110,6 +1138,24 @@ func draftSortOptions(data map[string]any, active string) []map[string]any {
 	}
 }
 
+// draftAvailableRegionURL builds the pool region's own live-refetch URL
+// (Wave D, owner debrief 2026-09-06): pos, q, and sort baked in literally
+// from data's own pool_position/pool_query/pool_sort, the same three
+// fields draftPositionChips and draftSortHref already read for the
+// no-JS/plain-navigation hrefs, so every trigger this URL ever answers —
+// a poll tick, a "draft:pick"/"draft:undo"/"draft:state" hub event, or the
+// position chip's own now-plain navigation — refetches under the exact
+// filter/search/sort the page most recently rendered, never a client-side
+// signal's own empty boot value. See prepareDraftData's own doc comment at
+// this field's assignment.
+func draftAvailableRegionURL(data map[string]any) string {
+	values := url.Values{}
+	values.Set("pos", stringField(data, "pool_position"))
+	values.Set("q", stringField(data, "pool_query"))
+	values.Set("sort", stringField(data, "pool_sort"))
+	return draftFragmentBase(data) + "/available?" + values.Encode()
+}
+
 // prepareDraftData never writes back into its data parameter: every
 // derived field lands on viewData or output, two maps built fresh on each
 // call. A caller that hands the same map to two requests in a row (the
@@ -1140,8 +1186,16 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	// never a second, possibly-stale copy.
 	currentRound := intField(data, "round")
 	totalRounds := league.CurrentDraftRounds()
+	// ConfirmPickLabel (Wave D item 2, owner debrief 2026-09-06): the
+	// row-level confirm sheet names the player AND the pick ("round R,
+	// pick P"), pre-formatted here — this file's established rule is that
+	// a .gsx template never concatenates a Go int inline (see
+	// yourpick_bind_key's own doc comment above) — rather than built from
+	// three separate map lookups inside the template itself.
+	currentPickNumber := intField(data, "pick_number")
 	for i := range typedPlayers {
 		typedPlayers[i].SpecialistEarly = draftPlayerNeedsSpecialistWarning(typedPlayers[i].Position, currentRound, totalRounds)
+		typedPlayers[i].ConfirmPickLabel = fmt.Sprintf("Draft %s (%s · %s) at round %d, pick %d?", typedPlayers[i].Name, typedPlayers[i].Position, typedPlayers[i].NFLTeam, currentRound, currentPickNumber)
 	}
 	// J2 F34: "not in the room" reads the on-clock seat's own presence
 	// bucket off typedTeams (draftTeamMaps/draftTeamProps already compute
@@ -1223,6 +1277,20 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	viewData["pool_sort"] = activeSort
 	viewData["pool_position_chips"] = draftPositionChips(viewData)
 	viewData["pool_sort_options"] = draftSortOptions(viewData, activeSort)
+	// draft_available_region_url (Wave D, owner debrief 2026-09-06: "filtering
+	// via position ... was tough"): the pool region's own live-refetch URL
+	// used to read "pos={value}", a client-side shared signal
+	// ($draft.available.pos) that boots empty on every page load and every
+	// soft navigation. A poll tick or a "draft:pick" hub event firing before
+	// the visitor ever touched a chip refetched with an empty position —
+	// silently reverting an active RB/WR/etc filter to ALL while the chip
+	// still rendered "pressed". Baking pos/q/sort here, off the SAME
+	// viewData the position chips and the pool rows themselves already
+	// render from, makes the region URL agree with the page's own state on
+	// every refresh (poll, hub event, or the position chip's own now-plain
+	// navigation, draftPositionChips above) — the same pattern the sort
+	// toggle already used successfully (draftSortHref).
+	viewData["draft_available_region_url"] = draftAvailableRegionURL(viewData)
 	viewData["available_search_placeholder"] = fmt.Sprintf("Search %d available", intField(data, "available_count"))
 	viewData["workspace_fragment_url"] = draftWorkspaceFragmentURL(data)
 	// yourpick_bind_key (Task 8, target mode): the command bar's "your pick
@@ -1534,7 +1602,12 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", draftPickRefusalError(err))
 				}
-				return draftActionSuccess(ctx, draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), fmt.Sprintf("Pick %d: %s selects %s.", pick.Number, team.Name, player.Name))
+				// draftActionSuccessToRow (not draftActionSuccess): the
+				// "#draft-search" fragment must survive a managed
+				// request, or the same runtime that strips a generic
+				// section anchor there strips this stable focus target
+				// too. See its own doc comment.
+				return draftActionSuccessToRow(ctx, draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"], ctx.FormData["sort"])+"#draft-search", fmt.Sprintf("Pick %d: %s selects %s.", pick.Number, team.Name, player.Name))
 			},
 			// queue-add/queue-remove back the shell's own Big Board controls
 			// (the available pane's "+ Queue" button and the my-team pane's
@@ -1546,15 +1619,20 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				target := draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"])
-				return draftActionSuccess(ctx, target, fmt.Sprintf("%s added to your queue.", player.Name))
+				target := draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"], ctx.FormData["sort"])
+				// "your Big Board" (J1 F18, Wave D): the room used to name
+				// this one list three ways — "+ RANK" (the button),
+				// "queue" (this toast), "Big Board" (the panel and tab).
+				// /board's own BoardAdd action already answers "added to
+				// your board."; this matches it under the same name.
+				return draftActionSuccess(ctx, target, fmt.Sprintf("%s added to your Big Board.", player.Name))
 			},
 			"queue-remove": func(ctx *action.Context) error {
 				if err := league.Default().BoardRemove(ctx.Request, ctx.FormData["player_id"]); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				target := draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"])
-				return draftActionSuccess(ctx, target, "Removed from your queue.")
+				target := draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"], ctx.FormData["sort"])
+				return draftActionSuccess(ctx, target, "Removed from your Big Board.")
 			},
 			// queue-move is the no-JS fallback for the queue pane's up/down
 			// buttons (page.gsx's DraftMyTeam), routing through the same
@@ -1577,7 +1655,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				target := draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"])
+				target := draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"], ctx.FormData["sort"])
 				message := "No drafted players to clear."
 				if removed > 0 {
 					message = fmt.Sprintf("Cleared %d drafted %s from your Big Board.", removed, league.Plural(removed, "player"))
@@ -1588,8 +1666,8 @@ func init() {
 				if err := league.Default().BoardMove(ctx.Request, ctx.FormData["player_id"], ctx.FormData["direction"]); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				target := draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"])
-				return draftActionSuccess(ctx, target, "Queue order updated.")
+				target := draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"], ctx.FormData["sort"])
+				return draftActionSuccess(ctx, target, "Big Board order updated.")
 			},
 			"toggle-autopick": func(ctx *action.Context) error {
 				on, teamName, err := league.Default().ToggleAutopick(ctx.Request, ctx.FormData["team_id"])

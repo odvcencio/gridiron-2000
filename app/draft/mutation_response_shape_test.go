@@ -26,7 +26,7 @@ import (
 // answering a plain, non-redirecting 200, the same board-move/board-move-to
 // split /board already relies on.
 func TestDraftActionSuccessAlwaysRedirects(t *testing.T) {
-	target := draftRedirectTarget("RB", "chubb", "2")
+	target := draftRedirectTarget("RB", "chubb", "2", "house")
 	for _, tt := range []struct {
 		name   string
 		accept string
