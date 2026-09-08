@@ -30,7 +30,11 @@ func TestPickemSetActionAlwaysRedirectsOnSuccess(t *testing.T) {
 	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
 	t.Setenv("DEMO_MODE", "true")
 	t.Setenv("GOOGLE_CLIENT_ID", "")
-	target := "/pickem?week=4"
+	// J3 F8: the redirect now names the picked game's own row (game-1
+	// here) so a managed pick lands back on the game it just answered,
+	// not the top of the page — native and managed alike now carry that
+	// fragment (RedirectWithNoticeToRow keeps it for both).
+	target := "/pickem?week=4#game-game-1"
 	for _, tt := range []struct {
 		name   string
 		accept string

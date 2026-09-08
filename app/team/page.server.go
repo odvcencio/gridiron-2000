@@ -334,16 +334,23 @@ func prepareTeamData(data map[string]any, request *http.Request) map[string]any 
 	return data
 }
 
-// teamLineupTarget's fragment (section-B item 5, the page-server half of
-// J3 F8) names the one slot a lineup-set submission changed — "slot" is
-// present on every lineup-set form (the starter row's own Swap
-// disclosure and the bench row's Start/Swap-with forms, page.gsx) — so a
-// native (no-JavaScript) redirect lands back on id="slot-<ID>" instead of
-// resetting to the top of the lineup list. lineup-auto and the reserve/IR
-// zone actions never carry a slot field and keep the plain #lineup
-// anchor. Whether GoSX's OWN managed-request runtime also scrolls a JSON
-// redirect to an arbitrary fragment (rather than only re-rendering the
-// document) is tamarack's own J3 F8 item; this is the server's half.
+// teamLineupRowFragment names one lineup slot's own row id (J3 F8):
+// page.gsx sets id={"slot-" + slot.slot_id} on every .lineup-slot row, so
+// this is the one place that spelling is assembled — lineupMutationSuccess
+// keeps it for a managed request (RedirectWithNoticeToRow) instead of the
+// plain "#lineup" section anchor RedirectWithNotice strips.
+func teamLineupRowFragment(slotID string) string {
+	return "#slot-" + url.PathEscape(slotID)
+}
+
+// teamBenchRowFragment is teamLineupRowFragment's own bench-row spelling
+// (section-B item 4): page.gsx sets id={"bench-" + player_id} on every
+// bench row, so a Start or Swap-with save lands back on that same row
+// instead of resetting to the top of the bench.
+func teamBenchRowFragment(playerID string) string {
+	return "#bench-" + url.PathEscape(playerID)
+}
+
 func teamLineupTarget(ctx *action.Context) string {
 	week := ""
 	target := ""
@@ -354,9 +361,14 @@ func teamLineupTarget(ctx *action.Context) string {
 		slot = strings.TrimSpace(ctx.FormData["slot"])
 	}
 	week = strconv.Itoa(league.Default().NormalizeLineupWeek(week))
+	// J3 F8: a lineup-set names the one slot it changed (slot, above); a
+	// save with no named slot (SET BEST LINEUP, which can move several
+	// slots at once with no single row to land on, or a validation
+	// failure with nothing yet to land on) keeps the plain "#lineup"
+	// section anchor.
 	fragment := "#lineup"
 	if slot != "" {
-		fragment = "#slot-" + slot
+		fragment = teamLineupRowFragment(slot)
 	}
 	if ctx != nil && league.Default().LineupTargetAllowed(ctx.Request, target) {
 		return "/team?team=" + url.QueryEscape(target) + "&week=" + week + fragment
@@ -365,12 +377,23 @@ func teamLineupTarget(ctx *action.Context) string {
 }
 
 // teamBenchTarget is teamLineupTarget's own week/team resolution, anchored
-// to #bench instead: section-B item 4 says Drop "returns to /team#bench",
-// and a drop has no single starting slot to land back on.
+// to the bench row a Start/Swap-with/Drop action changed (player_id, when
+// present) instead of the starter-slot fragment above — section-B item 4
+// says Drop "returns to /team#bench," and Start/Swap-with should return to
+// that same bench row, not reset to the top of the bench list.
 func teamBenchTarget(ctx *action.Context) string {
+	playerID := ""
+	if ctx != nil {
+		playerID = strings.TrimSpace(ctx.FormData["player_id"])
+	}
 	target := teamLineupTarget(ctx)
-	if idx := strings.LastIndex(target, "#"); idx >= 0 {
-		target = target[:idx]
+	idx := strings.LastIndex(target, "#")
+	if idx < 0 {
+		idx = len(target)
+	}
+	target = target[:idx]
+	if playerID != "" {
+		return target + teamBenchRowFragment(playerID)
 	}
 	return target + "#bench"
 }
@@ -404,14 +427,33 @@ func lineupValidation(ctx *action.Context, field string, err error) error {
 // one 303-with-redirect shape matches the already-working team-rename and
 // notification-set actions and lets the browser's native fetch-and-swap
 // pick up the authoritative fragment.
+//
+// J3 F8: lineup-set names the slot it changed (ctx.FormData["slot"]), so
+// teamLineupTarget's own target carries that row's specific fragment
+// ("#slot-RB1") rather than the plain "#lineup" section anchor. A
+// managed request keeps that fragment too (RedirectWithNoticeToRow) —
+// unlike RedirectWithNotice's own generic-anchor case, landing on the
+// exact row a save just changed is the wanted behavior here, so a
+// manager scrolled far down a long roster is never thrown back to the
+// top. SET BEST LINEUP (lineup-auto) names no single slot, so it keeps
+// the previous RedirectWithNotice/"#lineup" behavior unchanged.
 func lineupMutationSuccess(ctx *action.Context, message string) error {
-	actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
+	target := teamLineupTarget(ctx)
+	if ctx != nil && strings.TrimSpace(ctx.FormData["slot"]) != "" {
+		actionui.RedirectWithNoticeToRow(ctx, target, message)
+		return nil
+	}
+	actionui.RedirectWithNotice(ctx, target, message)
 	return nil
 }
 
 // benchValidation/benchMutationSuccess are lineupValidation/
-// lineupMutationSuccess's own shape, anchored to #bench (teamBenchTarget)
-// instead of #lineup — section-B item 4's Drop action.
+// lineupMutationSuccess's own shape, anchored to the bench row a Drop
+// action changed (teamBenchTarget's own "#bench-<player_id>" fragment,
+// falling back to the plain "#bench" section anchor) instead of
+// "#lineup" — section-B item 4. A managed request keeps that same row
+// fragment (RedirectWithNoticeToRow), the identical J3 F8 behavior
+// lineupMutationSuccess already gives a slot-named lineup-set.
 func benchValidation(ctx *action.Context, field string, err error) error {
 	message := actionui.Message("team", err)
 	result := action.Validation(message, map[string]string{field: message}, ctx.FormData)
@@ -422,7 +464,12 @@ func benchValidation(ctx *action.Context, field string, err error) error {
 }
 
 func benchMutationSuccess(ctx *action.Context, message string) error {
-	actionui.RedirectWithNotice(ctx, teamBenchTarget(ctx), message)
+	target := teamBenchTarget(ctx)
+	if ctx != nil && strings.TrimSpace(ctx.FormData["player_id"]) != "" {
+		actionui.RedirectWithNoticeToRow(ctx, target, message)
+		return nil
+	}
+	actionui.RedirectWithNotice(ctx, target, message)
 	return nil
 }
 

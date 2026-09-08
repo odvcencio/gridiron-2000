@@ -93,7 +93,7 @@ type PickemRowProps struct {
 }
 
 func PickemRow(props PickemRowProps) Node {
-	return <article class="pickem-row" data-game-id={props.Game.ID} data-picked={props.Game.Picked}>
+	return <article class="pickem-row" id={"game-" + props.Game.ID} data-game-id={props.Game.ID} data-picked={props.Game.Picked}>
 		<small class="mono">{props.Game.KickoffDisplay}</small>
 		<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Game.Label} />
 		<div class="pickem-market" data-state={props.Game.SpreadState}>

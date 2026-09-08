@@ -45,6 +45,31 @@ func RedirectWithNotice(ctx *action.Context, target, message string) {
 	ctx.RedirectWithMessage(target, message)
 }
 
+// RedirectWithNoticeToRow is RedirectWithNotice without the fragment
+// strip (J3 F8): a managed lineup save or Pick'em pick must land on the
+// one specific row it just changed, not stay wherever the toast
+// happened to appear. RedirectWithNotice's own fragment strip exists for
+// a DIFFERENT case — a generic, page-section anchor ("#board-pool",
+// "#lineup") that added nothing on a managed save and actively
+// re-scrolled the page (see RedirectBackWithNotice's own doc comment for
+// that regression). A caller here names one still-present element id the
+// save actually changed (a lineup slot, a Pick'em game row); scrolling a
+// managed request there is the wanted behavior in that case, not the
+// disruptive top-of-section jump the wave-8 hotfix retired. Only pass a
+// target whose fragment is that specific row's id — never a section
+// anchor — or this reintroduces the exact regression RedirectWithNotice
+// exists to avoid.
+func RedirectWithNoticeToRow(ctx *action.Context, target, message string) {
+	if ctx == nil {
+		return
+	}
+	message = strings.TrimSpace(message)
+	if message != "" && !action.WantsJSON(ctx.Request) {
+		session.AddFlash(ctx.Request, "notice", message)
+	}
+	ctx.RedirectWithMessage(target, message)
+}
+
 // RedirectBackWithNotice preserves the existing native POST-redirect-GET
 // notice while returning the same message and submitted same-origin target to
 // GoSX-managed forms. When no valid target was submitted, fallback is used.

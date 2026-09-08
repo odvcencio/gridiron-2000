@@ -368,6 +368,61 @@ func starterGameKnownZeroSoFar(player Player, week int, snapshot matchupStatsSna
 	return false
 }
 
+// weeklyPlayerPointsText (J3 F12) is a starting slot's own PointsText
+// join/fallback rule (teamWeekLedgerFromSnapshot, below), generalized to
+// any player — not only one holding a starting slot this week. /team's
+// bench rows (and, ahead of F23's own PROJ/PTS columns landing on
+// starter rows, its starter rows too) used to format player.Points
+// directly: a field nothing in this codebase ever populates from a real
+// source, so it always read the false "0.0", scored week or not. This
+// renders the exact same "—" a starter's own row renders before the
+// weekly ledger has anything to say about that player, so the two
+// surfaces can never disagree about whether a week has posted.
+func weeklyPlayerPointsText(player Player, snapshot matchupStatsSnapshot, values map[string]float64, lineByKey map[string]WeekStatLine, now time.Time) string {
+	if snapshot.sourceErr != nil {
+		return "—"
+	}
+	if len(snapshot.lines) == 0 {
+		return "—"
+	}
+	if line, joined := lineByKey[normalizePlayerKey(player.Name, player.Position)]; joined {
+		return fmt.Sprintf("%.1f", scorePlayerStats(line.Stats, values))
+	}
+	if snapshot.hasLive && snapshot.live.Degraded {
+		return "—"
+	}
+	if starterGameNotStarted(player.NFLTeam, snapshot, now) {
+		return "—"
+	}
+	return "0.0"
+}
+
+// applyWeeklyPointsText overwrites each row's playerMap-sourced "points"
+// field (see weeklyPlayerPointsText's own doc comment) in place. rows is
+// starterRowMaps' or playerMapsWithScoring's own []map[string]any output
+// — every row carrying a player also carries "id" (playerMap's own key);
+// a row with no "id" (an empty starting slot) is left untouched. players
+// backs the id->Player lookup; passing a superset (the whole roster) is
+// fine, since only rows whose "id" actually matches are ever touched.
+func applyWeeklyPointsText(rows []map[string]any, players []Player, snapshot matchupStatsSnapshot, values map[string]float64, lineByKey map[string]WeekStatLine, now time.Time) {
+	if len(rows) == 0 || len(players) == 0 {
+		return
+	}
+	byID := make(map[string]Player, len(players))
+	for _, p := range players {
+		byID[p.ID] = p
+	}
+	for _, row := range rows {
+		id, _ := row["id"].(string)
+		if id == "" {
+			continue
+		}
+		if player, ok := byID[id]; ok {
+			row["points"] = weeklyPlayerPointsText(player, snapshot, values, lineByKey, now)
+		}
+	}
+}
+
 // teamWeekLedger is the canonical scoring/ledger calculation. It calls the
 // same scorePlayerPoints helper as MatchupScorer.TeamWeekScore, while adding
 // one row per configured slot and explicit source/join states for rendering.
@@ -468,34 +523,30 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 	}
 }
 
-// teamStartersProjected is the ONE starters-only projected-total
-// calculation the /team stat strip, /team's own current-matchup card, and
-// /matchups all call (section-B item 2 / section-C item 8): the same
-// rest-of-game math featuredMatchupMap already runs for the featured
-// scorebug (teamWeekLedger's starter rows, through projectedTotal), never
-// a separate sum over the whole roster (which is what let the stat strip
-// read PROJECTED 188.0 for a team /matchups projected at 134.6 — bench,
-// reserve, and IR players were being added in). hasProjection follows
-// hasProjectableStarters: a side with at least one filled starting slot
-// has something to project, independent of whether the current score is
-// known yet.
-func (s *Service) teamStartersProjected(state PersistedState, teamID string, week int) (projected float64, hasProjection bool) {
-	ledger := s.teamWeekLedger(state, teamID, week)
-	pool := s.pool()
-	status, hasLive := s.liveStatus()
-	projections := starterProjections(ledger.Rows, pool.byID)
-	return projectedTotal(ledger.Rows, projections, status, hasLive), hasProjectableStarters(ledger.Rows)
+// lineupHasProjectableStarter reports whether lineup carries at least one
+// filled starting slot — the minimum TeamStartersProjectedTotal needs to
+// mean anything (mirrors hasProjectableStarters' own gate for a
+// []StarterLedgerRow, just against an EffectiveLineup instead).
+func lineupHasProjectableStarter(lineup EffectiveLineup) bool {
+	for _, slot := range lineup.Slots {
+		if slot.HasPlayer {
+			return true
+		}
+	}
+	return false
 }
 
 // teamCurrentMatchupCard is /team's own scorebug summary (section-B item
 // 1), replacing the lone "View matchup" button: opponent identity, both
-// sides' starters-only projected total (teamStartersProjected, the same
-// helper the stat strip and /matchups use), A6's win probability, and the
-// week's next player lock — reusing deadline, the exact same
-// LineupDeadlineView the stat strip's own "Locks ..." line renders, so the
-// two facts never drift. A week with no published schedule, a bye, or an
-// unpaired team returns has_matchup=false with a plain-language
-// schedule_fact instead of a projection nobody can back yet.
+// sides' starters-only projected total (TeamStartersProjectedTotal, the
+// one canonical helper the stat strip, this card, and /matchups all
+// agree on for the same team and week — projection.go), A6's win
+// probability, and the week's next player lock — reusing deadline, the
+// exact same LineupDeadlineView the stat strip's own "Locks ..." line
+// renders, so the two facts never drift. A week with no published
+// schedule, a bye, or an unpaired team returns has_matchup=false with a
+// plain-language schedule_fact instead of a projection nobody can back
+// yet.
 func (s *Service) teamCurrentMatchupCard(state PersistedState, teamID string, week int, deadline LineupDeadlineView) map[string]any {
 	out := map[string]any{
 		"has_matchup":      false,
@@ -535,8 +586,12 @@ func (s *Service) teamCurrentMatchupCard(state PersistedState, teamID string, we
 			continue
 		}
 		opponent := s.teamView(state, opponentID)
-		mineProjected, mineHasProjection := s.teamStartersProjected(state, teamID, week)
-		theirsProjected, theirsHasProjection := s.teamStartersProjected(state, opponentID, week)
+		mineLineup, _ := s.matchupLineup(state, teamID, week)
+		theirsLineup, _ := s.matchupLineup(state, opponentID, week)
+		mineProjected := TeamStartersProjectedTotal(mineLineup)
+		theirsProjected := TeamStartersProjectedTotal(theirsLineup)
+		mineHasProjection := lineupHasProjectableStarter(mineLineup)
+		theirsHasProjection := lineupHasProjectableStarter(theirsLineup)
 		out["has_matchup"] = true
 		out["opponent"] = s.teamMap(opponent)
 		out["proj_mine"] = projectedText(mineProjected, mineHasProjection)

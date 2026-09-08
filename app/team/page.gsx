@@ -165,7 +165,7 @@ component BadgeCell(props: BadgeCellProps) {
 }
 
 func RosterRow(props RosterRowProps) Node {
-	return <div class="roster-row">
+	return <div class="roster-row" id={"bench-" + props.ID}>
 		<If cond={props.HasGroupHeader}>
 			<h4 class="roster-group-header mono">{props.GroupHeader}</h4>
 		</If>
@@ -351,12 +351,10 @@ func Page() Node {
 		<If cond={data.has_seat}>
 		<div class="notice-stack">
 			<If cond={data.has_notice}>
-				{/* TODO(tamarack, J3 F4): a lineup save that moves more than
-				    one player still reports only the changed slot's own
-				    sentence here (league.SetLineup's return message) — not
-				    yet the full "X starts at Y. Z moves to the bench."
-				    list a displacement makes. Rendering whatever the save
-				    action returns until that lands. */}
+				{/* J3 F4: league.SetLineup now reports every cascading change
+				    as its own sentence ("X starts at Y. Z moves to the
+				    bench."), so this one flash line already carries the full
+				    result — no separate per-move list needed here. */}
 				<p class="flash-message" id="lineup-save-result">{data.notice}</p>
 			</If>
 			<If cond={data.has_avatar_error}>
@@ -1045,14 +1043,9 @@ func TeamLineupRegion() Node {
 													<input type="hidden" name="team_id" value={data.team.id}></input>
 													<input type="hidden" name="week" value={data.week}></input>
 													<input type="hidden" name="slot" value={slot.slot_id}></input>
-													{/* TODO(tamarack, J3 F29): slot.options today omits a locked
-													    teammate outright (lineupSlotOptions, internal/league/
-													    lineup.go) rather than listing them disabled with "—
-													    locked, game started". Rendering whatever the data gives
-													    us until that lands. */}
 													<select name="player_id" aria-label={"Assign a player to " + slot.slot_id}>
 														<Each of={slot.options} as="opt">
-															<option value={opt.id} selected={opt.selected}>{opt.label}</option>
+															<option value={opt.id} selected={opt.selected} disabled={opt.disabled}>{opt.label}</option>
 														</Each>
 													</select>
 													<button class="board-button" type="submit">Set</button>
@@ -1080,6 +1073,7 @@ func TeamLineupRegion() Node {
 								<span>PROJ</span>
 								<span>PTS</span>
 							</div>
+							<p class="mono muted">{data.points_source_line} · {data.points_updated_at}</p>
 							<div class="roster-list">
 								<Each of={data.bench} as="player">
 									<RosterRow {...player}></RosterRow>

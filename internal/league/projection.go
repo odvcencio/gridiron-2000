@@ -191,6 +191,31 @@ func stillToPlay(rows []StarterLedgerRow, status LiveStatus) int {
 	return count
 }
 
+// TeamStartersProjectedTotal (2026-09-07 truth pass, item 8) is the one
+// canonical "projected total, starters only" figure a team's stat strip
+// (service.go's teamData), its own matchup-preview card, and /matchups'
+// featured card (featuredMatchupMap, via projectedTotal below) must all
+// agree on for the same team and week — before this helper existed, the
+// stat strip summed the WHOLE roster (bench included) and so read a
+// bigger, wrong number than the matchup card for the same lineup.
+//
+// It sums each filled starting slot's own weekly projection; an empty
+// slot contributes nothing. Before kickoff this is mathematically
+// identical to projectedTotal's own starters-only sum: remainingFraction
+// always returns 1 when no live status is known, and no starter has
+// scored yet, so projectedTotal reduces to the same plain sum this
+// function computes directly. TestTeamProjectedTotalHelpersAgreePreKickoff
+// pins that equivalence so the two call sites can never drift back apart.
+func TeamStartersProjectedTotal(lineup EffectiveLineup) float64 {
+	total := 0.0
+	for _, slot := range lineup.Slots {
+		if slot.HasPlayer {
+			total += slot.Player.Projection
+		}
+	}
+	return total
+}
+
 // starterProjections reads each row's player's weekly Tank01 projection
 // from byID, keyed by PlayerID exactly as projectedTotal expects. byID is
 // the caller's own single s.pool().byID read for the whole render — a
@@ -212,4 +237,48 @@ func starterProjections(rows []StarterLedgerRow, byID map[string]Player) map[str
 		}
 	}
 	return out
+}
+
+// starterProjectedTotal is one starter row's own rest-of-game projected
+// points — the identical per-row term projectedTotal (above) sums across
+// a whole side, isolated here so the slot table's own PROJ column (A2,
+// matchup redesign 2026-09-07) sums to exactly the same total the header
+// card already shows for that side. byID is the caller's single
+// s.pool().byID read for the whole render (the same map starterProjections
+// reads), so this never needs its own intermediate projections map. An
+// empty slot (no PlayerID) always projects 0.0 — the same honest zero
+// projectedTotal already gives it.
+func starterProjectedTotal(row StarterLedgerRow, byID map[string]Player, status LiveStatus, hasLive bool) float64 {
+	if row.PlayerID == "" {
+		return 0
+	}
+	game, ok := status.Games[row.NFLTeam]
+	return row.Points + byID[row.PlayerID].Projection*remainingFraction(game, hasLive && ok)
+}
+
+// starterProjectedText renders starterProjectedTotal for the slot table's
+// PROJ cell: always a plain number, never the winProbabilityDashText dash
+// a team-level total falls back to for a side with no projectable
+// starters at all — one starter row's own honest projection is 0.0, not
+// unknown, even for an empty slot.
+func starterProjectedText(row StarterLedgerRow, byID map[string]Player, status LiveStatus, hasLive bool) string {
+	return fmt.Sprintf("%.1f", starterProjectedTotal(row, byID, status, hasLive))
+}
+
+// stillToPlaySentence renders A6's still-to-play line in plain words (A1,
+// matchup redesign 2026-09-07), retiring the fixed "N of M starters still
+// to play" jargon for a sentence that reads naturally at both ends of the
+// range: every starter yet to play, every starter already played, or the
+// honest count in between. total 0 (no configured starters at all) reads
+// the same as "every starter has played" — there is nothing left to wait
+// for either way.
+func stillToPlaySentence(stillToPlay, total int) string {
+	switch {
+	case stillToPlay <= 0:
+		return "Every starter has played"
+	case stillToPlay >= total:
+		return fmt.Sprintf("All %d starters yet to play", total)
+	default:
+		return fmt.Sprintf("%d of %d starters still to play", stillToPlay, total)
+	}
 }

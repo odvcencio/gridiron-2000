@@ -6,7 +6,35 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- The team page shows a current-matchup card at the top: the opponent, the projected score, the win chance, and the first kickoff, with a link to the full matchup. It replaces the plain "View matchup" button.
+- The team page's lock panel now sits inside the stat strip as a "Locks" line, with the exact time, the time zone, and a Details line for the locked-slot count. The panel no longer sits above the lineup.
+- The starting lineup now shows a column header and a projected score and a live score on every row, next to a "Swap" control that opens in place instead of a form that is always open.
+- Bench rows now offer a "Start" button that fills the best open slot, a "Swap with…" choice when no slot is open, and a "Drop" button with a confirm step, matching the player pool's own drop control.
+- An injured player's status (Questionable, Doubtful, Out, IR) now shows on the row itself, with the source in a tip, instead of only inside the news panel.
+- The team hero shows one row of facts (name, division, record, badge) once the season has started; the co-manager line and the customize link show only before the season starts.
+- The draft-class callout on the team page disappears once the season has started.
+- The Signal Watch panel on the team page is closed by default; open it to see scouting notes.
+
+### Fixed
+- A drafted round and pick no longer show as a chip on every starting-lineup row; the detail moved into the row's own Details panel.
+
+## [release-2026.09.08-8b73e06-textflow] — 2026-09-07
+
+Scope: the text-flow adoption: names, sentences, notices, and headlines on every non-live surface render through GoSX's text-layout substrate instead of CSS truncation, so long team and player names wrap or clamp at a line boundary instead of clipping. No schema change.
+
+### Changed
 - Notice and banner text, draft-room static copy, the admin and commissioner consoles, settings, the signed-out entry pages, the help center, scoring, the wire, the locker room, pick'em, and preseason blitz now flow long names and sentences to a real line boundary instead of clipping mid-word: team, manager, and league names; the commissioner announcement; the pool-status and practice-strip banners; the pre-draft checklist and admin runbook; invite, announcement, seat-ledger, and draft-order rows; the reset-panel consequence sentences; category names and ON/OFF state lines; help topic cards, glossary entries, and migration rows; the scoring format summary and section ledes; wire signal headlines and source names; locker post bodies and author names; pick'em game-row labels; and blitz entry and champion names. Toast notifications now wrap to two lines instead of clipping.
+- /matchups shows projections first. Before kickoff, the featured card and every around-the-league card show one big PROJ number. During a game, the score shows big, with the projection small underneath. After the week, FINAL shows big. Every card also carries a win-probability meter and a plain sentence about starters still to play. The starter table now names each lineup slot and adds a PROJ column beside PTS, and ends in a totals row. A closed "Benches" disclosure lists both benches with their own projections. Each card names the manager's first name and record. The around-the-league layout no longer overlaps at 1280 pixels wide. On a phone, each slot shows as a two-column block, with the projection and points under each starter's name, instead of a squeezed row.
+
+### Fixed
+- The matchups page and the home page no longer say "Live scores on" when the live-scoring poller is off. They now read "Live scores off · weekly ledger only" and "Ledger posts after the games".
+- A week's matchup status now moves past "in progress" once its last kickoff is more than six hours old, even when no game ever posts a Final flag, and reads "Games are over · fantasy results await week close". The masthead date/slate phrase now names a broadcast slate only while a game is actually inside its window.
+- A lineup save now reports every slot it changed, not just the one the manager touched. Setting a player into a full slot names each starter the auto-fill cascade promoted or benched as a result.
+- The team page's week selector now keeps a played (closed) week as a read-only option instead of refusing it with a false "not on the published schedule" reason. Opening one shows the accurate "Week N is closed" notice and that week's own lineup.
+- A locked player now stays in a lineup slot's picker, disabled, with "locked, game started" instead of disappearing from the list with no explanation.
+- The team page's PROJECTED figure now sums starters only, the same total the matchup card shows, instead of the whole roster including the bench.
+- The team page's PTS column now reads "—" until the weekly ledger has posted, instead of a false "0.0", with the same "Weekly ledger (nflverse)" source line the matchups page uses.
+- Saving a lineup slot or making a Pick'em pick now returns to the row that changed, on both a plain form submit and a JavaScript-managed one, instead of resetting the page to the top.
 
 ## [release-2026.09.05-fee1a4c-practice] — 2026-09-04
 
