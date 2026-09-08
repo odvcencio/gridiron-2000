@@ -120,6 +120,19 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 	if info.GamesKnown && kickoffOK {
 		info.StatsFresh = !info.StatsUpdatedAt.IsZero() && !info.StatsUpdatedAt.Before(lastKickoff.Add(24*time.Hour))
 	}
+	// StaleFeedNotice (F21, J4 console gap-audit): Reason below explains
+	// whichever single fact is currently blocking a normal close — most
+	// often "waiting for N of M games to go final" — but when the games
+	// feed stalls, that fact and the stat ledger's own staleness share one
+	// root cause the reason text never named. If the ledger's last fetch
+	// predates this week's own last kickoff, the feed itself is behind,
+	// regardless of which fact Reason ends up reporting.
+	if info.GamesKnown && kickoffOK && !info.StatsUpdatedAt.IsZero() && info.StatsUpdatedAt.Before(lastKickoff) {
+		info.StaleFeedNotice = fmt.Sprintf(
+			"The stat feed's last fetch was %s, before this week's last kickoff. Force the close only if you accept scores computed from that stale feed.",
+			info.StatsUpdatedAt.In(s.matchupLocation()).Format("Jan 2, 3:04 PM MST"),
+		)
+	}
 	info.Ready = WeekCloseReady(games, week, info.StatsUpdatedAt, now)
 	switch {
 	case !info.GamesKnown:
@@ -421,6 +434,12 @@ type WeekCloseInfo struct {
 	StatsUpdatedAt time.Time
 	StatsFresh     bool
 	Reason         string
+	// StaleFeedNotice (F21, J4 console gap-audit): non-empty when the stat
+	// ledger's last fetch predates this week's own last kickoff — the
+	// commissioner-facing explanation Reason alone never gave for why
+	// games or stats read as not-final when the real cause is a feed that
+	// stopped refreshing days ago.
+	StaleFeedNotice string
 }
 
 // SetStatsUpdatedSource attaches the open-stats freshness seam used by the

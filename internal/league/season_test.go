@@ -284,6 +284,45 @@ func TestAdminWeekCloseInfoSeparatesReadinessFromOverride(t *testing.T) {
 	}
 }
 
+// TestAdminWeekCloseInfoNamesAStaleFeed pins F21 (J4 console gap-audit): a
+// week-close reason like "waiting for N of M games to go final" reads as
+// "the games have not been played yet". When the real cause is a stat
+// feed that stopped refreshing days before this week's own last kickoff,
+// StaleFeedNotice must name that fetch time (league-local) and what the
+// commissioner can do, regardless of which fact Reason itself reports.
+func TestAdminWeekCloseInfoNamesAStaleFeed(t *testing.T) {
+	svc := schedulerTestService(t)
+	schedule := svc.store.Snapshot().Schedule
+	week := schedule.Weeks[0].Week
+	kickoff := time.Date(2026, 9, 10, 20, 20, 0, 0, time.UTC)
+	staleFetch := time.Date(2026, 9, 4, 9, 15, 0, 0, time.UTC) // days before kickoff
+	now := kickoff.Add(6 * 24 * time.Hour)
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: week, Kickoff: kickoff, Final: false}}
+	})
+	svc.SetStatsUpdatedSource(func() time.Time { return staleFetch })
+
+	info := svc.AdminWeekCloseInfo(week, now)
+	if info.StaleFeedNotice == "" {
+		t.Fatalf("StaleFeedNotice empty for a fetch %s before kickoff %s", staleFetch, kickoff)
+	}
+	if !strings.Contains(info.StaleFeedNotice, "Sep 4") {
+		t.Fatalf("StaleFeedNotice = %q, want the fetch time in league-local terms", info.StaleFeedNotice)
+	}
+	if !strings.Contains(info.StaleFeedNotice, "Force the close") {
+		t.Fatalf("StaleFeedNotice = %q, want to say what the commissioner can do", info.StaleFeedNotice)
+	}
+
+	// A fetch that lands AFTER the last kickoff carries no stale-feed
+	// notice — the feed is current even though the games have not yet
+	// gone final.
+	svc.SetStatsUpdatedSource(func() time.Time { return kickoff.Add(time.Hour) })
+	fresh := svc.AdminWeekCloseInfo(week, now)
+	if fresh.StaleFeedNotice != "" {
+		t.Fatalf("StaleFeedNotice = %q, want empty once the fetch is after kickoff", fresh.StaleFeedNotice)
+	}
+}
+
 func TestAdminWeekCloseInfoFailsClosedWhenKickoffTimingIsUnavailable(t *testing.T) {
 	svc := schedulerTestService(t)
 	schedule := svc.store.Snapshot().Schedule
