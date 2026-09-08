@@ -5,6 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+No changes yet.
+
+## [release-2026.09.08-88f7149-season2] — 2026-09-07
+
+Scope: the second in-season batch: the team page's lineup grid (SLOT, PLAYER, OPPONENT, GAME, STATUS, PROJ, PTS, ACTION) with injuries on the row, a closed Swap disclosure, Start and Drop on bench rows, a current-matchup card, a truthful starters-only projection, and a shorter page; the console re-prioritised for the season with truthful week and forced-close copy, seat-release consequences, and a danger style on the one live control; open trade offers read as open; post-draft polish on the results page, the player pool (free agents by default), the Big Board, the login and help pages, the phone menu, the locker composer, and the footer. No schema change.
+
 ### Changed
 - The team page shows a current-matchup card at the top: the opponent, the projected score, the win chance, and the first kickoff, with a link to the full matchup. It replaces the plain "View matchup" button.
 - The team page's lock panel now sits inside the stat strip as a "Locks" line, with the exact time, the time zone, and a Details line for the locked-slot count. The panel no longer sits above the lineup.
@@ -23,7 +29,6 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A drafted round and pick no longer show as a chip on every starting-lineup row; the detail moved into the row's own Details panel.
 - A closed Swap, Drop, roster-shape, or draft-class disclosure no longer showed its full form or list underneath its own summary line. An older rule on one of its child elements set a fixed display value that beat the browser's own closed-panel hiding; every closed panel now hides its content the way a closed panel should.
 - The team page's "Locks" tile no longer shows "PLAYER LOCK TIMING UNAVAILABLE" at the same large size as a short number, wrapping across five lines. That message now reads at a smaller size, on one or two lines.
-### Fixed
 - The commissioner console's top line now states the week's true progress in plain words (for example "Week 1 in progress") instead of gluing the season phase and draft status into one raw line that read as "the season is over" during week 1. The draft deadline line shows only while a draft is still pending.
 - Once the draft is complete, the console leads with the week's own open work — open waiver claims, trades in review, and seat readiness — and moves the draft-night seat and board details into a closed "Draft night (complete)" section.
 - A forced week close now states what it actually closed with, for example "Week 1 closed with 0 of 16 games scored — 88 stat joins missed", instead of a bare success message. The results page shows a CLOSED EARLY warning when a week closed before its games finished. The force-close control now warns of the consequence before the click and uses the same destructive styling as other irreversible controls, instead of looking the same as its disabled neighbors.
