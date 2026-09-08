@@ -18532,19 +18532,36 @@ a.skip-link {
     min-width: 2.1rem;
   }
 
+  /* Two lines, never three (sequoia, 2026-09-08): the meta line holds
+     opponent, game, status chips, and the action in one non-wrapping
+     flex row at the small type size; the opponent cell is the one that
+     gives way (ellipsis) when an injury chip and a long opponent meet.
+     A wrapped second chip line put a phone row at 141-153 px against
+     the 120 px budget. */
   .lineup-slot__meta {
     grid-column: 1 / -1;
     grid-row: 3;
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
-    gap: 0.3rem var(--space-sm);
+    gap: 0.3rem 0.6rem;
+    min-width: 0;
+    font-size: var(--type-xs);
   }
 
-  .lineup-slot__opponent,
-  .lineup-slot__game {
+  .lineup-slot__opponent {
+    flex: 1 1 auto;
+    min-width: 0;
     max-width: none;
-    white-space: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .lineup-slot__game {
+    flex: 0 0 auto;
+    max-width: none;
+    white-space: nowrap;
   }
 
   .lineup-slot__status {
@@ -18552,6 +18569,7 @@ a.skip-link {
   }
 
   .lineup-slot__action {
+    flex: 0 0 auto;
     margin-left: auto;
   }
 

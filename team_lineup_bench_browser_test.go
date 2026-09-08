@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/chromedp/chromedp"
 )
@@ -71,7 +72,11 @@ func TestBrowserTeamLineupAndBenchFullRosterLayout(t *testing.T) {
 	}{
 		{"phone", 390, 844, 6, 14, true},
 		{"desktop-1280", 1280, 900, 0, 14, false},
-		{"desktop", 1440, 900, 3.5, 18, true},
+		// 3.6 screens, not 3.5 (sequoia, 2026-09-08): before week 1 kicks off
+		// the "Your draft class" callout still renders (it retires at the first
+		// kickoff), and the harness fixture is pre-kickoff. Measured 3223 px on
+		// integration with the callout, under 3150 px without it.
+		{"desktop", 1440, 900, 3.6, 18, true},
 	} {
 		t.Run(viewport.name, func(t *testing.T) {
 			ctx := newBrowserContext(t, chromePath(t))
@@ -79,6 +84,12 @@ func TestBrowserTeamLineupAndBenchFullRosterLayout(t *testing.T) {
 			if err := chromedp.Run(ctx, chromedp.WaitVisible(".lineup-slot-list", chromedp.ByQuery)); err != nil {
 				t.Fatalf("no lineup slot list at %s: %v", viewport.name, err)
 			}
+			// The rows carry clamped TextBlocks (names, detail lines). Measure
+			// only after the text-layout runtime has refined every one of
+			// them: before that an unclamped name can wrap to a second line
+			// and add one line-height to the row (measured under load:
+			// 153 px against the 120 px phone budget, then 116 px settled).
+			waitLineupTextLayoutSettled(t, ctx)
 
 			// Name column width (item 1): a real name up to minNameChars
 			// long must never clamp — assertNoStarterNameClamped reads
@@ -303,5 +314,34 @@ func assertRowHeightBudget(t *testing.T, ctx context.Context, label, selector st
 		if h > maxHeight {
 			t.Errorf("%s: %s row %d height %.0fpx exceeds the %.0fpx budget", label, selector, i, h, maxHeight)
 		}
+	}
+}
+
+// waitLineupTextLayoutSettled polls until no clamped text block inside a
+// lineup or bench row still reports data-gosx-text-layout-ready="false",
+// or five seconds pass. Rows are measured only after this returns.
+func waitLineupTextLayoutSettled(t *testing.T, ctx context.Context) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	// Two things move a row after first paint: the self-hosted web fonts
+	// (the fallback face is wider, so a name that fits in Plus Jakarta Sans
+	// wraps in Arial until the font arrives) and the text-layout runtime's
+	// clamp. Wait for both; under load the fonts alone can take seconds.
+	const pending = `(function(){
+		var blocks = document.querySelectorAll('.lineup-slot [data-gosx-text-layout][data-gosx-text-layout-max-lines][data-gosx-text-layout-ready="false"], .roster-row [data-gosx-text-layout][data-gosx-text-layout-max-lines][data-gosx-text-layout-ready="false"]').length;
+		var fonts = (document.fonts && document.fonts.status === 'loaded') ? 0 : 1;
+		return blocks + fonts;
+	})()`
+	for {
+		var n int
+		if err := chromedp.Run(ctx, chromedp.Evaluate(pending, &n)); err != nil {
+			t.Fatalf("count pending lineup text blocks: %v", err)
+		}
+		if n == 0 || time.Now().After(deadline) {
+			// One more frame so the runtime's post-font re-measure lands.
+			time.Sleep(150 * time.Millisecond)
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
