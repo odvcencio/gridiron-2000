@@ -373,16 +373,21 @@ func Page() Node {
 				    "Draft night (complete)" disclosure. */}
 				<If cond={data.draft.complete}>
 					<strong class="mono">Week {data.schedule.close.week}</strong>
-					<div class="draft-clock-meta">
-						<span>
+					{/* Coordinator follow-up: the shared .draft-clock-meta rule
+					    (public/styles.css) is a flex ROW everywhere else it is
+					    used, so three facts here squeezed into narrow columns
+					    inside the 330px card and wrapped four and five lines
+					    deep. admin-masthead-week-meta stacks this one instance
+					    into full-width rows instead, scoped so every other
+					    .draft-clock-meta caller (the pre-draft branch below
+					    included) keeps its own row layout. */}
+					<div class="draft-clock-meta admin-masthead-week-meta">
+						<TextBlock as="span" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
 							<If cond={data.schedule.close.ready}>Ready to close</If>
 							<If cond={data.schedule.close.ready == false}>{data.schedule.close.reason}</If>
-						</span>
+						</TextBlock>
 						<If cond={data.schedule.close.has_first_kickoff}>
-							<span class="mono">
-								First kickoff
-								{data.schedule.close.first_kickoff_display}
-							</span>
+							<span class="mono">First kickoff · {data.schedule.close.first_kickoff_display}</span>
 						</If>
 						<span class="mono">
 							{data.member_count}

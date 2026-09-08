@@ -19416,3 +19416,22 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
   padding-block: 0.45rem;
   margin-block: 0;
 }
+
+/* Coordinator follow-up on the league-status masthead (wave C,
+   2026-09-08): .draft-clock-meta's own shared base rule (public/
+   styles.css, ~4448) is a flex row everywhere it is used — pre-draft's
+   two facts (draft date, ready fraction) fit that shape, but the post-
+   draft week card's own three facts squeezed into narrow columns and
+   wrapped four and five lines deep inside the panel's 330px width.
+   Scoped to this one instance rather than the shared rule, so every
+   other .draft-clock-meta caller (including the pre-draft branch on
+   this same page) is untouched. */
+.admin-masthead-week-meta {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.admin-masthead-week-meta > * {
+  width: 100%;
+}
