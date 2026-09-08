@@ -33,8 +33,16 @@ func Page() Node {
 				<span>Drafted</span>
 				<strong class="mono">{data.long_date}</strong>
 				<div class="draft-clock-meta">
-					<If cond={data.published}>
+					<If cond={data.has_time}>
 						<span class="mono">{data.time} · {data.timezone}</span>
+					</If>
+					{/* comb — linden (2026-09-07), J1 F21: the scheduled
+					    meeting time survives as a clearly separate,
+					    non-authoritative second line only when it
+					    disagrees with the actual start above — never a
+					    silent contradiction of the permanent record. */}
+					<If cond={data.schedule_differs}>
+						<span class="mono muted">Scheduled for {data.scheduled_long_date} · {data.scheduled_time}</span>
 					</If>
 					<span class="mono">{data.rounds} rounds · {data.team_count} teams</span>
 					<a href={data.ledger_href}>Download the ledger (CSV) →</a>
@@ -48,6 +56,13 @@ func Page() Node {
 			</div>
 		</If>
 		<If cond={data.complete}>
+			{/* comb — linden (2026-09-07), J1 F20: the page a manager
+			    finishes the draft on used to end in dead space — no link
+			    to the lineup or the player pool the very next job needs. */}
+			<div class="results-next-steps hero-actions" aria-label="What to do next">
+				<a href="/team" data-gosx-link class="button button--primary">Set your Week 1 lineup →</a>
+				<a href="/players" data-gosx-link class="button button--ghost">Browse free agents →</a>
+			</div>
 			<If cond={data.team_not_found}>
 				<p class="error-message" role="status">No team is coded {data.team_not_found_code}. Showing your own team instead.</p>
 			</If>
@@ -57,6 +72,12 @@ func Page() Node {
 				<a class="segment__option" href={data.grid_href} data-gosx-link aria-current={data.show_grid}>Draft grid</a>
 			</nav>
 			<If cond={data.show_teams}>
+				{/* comb — linden (2026-09-07), J1 F22: the value column
+				    carried a bare signed number with no header and no
+				    key anywhere on the page — the legend below names
+				    what it means; the abbr on each row repeats that name
+				    where the question actually arises. */}
+				<p class="results-value-legend muted">Value = the pick versus its market rank (ADP). Positive is a bargain.</p>
 				<div class="results-teams" aria-label="Draft results by team">
 					<Each of={data.teams} as="team">
 						<article class="results-team-card" id={"team-" + team.id} data-mine={team.mine}>
@@ -79,7 +100,10 @@ func Page() Node {
 										<span class="results-pick__player">{pick.player_name}</span>
 										<span class={"pos pos-" + pick.position}>{pick.position}</span>
 										<small class="muted">{pick.nfl_team}</small>
-										<If cond={pick.has_value}><span class="mono results-pick__value">{pick.value_label}</span></If>
+										<If cond={pick.has_value}>
+											<abbr class="mono muted results-pick__value-label" title="Value versus ADP — positive is a bargain">VS ADP</abbr>
+											<span class="mono results-pick__value">{pick.value_label}</span>
+										</If>
 									</li>
 								</Each>
 								<If cond={team.pick_count == 0}>

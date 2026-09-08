@@ -485,17 +485,66 @@ func (s *Service) DraftResultsData(r *http.Request) map[string]any {
 		order = defaultTeamIDs()
 	}
 	summary := s.draftSummaryForState(s.clock(), state)
-	return map[string]any{
+	data := map[string]any{
 		"history":        history,
 		"viewer_team_id": viewerTeamID,
 		"complete":       history.Complete,
 		"rounds":         CurrentDraftRounds(),
 		"team_count":     len(order),
-		"long_date":      summary["long_date"],
-		"time":           summary["time"],
-		"timezone":       summary["timezone"],
 		"published":      summary["published"],
 	}
+	for key, value := range s.draftResultsDateFacts(state, summary) {
+		data[key] = value
+	}
+	return data
+}
+
+// draftResultsDateFacts is J1 F21's own fix (2026-09-04 audit): the
+// results page must date the draft by the instant it actually happened
+// (state.DraftStartedAt), never by the meeting the schedule promised —
+// draftSummaryForState's own "long_date"/"time" prefer DraftStartedAt
+// only while the schedule is UNpublished (a placeholder date), which left
+// a real, published schedule stating a false permanent-record date the
+// moment a commissioner started late or restarted on another night. Once
+// the draft has actually started, this always prefers the recorded
+// instant; the published schedule survives only as a second, clearly
+// separate "scheduled_*" fact when it lands on a different calendar day,
+// so a commissioner who starts on time never sees a redundant second row.
+func (s *Service) draftResultsDateFacts(state PersistedState, summary map[string]any) map[string]any {
+	facts := map[string]any{
+		"long_date":           stringAny(summary, "long_date"),
+		"time":                stringAny(summary, "time"),
+		"timezone":            stringAny(summary, "timezone"),
+		"has_time":            boolAny(summary, "published"),
+		"schedule_differs":    false,
+		"scheduled_long_date": "",
+		"scheduled_time":      "",
+	}
+	if state.DraftStartedAt.IsZero() {
+		return facts
+	}
+	// The draft has actually happened: a real time exists whether or not
+	// the SCHEDULE was ever published.
+	facts["has_time"] = true
+	location := s.draftTZ
+	if location == nil {
+		location, _ = time.LoadLocation(DefaultDraftTZ)
+	}
+	startedLocal := state.DraftStartedAt.In(location)
+	facts["long_date"] = startedLocal.Format("Monday, January 2, 2006")
+	facts["time"] = startedLocal.Format("3:04 PM MST")
+	scheduledAt := s.EffectiveDraftAt(state)
+	if !DraftDatePublished(s.clock(), scheduledAt) {
+		return facts
+	}
+	scheduledLocal := scheduledAt.In(location)
+	if scheduledLocal.Format("2006-01-02") == startedLocal.Format("2006-01-02") {
+		return facts
+	}
+	facts["schedule_differs"] = true
+	facts["scheduled_long_date"] = scheduledLocal.Format("Monday, January 2, 2006")
+	facts["scheduled_time"] = scheduledLocal.Format("3:04 PM MST")
+	return facts
 }
 
 // DraftLedger returns every pick in ascending order (DraftHistoryView.Picks,

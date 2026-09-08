@@ -224,26 +224,38 @@ func init() {
 				// (see service.go's leagueMapForViewer/Viewer callers);
 				// DraftResultsData alone omitted them, so a signed-in
 				// manager saw the anonymous shell here and nowhere else.
-				"viewer":      league.Default().Viewer(ctx.Request),
-				"league":      league.Default().LeagueIdentityForViewer(ctx.Request),
-				"complete":    boolField(raw, "complete"),
-				"long_date":   stringField(raw, "long_date"),
-				"time":        stringField(raw, "time"),
-				"timezone":    stringField(raw, "timezone"),
-				"published":   boolField(raw, "published"),
-				"rounds":      raw["rounds"],
-				"team_count":  raw["team_count"],
-				"view":        view,
-				"show_teams":  view == resultsViewTeams,
-				"show_rounds": view == resultsViewRounds,
-				"show_grid":   view == resultsViewGrid,
-				"teams_href":  resultsHref(resultsViewTeams, leadTeam),
-				"rounds_href": resultsHref(resultsViewRounds, leadTeam),
-				"grid_href":   resultsHref(resultsViewGrid, leadTeam),
-				"teams":       resultsTeamsView(history.Teams, leadID),
-				"team_rounds": resultsRoundsView(history.Picks),
-				"board":       resultsBoardView(history.Board),
-				"ledger_href": "/draft/ledger.csv",
+				"viewer":    league.Default().Viewer(ctx.Request),
+				"league":    league.Default().LeagueIdentityForViewer(ctx.Request),
+				"complete":  boolField(raw, "complete"),
+				"long_date": stringField(raw, "long_date"),
+				"time":      stringField(raw, "time"),
+				"timezone":  stringField(raw, "timezone"),
+				"published": boolField(raw, "published"),
+				// has_time/schedule_differs/scheduled_* (J1 F21, 2026-09-07):
+				// DraftResultsData's own draftResultsDateFacts prefers the
+				// draft's actual recorded start over the schedule once the
+				// room has opened; has_time gates the time row for a draft
+				// that has not started AND has no published schedule, and
+				// schedule_differs surfaces the schedule as a clearly
+				// separate second line only when it disagrees by calendar
+				// day with the actual start.
+				"has_time":            boolField(raw, "has_time"),
+				"schedule_differs":    boolField(raw, "schedule_differs"),
+				"scheduled_long_date": stringField(raw, "scheduled_long_date"),
+				"scheduled_time":      stringField(raw, "scheduled_time"),
+				"rounds":              raw["rounds"],
+				"team_count":          raw["team_count"],
+				"view":                view,
+				"show_teams":          view == resultsViewTeams,
+				"show_rounds":         view == resultsViewRounds,
+				"show_grid":           view == resultsViewGrid,
+				"teams_href":          resultsHref(resultsViewTeams, leadTeam),
+				"rounds_href":         resultsHref(resultsViewRounds, leadTeam),
+				"grid_href":           resultsHref(resultsViewGrid, leadTeam),
+				"teams":               resultsTeamsView(history.Teams, leadID),
+				"team_rounds":         resultsRoundsView(history.Picks),
+				"board":               resultsBoardView(history.Board),
+				"ledger_href":         "/draft/ledger.csv",
 				// team_not_found (item 8, 2026-09-02 audit): an unknown
 				// "?team=" code used to silently lead with the viewer's
 				// own team instead. Now the page says so, and still

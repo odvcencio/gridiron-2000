@@ -252,6 +252,58 @@ func TestDraftResultsDataCarriesHistoryAndHeaderFacts(t *testing.T) {
 	}
 }
 
+// TestDraftResultsDataDatesByActualStartNotSchedule is J1 F21 (2026-09-04
+// audit): /draft/results used to date the draft by the SCHEDULED meeting
+// time whenever that schedule was published, even after the room actually
+// opened at a different instant (a late start, or a restart on another
+// night) — the audit's own repro found the header stating "Sunday,
+// September 6" while every one of the 136 picks was recorded on "Sep 4".
+// DraftResultsData must prefer the recorded DraftStartedAt whenever the
+// draft has actually started, and, only when the published schedule
+// disagrees with it by calendar day, still carry the scheduled meeting as
+// a clearly separate, non-authoritative fact for the header's second row.
+func TestDraftResultsDataDatesByActualStartNotSchedule(t *testing.T) {
+	service, _, member := newEventTestService(t)
+	location, err := time.LoadLocation(DefaultDraftTZ)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fixed calendar instants (never time.Now()): the audit's own repro,
+	// a room that opened two days before the scheduled meeting time.
+	actualStart := time.Date(2026, 9, 4, 5, 28, 0, 0, time.UTC)
+	service.store.state.DraftStartedAt = actualStart
+	// A published, real schedule — never the far-future placeholder
+	// DraftDatePublished rejects.
+	service.draftAt = time.Date(2026, 9, 6, 16, 5, 0, 0, time.UTC)
+	makePicks(t, service, 1)
+	request := pickRequest(t, member.Email)
+
+	data := service.DraftResultsData(request)
+	wantLongDate := actualStart.In(location).Format("Monday, January 2, 2006")
+	if got := data["long_date"]; got != wantLongDate {
+		t.Errorf("long_date = %v, want %q (the actual start, not the schedule)", got, wantLongDate)
+	}
+	wantTime := actualStart.In(location).Format("3:04 PM MST")
+	if got := data["time"]; got != wantTime {
+		t.Errorf("time = %v, want %q (the actual start, not the schedule)", got, wantTime)
+	}
+	if got := data["schedule_differs"]; got != true {
+		t.Errorf("schedule_differs = %v, want true (schedule and actual start land on different calendar days)", got)
+	}
+	wantScheduledLongDate := service.draftAt.In(location).Format("Monday, January 2, 2006")
+	if got := data["scheduled_long_date"]; got != wantScheduledLongDate {
+		t.Errorf("scheduled_long_date = %v, want %q", got, wantScheduledLongDate)
+	}
+
+	// When the schedule and the actual start land on the same calendar
+	// day, the second row must not appear — there is nothing to reconcile.
+	service.draftAt = actualStart.Add(90 * time.Minute)
+	sameDayData := service.DraftResultsData(request)
+	if got := sameDayData["schedule_differs"]; got != false {
+		t.Errorf("schedule_differs = %v, want false when the schedule and the actual start share a calendar day", got)
+	}
+}
+
 func TestPickValueIsPickNumberMinusADP(t *testing.T) {
 	service, _, _ := newEventTestService(t)
 	state := service.store.Snapshot()
