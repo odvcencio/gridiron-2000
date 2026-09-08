@@ -185,6 +185,9 @@ func TestTeamDataOpensPlayedWeekReadOnlyWithItsStoredLineup(t *testing.T) {
 	if data["has_week_notice"] != true || !strings.Contains(notice, "closed") {
 		t.Fatalf("week_notice = %#v, want an accurate closed-week notice", data["week_notice"])
 	}
+	if data["lineup_week_read_only"] != true {
+		t.Fatalf("lineup_week_read_only = %#v, want true for a played week", data["lineup_week_read_only"])
+	}
 	starters, ok := data["starters"].([]map[string]any)
 	if !ok {
 		t.Fatalf("starters = %#v, want []map[string]any", data["starters"])

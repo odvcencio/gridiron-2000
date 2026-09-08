@@ -2609,6 +2609,14 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		"week_options":           weekOptions,
 		"week_notice":            weekSelection.Notice,
 		"has_week_notice":        weekSelection.Notice != "",
+		// lineup_week_read_only (J3 F22) is true once a played (closed)
+		// week is the one actually being viewed (teamWeekOptions'
+		// ReadOnly). Every one of that week's slots already resolves
+		// Locked, which already hides the SET form — this key is a
+		// direct, explicit signal for a page-level "reviewing a past
+		// week" treatment, so a caller never has to infer it from
+		// week < current or from every slot's own locked state.
+		"lineup_week_read_only": weekSelection.ReadOnly,
 		"lineup_deadline":        lineupDeadlineMap,
 		"starters":               starterRows,
 		"starters_filled":        strconv.Itoa(filled),
