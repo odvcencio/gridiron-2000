@@ -582,21 +582,26 @@ func TestPreDraftRosterPreviewOffersNextAction(t *testing.T) {
 }
 
 // TestLineupSlotPossessionChipRenderContract is GC-2b's own Team-view
-// render contract: the possession chip sits inside the starting-slot
-// chip row (lineup-slot__chips, beside auto/warning/lock), gated on the
-// server-computed has_possession bool — never rendered by default, and
-// never a placeholder for an unknown or not-relevant starter (the
-// truthful-state rule: league.starterPossessionLabel only ever returns a
-// positive, known label).
+// render contract: the possession chip sits inside the starting-slot's
+// STATUS cell (lineup-slot__status, beside auto/warning/lock/injury —
+// cherry re-audit follow-up renamed this cell from lineup-slot__chips),
+// gated on the server-computed has_possession bool — never rendered by
+// default, and never a placeholder for an unknown or not-relevant
+// starter (the truthful-state rule: league.starterPossessionLabel only
+// ever returns a positive, known label).
 func TestLineupSlotPossessionChipRenderContract(t *testing.T) {
 	pageBytes, err := os.ReadFile("page.gsx")
 	if err != nil {
 		t.Fatal(err)
 	}
 	page := string(pageBytes)
-	chipsStart := strings.Index(page, `class="lineup-slot__chips"`)
+	// LastIndex: RosterRow's own bench STATUS cell (declared earlier in
+	// the file) carries only LOCKED/injury, not the possession chip —
+	// this contract is about the STARTER slot's own STATUS cell
+	// (TeamLineupRegion, declared later).
+	chipsStart := strings.LastIndex(page, `class="lineup-slot__status"`)
 	if chipsStart < 0 {
-		t.Fatal("lineup-slot__chips block not found in page.gsx")
+		t.Fatal("lineup-slot__status block not found in page.gsx")
 	}
 	chipsEnd := strings.Index(page[chipsStart:], "</div>")
 	if chipsEnd < 0 {
@@ -711,11 +716,16 @@ func TestBenchRowRendersGroupHeaderDraftedChipAndScheduleLine(t *testing.T) {
 	for _, want := range []string{
 		`<If cond={props.HasGroupHeader}>`,
 		`<h4 class="roster-group-header mono">{props.GroupHeader}</h4>`,
+		// Cherry re-audit follow-up: the drafted round/pick and the
+		// kickoff/bye facts moved off the visible identity line — the
+		// drafted label into the row's own Details panel (matching the
+		// starter slot's own move), kickoff into its own dedicated GAME
+		// column, bye into Details — freeing the PLAYER column's own
+		// single "pos · team" meta line for the name itself.
 		`<If cond={props.HasDraftedLabel}>`,
-		`<span class="drafted-chip mono">{props.DraftedLabel}</span>`,
-		`<small class="roster-row__schedule mono">`,
-		`<If cond={props.HasKickoff}>`,
-		`{props.Kickoff}`,
+		`{"Drafted " + props.DraftedLabel}`,
+		`<small class="roster-row__schedule mono">{props.Position} · {props.NFLTeam}</small>`,
+		`<If cond={props.HasKickoff}>{props.Kickoff}</If>`,
 		`<If cond={props.HasBye}>`,
 		`{props.Bye}`,
 	} {
@@ -770,12 +780,13 @@ func TestBenchRowRendersNewsTipAndHouseRankChip(t *testing.T) {
 
 // TestStarterSlotRendersPositionChipDraftedChipAndScheduleLine covers
 // the same three items on a starting slot (TeamLineupRegion), the
-// separate render site from RosterRow: the position chip (item 8's
-// mobile card), the drafted round/pick (section-B item 3 — moved into
-// the row's own Details panel, "Drafted R6 · P70," rather than a
-// visible chip; the visible meta line no longer carries "R5 · P40"),
-// and the unconditional schedule line (item 4), gated on
-// has_kickoff_label/has_bye_label, not on lock.
+// separate render site from RosterRow: the position (cherry re-audit
+// follow-up: folded into the identity's own "pos · team" line instead
+// of a separate chip, freeing a column for OPPONENT/GAME/STATUS), the
+// drafted round/pick (section-B item 3 — moved into the row's own
+// Details panel, "Drafted R6 · P70," rather than a visible chip; the
+// visible meta line no longer carries "R5 · P40"), and the GAME/Details
+// facts (item 4's kickoff/bye, now in their own dedicated cells).
 func TestStarterSlotRendersPositionChipDraftedChipAndScheduleLine(t *testing.T) {
 	pageBytes, err := os.ReadFile("page.gsx")
 	if err != nil {
@@ -783,26 +794,17 @@ func TestStarterSlotRendersPositionChipDraftedChipAndScheduleLine(t *testing.T) 
 	}
 	page := string(pageBytes)
 	for _, want := range []string{
-		`<span class="position-chip lineup-slot__position">{slot.position}</span>`,
+		`<small class="roster-row__schedule mono">{slot.position} · {slot.nfl_team}</small>`,
 		`<If cond={slot.is_drafted}>`,
 		`{"Drafted " + slot.drafted_label}`,
-		`<small class="roster-row__schedule mono">`,
-		`<If cond={slot.has_kickoff_label}>`,
-		`{slot.kickoff_label}`,
+		`class="lineup-slot__game mono"`,
+		`<If cond={slot.has_kickoff_label}>{slot.kickoff_label}</If>`,
 		`<If cond={slot.has_bye_label}>`,
-		`{slot.bye_label}`,
+		`<p class="stat-tip__hist-note">{slot.bye_label}</p>`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("starter slot render missing %q", want)
 		}
-	}
-	// The schedule line must render unconditionally (not nested inside
-	// slot.locked) — the P0 invariant this item extends: auto-fill
-	// selection, and now render, never consult lock status.
-	scheduleAt := strings.Index(page, `<small class="roster-row__schedule mono">`)
-	lockAt := strings.Index(page, `<If cond={slot.locked}>`)
-	if scheduleAt < 0 || lockAt < 0 || scheduleAt > lockAt {
-		t.Fatal("the schedule line must render before the lock-gated chip block, not nested inside it")
 	}
 }
 
@@ -1215,33 +1217,29 @@ func TestLineupGridHeaderRendersEightColumnLegend(t *testing.T) {
 
 // TestStarterRowRendersProjAndPts covers the J3 F23 half of item 3: a
 // starting slot never showed PROJ or PTS at all before this wave — both
-// now render in the row's own stats-action cell, sharing .lineup-slot's
-// existing 4th column with the Swap disclosure rather than widening the
-// pinned grid.
+// now render in their own named columns, .lineup-slot__proj and
+// .lineup-slot__pts (cherry re-audit follow-up: an explicit 8-column
+// desktop grid replaced the shared stats-action wrapper these two used
+// to share with the Swap disclosure).
 func TestStarterRowRendersProjAndPts(t *testing.T) {
 	pageBytes, err := os.ReadFile("page.gsx")
 	if err != nil {
 		t.Fatal(err)
 	}
 	page := string(pageBytes)
-	statsActionAt := strings.Index(page, `<div class="lineup-slot__stats-action">`)
-	if statsActionAt < 0 {
-		t.Fatal("lineup-slot__stats-action cell not found")
-	}
-	closeAt := strings.Index(page[statsActionAt:], "\n\t\t\t\t\t\t\t\t\t</div>\n")
-	block := page[statsActionAt:]
-	if closeAt > 0 {
-		block = page[statsActionAt : statsActionAt+closeAt]
+	if !strings.Contains(page, `<div class="lineup-slot__stats">`) {
+		t.Fatal("lineup-slot__stats cell not found")
 	}
 	for _, want := range []string{
+		`class="lineup-slot__proj player-number mono"`,
 		`<small>PROJ</small>`,
 		`{slot.projection}`,
+		`class="lineup-slot__pts player-number mono"`,
 		`<small>PTS</small>`,
 		`{slot.points}`,
-		`<If cond={slot.has_player}>`,
 	} {
-		if !strings.Contains(block, want) {
-			t.Errorf("lineup-slot__stats-action missing %q: %s", want, block)
+		if !strings.Contains(page, want) {
+			t.Errorf("starter PROJ/PTS render missing %q", want)
 		}
 	}
 }
@@ -1283,14 +1281,14 @@ func TestBenchRowRendersStartSwapAndDropActions(t *testing.T) {
 	}
 	block := page[rosterRowAt:]
 	for _, want := range []string{
-		`<div class="roster-row__action">`,
+		`<div class="lineup-slot__action">`,
 		`<If cond={props.HasOpenSlot}>`,
 		`{"Start at " + props.OpenSlotID}`,
 		`<If cond={props.HasOpenSlot == false && props.HasSwapOptions}>`,
-		`<summary>Swap with…</summary>`,
+		`<summary aria-label={"Swap with… " + props.Name}>Swap</summary>`,
 		`action={actionPath("player-drop")}`,
 		`<details class="action-confirmation">`,
-		`{"Drop " + props.Name}`,
+		`<summary aria-label={"Drop " + props.Name}>Drop</summary>`,
 		`name="confirmation" value="drop-player" required="required"`,
 	} {
 		if !strings.Contains(block, want) {

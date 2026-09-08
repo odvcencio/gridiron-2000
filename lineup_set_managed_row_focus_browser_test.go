@@ -69,7 +69,15 @@ func TestBrowserLineupSetLandsOnChangedRowAt1440(t *testing.T) {
 	}
 
 	rowSelector := "#" + found.SlotID
+	// The Swap control now opens in place behind a closed-by-default
+	// <details class="action-disclosure"> (section-B item 1, cherry
+	// re-audit follow-up) instead of an always-visible form; its own
+	// select/button stay display:none until a manager opens the
+	// disclosure, so this must click the row's own Swap summary first
+	// or chromedp's SetValue/Click hang waiting on a hidden element.
 	if err := chromedp.Run(ctx,
+		chromedp.Click(rowSelector+" .lineup-slot__action .action-disclosure summary", chromedp.ByQuery),
+		chromedp.WaitVisible(rowSelector+" .lineup-slot__form select", chromedp.ByQuery),
 		chromedp.SetValue(rowSelector+" .lineup-slot__form select", found.OptionID, chromedp.ByQuery),
 		chromedp.Click(rowSelector+" .lineup-slot__form button.board-button", chromedp.ByQuery),
 	); err != nil {
