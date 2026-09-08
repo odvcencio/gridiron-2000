@@ -780,6 +780,65 @@ func TestSetLineupDisplacesPlayerFromPriorExplicitSlot(t *testing.T) {
 	}
 }
 
+// TestSetLineupReportsEveryCascadingChange pins J3 F4: one lineup-set
+// action can cascade through auto-fill into two more slots, and the
+// result message must name every one of them, not just the slot the
+// manager directly touched. Fixture: RB1 = Cam Skattebo, RB2 = a fixed
+// high-projection incumbent that never moves, FLEX = Jaylen Warren,
+// bench = Bucky Irving (the highest remaining RB projection). Setting
+// FLEX to Cam Skattebo vacates RB1; auto-fill promotes Bucky Irving into
+// it; Jaylen Warren, with nowhere else to start, lands on the bench —
+// and the write never touched RB1 or the bench directly.
+func TestSetLineupReportsEveryCascadingChange(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	games := []GameInfo{{ID: "g-pit", Week: 1, Kickoff: now.Add(time.Hour), Away: "PIT", Home: "NYJ"}}
+	svc.SetScheduleSource(func() []GameInfo { return games })
+	players := []Player{
+		{ID: "cam", Name: "Cam Skattebo", Position: "RB", NFLTeam: "PIT", Projection: 10},
+		{ID: "jaylen", Name: "Jaylen Warren", Position: "RB", NFLTeam: "PIT", Projection: 8},
+		{ID: "bucky", Name: "Bucky Irving", Position: "RB", NFLTeam: "PIT", Projection: 12},
+		{ID: "incumbent", Name: "RB2 Incumbent", Position: "RB", NFLTeam: "PIT", Projection: 20},
+	}
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return players, 1, "test" })
+	draftFixtureOntoTeam1(t, svc, now, []string{"cam", "jaylen", "bucky", "incumbent"})
+
+	if err := svc.store.SetLineupSlot("team-1", 1, "RB1", "cam", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetLineupSlot("team-1", 1, "RB2", "incumbent", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetLineupSlot("team-1", 1, "FLEX", "jaylen", now); err != nil {
+		t.Fatal(err)
+	}
+
+	request, _ := http.NewRequest(http.MethodPost, "/team", nil)
+	message, err := svc.SetLineup(request, "team-1", 1, "FLEX", "cam")
+	if err != nil {
+		t.Fatalf("SetLineup: %v", err)
+	}
+	want := "Cam Skattebo starts at FLEX. Bucky Irving moves into RB1. Jaylen Warren moves to the bench."
+	if message != want {
+		t.Fatalf("message = %q, want %q", message, want)
+	}
+
+	lineup := svc.effectiveLineupForTeam(svc.store.Snapshot(), "team-1", 1)
+	if rb1, ok := lineup.slotAssignment("RB1"); !ok || !rb1.HasPlayer || rb1.Player.ID != "bucky" {
+		t.Fatalf("RB1 = %+v, want bucky", rb1)
+	}
+	if rb2, ok := lineup.slotAssignment("RB2"); !ok || !rb2.HasPlayer || rb2.Player.ID != "incumbent" {
+		t.Fatalf("RB2 = %+v, want incumbent unchanged", rb2)
+	}
+	for _, p := range lineup.Bench {
+		if p.ID == "jaylen" {
+			return
+		}
+	}
+	t.Fatalf("bench = %+v, want jaylen", lineup.Bench)
+}
+
 // TestSetLineupRequiresSignIn pins L1: a non-demo request with no signed-in
 // identity is rejected with the exact existing message. This package
 // cannot forge a signed-in, non-commissioner identity (auth.Current's
