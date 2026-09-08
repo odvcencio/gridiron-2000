@@ -247,9 +247,11 @@ func init() {
 			data["co_manager_welcome_shown"] = comgrShown
 			data["co_manager_welcome_team_name"] = comgrTeamName
 			data["co_manager_welcome_primary_first_name"] = comgrPrimaryFirstName
-			data["arrival_strip_shown"] = arrivalStripShown(ctx, viewer, signedIn, hasSeat)
+			stripShown := arrivalStripShown(ctx, viewer, signedIn, hasSeat)
+			data["arrival_strip_shown"] = stripShown
 			if actionCenter, ok := data["action_center"].(map[string]any); ok {
 				card := dashboardActionCenter(actionCenter)
+				card.ArrivalStripShown = stripShown
 				isCommissioner, _ := viewer["is_commissioner"].(bool)
 				// A seatless commissioner is a first-class viewer, not a
 				// stalled applicant: internal/league/public_entry.go's
@@ -299,6 +301,12 @@ type ActionCenterCard struct {
 	Actions             []league.ActionCenterActionCard
 	HasCommissioner     bool
 	CommissionerActions []league.ActionCenterActionCard
+	// ArrivalStripShown (J5 F37, coordinator follow-up) travels through
+	// this same strict spread into ActionCenterPanelProps — see that
+	// field's own doc comment (page.gsx) for why the strip now renders
+	// inside ActionCenterPanel itself, between its header and its task
+	// list, instead of as Page()'s own sibling ahead of it.
+	ArrivalStripShown bool
 }
 
 func actionCenterActionCardFromMap(raw map[string]any) league.ActionCenterActionCard {

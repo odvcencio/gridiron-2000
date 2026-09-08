@@ -82,9 +82,14 @@ func TestLineupGridResidueDesktopCSS(t *testing.T) {
 		t.Fatal("styles.css is missing the J0 team-lineup residue after pine block")
 	}
 	block := css[start:]
-	mediaStart := strings.Index(block, "@media (width > 899px) {")
+	// Season3 integration note (public/styles.css, this same block):
+	// widened from "@media (width > 899px)" to "@media (width > 68.75rem)"
+	// so the rail-band range (900-1100px) keeps the two-line phone rows
+	// instead of a desktop grid-template-columns squeezing into a
+	// narrower column there.
+	mediaStart := strings.Index(block, "@media (width > 68.75rem) {")
 	if mediaStart < 0 {
-		t.Fatal("team-lineup residue block is missing its @media (width > 899px) override")
+		t.Fatal("team-lineup residue block is missing its @media (width > 68.75rem) override")
 	}
 	media := block[mediaStart:]
 	for _, want := range []string{
