@@ -150,12 +150,12 @@ func ActivityRegion() Node {
 					<If cond={move.ActorClass != ""}>
 						<p>
 							<span class="activity-actor-class mono activity-token-gap">{move.ActorClass}</span> ·
-							<strong class="activity-token-gap">{move.Team}</strong><span class="activity-verb"> {move.Action}</span>
+							<TextBlock as="strong" class="activity-token-gap" font="600 16px Plus Jakarta Sans" lineHeight={22} text={move.Team} /><span class="activity-verb"> {move.Action}</span>
 						</p>
 					</If>
 					<If cond={move.ActorClass == ""}>
 						<p>
-							<strong class="activity-token-gap">{move.Team}</strong><span class="activity-verb"> {move.Action} </span><b class="activity-token-gap">{move.Player}</b>
+							<TextBlock as="strong" class="activity-token-gap" font="600 16px Plus Jakarta Sans" lineHeight={22} text={move.Team} /><span class="activity-verb"> {move.Action} </span><TextBlock as="b" class="activity-token-gap" font="600 16px Plus Jakarta Sans" lineHeight={22} text={move.Player} />
 						</p>
 					</If>
 				</div>

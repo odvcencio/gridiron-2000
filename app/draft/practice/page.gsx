@@ -15,8 +15,10 @@ func Page() Node {
 					{data.league.name}
 				</span>
 				<h1>Practice draft</h1>
-				<p class="lede">See what a live draft looks like before {data.real_draft.day_name}.</p>
-				<p class="muted">You take picks on the clock in a copy of the draft room. The other seats are played by bots. Nothing you do here is saved.</p>
+				<TextBlock as="p" class="lede" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
+					See what a live draft looks like before {data.real_draft.day_name}.
+				</TextBlock>
+				<TextBlock as="p" class="muted" font="400 15px Plus Jakarta Sans" lineHeight={22} text="You take picks on the clock in a copy of the draft room. The other seats are played by bots. Nothing you do here is saved." />
 			</div>
 			<div class="draft-clock-panel">
 				<span>Real draft</span>
@@ -42,20 +44,22 @@ func Page() Node {
 			</div>
 		</header>
 		<div class="draft-notice" aria-live="polite">
-			<If cond={data.has_notice}><p class="flash-message">{data.notice}</p></If>
-			<If cond={data.has_error}><p class="error-message" role="alert">{data.error}</p></If>
+			<If cond={data.has_notice}><TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.notice} /></If>
+			<If cond={data.has_error}><TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" role="alert" text={data.error} /></If>
 		</div>
 		<If cond={data.practice.allowed == false}>
 			<section class="empty-tape" aria-labelledby="practice-unavailable-title">
 				<strong id="practice-unavailable-title">PRACTICE UNAVAILABLE</strong>
-				<p>{data.practice.reason}</p>
+				<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.practice.reason} />
 				<p><a href="/draft" data-gosx-link>Open the draft room →</a></p>
 			</section>
 		</If>
 		<If cond={data.practice.allowed}>
 			<section class="practice-start" aria-labelledby="practice-start-title">
 				<h2 id="practice-start-title">Choose where to start</h2>
-				<p class="muted">You sit in your real seat, <strong>{data.practice_team_name}</strong>, in the real draft order. Earlier rounds are filled in for you. The practice runs until the last pick of the sandbox draft, or until you leave.</p>
+				<TextBlock as="p" class="muted" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis">
+					You sit in your real seat, <strong>{data.practice_team_name}</strong>, in the real draft order. Earlier rounds are filled in for you. The practice runs until the last pick of the sandbox draft, or until you leave.
+				</TextBlock>
 				<form method="post" action={data.start_action} class="practice-start__form" data-gosx-managed="false">
 					<input type="hidden" name="csrf_token" value={data.csrf}></input>
 					<fieldset class="practice-start__options">
@@ -63,8 +67,11 @@ func Page() Node {
 						<Each of={data.practice.options} as="option">
 							<label class="practice-start__option">
 								<input type="radio" name="round" value={option.round} checked={option.round == 1}></input>
-								<span class="practice-start__label"><strong>{option.label}</strong> <small class="mono">ROUND {option.round}</small></span>
-								<small class="practice-start__detail">{option.detail}</small>
+								<span class="practice-start__label">
+									<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={option.label} />
+									<small class="mono">ROUND {option.round}</small>
+								</span>
+								<TextBlock as="small" class="practice-start__detail" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" text={option.detail} />
 							</label>
 						</Each>
 					</fieldset>

@@ -87,8 +87,12 @@ func TestPlayersPoolFragmentNewsIconOpensItsOwnPanelFixtureProcess(t *testing.T)
 	// the phone card past its own budget. Injury itself is not gone; the
 	// primary stat-tip panel check below confirms it still renders, one
 	// tap away, with no headline required.
-	if !strings.Contains(summary, "<small>CIN &middot; BYE 5</small>") &&
-		!strings.Contains(summary, "<small>CIN · BYE 5</small>") {
+	// The meta line now renders through TextBlock (text-flow wave,
+	// 2026-09-05), so the literal <small>CIN &middot; BYE 5</small> tag
+	// carries extra data-gosx-text-layout-* attributes; the source text
+	// TextBlock measures from is still the exact team+bye phrase.
+	if !strings.Contains(summary, "data-gosx-text-layout-source=\"CIN &middot; BYE 5\"") &&
+		!strings.Contains(summary, "data-gosx-text-layout-source=\"CIN · BYE 5\"") {
 		t.Fatalf("summary detail line missing or changed: %s", summary)
 	}
 	if strings.Contains(summary, "Questionable") {

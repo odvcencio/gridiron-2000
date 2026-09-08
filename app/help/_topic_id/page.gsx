@@ -6,8 +6,8 @@ func Page() Node {
 			<div>
 				<span class="signal-label"><span class="signal-mark" aria-hidden="true"></span>HELP TOPIC // {data.topic.category}</span>
 				<p class="page-kicker">/{data.topic.id} · corpus {data.corpus_version} · verified <span title={data.source_sha}>{data.source_sha_short}</span></p>
-				<h1>{data.topic.title}</h1>
-				<p class="guide-lede">{data.topic.summary}</p>
+				<TextBlock as="h1" font="400 24px Archivo Black" lineHeight={28} maxLines={2} overflow="ellipsis" text={data.topic.title} />
+				<TextBlock as="p" class="guide-lede" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.topic.summary} />
 				<nav class="guide-actions" aria-label="Topic actions">
 					<a href={data.topic.action_route} data-gosx-link class="button button--primary">Open owning action →</a>
 					<a href="/help" data-gosx-link class="button button--ghost">Back to help center</a>

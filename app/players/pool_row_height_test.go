@@ -65,8 +65,19 @@ func TestPoolRowDetailLineDropsInjuryFromTheVisibleSummaryFixtureProcess(t *test
 		t.Fatalf("row missing its <summary>: %s", row)
 	}
 	summary := row[summaryStart:summaryEnd]
-	if !strings.Contains(summary, "<small>SEA &middot; BYE 9</small>") && !strings.Contains(summary, "<small>SEA · BYE 9</small>") {
+	// The meta line now renders through TextBlock (text-flow wave,
+	// 2026-09-05), so the literal <small>SEA &middot; BYE 9</small> tag
+	// carries extra data-gosx-text-layout-* attributes; the source text
+	// TextBlock measures from is still the exact team+bye phrase, so
+	// this checks that instead of the bare tag shape.
+	if !strings.Contains(summary, `<small data-gosx-text-layout`) {
+		t.Errorf("summary meta line no longer renders through TextBlock: %s", summary)
+	}
+	if !strings.Contains(summary, "data-gosx-text-layout-source=\"SEA &middot; BYE 9\"") && !strings.Contains(summary, "data-gosx-text-layout-source=\"SEA · BYE 9\"") {
 		t.Errorf("summary meta line missing or changed (want team + bye only): %s", summary)
+	}
+	if !strings.Contains(summary, `data-gosx-text-layout-max-lines="1"`) {
+		t.Errorf("summary meta line lost its one-line row clamp: %s", summary)
 	}
 	if strings.Contains(summary, "Questionable") {
 		t.Errorf("summary must not carry the injury designation inline: %s", summary)

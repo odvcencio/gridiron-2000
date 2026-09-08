@@ -100,8 +100,13 @@ func TestAdminPageRendersExactResetContracts(t *testing.T) {
 		}
 	}
 
-	draftStart := strings.Index(body, "<strong>"+draftHeading+"</strong>")
-	leagueStart := strings.Index(body, "<strong>"+leagueHeading+"</strong>")
+	// The heading text (not the exact "<strong>...</strong>") anchors
+	// card order: the textflow wave's own <TextBlock as="strong" ...>
+	// render carries data-gosx-text-layout-* attributes ahead of the
+	// ">", so an exact "<strong>"+heading+"</strong>" match no longer
+	// applies.
+	draftStart := strings.Index(body, draftHeading)
+	leagueStart := strings.Index(body, leagueHeading)
 	if draftStart < 0 || leagueStart <= draftStart {
 		t.Fatal("reset danger cards are missing or out of order")
 	}

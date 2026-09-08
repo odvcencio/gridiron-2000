@@ -176,7 +176,7 @@ func BlitzLeaderRow(props BlitzLeaderRowProps) Node {
 	return <article class="board-row">
 		<span class="pool-rank mono">{props.Entry.rank}</span>
 		<div class="pool-player">
-			<strong>{props.Entry.name}</strong>
+			<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Entry.name} />
 			<span class="position-chip">{props.Entry.team}</span>
 		</div>
 		<b class="mono">{props.Entry.total}</b>
@@ -232,7 +232,7 @@ func BlitzArchiveRow(props BlitzArchiveRowProps) Node {
 	return <article class="board-row">
 		<span class="pool-rank mono">{props.Entry.rank}</span>
 		<div class="pool-player">
-			<strong>{props.Entry.name}</strong>
+			<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Entry.name} />
 			<span class="position-chip">{props.Entry.team}</span>
 		</div>
 		<b class="mono">{props.Entry.total}</b>
@@ -267,65 +267,65 @@ func Page() Node {
 		</section>
 		<div class="notice-stack" aria-live="polite">
 			<If cond={data.has_notice}>
-				<p class="flash-message">{data.notice}</p>
+				<TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.notice} />
 			</If>
 			<If cond={data.has_blitz_error}>
-				<p class="error-message">{data.blitz_error}</p>
+				<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.blitz_error} />
 			</If>
 			<If cond={data.can_enter == false}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>{data.public_entry.state_label}:</strong>
 					{data.public_entry.detail}
 					<a class="filter-button" href={data.public_entry.action_href} data-gosx-link>{data.public_entry.action_label}</a>
-				</p>
+				</TextBlock>
 			</If>
 			<If cond={data.feed_offline}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>PRESEASON SCORES NOT OPEN:</strong>
 					live preseason scores are not available yet. Schedules and live scores stay empty until it is.
-				</p>
+				</TextBlock>
 			</If>
 			<If cond={data.blitz_loading}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>PRESEASON SOURCE CHECKING:</strong>
 					we're checking the preseason feed now. Empty schedules and zero scores are not verified yet.
-				</p>
+				</TextBlock>
 			</If>
 			<If cond={data.blitz_recovery}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>PRESEASON SOURCE DEGRADED:</strong>
 					retained scores stay visible as of {data.blitz_as_of}; terminal copy stays provisional until the source confirms complete, final inputs.
-				</p>
+				</TextBlock>
 			</If>
 			<If cond={data.archive_blocked}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>ARCHIVE VERIFICATION PENDING:</strong>
 					the contest clock has elapsed, but final standings wait for complete, final source data. We will retry automatically.
-				</p>
+				</TextBlock>
 			</If>
 			<If cond={data.pre1_partial}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>WEEK 1 EVIDENCE PARTIAL:</strong>
 					available preseason-week-1 lines are provisional; players without a fetched line are not confirmed to have no snaps.
-				</p>
+				</TextBlock>
 			</If>
 			<If cond={data.slate_closed}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>SLATE CLOSED:</strong>
 					every game in this slate is final. The leaderboard is frozen.
-				</p>
+				</TextBlock>
 			</If>
 			<If cond={data.has_locked_eligible}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>KICKOFF LOCK:</strong>
 					{data.locked_eligible_label} below are locked. Their games have started, so you can no longer add them. They stay listed with their week 1 lines.
-				</p>
+				</TextBlock>
 			</If>
 			<If cond={data.has_matchup_source}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>MATCHUP RANKS:</strong>
 					ranked from the {data.matchup_source_label} — regular-season data used as a proxy for this preseason matchup. A higher "-toughest" number is a softer matchup; a lower one is tougher.
-				</p>
+				</TextBlock>
 			</If>
 		</div>
 
@@ -476,17 +476,17 @@ func Page() Node {
 				</div>
 				<div class="empty-tape">
 					<If cond={data.archive.overall_champion != ""}>
-						<strong>OVERALL CHAMPION: {data.archive.overall_champion}</strong>
+						<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">OVERALL CHAMPION: {data.archive.overall_champion}</TextBlock>
 					</If>
 					<If cond={data.archive.overall_champion == ""}>
 						<strong>OVERALL CHAMPION: no entries were scored</strong>
 					</If>
-					<p>
+					<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
 						<If cond={data.archive.pre2_champion != ""}>Preseason Week 2 champion: {data.archive.pre2_champion}. </If>
 						<If cond={data.archive.pre2_champion == ""}>Preseason Week 2 — no champion recorded. </If>
 						<If cond={data.archive.pre3_champion != ""}>Preseason Week 3 champion: {data.archive.pre3_champion}.</If>
 						<If cond={data.archive.pre3_champion == ""}>Preseason Week 3 — no champion recorded.</If>
-					</p>
+					</TextBlock>
 				</div>
 				<h3>Preseason Week 2 — final</h3>
 				<If cond={data.archive.pre2_leaderboard_empty}>

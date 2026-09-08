@@ -30,18 +30,20 @@ func Page() Node {
 					PRIVATE LEAGUE NETWORK
 				</span>
 				<p class="page-kicker">{data.public_entry.state_label}</p>
-				<h2>
+				<TextBlock as="h2" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
 					{data.league.name}
 					{" "}
 					<span>{data.public_entry.headline}</span>
-				</h2>
-				<p>{data.public_entry.detail}</p>
+				</TextBlock>
+				<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.public_entry.detail} />
 				<p class="login-identity">
 					<strong>{data.league.format_blurb}</strong>
 					·
 					{data.league.seat_count_word} manager league
 				</p>
-				<p class="login-entry-policy"><strong>{data.public_entry.state_label}</strong> · {data.public_entry.membership_label} — {data.public_entry.membership_detail}</p>
+				<TextBlock as="p" class="login-entry-policy" font="400 15px Plus Jakarta Sans" lineHeight={22}>
+					<strong>{data.public_entry.state_label}</strong> · {data.public_entry.membership_label} — {data.public_entry.membership_detail}
+				</TextBlock>
 				<div class="login-event" aria-labelledby="login-event-heading">
 					<span class="section-index">UP NEXT</span>
 					<h2 id="login-event-heading">{data.draft.event_label}</h2>
@@ -65,7 +67,7 @@ func Page() Node {
 			<aside class="login-console">
 				<h1 class="login-console__page-name">Sign in</h1>
 				<If cond={data.has_notice}>
-					<p class="flash-message" role="alert">{data.notice}</p>
+					<TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" role="alert" text={data.notice} />
 				</If>
 				<If cond={data.viewer.signed_in == false}>
 					<span class="section-index">GOOGLE SIGN-IN</span>
@@ -75,7 +77,7 @@ func Page() Node {
 						the league will explain whether this identity is admitted and whether
 						a fantasy seat is available.
 					</p>
-					<p class="login-admission-note">Admission policy: {data.public_entry.membership_label} — {data.public_entry.membership_detail}</p>
+					<TextBlock as="p" class="login-admission-note" font="400 15px Plus Jakarta Sans" lineHeight={22}>Admission policy: {data.public_entry.membership_label} — {data.public_entry.membership_detail}</TextBlock>
 					<If cond={data.has_return_path}>
 						<p class="login-return-note">
 							After sign-in, we'll return you to {data.return_path_label}.
@@ -84,9 +86,9 @@ func Page() Node {
 					<If cond={data.configured == false}>
 						<div class="setup-note" role="alert">
 							<If cond={data.public_entry.commissioner_ask != ""}>
-								<p id="google-setup-note">
+								<TextBlock as="p" id="google-setup-note" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis">
 									Google sign-in is not set up on this server yet. {data.public_entry.commissioner_ask}
-								</p>
+								</TextBlock>
 							</If>
 							<If cond={data.public_entry.commissioner_ask == ""}>
 								<p id="google-setup-note">
@@ -114,14 +116,14 @@ func Page() Node {
 				<If cond={data.viewer.signed_in}>
 					<span class="section-index">SIGNED IN</span>
 					<div class="account-avatar">{data.viewer.initials}</div>
-					<h2>{data.viewer.name}</h2>
-					<p>{data.viewer.email}</p>
+					<TextBlock as="h2" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text={data.viewer.name} />
+					<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text={data.viewer.email} />
 					<If cond={data.public_entry.has_seat}>
 						<div class="account-team">
 							<span>{data.public_entry.role_label}</span>
-							<strong>{data.public_entry.team_name}</strong>
+							<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text={data.public_entry.team_name} />
 						</div>
-						<p>{data.public_entry.detail}</p>
+						<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.public_entry.detail} />
 						<a href="/team" data-gosx-link class="button button--primary">Open team terminal →</a>
 					</If>
 					<If cond={data.public_entry.has_seat == false}>
@@ -129,7 +131,7 @@ func Page() Node {
 							<span>LEAGUE ACCESS</span>
 							<strong>{data.public_entry.state_label}</strong>
 						</div>
-						<p>{data.public_entry.detail}</p>
+						<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.public_entry.detail} />
 						<If cond={data.public_entry.is_co_manager_pending}>
 							<a href={data.public_entry.action_href} class="button button--ghost">{data.public_entry.action_label}</a>
 						</If>

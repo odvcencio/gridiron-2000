@@ -26,9 +26,9 @@ type NotificationRowProps struct {
 	CSRF               string
 }
 
-component NotificationRow(props: NotificationRowProps) {
+func NotificationRow(props NotificationRowProps) Node {
 	return <fieldset class="notification-preference" id={"notify-" + props.Category} data-notification-category={props.Category}>
-		<legend>{props.Label}</legend>
+		<TextBlock as="legend" font="400 18px Archivo Black" lineHeight={20} maxLines={2} overflow="ellipsis" text={props.Label} />
 		<div class="notification-preference__body">
 			<div>
 				<p>{props.Description}</p>
@@ -57,20 +57,20 @@ component NotificationRow(props: NotificationRowProps) {
 				</div>
 			</If>
 			<If cond={props.CanEdit == false}>
-				<span class="notification-preference__readonly">{props.State} · READ ONLY</span>
+				<TextBlock as="span" class="notification-preference__readonly" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={1} overflow="ellipsis">{props.State} · READ ONLY</TextBlock>
 			</If>
 		</div>
 		<If cond={props.OnAndReady}>
-			<span class="notification-preference__state">Current state: ON</span>
+			<TextBlock as="span" class="notification-preference__state" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={2} overflow="ellipsis" text="Current state: ON" />
 		</If>
 		<If cond={props.OnAndNoTransport}>
-			<span class="notification-preference__state">On · sends once email is set up</span>
+			<TextBlock as="span" class="notification-preference__state" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={2} overflow="ellipsis" text="On · sends once email is set up" />
 		</If>
 		<If cond={props.OffAndReady}>
-			<span class="notification-preference__state">Current state: OFF</span>
+			<TextBlock as="span" class="notification-preference__state" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={2} overflow="ellipsis" text="Current state: OFF" />
 		</If>
 		<If cond={props.OffAndNoTransport}>
-			<span class="notification-preference__state">Off · will not send, even after email is set up</span>
+			<TextBlock as="span" class="notification-preference__state" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={2} overflow="ellipsis" text="Off · will not send, even after email is set up" />
 		</If>
 	</fieldset>
 }
@@ -113,28 +113,28 @@ func Page() Node {
 		</section>
 
 		<div class="notice-stack">
-			<p class="notification-settings-delivery" role="status">{data.delivery_message}</p>
+			<TextBlock as="p" class="notification-settings-delivery" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" role="status" text={data.delivery_message} />
 			<If cond={data.delivery_ready == false}>
 				<p class="notification-settings-ask">
 					<a href="/locker" data-gosx-link>Ask the commissioner to turn on email</a>
 				</p>
 			</If>
 			<If cond={data.has_notice}>
-				<p class="flash-message">{data.notice}</p>
+				<TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.notice} />
 			</If>
 			<If cond={data.has_settings_error}>
-				<p class="error-message">{data.settings_error}</p>
+				<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.settings_error} />
 			</If>
 			<If cond={data.read_only}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
 					<strong>{data.read_only_reason}</strong>
-				</p>
+				</TextBlock>
 			</If>
 			<If cond={data.viewer.demo}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>REHEARSAL MODE:</strong>
 					the console is open to everyone while demo mode is on.
-				</p>
+				</TextBlock>
 			</If>
 		</div>
 
@@ -149,7 +149,7 @@ func Page() Node {
 				Comfortable keeps every number and label at an easy-to-read size. Compact shrinks data text to fit more rows on screen, for a manager who wants the old dense view back.
 			</p>
 			<fieldset class="notification-preference" data-notification-category="density">
-				<legend>Data text size</legend>
+				<TextBlock as="legend" font="400 18px Archivo Black" lineHeight={20} maxLines={2} overflow="ellipsis" text="Data text size" />
 				<div class="notification-preference__body">
 					<div>
 						<p>Comfortable is the default across every page. Compact applies everywhere until you switch back.</p>
@@ -245,7 +245,7 @@ func Page() Node {
 			<div class="notification-preference-list">
 				<Each of={data.planned_preferences} as="preference">
 					<fieldset class="notification-preference notification-preference--planned" data-notification-category={preference.Category} aria-disabled="true">
-						<legend>{preference.Label}</legend>
+						<TextBlock as="legend" font="400 18px Archivo Black" lineHeight={20} maxLines={2} overflow="ellipsis" text={preference.Label} />
 						<div class="notification-preference__body">
 							<div>
 								<p>{preference.Description}</p>

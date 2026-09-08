@@ -88,7 +88,7 @@ func FleetReadout(props FleetReadoutProps) Node {
 					<section class="player-pool commissioner-hq__card" data-peer-id={card.peer_id}>
 						<If cond={card.available == false}>
 							<div class="pool-toolbar commissioner-hq__card-header"><div>
-								<span class="section-index">{card.name}</span>
+								<TextBlock as="span" class="section-index" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={1} overflow="ellipsis" text={card.name} />
 								<h2>League unavailable</h2>
 								</div><span class="position-chip">UNAVAILABLE</span>
 							</div>
@@ -100,7 +100,7 @@ func FleetReadout(props FleetReadoutProps) Node {
 							<div class="pool-toolbar commissioner-hq__card-header">
 								<div>
 									<span class="section-index">{card.short_code} // {card.mode} · SEASON {card.season}</span>
-									<h2>{card.name}</h2>
+									<TextBlock as="h2" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text={card.name} />
 									<p class="scoring-note">{card.name} · {card.draft_start_copy}</p>
 								</div>
 								<span class="position-chip">{card.draft_status}</span>
@@ -223,7 +223,7 @@ func HQV1Portfolio(props hqV1PortfolioProps) Node {
 					<div class="pool-toolbar commissioner-hq__card-header">
 						<div>
 							<span class="section-index">{row.ShortCode} · {row.LeagueID}</span>
-							<h3>{row.Name}</h3>
+							<TextBlock as="h3" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text={row.Name} />
 						</div>
 						<span class="position-chip">{row.Freshness} · {row.ConnectionResult}</span>
 					</div>

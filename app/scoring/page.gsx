@@ -53,7 +53,9 @@ func Page() Node {
 					{data.league_mode}
 				</span>
 				<h1>Rules &amp; scoring</h1>
-				<p class="scoring-format-summary"><strong>{data.format_summary}</strong></p>
+				<TextBlock as="p" class="scoring-format-summary" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
+					<strong>{data.format_summary}</strong>
+				</TextBlock>
 				<p>
 					<strong>How the league runs.</strong> Every rule below matches exactly how this league is set up right now — roster shape, scoring values, the draft, lineups, waivers, trades, and pick'em. A new manager can read this page start to finish and play with no questions left.
 				</p>
@@ -87,16 +89,16 @@ func Page() Node {
 		</nav>
 		<div class="notice-stack" aria-live="polite">
 			<If cond={data.has_notice}>
-				<p class="flash-message">{data.notice}</p>
+				<TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.notice} />
 			</If>
 			<If cond={data.has_scoring_error}>
-				<p class="error-message">{data.scoring_error}</p>
+				<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.scoring_error} />
 			</If>
 			<If cond={data.locked}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>SEASON LOCK:</strong>
 					scoring is frozen for the season.
-				</p>
+				</TextBlock>
 			</If>
 		</div>
 		<details class="player-pool" id="scoring-league" open>
@@ -106,7 +108,7 @@ func Page() Node {
 					<span class="pool-toolbar__heading" role="heading" aria-level="2">League identity</span>
 				</span>
 			</summary>
-			<p class="scoring-note">
+			<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis">
 				{data.identity_rules.name}
 				({data.identity_rules.short_code}) runs a
 				{data.identity_rules.mode_label}
@@ -115,7 +117,7 @@ func Page() Node {
 				season, across
 				{data.identity_rules.team_count}
 				teams.
-			</p>
+			</TextBlock>
 			<div class="pool-stats">
 				<div class="pool-stat">
 					<span>Timezone</span>
@@ -138,10 +140,10 @@ func Page() Node {
 					<span class="pool-toolbar__heading" role="heading" aria-level="2">Who can join</span>
 				</span>
 			</summary>
-			<p class="scoring-note">
+			<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis">
 				<b class="mono">{data.membership_rules.label}</b>
 				— {data.membership_rules.detail}
-			</p>
+			</TextBlock>
 			<div class="pool-stats">
 				<div class="pool-stat">
 					<span>Seats claimed</span>
@@ -174,7 +176,7 @@ func Page() Node {
 					</div>
 				</Each>
 			</div>
-			<p class="scoring-note">
+			<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis">
 				{data.roster_rules.starters}
 				starters +
 				{data.roster_rules.bench}
@@ -183,7 +185,7 @@ func Page() Node {
 				roster spots, which is also the
 				{data.roster_rules.rounds}
 				-round draft. Draft rounds derive from the roster shape; they are never set independently.
-			</p>
+			</TextBlock>
 		</details>
 		<details class="player-pool" id="scoring-draft" open>
 			<summary class="pool-toolbar">
@@ -219,9 +221,7 @@ func Page() Node {
 					</b>
 				</div>
 			</div>
-			<p class="scoring-note">
-				An away or idle manager's pick fires automatically from their Big Board, or best available by ADP when the board is empty. The commissioner can undo the most recent pick and reopen that slot.
-			</p>
+			<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis" text="An away or idle manager's pick fires automatically from their Big Board, or best available by ADP when the board is empty. The commissioner can undo the most recent pick and reopen that slot." />
 		</details>
 		<details class="player-pool" id="scoring-lineups" open>
 			<summary class="pool-toolbar">
@@ -230,9 +230,7 @@ func Page() Node {
 					<span class="pool-toolbar__heading" role="heading" aria-level="2">Setting your lineup</span>
 				</span>
 			</summary>
-			<p class="scoring-note">
-				Each player locks at their own NFL team's kickoff, not one league-wide lock time — a Sunday player can still be swapped Monday morning if their game has not kicked off yet.
-			</p>
+			<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis" text="Each player locks at their own NFL team's kickoff, not one league-wide lock time — a Sunday player can still be swapped Monday morning if their game has not kicked off yet." />
 			<p class="scoring-note">
 				An empty or locked-but-suboptimal slot auto-fills from your bench: the highest-projection eligible player who is not on a bye and carries no injury warning, when one exists. A slot flags a warning when it is empty, on a bye week, or when the player's injury note starts with
 				{data.lineup_rules.warn_prefixes}
@@ -255,7 +253,7 @@ func Page() Node {
 					</span>
 				</summary>
 				<If cond={group.Note != ""}>
-					<p class="scoring-note">{group.Note}</p>
+					<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis" text={group.Note} />
 				</If>
 				<div class="pool-list">
 					<Each of={group.Rules} as="row">
@@ -297,7 +295,7 @@ func Page() Node {
 					<b class="mono">{data.season_rules.phase}</b>
 				</div>
 			</div>
-			<p class="scoring-note"><strong>PLAYOFF TRUTH:</strong> {data.season_rules.playoff_status} · {data.season_rules.playoff_note}</p>
+			<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis"><strong>PLAYOFF TRUTH:</strong> {data.season_rules.playoff_status} · {data.season_rules.playoff_note}</TextBlock>
 			<If cond={data.season_rules.playoff_recovery != ""}>
 				<p class="demo-message"><strong>RECOVERY:</strong> {data.season_rules.playoff_recovery}</p>
 			</If>
@@ -351,9 +349,7 @@ func Page() Node {
 					<b class="mono">{data.free_agency_rules.roster_cap}</b>
 				</div>
 			</div>
-			<p class="scoring-note">
-				Free agency opens the moment the draft fills every roster spot on every team. Signing a free agent onto a full roster requires naming a drop in the same move — one single step, never a separate add and drop.
-			</p>
+			<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis" text="Free agency opens the moment the draft fills every roster spot on every team. Signing a free agent onto a full roster requires naming a drop in the same move — one single step, never a separate add and drop." />
 			<a href="/players" data-gosx-link class="button button--compact">Open the player pool →</a>
 		</details>
 		<details class="player-pool" id="scoring-waivers" open>
@@ -405,18 +401,16 @@ func Page() Node {
 				</div>
 			</div>
 			<If cond={data.waivers_rules.faab == false}>
-				<p class="scoring-note">
+				<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis">
 					Claim priority blends
 					{data.waivers_rules.season_weight_pct}
 					% season rank with
 					{data.waivers_rules.weekly_weight_pct}
 					% this week's rank — the worst combined performance claims first. Winning a claim moves that team to the back of the order until the next weekly close. Before NFL week {data.waivers_rules.start_week} closes, the order runs the reverse of round 1 of the draft.
-				</p>
+				</TextBlock>
 			</If>
 			<If cond={data.waivers_rules.faab}>
-				<p class="scoring-note">
-					Each team bids its own FAAB budget on a claim; the highest bid wins, ties broken by the perf-priority order above.
-				</p>
+				<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis" text="Each team bids its own FAAB budget on a claim; the highest bid wins, ties broken by the perf-priority order above." />
 			</If>
 			<p class="scoring-note">
 				A dropped player enters ON WAIVERS: the clear window above must pass before anyone can sign them as a free agent. A rostered player whose game has kicked off is also ON WAIVERS until that game ends and waivers clear.
@@ -454,14 +448,14 @@ func Page() Node {
 				</If>
 			</div>
 			<If cond={data.trades_rules.is_commissioner}>
-				<p class="scoring-note">
+				<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis">
 					Every accepted trade enters a
 					{data.trades_rules.review_hours}
 					-hour commissioner review window. The commissioner may approve it early or veto it; otherwise it executes automatically once the window passes.
-				</p>
+				</TextBlock>
 			</If>
 			<If cond={data.trades_rules.is_vote}>
-				<p class="scoring-note">
+				<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis">
 					Every accepted trade enters a
 					{data.trades_rules.review_hours}
 					-hour review window. Any
@@ -469,10 +463,10 @@ func Page() Node {
 					of the
 					{data.trades_rules.seat_count}
 					managers outside the trade can veto it by vote; short of that, it executes automatically once the window passes.
-				</p>
+				</TextBlock>
 			</If>
 			<If cond={data.trades_rules.is_both}>
-				<p class="scoring-note">
+				<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis">
 					Every accepted trade enters a
 					{data.trades_rules.review_hours}
 					-hour review window. The commissioner can approve or veto it, and so can a league vote of
@@ -480,12 +474,10 @@ func Page() Node {
 					of the
 					{data.trades_rules.seat_count}
 					managers outside the trade — whichever resolves it first stands.
-				</p>
+				</TextBlock>
 			</If>
 			<If cond={data.trades_rules.is_none}>
-				<p class="scoring-note">
-					A trade executes the instant the receiving manager accepts it — no review window, no veto.
-				</p>
+				<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis" text="A trade executes the instant the receiving manager accepts it — no review window, no veto." />
 			</If>
 			<p class="scoring-note">
 				Both managers may counter or withdraw an open offer before it is accepted. An open offer nobody answers expires after
@@ -501,9 +493,7 @@ func Page() Node {
 					<span class="pool-toolbar__heading" role="heading" aria-level="2">The weekly side game</span>
 				</span>
 			</summary>
-			<p class="scoring-note">
-				Every signed-in member may make pick'em picks — a team seat is not required. Pick against the market spread shown on each matchup. The line updates until the weekly Thursday freeze; an earlier game freezes at its own kickoff. A missing frozen line is void, never silently converted to straight-up scoring.
-			</p>
+			<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis" text="Every signed-in member may make pick'em picks — a team seat is not required. Pick against the market spread shown on each matchup. The line updates until the weekly Thursday freeze; an earlier game freezes at its own kickoff. A missing frozen line is void, never silently converted to straight-up scoring." />
 			<p class="scoring-note">
 				The line freeze does not lock the sheet. Each matchup remains pickable until its own kickoff. Once you make any valid pick in a week, an unpicked game that starts is a loss; later games remain open. A push is neutral, and a missed loss breaks a winning streak. Pick'em has its own W-L-P leaderboard and is not a fantasy-standings tiebreaker.
 			</p>
@@ -516,9 +506,7 @@ func Page() Node {
 					<span class="pool-toolbar__heading" role="heading" aria-level="2">A side contest before the real thing</span>
 				</span>
 			</summary>
-			<p class="scoring-note">
-				Pick five preseason players and race the field on total production, no roster spot required. Scores live during the preseason window only.
-			</p>
+			<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis" text="Pick five preseason players and race the field on total production, no roster spot required. Scores live during the preseason window only." />
 			<a href="/blitz" data-gosx-link class="button button--compact">Open Preseason Blitz →</a>
 		</details>
 		<p class="scoring-note mono">

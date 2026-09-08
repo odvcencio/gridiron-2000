@@ -46,6 +46,7 @@ import (
 	"gridiron-2000/internal/wire"
 	"m31labs.dev/gosx"
 	"m31labs.dev/gosx/auth"
+	"m31labs.dev/gosx/buildmanifest"
 	runtimehost "m31labs.dev/gosx/client/runtime/host"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
@@ -931,6 +932,74 @@ func stripFeatureHubPreload(body []byte) []byte {
 	}
 }
 
+// textLayoutFeatureAliasPath is the clean, un-hashed URL the GoSX
+// bootstrap runtime's own client code falls back to when it lazily
+// fetches the text-layout feature chunk (00-textlayout.ts,
+// getTextLayoutFeatureScriptSrc): assets.bootstrapFeatureTextLayoutPath
+// (server.PageRuntimeSummary, m31labs.dev/gosx@v0.55.2) carries no field
+// for this feature — every OTHER lazy feature (islands, engines, hubs,
+// controllers) does — so that lookup always misses and the client walks
+// its own fallback chain straight to this hardcoded path. GoSX's generic
+// "/gosx/<name>" asset handler (server/runtime_assets.go) can resolve
+// this exact clean name too, through its own build-manifest compat
+// lookup, but only when a build.json sits directly at the runtime root
+// it resolves (server.ResolveAppRoot) — this app's own dev build writes
+// dist/build.json instead, one directory deeper, so that lookup also
+// misses and the request 404s. A TextBlock never gets browser-refined
+// (no clamp, no ellipsis, no measured line plan) with no visible error
+// beyond one console line, so item 1's own fix (text-flow wave,
+// 2026-09-05) mounts one direct route ahead of the generic handler,
+// serving the real hashed chunk from this app's own dist/build.json
+// instead. Fixed here, in this app, rather than the vendored framework;
+// remove this once GoSX ships either field.
+const textLayoutFeatureAliasPath = "/gosx/bootstrap-feature-textlayout.js"
+
+// serveTextLayoutFeatureAlias resolves the text-layout feature chunk's
+// real, content-hashed URL from root's own dist/build.json (the same
+// manifest GoSX's generic runtime-asset handler already trusts for the
+// hashed path itself) and redirects the browser there. A redirect, not a
+// direct proxy, because the hashed path is itself served correctly
+// already (runtimeManifestDirectAssetPath checks both root/assets and
+// root/dist/assets) — this route only needs to bridge the clean name to
+// that real path, and a dynamically inserted <script src> follows a
+// redirect exactly as it would a same-origin URL.
+//
+// Middleware, not app.Mount: App.Build's own dispatcher
+// (server/server.go buildDispatcher) checks its builtin/page mux —
+// which already claims "GET /gosx/" as a prefix route for
+// serveRuntimeAsset — before it ever falls through to the mountMux
+// app.Mount writes to, so a Mount call at this exact path is
+// unreachable dead code (the builtin prefix route always answers
+// first, 404 body and all). Middleware wraps the whole dispatcher, the
+// same layer dropFeatureHubPreload/runtimeAssetCORS above already use
+// to reach this same "/gosx/" prefix.
+func serveTextLayoutFeatureAlias(root string) func(http.Handler) http.Handler {
+	manifestPath := filepath.Join(root, "dist", "build.json")
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if r.URL.Path != textLayoutFeatureAliasPath {
+				next.ServeHTTP(w, r)
+				return
+			}
+			manifest, err := buildmanifest.Load(manifestPath)
+			if err != nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			target := manifest.RuntimeURLs("/gosx/assets").BootstrapFeatureTextlayout
+			if strings.TrimSpace(target) == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			http.Redirect(w, r, target, http.StatusFound)
+		})
+	}
+}
+
 // BuildApp assembles the HTTP application from cfg. It starts no HTTP server
 // and no background loop: every loop lands in the returned AppRuntime, so a
 // caller can mount and serve the same wiring main() runs without also
@@ -1366,6 +1435,11 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.Use(stylesheet.middleware)
 	app.Use(dropFeatureHubPreload)
 	app.Use(runtimeAssetCORS)
+	// Bridges the text-layout feature chunk's clean fallback URL to its
+	// real, content-hashed one — see serveTextLayoutFeatureAlias's own
+	// doc comment for why GoSX's generic runtime-asset handler cannot
+	// resolve this clean name on its own in this app's own dist/ layout.
+	app.Use(serveTextLayoutFeatureAlias(root))
 	app.Use(avatarMultipartEnvelopeLimit)
 	app.Use(sessions.Middleware)
 	app.Use(csrfExemptClientEvents(csrfFailureRenderer(sessions.Protect, stylesheetHref)))

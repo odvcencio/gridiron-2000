@@ -32,13 +32,13 @@ func Page() Node {
 
 		<div class="locker-notice">
 			<If cond={data.demo_mode}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>REHEARSAL MODE:</strong>
 					posting and moderation are read-only while demo mode is on. Sign in to participate.
-				</p>
+				</TextBlock>
 			</If>
-			<If cond={data.has_notice}><p class="flash-message">{data.notice}</p></If>
-			<If cond={data.has_locker_error}><p class="error-message">{data.locker_error}</p></If>
+			<If cond={data.has_notice}><TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.notice} /></If>
+			<If cond={data.has_locker_error}><TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.locker_error} /></If>
 		</div>
 
 		<section class="wire-submit-panel" id="locker-composer">
@@ -103,10 +103,10 @@ func LockerBoard() Node {
 					</If>
 					<If cond={post.Removed == false}>
 						<p class="locker-post__meta mono">
-							<strong>{post.AuthorLabel}</strong>
+							<TextBlock as="strong" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={post.AuthorLabel} />
 							<time>{post.TimeLabel}</time>
 						</p>
-						<p class="locker-post__body">{post.Body}</p>
+						<TextBlock as="p" class="locker-post__body" font="400 15px Plus Jakarta Sans" lineHeight={22} whiteSpace="pre-wrap" text={post.Body} />
 						<If cond={post.CanRemove}>
 							<form method="post" action={data.locker_remove_action} data-gosx-managed="true" class="locker-post__remove">
 								<input type="hidden" name="csrf_token" value={data.csrf_token}></input>
@@ -143,10 +143,10 @@ func LockerBoard() Node {
 								</If>
 								<If cond={reply.Removed == false}>
 									<p class="locker-post__meta mono">
-										<strong>{reply.AuthorLabel}</strong>
+										<TextBlock as="strong" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={reply.AuthorLabel} />
 										<time>{reply.TimeLabel}</time>
 									</p>
-									<p class="locker-post__body">{reply.Body}</p>
+									<TextBlock as="p" class="locker-post__body" font="400 15px Plus Jakarta Sans" lineHeight={22} whiteSpace="pre-wrap" text={reply.Body} />
 									<If cond={reply.CanRemove}>
 										<form method="post" action={data.locker_remove_action} data-gosx-managed="true" class="locker-post__remove">
 											<input type="hidden" name="csrf_token" value={data.csrf_token}></input>
