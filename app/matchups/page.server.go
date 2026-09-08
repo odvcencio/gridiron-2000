@@ -73,6 +73,25 @@ func matchupStateClass(liveState string) string {
 	}
 }
 
+// matchupPhaseLabel is the scorebug header's centre label (A1, matchup
+// redesign 2026-09-07): PROJ before kickoff (the big number is a
+// projection, not a score), nothing once the game is live (the score
+// itself is the number that matters, with its own small proj-under-it
+// line — see page.gsx's FeaturedMatchup/Scorebug), FINAL once the week
+// closes. Deliberately mirrors matchupStateClass's own LIVE/PAUSED/FINAL
+// switch so the label and the state-chip class this page already renders
+// never disagree about which phase a matchup is in.
+func matchupPhaseLabel(liveState string) string {
+	switch liveState {
+	case "LIVE", "PAUSED":
+		return ""
+	case "FINAL":
+		return "FINAL"
+	default:
+		return "PROJ"
+	}
+}
+
 // StarterCellData is one lineup-slot pair's single side ("mine" or
 // "theirs" in FeaturedMatchupPairData) — the strict-component twin of a
 // starterLedgerMaps row. A nil raw value (a slot featuredStarterPairs
@@ -89,6 +108,7 @@ type StarterCellData struct {
 	Position        string
 	NFLTeam         string
 	HasNFLTeam      bool
+	Proj            string
 	Points          string
 	Provenance      string
 	JoinState       string
@@ -122,6 +142,15 @@ func starterCellData(raw any, right bool) StarterCellData {
 	row, _ := raw.(map[string]any)
 	nflTeam := stringField(row, "nfl_team")
 	playerName := stringField(row, "player_name")
+	// proj defaults to the honest zero (matches an empty slot's own PROJ
+	// 0.0, A2 of the matchup redesign) when the source map carries no
+	// "proj" key at all — defensive against a raw source (for example
+	// matchupMaps' own plain starterLedgerMaps, unused by this page today)
+	// that has not been decorated with it.
+	proj := stringField(row, "proj")
+	if proj == "" {
+		proj = "0.0"
+	}
 	return StarterCellData{
 		HasPlayer:       stringField(row, "player_id") != "",
 		Right:           right,
@@ -132,6 +161,7 @@ func starterCellData(raw any, right bool) StarterCellData {
 		Position:        stringField(row, "position"),
 		NFLTeam:         nflTeam,
 		HasNFLTeam:      nflTeam != "",
+		Proj:            proj,
 		Points:          stringField(row, "points"),
 		Provenance:      stringField(row, "provenance"),
 		JoinState:       stringField(row, "join_state"),
@@ -214,9 +244,13 @@ type FeaturedTeamData struct {
 func featuredTeamData(raw any) FeaturedTeamData {
 	team, _ := raw.(map[string]any)
 	return FeaturedTeamData{
-		ID:             stringField(team, "id"),
-		Name:           stringField(team, "name"),
-		Manager:        stringField(team, "manager"),
+		ID:   stringField(team, "id"),
+		Name: stringField(team, "name"),
+		// Manager is the FIRST name only (A1, matchup redesign 2026-09-07):
+		// the scorebug header reads "avatar, team name, manager first name,
+		// record" — a full manager name duplicated the team name's own
+		// identity work and was the more likely of the two to wrap or clip.
+		Manager:        league.FirstName(stringField(team, "manager")),
 		Record:         stringField(team, "record"),
 		Score:          stringField(team, "score"),
 		Projected:      stringField(team, "projected"),
@@ -227,6 +261,31 @@ func featuredTeamData(raw any) FeaturedTeamData {
 	}
 }
 
+// BenchRowData is one Benches-disclosure row (A4, matchup redesign
+// 2026-09-07): bench composition is public information in this league —
+// it explains why a manager is favoured — so this carries only the plain
+// facts a manager reads at a glance, no live-bind (the bench never plays
+// in this matchup and its weekly projection never changes mid-game).
+type BenchRowData struct {
+	PlayerName string
+	Position   string
+	NFLTeam    string
+	Proj       string
+}
+
+func benchRowsData(raw []map[string]any) []BenchRowData {
+	out := make([]BenchRowData, 0, len(raw))
+	for _, row := range raw {
+		out = append(out, BenchRowData{
+			PlayerName: stringField(row, "player_name"),
+			Position:   stringField(row, "position"),
+			NFLTeam:    stringField(row, "nfl_team"),
+			Proj:       stringField(row, "proj"),
+		})
+	}
+	return out
+}
+
 // FeaturedMatchupData is the typed data.my_matchup entry: MatchupsData's
 // summary-first featured card (A6) — the viewer's own matchup this week,
 // or the week's first matchup labeled FEATURED when they have none.
@@ -234,25 +293,29 @@ func featuredTeamData(raw any) FeaturedTeamData {
 // other field at its zero value; a page rendering this must gate on
 // HasMatchup first, the same way data.matchups_empty gates MatchupCard.
 type FeaturedMatchupData struct {
-	HasMatchup       bool
-	IsViewer         bool
-	ID               string
-	Label            string
-	LiveIndicator    string
-	LiveState        string
-	StateClass       string
-	WinProb          string
-	WinProbWidth     string
-	WinProbAriaLabel string
-	WinProbAriaValue float64
-	StillToPlay      int
-	StillToPlayTotal int
-	NextLineupHref   string
-	NextWeek         int
-	HasNextWeek      bool
-	Mine             FeaturedTeamData
-	Theirs           FeaturedTeamData
-	Pairs            []FeaturedMatchupPairData
+	HasMatchup          bool
+	IsViewer            bool
+	ID                  string
+	Label               string
+	LiveIndicator       string
+	LiveState           string
+	StateClass          string
+	WinProb             string
+	WinProbWidth        string
+	WinProbAriaLabel    string
+	WinProbAriaValue    float64
+	StillToPlay         int
+	StillToPlayTotal    int
+	StillToPlaySentence string
+	PhaseLabel          string
+	NextLineupHref      string
+	NextWeek            int
+	HasNextWeek         bool
+	Mine                FeaturedTeamData
+	Theirs              FeaturedTeamData
+	Pairs               []FeaturedMatchupPairData
+	MineBench           []BenchRowData
+	TheirsBench         []BenchRowData
 }
 
 func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
@@ -265,26 +328,33 @@ func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
 			Theirs: starterCellData(pair["theirs"], true),
 		})
 	}
+	mineBenchRaw, _ := raw["mine_bench"].([]map[string]any)
+	theirsBenchRaw, _ := raw["theirs_bench"].([]map[string]any)
+	liveState := stringField(raw, "live_state")
 	return FeaturedMatchupData{
-		HasMatchup:       boolField(raw, "has_matchup"),
-		IsViewer:         boolField(raw, "is_viewer"),
-		ID:               stringField(raw, "id"),
-		Label:            stringField(raw, "label"),
-		LiveIndicator:    stringField(raw, "live_indicator"),
-		LiveState:        stringField(raw, "live_state"),
-		StateClass:       matchupStateClass(stringField(raw, "live_state")),
-		WinProb:          stringField(raw, "win_prob"),
-		WinProbWidth:     stringField(raw, "win_prob_width"),
-		WinProbAriaLabel: league.WinProbabilityAriaLabel(stringField(raw, "win_prob")),
-		WinProbAriaValue: league.WinProbabilityAriaValue(stringField(raw, "win_prob_width")),
-		StillToPlay:      intField(raw, "still_to_play"),
-		StillToPlayTotal: intField(raw, "still_to_play_total"),
-		NextLineupHref:   stringField(raw, "next_lineup_href"),
-		NextWeek:         intField(raw, "next_week"),
-		HasNextWeek:      boolField(raw, "has_next_week"),
-		Mine:             featuredTeamData(raw["mine"]),
-		Theirs:           featuredTeamData(raw["theirs"]),
-		Pairs:            pairs,
+		HasMatchup:          boolField(raw, "has_matchup"),
+		IsViewer:            boolField(raw, "is_viewer"),
+		ID:                  stringField(raw, "id"),
+		Label:               stringField(raw, "label"),
+		LiveIndicator:       stringField(raw, "live_indicator"),
+		LiveState:           liveState,
+		StateClass:          matchupStateClass(liveState),
+		WinProb:             stringField(raw, "win_prob"),
+		WinProbWidth:        stringField(raw, "win_prob_width"),
+		WinProbAriaLabel:    league.WinProbabilityAriaLabel(stringField(raw, "win_prob")),
+		WinProbAriaValue:    league.WinProbabilityAriaValue(stringField(raw, "win_prob_width")),
+		StillToPlay:         intField(raw, "still_to_play"),
+		StillToPlayTotal:    intField(raw, "still_to_play_total"),
+		StillToPlaySentence: stringField(raw, "still_to_play_sentence"),
+		PhaseLabel:          matchupPhaseLabel(liveState),
+		NextLineupHref:      stringField(raw, "next_lineup_href"),
+		NextWeek:            intField(raw, "next_week"),
+		HasNextWeek:         boolField(raw, "has_next_week"),
+		Mine:                featuredTeamData(raw["mine"]),
+		Theirs:              featuredTeamData(raw["theirs"]),
+		Pairs:               pairs,
+		MineBench:           benchRowsData(mineBenchRaw),
+		TheirsBench:         benchRowsData(theirsBenchRaw),
 	}
 }
 
@@ -295,6 +365,7 @@ type ScorebugTeamData struct {
 	ID             string
 	Name           string
 	Manager        string
+	Record         string
 	Abbreviation   string
 	Score          string
 	Tone           string
@@ -305,9 +376,14 @@ type ScorebugTeamData struct {
 func scorebugTeamData(raw any) ScorebugTeamData {
 	team, _ := raw.(map[string]any)
 	return ScorebugTeamData{
-		ID:             stringField(team, "id"),
-		Name:           stringField(team, "name"),
-		Manager:        stringField(team, "manager"),
+		ID:   stringField(team, "id"),
+		Name: stringField(team, "name"),
+		// Manager is the first name only — see featuredTeamData's own doc
+		// comment (A1, matchup redesign 2026-09-07): every around-the-league
+		// card gets the same "avatar, team name, manager first name, record"
+		// header shape as the featured card.
+		Manager:        league.FirstName(stringField(team, "manager")),
+		Record:         stringField(team, "record"),
 		Abbreviation:   stringField(team, "abbreviation"),
 		Score:          stringField(team, "score"),
 		Tone:           stringField(team, "tone"),
@@ -324,19 +400,30 @@ func scorebugTeamData(raw any) ScorebugTeamData {
 // app/page.gsx's MiniMatchup, not a shared component — see that
 // component's own doc comment for why.
 type ScorebugData struct {
-	ID               string
-	LiveState        string
-	StateClass       string
-	LiveIndicator    string
-	Status           string
-	Clock            string
-	Away             ScorebugTeamData
-	Home             ScorebugTeamData
-	ProjectedAway    string
-	ProjectedHome    string
-	StillToPlay      int
-	StillToPlayTotal int
-	Pairs            []FeaturedMatchupPairData
+	ID            string
+	LiveState     string
+	StateClass    string
+	PhaseLabel    string
+	LiveIndicator string
+	Status        string
+	Clock         string
+	Away          ScorebugTeamData
+	Home          ScorebugTeamData
+	ProjectedAway string
+	ProjectedHome string
+	// WinProbHome/WinProbHomeWidth/WinProbHomeAriaLabel/WinProbHomeAriaValue
+	// (A1, matchup redesign 2026-09-07) give every around-the-league card
+	// its own accessible win-probability meter, expressed from the home
+	// side's perspective — the same figure shape the featured card's own
+	// WinProb/WinProbWidth/WinProbAriaLabel/WinProbAriaValue already carry.
+	WinProbHome          string
+	WinProbHomeWidth     string
+	WinProbHomeAriaLabel string
+	WinProbHomeAriaValue float64
+	StillToPlay          int
+	StillToPlayTotal     int
+	StillToPlaySentence  string
+	Pairs                []FeaturedMatchupPairData
 }
 
 // matchupsPageScorebugs converts MatchupsData's "other_matchups" slice
@@ -358,20 +445,27 @@ func matchupsPageScorebugs(raw []map[string]any) []ScorebugData {
 				Theirs: starterCellData(pair["theirs"], true),
 			})
 		}
+		liveState := stringField(entry, "live_state")
 		out = append(out, ScorebugData{
-			ID:               stringField(entry, "id"),
-			LiveState:        stringField(entry, "live_state"),
-			StateClass:       matchupStateClass(stringField(entry, "live_state")),
-			LiveIndicator:    stringField(entry, "live_indicator"),
-			Status:           stringField(entry, "status"),
-			Clock:            stringField(entry, "clock"),
-			Away:             scorebugTeamData(away),
-			Home:             scorebugTeamData(home),
-			ProjectedAway:    stringField(entry, "projected_away"),
-			ProjectedHome:    stringField(entry, "projected_home"),
-			StillToPlay:      intField(entry, "still_to_play"),
-			StillToPlayTotal: intField(entry, "still_to_play_total"),
-			Pairs:            pairs,
+			ID:                   stringField(entry, "id"),
+			LiveState:            liveState,
+			StateClass:           matchupStateClass(liveState),
+			PhaseLabel:           matchupPhaseLabel(liveState),
+			LiveIndicator:        stringField(entry, "live_indicator"),
+			Status:               stringField(entry, "status"),
+			Clock:                stringField(entry, "clock"),
+			Away:                 scorebugTeamData(away),
+			Home:                 scorebugTeamData(home),
+			ProjectedAway:        stringField(entry, "projected_away"),
+			ProjectedHome:        stringField(entry, "projected_home"),
+			WinProbHome:          stringField(entry, "win_prob_home"),
+			WinProbHomeWidth:     stringField(entry, "win_prob_home_width"),
+			WinProbHomeAriaLabel: league.WinProbabilityAriaLabel(stringField(entry, "win_prob_home")),
+			WinProbHomeAriaValue: league.WinProbabilityAriaValue(stringField(entry, "win_prob_home_width")),
+			StillToPlay:          intField(entry, "still_to_play"),
+			StillToPlayTotal:     intField(entry, "still_to_play_total"),
+			StillToPlaySentence:  stringField(entry, "still_to_play_sentence"),
+			Pairs:                pairs,
 		})
 	}
 	return out

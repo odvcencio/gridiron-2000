@@ -64,9 +64,10 @@ func WeekBrowser(props WeekBrowserProps) Node {
 
 // StarterCell is one lineup slot's single side, shared by FeaturedMatchup's
 // and Scorebug's matchup-pairs lists. props.Right marks the "theirs" cell
-// of a pair; page.gsx composes the six-column slot-row layout from the
-// plain data-right attribute in public/styles.css (round-2 review of
-// commit 133d1d7, finding 5), rather than a precomputed class string.
+// of a pair; page.gsx composes the nine-column slot-row layout (four per
+// side plus the shared slot-label column) from the plain data-right
+// attribute in public/styles.css (round-2 review of commit 133d1d7,
+// finding 5), rather than a precomputed class string.
 //
 // The name renders twice — starter-cell__name-full (the live-bound
 // PlayerName) and starter-cell__name-short (the server-abbreviated
@@ -77,28 +78,40 @@ func WeekBrowser(props WeekBrowserProps) Node {
 // variant carries data-gosx-live-bind, keeping a live update's textContent
 // patch scoped to the span it actually targets.
 //
+// starter-cell__name-short's own TextBlock carries mode="native" (found
+// during the 2026-09-07 matchup redesign's own verification pass): the
+// default "bootstrap" runtime sets this element's display to flow-root
+// via an inline style the instant it enhances the block, which — being
+// an inline style — outranks this file's own .starter-cell__name-short
+// { display: none } desktop rule no matter its selector specificity,
+// showing BOTH names stacked at every width instead of only the one the
+// current breakpoint calls for. native mode still gets the server-
+// planned maxLines clamp (the only refinement this short, pre-abbreviated
+// label ever needs) without the runtime ever touching its display.
+//
 // role="cell" (gap-audit item 7, wave 4 — linden) marks each of this
-// component's three direct children — .matchup-ledger, .starter-cell__state,
-// .starter-cell__pts — as one ARIA table cell apiece. That works without
-// any wrapper element because .starter-cell itself has display: contents
-// (public/styles.css), which already removes it from both the visual box
-// tree and the accessibility tree, promoting these three children to be
-// the actual grid items .slot-row lays out — the same fact the CSS
-// comment beside .starter-cell documents for layout purposes. The
-// enclosing .slot-row (FeaturedMatchup/Scorebug below) carries role="row"
-// and this cell count matches its header row's six role="columnheader"
-// cells exactly (three per side) at every breakpoint: .starter-cell__state
-// is display: none below the mobile breakpoint, and the mobile header row
-// swaps to four columns in step with it (public/styles.css), so an
-// assistive-technology user is never told about a header/cell column that
-// is not actually visible.
+// component's four direct children — .matchup-ledger, .starter-cell__state,
+// .starter-cell__proj, .starter-cell__pts — as one ARIA table cell apiece
+// (the PROJ cell, A2 of the 2026-09-07 matchup redesign, is the newest of
+// the four). That works without any wrapper element because .starter-cell
+// itself has display: contents (public/styles.css), which already removes
+// it from both the visual box tree and the accessibility tree, promoting
+// these four children to be the actual grid items .slot-row lays out — the
+// same fact the CSS comment beside .starter-cell documents for layout
+// purposes. The enclosing .slot-row (FeaturedMatchup/Scorebug below)
+// carries role="row" and this cell count matches its header row's own
+// role="columnheader" cells exactly (four per side, plus the shared slot
+// label) at every breakpoint: .starter-cell__state is display: none below
+// the mobile breakpoint, and the mobile header row narrows in step with
+// it (public/styles.css), so an assistive-technology user is never told
+// about a header/cell column that is not actually visible.
 func StarterCell(props StarterCellData) Node {
 	return <div class="starter-cell" data-right={props.Right}>
 		<details class="matchup-ledger" role="cell">
 			<summary class="starter-cell__name">
 				<strong>
 					<span class="starter-cell__name-full" data-gosx-live-bind={"starterPlayerName." + props.LiveKey}>{props.PlayerName}</span>
-					<TextBlock as="span" class="starter-cell__name-short" font="700 15px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" text={props.PlayerNameShort} />
+					<TextBlock as="span" class="starter-cell__name-short" font="700 15px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" mode="native" text={props.PlayerNameShort} />
 				</strong>
 				<small><span data-gosx-live-bind={"starterPosition." + props.LiveKey}>{props.Position}</span> · <span data-gosx-live-bind={"starterNFLTeam." + props.LiveKey}>{props.NFLTeam}</span><span class="starter-cell__state-text"> · <span data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span></span><span class="possession-chip" data-gosx-live-bind={"starterPossession." + props.LiveKey}>{props.Possession}</span></small>
 			</summary>
@@ -109,6 +122,7 @@ func StarterCell(props StarterCellData) Node {
 			</div>
 		</details>
 		<span class={"state starter-cell__state " + props.StateClass} role="cell" data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span>
+		<span class="proj starter-cell__proj" role="cell" data-gosx-live-bind={"starterProj." + props.LiveKey}>{props.Proj}</span>
 		<b class="pts starter-cell__pts" role="cell" data-gosx-live-bind={"starterPoints." + props.LiveKey} data-gosx-live-flash-class="score-flash">{props.Points}</b>
 	</div>
 }
@@ -135,44 +149,75 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 				<div>
 					<span class="section-index"><If cond={props.IsViewer}>Your team</If><If cond={props.IsViewer == false}>Featured</If></span>
 					<TextBlock as="strong" class="display" font="400 15px Archivo Black" lineHeight={18} maxLines={2} overflow="ellipsis" text={props.Mine.Name} />
-					<small class="muted matchup-team-line"><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Mine.Manager} /><span class="matchup-team-line__meta"> · {props.Mine.Record} · proj <span data-gosx-live-bind={"projected." + props.Mine.ID}>{props.Mine.Projected}</span></span></small>
+					<small class="muted matchup-team-line"><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Mine.Manager} /><span class="matchup-team-line__meta"> · {props.Mine.Record}</span></small>
 				</div>
 			</div>
-			<div class="my-matchup__score">
+			<div class={"my-matchup__score " + props.StateClass}>
+				<span class="my-matchup__phase-label mono muted">{props.PhaseLabel}</span>
 				<div class="my-matchup__totals">
-					<b class="score score--large mono" data-score-team={props.Mine.ID} data-gosx-live-bind={"scores." + props.Mine.ID} data-gosx-live-flash-class="score-flash">{props.Mine.Score}</b>
+					<b class="score score--large mono my-matchup__score-value" data-score-team={props.Mine.ID} data-gosx-live-bind={"scores." + props.Mine.ID} data-gosx-live-flash-class="score-flash">{props.Mine.Score}</b>
+					<span class="my-matchup__proj-value mono" data-gosx-live-bind={"projected." + props.Mine.ID}>{props.Mine.Projected}</span>
 					<span class="muted">–</span>
-					<b class="score score--large mono" data-score-team={props.Theirs.ID} data-gosx-live-bind={"scores." + props.Theirs.ID} data-gosx-live-flash-class="score-flash">{props.Theirs.Score}</b>
+					<b class="score score--large mono my-matchup__score-value" data-score-team={props.Theirs.ID} data-gosx-live-bind={"scores." + props.Theirs.ID} data-gosx-live-flash-class="score-flash">{props.Theirs.Score}</b>
+					<span class="my-matchup__proj-value mono" data-gosx-live-bind={"projected." + props.Theirs.ID}>{props.Theirs.Projected}</span>
 				</div>
+				<small class="my-matchup__proj-sub mono muted">proj <span data-gosx-live-bind={"projected." + props.Mine.ID}>{props.Mine.Projected}</span> – <span data-gosx-live-bind={"projected." + props.Theirs.ID}>{props.Theirs.Projected}</span></small>
 				<div class="bar"><i style={"width: " + props.WinProbWidth} role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow={props.WinProbAriaValue} aria-label={props.WinProbAriaLabel}></i></div>
-				<small class="mono muted"><span data-gosx-live-bind={"winProb." + props.Mine.ID}>{props.WinProb}</span> to win · <span data-gosx-live-bind={"stillToPlay." + props.ID}>{props.StillToPlay}</span> of <span data-gosx-live-bind={"stillToPlayTotal." + props.ID}>{props.StillToPlayTotal}</span> starters still to play</small>
+				<small class="mono muted"><span data-gosx-live-bind={"winProb." + props.Mine.ID}>{props.WinProb}</span> to win · <span data-gosx-live-bind={"stillToPlaySentence." + props.ID}>{props.StillToPlaySentence}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlay." + props.ID}>{props.StillToPlay}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlayTotal." + props.ID}>{props.StillToPlayTotal}</span></small>
 				<span class={"state-chip " + props.StateClass}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span><span data-gosx-live-bind={"matchupLiveState." + props.ID}>{props.LiveState}</span></span>
 			</div>
 			<div class="my-matchup__team my-matchup__team--opponent">
 				<div>
 					<span class="section-index muted"><If cond={props.IsViewer}>Opponent</If><If cond={props.IsViewer == false}>Versus</If></span>
 					<TextBlock as="strong" class="display" font="400 15px Archivo Black" lineHeight={18} maxLines={2} overflow="ellipsis" text={props.Theirs.Name} />
-					<small class="muted matchup-team-line"><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Theirs.Manager} /><span class="matchup-team-line__meta"> · {props.Theirs.Record} · proj <span data-gosx-live-bind={"projected." + props.Theirs.ID}>{props.Theirs.Projected}</span></span></small>
+					<small class="muted matchup-team-line"><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Theirs.Manager} /><span class="matchup-team-line__meta"> · {props.Theirs.Record}</span></small>
 				</div>
 				<TeamMark {...props.Theirs}></TeamMark>
 			</div>
 		</header>
 		<div class="matchup-pairs-table" role="table" aria-label={"Starting lineup comparison: " + props.Mine.Name + " versus " + props.Theirs.Name}>
 		<div class="slot-row slot-row--head slot-row--head-desktop" role="row">
-			<span class="section-index" role="columnheader" aria-label={props.Mine.Name + " starter"}>Starter</span><span class="section-index" role="columnheader" aria-label={props.Mine.Name + " game"}>Game</span><span class="section-index" role="columnheader" aria-label={props.Mine.Name + " points"}>Pts</span><span class="section-index" role="columnheader" aria-label={props.Theirs.Name + " points"}>Pts</span><span class="section-index" role="columnheader" aria-label={props.Theirs.Name + " game"}>Game</span><span class="section-index right" role="columnheader" aria-label={props.Theirs.Name + " starter"}>Starter</span>
+			<span class="section-index" role="columnheader" aria-label={props.Mine.Name + " starter"}>Starter</span><span class="section-index" role="columnheader" aria-label={props.Mine.Name + " game"}>Game</span><span class="section-index" role="columnheader" aria-label={props.Mine.Name + " projected points"}>Proj</span><span class="section-index" role="columnheader" aria-label={props.Mine.Name + " points"}>Pts</span><span class="section-index slot-row__slot-head" role="columnheader">Slot</span><span class="section-index" role="columnheader" aria-label={props.Theirs.Name + " points"}>Pts</span><span class="section-index" role="columnheader" aria-label={props.Theirs.Name + " projected points"}>Proj</span><span class="section-index" role="columnheader" aria-label={props.Theirs.Name + " game"}>Game</span><span class="section-index right" role="columnheader" aria-label={props.Theirs.Name + " starter"}>Starter</span>
 		</div>
 		<div class="slot-row slot-row--head slot-row--head-mobile" role="row">
-			<span class="section-index" role="columnheader" aria-label={props.Mine.Name + " starter"}>You</span><span class="section-index" role="columnheader" aria-label={props.Mine.Name + " points"}>Pts</span><span class="section-index" role="columnheader" aria-label={props.Theirs.Name + " points"}>Pts</span><span class="section-index right" role="columnheader" aria-label={props.Theirs.Name + " starter"}>Opponent</span>
+			<span class="section-index" role="columnheader" aria-label={props.Mine.Name + " starter"}>You</span><span class="section-index right" role="columnheader" aria-label={props.Theirs.Name + " starter"}>Opponent</span>
 		</div>
 		<ul class="matchup-pairs" role="rowgroup">
 			<Each of={props.Pairs} as="pair">
 				<li class="matchup-pair slot-row" role="row">
 					<StarterCell {...pair.Mine}></StarterCell>
+					<span class="slot-row__slot" role="cell">{pair.Slot}</span>
 					<StarterCell {...pair.Theirs}></StarterCell>
 				</li>
 			</Each>
 		</ul>
+		<div class="matchup-pairs-totals" role="row">
+			<span class="matchup-pairs-totals__side" role="cell">PROJ <b data-gosx-live-bind={"projected." + props.Mine.ID}>{props.Mine.Projected}</b> · PTS <b data-gosx-live-bind={"scores." + props.Mine.ID}>{props.Mine.Score}</b></span>
+			<span class="matchup-pairs-totals__label" role="cell">Total</span>
+			<span class="matchup-pairs-totals__side matchup-pairs-totals__side--right" role="cell">PROJ <b data-gosx-live-bind={"projected." + props.Theirs.ID}>{props.Theirs.Projected}</b> · PTS <b data-gosx-live-bind={"scores." + props.Theirs.ID}>{props.Theirs.Score}</b></span>
 		</div>
+		</div>
+		<details class="matchup-benches">
+			<summary>Benches</summary>
+			<div class="matchup-benches__body">
+				<div class="matchup-benches__side">
+					<span class="section-index">{props.Mine.Name}</span>
+					<ul class="matchup-benches__list">
+						<Each of={props.MineBench} as="player">
+							<li><TextBlock as="span" class="matchup-benches__name" font="600 14px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={player.PlayerName} /><span class="matchup-benches__meta muted">{player.Position} · {player.NFLTeam}</span><span class="matchup-benches__proj mono">PROJ {player.Proj}</span></li>
+						</Each>
+					</ul>
+				</div>
+				<div class="matchup-benches__side">
+					<span class="section-index">{props.Theirs.Name}</span>
+					<ul class="matchup-benches__list">
+						<Each of={props.TheirsBench} as="player">
+							<li><TextBlock as="span" class="matchup-benches__name" font="600 14px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={player.PlayerName} /><span class="matchup-benches__meta muted">{player.Position} · {player.NFLTeam}</span><span class="matchup-benches__proj mono">PROJ {player.Proj}</span></li>
+						</Each>
+					</ul>
+				</div>
+			</div>
+		</details>
 		<footer class="my-matchup__foot">
 			<span class="mono muted">Points update as plays land · tap a starter for the box score</span>
 			<If cond={props.IsViewer && props.HasNextWeek}>
@@ -187,12 +232,14 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 // same shape FeaturedMatchup renders for the viewer's own matchup. Its
 // .mini team rows are copied from MiniMatchup (app/page.gsx:32-58) and
 // then diverge (a state-chip instead of a bare live-dot, a projection
-// line), so no shared component is extracted.
+// line, a record, and — A1 of the 2026-09-07 matchup redesign — the same
+// win-probability meter and still-to-play sentence the featured card
+// carries), so no shared component is extracted.
 //
 // The role="table" wrapper and its visually-hidden column-header row
 // (gap-audit item 7, wave 4 — linden) match FeaturedMatchup's own fix
 // below, minus the visible "Starter/Game/Pts" header text: Scorebug never
-// showed a visible header row for this six-column comparison (unlike
+// showed a visible header row for this nine-column comparison (unlike
 // FeaturedMatchup), and this fix keeps that unchanged for sighted users
 // while still giving a screen reader the same qualified column headers.
 // Neither side here is the viewer's own team (this card is "around the
@@ -202,33 +249,44 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 // pair.Theirs from "home", the identical left-to-right order this
 // summary already uses.
 func Scorebug(props ScorebugData) Node {
-	return <details class="scorebug card" data-live-matchup={props.ID}>
+	return <details class="scorebug card" data-live-matchup={props.ID} data-phase={props.StateClass}>
 		<summary class="scorebug__summary">
 			<div class="scorebug__meta">
 				<span class={"state-chip " + props.StateClass}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span><span data-gosx-live-bind={"matchupLiveState." + props.ID}>{props.LiveState}</span></span>
-				<span class="mono muted">proj <span data-gosx-live-bind={"projected." + props.Away.ID}>{props.ProjectedAway}</span> – <span data-gosx-live-bind={"projected." + props.Home.ID}>{props.ProjectedHome}</span></span>
+				<span class="scorebug__phase-label mono muted">{props.PhaseLabel}</span>
 			</div>
 			<div class="mini">
 				<TeamMark {...props.Away}></TeamMark>
-				<div><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Away.Name} /><TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Away.Manager} /></div>
-				<b class="pts score" data-score-team={props.Away.ID} data-gosx-live-bind={"scores." + props.Away.ID} data-gosx-live-flash-class="score-flash">{props.Away.Score}</b>
+				<div><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Away.Name} /><small class="muted matchup-team-line"><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Away.Manager} /><span class="matchup-team-line__meta"> · {props.Away.Record}</span></small></div>
+				<div class="mini__score">
+					<b class="pts score scorebug__score-value" data-score-team={props.Away.ID} data-gosx-live-bind={"scores." + props.Away.ID} data-gosx-live-flash-class="score-flash">{props.Away.Score}</b>
+					<span class="pts proj scorebug__proj-value mono" data-gosx-live-bind={"projected." + props.Away.ID}>{props.ProjectedAway}</span>
+				</div>
 			</div>
 			<div class="mini">
 				<TeamMark {...props.Home}></TeamMark>
-				<div><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Home.Name} /><TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Home.Manager} /></div>
-				<b class="pts score" data-score-team={props.Home.ID} data-gosx-live-bind={"scores." + props.Home.ID} data-gosx-live-flash-class="score-flash">{props.Home.Score}</b>
+				<div><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Home.Name} /><small class="muted matchup-team-line"><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Home.Manager} /><span class="matchup-team-line__meta"> · {props.Home.Record}</span></small></div>
+				<div class="mini__score">
+					<b class="pts score scorebug__score-value" data-score-team={props.Home.ID} data-gosx-live-bind={"scores." + props.Home.ID} data-gosx-live-flash-class="score-flash">{props.Home.Score}</b>
+					<span class="pts proj scorebug__proj-value mono" data-gosx-live-bind={"projected." + props.Home.ID}>{props.ProjectedHome}</span>
+				</div>
+			</div>
+			<div class="scorebug__prob">
+				<div class="bar"><i style={"width: " + props.WinProbHomeWidth} role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow={props.WinProbHomeAriaValue} aria-label={props.WinProbHomeAriaLabel}></i></div>
+				<small class="mono muted"><span data-gosx-live-bind={"winProb." + props.Home.ID}>{props.WinProbHome}</span> to win · <span data-gosx-live-bind={"stillToPlaySentence." + props.ID}>{props.StillToPlaySentence}</span></small>
 			</div>
 			<span class="visually-hidden" data-gosx-live-bind={"matchupStatus." + props.ID}>{props.Status}</span>
 			<span class="visually-hidden" data-gosx-live-bind={"matchupClock." + props.ID}>{props.Clock}</span>
 		</summary>
 		<div class="matchup-pairs-table" role="table" aria-label={"Starting lineup comparison: " + props.Away.Name + " versus " + props.Home.Name}>
 		<div class="slot-row slot-row--head visually-hidden" role="row">
-			<span class="section-index" role="columnheader" aria-label={props.Away.Name + " starter"}>Starter</span><span class="section-index" role="columnheader" aria-label={props.Away.Name + " game"}>Game</span><span class="section-index" role="columnheader" aria-label={props.Away.Name + " points"}>Pts</span><span class="section-index" role="columnheader" aria-label={props.Home.Name + " points"}>Pts</span><span class="section-index" role="columnheader" aria-label={props.Home.Name + " game"}>Game</span><span class="section-index right" role="columnheader" aria-label={props.Home.Name + " starter"}>Starter</span>
+			<span class="section-index" role="columnheader" aria-label={props.Away.Name + " starter"}>Starter</span><span class="section-index" role="columnheader" aria-label={props.Away.Name + " game"}>Game</span><span class="section-index" role="columnheader" aria-label={props.Away.Name + " projected points"}>Proj</span><span class="section-index" role="columnheader" aria-label={props.Away.Name + " points"}>Pts</span><span class="section-index" role="columnheader">Slot</span><span class="section-index" role="columnheader" aria-label={props.Home.Name + " points"}>Pts</span><span class="section-index" role="columnheader" aria-label={props.Home.Name + " projected points"}>Proj</span><span class="section-index" role="columnheader" aria-label={props.Home.Name + " game"}>Game</span><span class="section-index right" role="columnheader" aria-label={props.Home.Name + " starter"}>Starter</span>
 		</div>
 		<ul class="matchup-pairs" role="rowgroup">
 			<Each of={props.Pairs} as="pair">
 				<li class="matchup-pair slot-row" role="row">
 					<StarterCell {...pair.Mine}></StarterCell>
+					<span class="slot-row__slot" role="cell">{pair.Slot}</span>
 					<StarterCell {...pair.Theirs}></StarterCell>
 				</li>
 			</Each>

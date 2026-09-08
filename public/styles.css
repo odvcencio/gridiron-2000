@@ -10901,14 +10901,33 @@ body.is-on-clock .draft-clock-panel {
   background: linear-gradient(90deg, var(--color-accent), var(--color-accent-cyan));
 }
 
+/* Nine tracks per row (A2, matchup redesign 2026-09-07): STARTER, GAME,
+   PROJ, PTS per side, plus the shared slot-label column in the middle
+   (four StarterCell grid items per side — .matchup-ledger,
+   .starter-cell__state, .starter-cell__proj, .starter-cell__pts — and
+   the .slot-row__slot span page.gsx renders between the two
+   StarterCells). Was a six-track (three-per-side) grid before the PROJ
+   column and slot label landed. */
 .slot-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 5.75rem 4rem 4rem 5.75rem minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 5rem 3rem 3rem 3.25rem 3rem 3rem 5rem minmax(0, 1fr);
   align-items: center;
   gap: var(--space-sm);
   padding: 9px var(--space-md);
   border-top: 1px solid var(--color-border);
   min-height: 3.25rem;
+}
+
+.slot-row__slot {
+  text-align: center;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+}
+
+.slot-row__slot-head {
+  text-align: center;
 }
 
 .slot-row--head {
@@ -10939,24 +10958,29 @@ body.is-on-clock .draft-clock-panel {
   display: contents;
 }
 
-/* .starter-cell has display: contents (below), which promotes its three
+/* .starter-cell has display: contents (below), which promotes its four
    direct children — .matchup-ledger (the <details>, holding
-   .starter-cell__name as its <summary>), .starter-cell__state, and
-   .starter-cell__pts — to be the actual grid items .slot-row lays out;
-   .starter-cell itself never becomes a box. order and text-align must
-   target those three promoted children directly: setting either on
-   .starter-cell__name (a non-grid-item descendant, nested inside the
-   .matchup-ledger grid item) has no layout effect at all. */
+   .starter-cell__name as its <summary>), .starter-cell__state,
+   .starter-cell__proj, and .starter-cell__pts — to be the actual grid
+   items .slot-row lays out; .starter-cell itself never becomes a box.
+   order and text-align must target those four promoted children
+   directly: setting either on .starter-cell__name (a non-grid-item
+   descendant, nested inside the .matchup-ledger grid item) has no layout
+   effect at all. */
 .starter-cell[data-right="true"] .starter-cell__pts {
   order: 1;
 }
 
-.starter-cell[data-right="true"] .starter-cell__state {
+.starter-cell[data-right="true"] .starter-cell__proj {
   order: 2;
 }
 
-.starter-cell[data-right="true"] .matchup-ledger {
+.starter-cell[data-right="true"] .starter-cell__state {
   order: 3;
+}
+
+.starter-cell[data-right="true"] .matchup-ledger {
+  order: 4;
   text-align: right;
 }
 
@@ -11082,6 +11106,18 @@ body.is-on-clock .draft-clock-panel {
   font-variant-numeric: tabular-nums;
   font-size: 1.125rem;
   font-weight: 600;
+  text-align: center;
+}
+
+/* .starter-cell__proj (A2, matchup redesign 2026-09-07) is the slot
+   table's PROJ cell: same tabular-nums mono treatment as PTS, one weight
+   step lighter and muted so a scanning eye still lands on PTS first. */
+.starter-cell__proj {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--type-sm);
+  font-weight: 500;
+  color: var(--color-text-muted);
   text-align: center;
 }
 
@@ -17910,4 +17946,365 @@ a.skip-link {
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
+}
+
+/* comb — oak (2026-09-07 UX pass): /matchups redesign, Section A —
+   the featured table's totals row and Benches disclosure, the featured
+   and scorebug cards' shared centre-number swap (PROJ big before
+   kickoff, live score big with proj small under it, FINAL big), the
+   scorebug's own new win-probability meter, and the phone/1280px
+   breakpoint fixes. The base .slot-row/.starter-cell/.starter-cell__proj
+   rules earlier in this file already carry the structural nine-column
+   grid and the PROJ cell itself; everything below is presentation for
+   the new markup page.gsx renders, plus the two breakpoint overrides at
+   the end of this block. */
+
+.matchup-pairs-totals {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 3.25rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-top: 2px solid var(--color-border-strong);
+  font-family: var(--font-mono);
+}
+
+.matchup-pairs-totals__label {
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+}
+
+.matchup-pairs-totals__side {
+  font-size: var(--type-sm);
+  font-weight: 600;
+}
+
+.matchup-pairs-totals__side--right {
+  text-align: right;
+}
+
+/* Benches disclosure (A4): closed by default, native <details> — bench
+   composition is public information in this league (it explains why a
+   manager is favoured). No live-bind: the bench never plays in this
+   matchup and its weekly projection never changes mid-game. */
+.matchup-benches {
+  border-top: 1px solid var(--color-border);
+  padding: var(--space-sm) var(--space-md);
+}
+
+.matchup-benches > summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.matchup-benches__body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+  margin-top: var(--space-sm);
+}
+
+.matchup-benches__list {
+  list-style: none;
+  margin: var(--space-xs) 0 0;
+  padding: 0;
+}
+
+.matchup-benches__list li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  padding: 4px 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.matchup-benches__list li:first-child {
+  border-top: 0;
+}
+
+.matchup-benches__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.matchup-benches__meta {
+  font-size: var(--type-xs);
+}
+
+.matchup-benches__proj {
+  font-size: var(--type-xs);
+  color: var(--color-text-muted);
+}
+
+/* Featured card centre number (A1): PROJ big before kickoff, the live
+   score big with a small proj line under it during games, FINAL big
+   once the week closes. .my-matchup__score-value/.my-matchup__proj-value
+   duplicate the SAME live-bound figures (scores.<id>/projected.<id>)
+   FeaturedMatchup already carried on its score cells — this only ever
+   hides one copy or the other, never removes a bind, so a poll keeps
+   every copy current whichever one is visible (page.gsx's own comment
+   beside the win-probability bar documents the same "state classes do
+   not themselves live-update, only the bound text inside them does"
+   rule this reuses). */
+.my-matchup__phase-label {
+  display: none;
+  font-size: var(--type-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.my-matchup__proj-value {
+  display: none;
+  font-size: 2.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.my-matchup__score.state--pre .my-matchup__phase-label,
+.my-matchup__score.state--final .my-matchup__phase-label {
+  display: inline-block;
+}
+
+.my-matchup__score.state--pre .my-matchup__score-value {
+  display: none;
+}
+
+.my-matchup__score.state--pre .my-matchup__proj-value {
+  display: inline;
+}
+
+.my-matchup__score.state--pre .my-matchup__proj-sub,
+.my-matchup__score.state--final .my-matchup__proj-sub {
+  display: none;
+}
+
+/* Scorebug centre number (A1): the same PROJ/score/FINAL swap as the
+   featured card, keyed off the data-phase attribute Scorebug sets on its
+   own <details> (kept off the pinned "scorebug card" class string so the
+   existing render-test literal keeps matching). */
+.mini__score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.scorebug__phase-label {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.scorebug__proj-value {
+  display: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+details.scorebug[data-phase="state--pre"] .scorebug__score-value {
+  display: none;
+}
+
+details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
+  display: inline;
+}
+
+.scorebug__prob {
+  padding: 0 var(--space-sm) var(--space-xs);
+}
+
+.scorebug__prob .bar {
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+/* 1280px overlap fix (A3, the finding's own J3 F13, MATCHUP-LINEUP-
+   SPEC.md): an intermediate breakpoint between the desktop nav-rail
+   width and the phone breakpoint above. The featured card's own
+   three-column .my-matchup__summary (minmax(0,1fr) auto minmax(0,1fr))
+   let the centre score/probability column's natural width squeeze the
+   name/manager columns to a genuinely sub-character track at this one
+   viewport (textflow_matchups_browser_test.go's own "Item 0 re-verify
+   follow-up" doc comment tracked this as a known, then-out-of-scope
+   defect) — this reuses the SAME "mine theirs / score score" stacked
+   layout the phone breakpoint below already proves out, so the two team
+   sides stack instead of squeezing, and the centre column (which is
+   where the win-probability sentence lives) gets the full row's own
+   width instead of a shared one. The scorebug rules alongside it give
+   the same width's new win-probability line and centre-number column
+   room to wrap rather than clip. 1280px is 80rem at the app's 16px
+   root. */
+@media (width <= 80rem) {
+  .matchups-page .my-matchup__summary {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "mine theirs"
+      "score score";
+  }
+
+  .matchups-page .my-matchup__team {
+    grid-area: mine;
+  }
+
+  .matchups-page .my-matchup__team--opponent {
+    grid-area: theirs;
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .matchups-page .my-matchup__team--opponent .matchup-team-line {
+    justify-content: flex-start;
+  }
+
+  .matchups-page .my-matchup__score {
+    grid-area: score;
+  }
+
+  .matchups-page .scorebug__meta {
+    flex-wrap: wrap;
+  }
+
+  .matchups-page .mini {
+    grid-template-columns: 2.125rem minmax(0, 1fr) auto;
+  }
+
+  /* .scorebug__prob is already a plain block-level child of
+     .scorebug__summary (no flex/grid parent), so it sits on its own
+     full-width line at every viewport by default; this only lets its own
+     sentence wrap instead of overflowing at this narrower width. */
+  .matchups-page .scorebug__prob small {
+    white-space: normal;
+  }
+}
+
+/* Slot-row two-column stack (A2/A3): the per-side four-column comparison
+   (name, state, proj, pts) collapses to a two-column block per slot —
+   mine | theirs — with proj/pts stacked under the name, rather than
+   continuing to squeeze eight side-columns plus the shared slot label
+   sideways. Shares the SAME 80rem (1280px) threshold as the "1280px
+   overlap fix" block above rather than only the phone breakpoint below:
+   at 1280px the featured card's own slot table sits beside both the
+   desktop nav rail and the "around the league" aside (.matchup-layout
+   only stacks the aside below at max-width: 64rem, above), leaving too
+   little width for nine real columns — the same J3 F13 finding that
+   block's own header fix addresses, one level down. Supersedes the
+   earlier four-column phone grid (the file's existing "Task 11b:
+   Matchups summary-first layout, phone width" block, above) for the
+   same .matchups-page .slot-row selector at equal specificity — later
+   source order wins the cascade tie deliberately, the same pattern that
+   earlier block's own opening comment documents for itself against the
+   file's base (non-media) .slot-row rule. */
+@media (width <= 80rem) {
+  .matchups-page .slot-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto auto;
+    row-gap: 2px;
+    min-height: 0;
+  }
+
+  .matchups-page .slot-row__slot {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    padding-top: 4px;
+  }
+
+  .matchups-page .starter-cell .matchup-ledger {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  /* Row 3, between the name and PROJ: at <= 38rem this row collapses to
+     0 height (the "Task 11b" phone-width block, above, still hides
+     .starter-cell__state there — display: none removes a grid item from
+     layout entirely, so an otherwise-empty auto row takes no space). At
+     38rem–80rem, where that hide rule does not apply, this gives the
+     dedicated state chip its own row instead of colliding with PROJ/PTS
+     under CSS Grid's auto-placement. */
+  .matchups-page .starter-cell .starter-cell__state {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .matchups-page .starter-cell .starter-cell__proj {
+    grid-column: 1;
+    grid-row: 4;
+    text-align: left;
+  }
+
+  .matchups-page .starter-cell .starter-cell__pts {
+    grid-column: 1;
+    grid-row: 5;
+    text-align: left;
+  }
+
+  .matchups-page .starter-cell[data-right="true"] .matchup-ledger {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .matchups-page .starter-cell[data-right="true"] .starter-cell__state {
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .matchups-page .starter-cell[data-right="true"] .starter-cell__proj {
+    grid-column: 2;
+    grid-row: 4;
+    text-align: right;
+  }
+
+  .matchups-page .starter-cell[data-right="true"] .starter-cell__pts {
+    grid-column: 2;
+    grid-row: 5;
+    text-align: right;
+  }
+
+  .matchups-page .starter-cell__proj::before {
+    content: "PROJ ";
+    color: var(--color-text-muted);
+  }
+
+  .matchups-page .starter-cell__pts::before {
+    content: "PTS ";
+    color: var(--color-text-muted);
+    font-size: var(--type-xs);
+  }
+
+  .matchups-page .matchup-pairs-totals {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .matchups-page .matchup-pairs-totals__label {
+    display: none;
+  }
+
+  .matchups-page .matchup-benches__body {
+    grid-template-columns: 1fr;
+  }
+
+  /* The desktop/mobile header-row swap must move in lock-step with the
+     slot-row grid switch above — without it, the nine-span desktop
+     header row still rendered here, its columns wrapping across the new
+     two-column grid into an unreadable stack. Deliberately narrower than
+     the "Task 11b" phone-width block's own equivalent swap below (<=
+     38rem): starter_cell_state_separator_browser_test.go pins
+     .starter-cell__state-text at display: none through 1280 and 1440 (a
+     dedicated, side-qualified state-chip column reads better than
+     folding the game state into the name's own meta line at this width),
+     so the state chip stays visible here — placed into its own grid row
+     instead of hidden — rather than adopting the phone's full name/state
+     swap. */
+  .matchups-page .slot-row--head-desktop {
+    display: none;
+  }
+
+  .matchups-page .slot-row--head-mobile {
+    display: grid;
+  }
 }
