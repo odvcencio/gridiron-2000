@@ -8,6 +8,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - The Locker Room, Preseason Blitz, Settings, Rules & Scoring, Team Terminal, Big Board, and Trade Desk each keep their own confirmation banner. Posting on one of these pages no longer shows its confirmation on a different page you open next.
 - The activity feed now leads a draft-pick line with the team's name, with its code as a small secondary chip, even for an autopick or a commissioner-forced pick. It no longer repeats the code inside a combined "Autopick for Team (CODE)" sentence.
+- The draft room's player pool no longer shows a stray "DETAILS" label over the projection value when you open a player's news. The news icon stays in its own fixed column, closed or open, on a phone or a desktop.
 
 ## [release-2026.09.08-97027d0-season3] — 2026-09-08
 

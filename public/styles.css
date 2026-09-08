@@ -19917,3 +19917,28 @@ body.is-on-clock .draft-command__pill-sentence {
   overflow-wrap: normal;
   word-break: normal;
 }
+
+/* comb — yew (2026-09-08 wave E) */
+
+/* J1 F13: the draft room's pool row (.avail-row, app/draft/page.gsx) and
+   its Big Board queue row (.q-row) each keep the news icon in its own
+   fixed 2.75rem trailing cell/column already (.avail-row__info,
+   .q-row__info) — closed, the row is clean. Open, browser evidence
+   (getComputedStyle on the news <summary>'s own ::after) showed
+   content: "DETAILS −", not "none": .stat-tip[open] >
+   .stat-tip__summary::after (this file's stat-tip stacking model block)
+   and .stat-tip__summary--news::after (this file's own "content: none"
+   override) are equal specificity (0,3,1) vs (0,1,1) — the open rule's
+   extra [open] and descendant-class selectors win outright, so the open
+   state always shows "DETAILS −" even on the news trigger, sliding
+   over the PROJ column to its left ("2📰8 DETAILS −" over
+   "20.8"). team/page.gsx's own lineup-grid news icon hit the identical
+   specificity gap and fixed it with one more specific override (this
+   file's own ".lineup-slot__player .stat-tip--news > .stat-tip__summary
+   ::after" rule) — these two rules are that same fix for the draft
+   room's two own news triggers, matching (0,3,1) and winning by landing
+   later in the file. */
+.avail-row .stat-tip--news > .stat-tip__summary::after,
+.q-row .stat-tip--news > .stat-tip__summary::after {
+  content: none;
+}
