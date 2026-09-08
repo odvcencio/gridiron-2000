@@ -871,7 +871,12 @@ func googleStartHandler(flow *auth.OAuth, configured bool) http.Handler {
 type googleMembership interface {
 	EmailAllowed(email string) bool
 	CanonicalUser(user auth.User) auth.User
-	BindCoManagerOnSignIn(email, name string) (league.Member, bool, error)
+	// HasPendingCoManagerInvite (Decision 3, J5 F11) replaces the old
+	// BindCoManagerOnSignIn call here: completeSignIn only needs to know
+	// whether a pending invite exists, so it can route this identity to
+	// /login's own confirm step. It must never bind the seat itself — see
+	// completeSignIn's own doc comment.
+	HasPendingCoManagerInvite(email string) bool
 	EnsureMember(email, name string) (league.Member, error)
 }
 
@@ -966,14 +971,25 @@ const (
 // completeSignIn is the one sign-in completion chain every admission
 // method shares (design section 9, extracted from the pre-slice-3
 // googleCallbackHandlerWithMembership body): EmailAllowed → CanonicalUser →
-// SignIn → BindCoManagerOnSignIn → EnsureMember → a truthful flash and
-// redirect. Every caller (Google callback, invite-link consume today;
-// transfer-code and magic-link consume in later slices) asserts an email
-// through user.Email/user.Name and gets back the identical admission
-// order, alias canonicalization, co-manager binding, and flash copy — so
-// upgrading or downgrading between sign-in tiers can never diverge in
-// which member row a signed-in identity lands on (service.go's
-// CanonicalUser/hasPersistedMembership). Returns true on a completed sign-in.
+// SignIn → EnsureMember → a truthful flash and redirect. Every caller
+// (Google callback, invite-link consume today; transfer-code and
+// magic-link consume in later slices) asserts an email through
+// user.Email/user.Name and gets back the identical admission order and
+// alias canonicalization, so upgrading or downgrading between sign-in
+// tiers can never diverge in which member row a signed-in identity lands
+// on (service.go's CanonicalUser/hasPersistedMembership).
+//
+// A co-manager invite (Decision 3, J5 F11) no longer binds here: it used
+// to bind silently on this, the invitee's first sign-in
+// (BindCoManagerOnSignIn), which consumed the invite before the pending
+// confirm state (PublicEntryCoManagerPending) could ever render — a
+// screen that promised "Complete your shared seat" but was unreachable.
+// This chain now only checks whether one is pending
+// (HasPendingCoManagerInvite) and, when it is, sends the identity to
+// /login instead of its own original destination; the seat binds only
+// when that person chooses Join there
+// (league.Service.ConfirmCoManagerJoin). Returns true on a completed
+// sign-in.
 func completeSignIn(w http.ResponseWriter, r *http.Request, manager *auth.Manager, membership googleMembership, user auth.User, target string, opts completeSignInOptions) bool {
 	if opts.NotAdmittedMessage == "" {
 		opts.NotAdmittedMessage = completeSignInDefaultNotAdmittedMessage
@@ -1001,57 +1017,27 @@ func completeSignIn(w http.ResponseWriter, r *http.Request, manager *auth.Manage
 	// Sign-in creates membership only (registration wave, build item 1 —
 	// AssignManager's auto-seating at sign-in retires). Every signed-in,
 	// allowed email is pick'em-enrolled by definition; claiming a fantasy
-	// seat is now a deliberate act at /join (build item 2), not a side
-	// effect of the first sign-in a member ever makes. AssignManager
+	// seat is now a deliberate act at /join (build item 2) or, for a
+	// co-manager invite, at /login's own Join confirm (Decision 3) — never
+	// a side effect of the first sign-in a member ever makes. AssignManager
 	// itself stays live — /join's atomic claim calls it — this is the
 	// only call site that retires.
-	//
-	// A co-manager invite is checked first: an email a primary invited
-	// (Store.InviteCoManager) binds to that seat on this, its first
-	// sign-in (BindCoManagerOnSignIn), rather than landing seatless. Every
-	// provider — Google, an invite-link consume, a future magic link or
-	// passkey — runs this exact same check, so a co-manager invite binds
-	// identically no matter which sign-in tier the invitee first uses.
-	member, bound, err := membership.BindCoManagerOnSignIn(user.Email, user.Name)
+	member, err := membership.EnsureMember(user.Email, user.Name)
 	if err != nil {
 		return fail(opts.ErrorRedirect, opts.ErrorMessage)
 	}
-	if !bound {
-		member, err = membership.EnsureMember(user.Email, user.Name)
-		if err != nil {
-			return fail(opts.ErrorRedirect, opts.ErrorMessage)
-		}
+	if membership.HasPendingCoManagerInvite(user.Email) {
+		session.AddFlash(r, "notice", "You're in, "+user.Name+". A co-manager invite is waiting for your confirmation below.")
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return true
 	}
-	if bound {
-		primaryName := league.Default().PrimaryNameForTeam(member.TeamID, user.Email)
-		teamLabel := league.Default().TeamLabel(member.TeamID)
-		session.AddFlash(r, "notice", coManagerWelcomeFlash(teamLabel, primaryName))
-		// F11a: a dedicated flash for the home page's first-session
-		// arrival panel — the generic notice above never says what a
-		// shared seat grants, and it may render on a deep-linked "next"
-		// page rather than /.
-		session.AddFlash(r, "co_manager_bound", map[string]any{
-			"team_name":          teamLabel,
-			"primary_first_name": league.FirstName(primaryName),
-		})
-	} else if member.TeamID != "" {
+	if member.TeamID != "" {
 		session.AddFlash(r, "notice", "Welcome back to "+league.Default().TeamLabel(member.TeamID)+", "+user.Name+".")
 	} else {
 		session.AddFlash(r, "notice", "You're in, "+user.Name+". Claim a fantasy seat any time a spot opens, or head straight to Pick'em.")
 	}
 	http.Redirect(w, r, navigation.SafeReturnPath(target), http.StatusSeeOther)
 	return true
-}
-
-// coManagerWelcomeFlash builds the sign-in flash for a co-manager invite
-// just consumed (F6). It must credit the seat's primary manager, never the
-// invitee who is reading it — the invitee already knows their own name.
-func coManagerWelcomeFlash(teamLabel, primaryName string) string {
-	primaryName = strings.TrimSpace(primaryName)
-	if primaryName == "" {
-		primaryName = "the primary manager"
-	}
-	return "You're co-managing " + teamLabel + " alongside its primary manager, " + primaryName + "."
 }
 
 func googleAuthConfigured() bool {

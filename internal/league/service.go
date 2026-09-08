@@ -1698,6 +1698,43 @@ func (s *Service) BindCoManagerOnSignIn(email, name string) (member Member, boun
 	return member, bound, nil
 }
 
+// HasPendingCoManagerInvite reports whether email has an unconsumed
+// co-manager invite, with no side effect (Decision 3, J5 F11): main.go's
+// sign-in callback asks this to decide whether to route a freshly
+// signed-in identity to the confirm step, without binding anything —
+// binding now happens only through ConfirmCoManagerJoin, at that
+// person's own explicit choice.
+func (s *Service) HasPendingCoManagerInvite(email string) bool {
+	email = s.identityResolver.Resolve(email)
+	_, pending := s.store.Snapshot().CoInvites[email]
+	return pending
+}
+
+// ConfirmCoManagerJoin binds the CURRENT signed-in identity's own pending
+// co-manager invite (Decision 3, J5 F11): a co-manager invite used to
+// bind silently on first sign-in (BindCoManagerOnSignIn, called from
+// main.go's sign-in callback), and the pending confirm state it was
+// written for could never render because the bind already happened.
+// The seat now binds only here, when the invited person themselves
+// chooses "Join" on the pending-invite screen (app/login) — never as a
+// side effect of signing in, and never for any identity but the caller's
+// own session. Returns an error when no session is signed in, or when
+// the signed-in identity has no pending invite to confirm.
+func (s *Service) ConfirmCoManagerJoin(r *http.Request) (Member, error) {
+	user, ok := s.CurrentUser(r)
+	if !ok {
+		return Member{}, fmt.Errorf("sign in first")
+	}
+	member, bound, err := s.BindCoManagerOnSignIn(user.Email, user.Name)
+	if err != nil {
+		return Member{}, err
+	}
+	if !bound {
+		return Member{}, fmt.Errorf("no co-manager invite is pending for this identity")
+	}
+	return member, nil
+}
+
 // isPrimaryOfTeam reports whether the request's signed-in identity is
 // teamID's own primary manager (Role == ""). Demo mode has no real
 // per-seat identity, so it treats every named seat as actable — the same

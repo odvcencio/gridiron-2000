@@ -14,9 +14,14 @@ func renderPublicEntryState(t *testing.T, mode, state string, signedIn bool, adm
 	actionHref := "/guide#identity"
 	roleLabel := "PRIMARY MANAGER"
 	if state == "co_manager_pending" {
-		detail = "You are invited to co-manage Fixture Team. Complete Google sign-in again to bind this identity to the shared franchise."
-		actionLabel = "Complete co-manager sign-in →"
-		actionHref = "/auth/google/start?next=%2Fteam"
+		// Decision 3 (J5 F11): the pending state now renders a real "Join"
+		// form (actionPath("co-manager-join"), page.gsx), not a plain link
+		// — actionLabel is the button's own text; actionHref is unused by
+		// this branch (kept in the data shape for any other surface
+		// projecting public_entry, see internal/league/public_entry.go).
+		detail = "Primary Manager invited you to co-manage Fixture Team. You'll share the same roster, Big Board, and draft controls; the seat binds only if you choose Join."
+		actionLabel = "Join"
+		actionHref = "/guide#identity"
 		roleLabel = "CO-MANAGER INVITED"
 	}
 	program, err := route.LoadFileProgram("page.gsx")
@@ -128,7 +133,7 @@ func TestPublicEntryRenderMatrixKeepsActionsTruthful(t *testing.T) {
 		{name: "admitted seatless full", state: "admitted_seatless_full", signedIn: true, admitted: true, full: true, wantHref: "/pickem", forbidHref: "/join"},
 		{name: "primary", state: "primary", signedIn: true, admitted: true, hasSeat: true, wantHref: "/team"},
 		{name: "co-manager", state: "co_manager", signedIn: true, admitted: true, hasSeat: true, wantHref: "/team"},
-		{name: "pending co-manager", state: "co_manager_pending", signedIn: true, admitted: true, wantHref: "/auth/google/start?next=%2Fteam", forbidHref: "/join"},
+		{name: "pending co-manager", state: "co_manager_pending", signedIn: true, admitted: true, wantHref: `href="/" data-gosx-link class="button button--ghost">Not now`, forbidHref: "/join"},
 		{name: "authenticated pending", state: "authenticated_pending", signedIn: true, wantHref: "/guide#identity", forbidHref: "/join"},
 	}
 	for _, mode := range []string{"DYNASTY", "REDRAFT"} {
@@ -142,11 +147,11 @@ func TestPublicEntryRenderMatrixKeepsActionsTruthful(t *testing.T) {
 					t.Fatalf("render exposed forbidden action %q: %s", tt.forbidHref, html)
 				}
 				if tt.state == "co_manager_pending" &&
-					(!strings.Contains(html, "Fixture Team") || !strings.Contains(html, "Complete co-manager sign-in")) {
-					t.Fatalf("pending co-manager render omitted invited-team recovery truth: %s", html)
+					(!strings.Contains(html, "Fixture Team") || !strings.Contains(html, `<button type="submit" class="button button--primary">Join</button>`)) {
+					t.Fatalf("pending co-manager render omitted a real Join form: %s", html)
 				}
-				if tt.state == "co_manager_pending" && strings.Contains(html, "href=\"/auth/google/start?next=%2Fteam\" data-gosx-link") {
-					t.Fatalf("pending co-manager OAuth recovery must use native navigation: %s", html)
+				if tt.state == "co_manager_pending" && strings.Contains(html, "/auth/google/start?next=%2Fteam") {
+					t.Fatalf("pending co-manager render still points at the old, unreachable reauthentication link: %s", html)
 				}
 				if strings.Contains(html, "Every seat belongs to one manager.") || strings.Contains(html, "Your league access will be waiting.") {
 					t.Fatalf("render retained unconditional admission promise: %s", html)

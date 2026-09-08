@@ -78,20 +78,9 @@ func TestStateSchemaPayloadExposesOnlyCompatibilityEvidence(t *testing.T) {
 	}
 }
 
-// F6: the co-manager welcome flash must credit the seat's primary manager,
-// never the invitee who just signed in to consume the invite.
-func TestCoManagerWelcomeFlashNamesThePrimaryNotTheInvitee(t *testing.T) {
-	got := coManagerWelcomeFlash("Caleb's Corn Dogs", "Priya Anand Fixture")
-	want := "You're co-managing Caleb's Corn Dogs alongside its primary manager, Priya Anand Fixture."
-	if got != want {
-		t.Fatalf("coManagerWelcomeFlash = %q, want %q", got, want)
-	}
-}
+// F6, moved to league.CoManagerWelcomeFlash (Decision 3, J5 F11): the
+// co-manager welcome sentence now builds in the "Join" confirm action
+// (app/login) rather than the sign-in callback, since the seat no longer
+// binds silently at sign-in. See internal/league/public_entry_test.go
+// for its own coverage.
 
-func TestCoManagerWelcomeFlashFallsBackWhenNoPrimaryName(t *testing.T) {
-	got := coManagerWelcomeFlash("Caleb's Corn Dogs", "")
-	want := "You're co-managing Caleb's Corn Dogs alongside its primary manager, the primary manager."
-	if got != want {
-		t.Fatalf("coManagerWelcomeFlash = %q, want %q", got, want)
-	}
-}

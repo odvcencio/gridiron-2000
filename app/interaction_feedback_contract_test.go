@@ -96,7 +96,12 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// J6 F15 (2026-09-08 wave C): app/wire/page.server.go's tip action
 	// moved from RedirectBackWithNotice to RedirectBackWithScopedNotice
 	// so the Wire's confirmation renders only on the Wire (42 -> 41).
-	const wantRedirects = 15
+	// Decision 3 (J5 F11, wave E): app/login/page.server.go's new
+	// "co-manager-join" action calls actionui.RedirectWithNotice twice —
+	// once on failure (back to /login), once on success (to /, where the
+	// arrival panel reads the co_manager_bound flash it also sets)
+	// (15 -> 17).
+	const wantRedirects = 17
 	const wantRedirectBacks = 41
 	redirects := 0
 	redirectBacks := 0

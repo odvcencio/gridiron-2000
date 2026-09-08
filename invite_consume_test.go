@@ -21,7 +21,18 @@ import (
 // /auth/invite/{token} HTTP route instead. Both routes now call the same
 // extracted completeSignIn (main.go), so this is a structural guarantee,
 // not a coincidence — this test proves it holds in practice too.
-func TestInviteConsumeBindsPendingCoManagerInviteExactlyLikeGoogle(t *testing.T) {
+// TestInviteConsumeLeavesPendingCoManagerInviteExactlyLikeGoogle is
+// Decision 3's own consistency contract (J5 F11): every sign-in tier
+// completeSignIn serves must treat a pending co-manager invite
+// identically. A co-manager invite used to bind immediately on invite-
+// link consume, exactly as it did on a first Google sign-in — that
+// silent bind is gone from both now (main.go's completeSignIn no longer
+// calls BindCoManagerOnSignIn). Consuming the invite link admits this
+// identity and leaves the co-manager invite pending; the seat binds only
+// through the invitee's own explicit "Join" on /login
+// (league.Service.ConfirmCoManagerJoin), reached over the SAME session
+// the link consume established.
+func TestInviteConsumeLeavesPendingCoManagerInviteExactlyLikeGoogle(t *testing.T) {
 	hermeticEnv(t)
 	t.Setenv("GRIDIRON_TEST_AUTH", "1")
 	cfg, err := AppConfigFromEnv()
@@ -64,8 +75,39 @@ func TestInviteConsumeBindsPendingCoManagerInviteExactlyLikeGoogle(t *testing.T)
 	if !ok {
 		t.Fatal("co-invitee did not become a member after consuming the invite link")
 	}
+	if member.TeamID != "" {
+		t.Fatalf("co-invitee TeamID = %q after consuming the invite link alone, want \"\" (the seat must not bind until Join)", member.TeamID)
+	}
+
+	loginRes, err := client.Get(srv.URL + "/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginBody, err := io.ReadAll(loginRes.Body)
+	loginRes.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loginRes.StatusCode != http.StatusOK {
+		t.Fatalf("GET /login (after invite-link consume) = %d, want 200: %s", loginRes.StatusCode, loginBody)
+	}
+	csrf := extractCSRFToken(t, string(loginBody))
+	joinRes, err := client.PostForm(srv.URL+"/login/__actions/co-manager-join", url.Values{"csrf_token": {csrf}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.Copy(io.Discard, joinRes.Body)
+	joinRes.Body.Close()
+	if joinRes.StatusCode != http.StatusOK {
+		t.Fatalf("POST /login/__actions/co-manager-join = %d, want 200", joinRes.StatusCode)
+	}
+
+	member, ok = league.Default().MemberByEmailForTest(coInviteeEmail)
+	if !ok {
+		t.Fatal("co-invitee member row disappeared after Join")
+	}
 	if member.TeamID != primary.TeamID {
-		t.Fatalf("co-invitee TeamID = %q, want %q (the primary's team)", member.TeamID, primary.TeamID)
+		t.Fatalf("co-invitee TeamID = %q after Join, want %q (the primary's team)", member.TeamID, primary.TeamID)
 	}
 	if member.Role == "" {
 		t.Fatal("co-invitee bound with an empty Role; expected the co-manager role, not the primary slot")

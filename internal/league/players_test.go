@@ -1621,8 +1621,8 @@ func TestPlayersDataPublicEntryMatrixAndPrivacy(t *testing.T) {
 					t.Fatal(err)
 				}
 				if tt.wantState == PublicEntryCoManagerPending {
-					if got := entry["action_label"]; got != "Complete co-manager invitation →" {
-						t.Fatalf("pending co-manager action label = %v, want invitation guidance", got)
+					if got := entry["action_label"]; got != "Join" {
+						t.Fatalf("pending co-manager action label = %v, want the Join confirm action", got)
 					}
 					if strings.Contains(string(encoded), "/auth/google/start?next=%2Fteam") {
 						t.Fatalf("pending co-manager player entry exposed stale reauthentication: %s", encoded)
