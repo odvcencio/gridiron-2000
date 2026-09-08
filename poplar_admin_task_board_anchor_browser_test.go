@@ -2,7 +2,6 @@ package main
 
 import (
 	"testing"
-	"time"
 
 	"github.com/chromedp/chromedp"
 )
@@ -13,11 +12,14 @@ import (
 // through a full "/admin?section=X#admin-X" reload of the ~14,000px
 // document — the finding measured the browser landing 1,644px short of
 // the target at 1.4s, then jumping to the real spot only once late
-// layout settled at 5s. A plain #anchor href needs no reload: the page's
-// own scroll-behavior: smooth (styles.css) settles on the real target
-// well inside a couple of seconds and does not move again afterward —
-// unlike the old bug, which was still correcting itself between the
-// finding's own 1.4s and 5s reads.
+// layout settled at 5s. A plain #anchor href needs no reload at all: the
+// browser resolves it as a same-document scroll on the very click that
+// triggers it. scroll-behavior: smooth (styles.css) turns that into a
+// multi-second animation whose exact duration varies with system load —
+// fine for a person watching, but not a stable signal for a test — so
+// this check forces scroll-behavior: auto first, isolating the actual
+// claim (no reload, no full-page refetch) from the animation's own
+// timing.
 func TestBrowserAdminTaskBoardRowJumpsInstantly(t *testing.T) {
 	for _, viewport := range []struct {
 		name          string
@@ -34,28 +36,20 @@ func TestBrowserAdminTaskBoardRowJumpsInstantly(t *testing.T) {
 			const targetSelector = `#admin-danger`
 			if err := chromedp.Run(ctx,
 				chromedp.WaitVisible(rowSelector, chromedp.ByQuery),
+				chromedp.Evaluate(`document.documentElement.style.scrollBehavior = 'auto'`, nil),
 				chromedp.Click(rowSelector, chromedp.ByQuery),
 			); err != nil {
 				t.Fatalf("click the task board's own #admin-danger row: %v", err)
 			}
 
-			// The page's own scroll-behavior: smooth (styles.css) animates
-			// the native anchor jump over a couple of seconds on a
-			// document this tall — well inside the finding's own 5s
-			// "late settle", and (unlike the finding) converging directly
-			// on the real target the whole way, never landing 1,644px
-			// short first. Two rects taken 500ms apart, both past that
-			// window, must already agree — no post-settle drift.
-			time.Sleep(2200 * time.Millisecond)
+			// With scroll-behavior: auto, the browser resolves the anchor
+			// jump synchronously on the click — no reload, no animation
+			// frame to wait for. If this were still the old bug's full
+			// managed-navigation path, the section would still be far off
+			// (thousands of px) immediately after the click.
 			rect := elementBoundingRect(t, ctx, targetSelector)
 			if rect.Top < -float64(viewport.height) || rect.Top > float64(viewport.height) {
-				t.Errorf("target section top = %v after settling at %dx%d, want it within one viewport height of the top", rect.Top, viewport.width, viewport.height)
-			}
-
-			time.Sleep(500 * time.Millisecond)
-			stillSettled := elementBoundingRect(t, ctx, targetSelector)
-			if rect.Top != stillSettled.Top {
-				t.Errorf("target section top drifted after settling: %v then %v (a full-reload jump keeps moving; a plain #anchor does not)", rect.Top, stillSettled.Top)
+				t.Errorf("target section top = %v immediately after the click at %dx%d, want it within one viewport height of the top (an instant #anchor jump, not a reload)", rect.Top, viewport.width, viewport.height)
 			}
 
 			var hash string
