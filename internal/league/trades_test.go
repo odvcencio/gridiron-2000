@@ -208,7 +208,7 @@ func TestTradesDataRosterOptionsCarryJudgingDetail(t *testing.T) {
 	svc.SetPlayerSource(func() ([]Player, int64, string) {
 		pool := tradeAssetsFixturePool()
 		p := pool["t1-a"]
-		p.ByeWeek, p.Projection, p.Points = 9, 14.2, 132.4
+		p.ByeWeek, p.Projection = 9, 14.2
 		pool["t1-a"] = p
 		out := make([]Player, 0, len(pool))
 		for _, player := range pool {
@@ -241,13 +241,60 @@ func TestTradesDataRosterOptionsCarryJudgingDetail(t *testing.T) {
 	if opt.Position != "RB" || opt.NFLTeam != "PIT" || opt.ByeLabel != "Bye 9" {
 		t.Errorf("t1-a option = %+v, want Position RB, NFLTeam PIT, ByeLabel \"Bye 9\"", opt)
 	}
-	if opt.Projection != "14.2" || opt.SeasonPoints != "132.4" {
-		t.Errorf("t1-a option = %+v, want Projection 14.2, SeasonPoints 132.4", opt)
+	// SeasonPoints reads the same weekly-ledger truth /team has used
+	// since rev 108 (weeklyPlayerPointsText, matchup_ledger.go): honest
+	// "—" before the week's ledger has posted, never a claimed "0.0".
+	// This fixture attaches no stats source, so nothing has posted yet.
+	if opt.Projection != "14.2" || opt.SeasonPoints != "—" {
+		t.Errorf("t1-a option = %+v, want Projection 14.2, SeasonPoints \"—\"", opt)
 	}
-	for _, want := range []string{"PIT", "Bye 9", "PROJ 14.2", "PTS 132.4"} {
+	for _, want := range []string{"PIT", "Bye 9", "PROJ 14.2", "PTS —"} {
 		if !strings.Contains(opt.Detail, want) {
 			t.Errorf("t1-a Detail = %q, missing %q", opt.Detail, want)
 		}
+	}
+}
+
+// TestTradesDataRosterOptionPointsMatchesPostedWeeklyLedger is the
+// coordinator's own follow-up regression test (2026-09-08): once the
+// weekly ledger actually posts a stat line for a player, the composer
+// must show the real scored number, matching /team's own ledger-truth
+// rule, not stay stuck on the honest-but-now-stale "—".
+func TestTradesDataRosterOptionPointsMatchesPostedWeeklyLedger(t *testing.T) {
+	svc, _ := newTradesTestService(t, "")
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
+		if week != 1 {
+			return nil
+		}
+		return []WeekStatLine{{Key: normalizePlayerKey("Team1 A", "RB"), Stats: map[string]float64{"rushTD": 1}}}
+	})
+
+	var options []TradeRosterOption
+	var optionsOK bool
+	if err := tradeActionAs(t, "team-1@example.com", func(r *http.Request) error {
+		options, optionsOK = svc.TradesData(r)["my_options"].([]TradeRosterOption)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !optionsOK {
+		t.Fatal("my_options is not a []TradeRosterOption")
+	}
+	var opt TradeRosterOption
+	found := false
+	for _, o := range options {
+		if o.ID == "t1-a" {
+			opt, found = o, true
+		}
+	}
+	if !found {
+		t.Fatalf("t1-a missing from my_options: %#v", options)
+	}
+	if opt.SeasonPoints != "6.0" {
+		t.Errorf("t1-a SeasonPoints = %q, want \"6.0\" (one rushing TD at the default 6 points/TD)", opt.SeasonPoints)
+	}
+	if !strings.Contains(opt.Detail, "PTS 6.0") {
+		t.Errorf("t1-a Detail = %q, missing %q", opt.Detail, "PTS 6.0")
 	}
 }
 

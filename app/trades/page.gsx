@@ -699,7 +699,7 @@ func TradeDeskRegion() Node {
 			</div>
 			<If cond={data.history_empty}>
 				<div class="empty-tape">
-					<strong>NO TERMINAL TRADE HISTORY</strong>
+					<strong>No trade history yet</strong>
 					<p>
 						Executed, declined, withdrawn, countered, vetoed, expired, and failed offers appear here for the participating seats.
 					</p>
