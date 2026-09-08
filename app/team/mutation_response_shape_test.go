@@ -75,3 +75,54 @@ func TestLineupMutationSuccessAlwaysRedirects(t *testing.T) {
 		})
 	}
 }
+
+// TestLineupMutationSuccessKeepsChangedRowFragmentForManagedRequests pins
+// J3 F8: a lineup-set names the slot it changed (ctx.FormData["slot"]),
+// and — unlike the plain "#lineup" section anchor a slot-less save (SET
+// BEST LINEUP) still gets stripped for a managed request — a managed
+// request here must keep that row's own fragment so the manager lands
+// back on the exact slot just changed, not the top of the page.
+func TestLineupMutationSuccessKeepsChangedRowFragmentForManagedRequests(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		accept     string
+		wantTarget string
+	}{
+		{name: "native", accept: "", wantTarget: "/team?week=2#slot-FLEX"},
+		{name: "managed", accept: "application/json", wantTarget: "/team?week=2#slot-FLEX"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/team/__actions/lineup-set", nil)
+			request.Form = map[string][]string{"week": {"2"}, "slot": {"FLEX"}}
+			if tt.accept != "" {
+				request.Header.Set("Accept", tt.accept)
+				request.Header.Set("X-Requested-With", "XMLHttpRequest")
+			}
+			response := httptest.NewRecorder()
+			action.ServeHandler(response, request, func(ctx *action.Context) error {
+				ctx.FormData = map[string]string{"week": "2", "slot": "FLEX"}
+				return lineupMutationSuccess(ctx, "Cam Skattebo starts at FLEX.")
+			})
+
+			if response.Code != http.StatusSeeOther {
+				t.Fatalf("status = %d, want 303", response.Code)
+			}
+			if tt.accept == "" {
+				if got := response.Header().Get("Location"); got != tt.wantTarget {
+					t.Fatalf("native Location = %q, want %q", got, tt.wantTarget)
+				}
+				return
+			}
+			var result action.Result
+			if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+				t.Fatalf("decode managed result: %v", err)
+			}
+			if !result.OK {
+				t.Fatalf("managed result.OK = false, want true: %+v", result)
+			}
+			if result.Redirect != tt.wantTarget {
+				t.Fatalf("managed result.Redirect = %q, want %q — a managed lineup-set must keep the changed row's own fragment", result.Redirect, tt.wantTarget)
+			}
+		})
+	}
+}

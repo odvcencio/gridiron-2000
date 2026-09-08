@@ -90,3 +90,21 @@ func (s *Service) liveStatus() (LiveStatus, bool) {
 	}
 	return fn(), true
 }
+
+// livePollerEnabled reports whether the live-scoring poller is actually
+// wired and turned on (LIVE_SCORING_ENABLED != "false" in live_scoring.go,
+// carried here as LiveStatus.Enabled). matchupPresentation (J3 F1) reads
+// this once, here, rather than at each of its two callers, so both the
+// /matchups status line and the home page's live region agree: neither
+// may promise "Live scores on" while no poller is running to keep that
+// promise. No wired source (tests, or a build that never called
+// SetLiveStatusSource) means "unknown, not "off"; this returns true so
+// behavior stays exactly as it was before this poller-aware check
+// existed.
+func (s *Service) livePollerEnabled() bool {
+	status, hasLive := s.liveStatus()
+	if !hasLive {
+		return true
+	}
+	return status.Enabled
+}

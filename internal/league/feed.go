@@ -322,11 +322,15 @@ func (p scheduleProvider) weekState(week int, matchups []LeagueMatchup, now time
 		return MatchupStateDegraded, "Schedule loaded; kickoff timing is unavailable", "TIMING UNAVAILABLE", ""
 	}
 	earliest := weekGames[0].Kickoff
+	latest := weekGames[0].Kickoff
 	weekStarted := false
 	allNFLFinal := true
 	for _, game := range weekGames {
 		if game.Kickoff.Before(earliest) {
 			earliest = game.Kickoff
+		}
+		if game.Kickoff.After(latest) {
+			latest = game.Kickoff
 		}
 		if !now.Before(game.Kickoff) {
 			weekStarted = true
@@ -340,11 +344,27 @@ func (p scheduleProvider) weekState(week int, matchups []LeagueMatchup, now time
 		kickoff := earliest.In(location).Format("Mon Jan 2 · 3:04 PM MST")
 		return MatchupStateScheduled, "Fantasy scoring begins " + kickoff, kickoff, earliest.In(location).Format("Monday 3:04 PM") + " slate"
 	}
-	if allNFLFinal {
-		return MatchupStateDegraded, "NFL games are final; fantasy results await week close", "AWAITING CLOSE", now.In(location).Format("Mon Jan 2") + " · games final"
+	// J3 F2: a week must leave "in progress" even when no game ever
+	// carries a Final flag — a stalled or unreachable stats source must
+	// not pin the page on a live game clock forever. Six hours past the
+	// week's last kickoff is long enough for any NFL game to have ended,
+	// so past that point the week reads as over regardless of the Final
+	// bit (weekOverByTime below); allNFLFinal still exits sooner, the
+	// moment every game's own Final flag is actually set.
+	weekOverByTime := now.Sub(latest) > 6*time.Hour
+	if allNFLFinal || weekOverByTime {
+		return MatchupStateDegraded, "Games are over · fantasy results await week close", "AWAITING CLOSE", now.In(location).Format("Mon Jan 2") + " · games final"
 	}
-	return MatchupStateInProgress, "Fantasy scoring is in progress", DefaultMatchupClockLabel, matchupSlateLine(now, location)
+	return MatchupStateInProgress, "Fantasy scoring is in progress", DefaultMatchupClockLabel, matchupSlateLine(now, weekGames, location)
 }
+
+// slateWindowAfter is how long after its own kickoff a single game still
+// counts as "inside its window" for matchupSlateLine's slate-name guess.
+// It mirrors the live poller's own polling window
+// (internal/livescore's unexported windowAfter) without importing that
+// package — internal/league must not import internal/livescore — since
+// this package only ever has persisted schedule kickoffs to work from.
+const slateWindowAfter = 5 * time.Hour
 
 // matchupSlateLine is the masthead subtitle's date/slate phrase for an
 // in-progress week ("Sun Sep 13 · late slate in progress", the approved
@@ -354,8 +374,26 @@ func (p scheduleProvider) weekState(week int, matchups []LeagueMatchup, now time
 // per-game classification), matching the mockup's own single-phrase
 // scope; it never needs game-level precision because SourceLine (the
 // status line just below it) already carries the authoritative per-game
-// freshness detail.
-func matchupSlateLine(now time.Time, location *time.Location) string {
+// freshness detail. It does, though (J3 F2), first check that some game
+// this week is actually inside its own kickoff-to-slateWindowAfter
+// window right now — otherwise the hour-of-day guess alone could name a
+// slate on a day or in a gap with no game live at all (a Friday between
+// Thursday and Sunday games, say), and this returns "" instead; the
+// caller's page hides the whole subtitle line when it is empty.
+func matchupSlateLine(now time.Time, games []GameInfo, location *time.Location) string {
+	inWindow := false
+	for _, game := range games {
+		if game.Kickoff.IsZero() {
+			continue
+		}
+		if !now.Before(game.Kickoff) && !now.After(game.Kickoff.Add(slateWindowAfter)) {
+			inWindow = true
+			break
+		}
+	}
+	if !inWindow {
+		return ""
+	}
 	local := now.In(location)
 	hour := local.Hour()
 	slate := "early"

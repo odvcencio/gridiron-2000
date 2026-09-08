@@ -757,6 +757,45 @@ func TestSetLineupLockBoundary(t *testing.T) {
 	}
 }
 
+// TestLineupSlotOptionsKeepsLockedPlayersDisabledWithReason pins J3 F29:
+// a locked player used to vanish from a slot's <select> outright, with
+// no explanation — the pool row for the same player does say why it is
+// locked, so the absence read as a bug. rb-locked (TB, already kicked
+// off in this fixture) fits RB2 by position but must now stay in RB2's
+// option list, disabled, with its label naming the reason.
+func TestLineupSlotOptionsKeepsLockedPlayersDisabledWithReason(t *testing.T) {
+	svc, _, _ := newLineupTestService(t)
+	data := svc.TeamData(httptestNewGET("/team"))
+	starters, ok := data["starters"].([]map[string]any)
+	if !ok {
+		t.Fatalf("starters = %#v, want []map[string]any", data["starters"])
+	}
+	for _, row := range starters {
+		if row["slot_id"] != "RB2" {
+			continue
+		}
+		options, ok := row["options"].([]map[string]any)
+		if !ok {
+			t.Fatalf("RB2 options = %#v, want []map[string]any", row["options"])
+		}
+		for _, opt := range options {
+			if opt["id"] != "rb-locked" {
+				continue
+			}
+			if opt["disabled"] != true {
+				t.Fatalf("rb-locked option = %#v, want disabled", opt)
+			}
+			label, _ := opt["label"].(string)
+			if !strings.Contains(label, "— locked, game started") {
+				t.Fatalf("rb-locked label = %q, want it to name the lock reason", label)
+			}
+			return
+		}
+		t.Fatal("RB2 options do not carry rb-locked at all, want it present and disabled")
+	}
+	t.Fatal("no RB2 row in starters")
+}
+
 // TestSetLineupDisplacesPlayerFromPriorExplicitSlot pins section 4.4's
 // "a player occupies at most one slot" rule: assigning a player already
 // explicitly holding another slot clears that slot in the same write.
@@ -778,6 +817,157 @@ func TestSetLineupDisplacesPlayerFromPriorExplicitSlot(t *testing.T) {
 	if !ok || !wr1.HasPlayer || wr1.Player.ID != "wr-open" {
 		t.Fatalf("WR1 = %+v, want wr-open", wr1)
 	}
+}
+
+// TestTeamDataProjectedSumsStartersOnly pins item 8 of the 2026-09-07
+// truth pass: the team stat strip's PROJECTED figure used to sum the
+// WHOLE roster, bench included — a manager with a strong bench read a
+// bigger number here than on /matchups' featured card for the exact
+// same team and week. This fixture guarantees one bench player with a
+// known, nonzero projection (rbD, 0.5) that a correct starters-only sum
+// must exclude.
+func TestTeamDataProjectedSumsStartersOnly(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: 1, Kickoff: now.Add(time.Hour), Away: "PIT", Home: "NYJ"}}
+	})
+	players := []Player{
+		{ID: "qb1", Name: "QB One", Position: "QB", NFLTeam: "PIT", Projection: 10},
+		{ID: "rbA", Name: "RB A", Position: "RB", NFLTeam: "PIT", Projection: 20},
+		{ID: "rbB", Name: "RB B", Position: "RB", NFLTeam: "PIT", Projection: 18},
+		{ID: "wrA", Name: "WR A", Position: "WR", NFLTeam: "PIT", Projection: 15},
+		{ID: "wrB", Name: "WR B", Position: "WR", NFLTeam: "PIT", Projection: 12},
+		{ID: "teA", Name: "TE A", Position: "TE", NFLTeam: "PIT", Projection: 9},
+		{ID: "rbC", Name: "RB C", Position: "RB", NFLTeam: "PIT", Projection: 1},
+		{ID: "rbD", Name: "RB D", Position: "RB", NFLTeam: "PIT", Projection: 0.5},
+	}
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return players, 1, "test" })
+	draftFixtureOntoTeam1(t, svc, now, []string{"qb1", "rbA", "rbB", "wrA", "wrB", "teA", "rbC", "rbD"})
+
+	data := svc.TeamData(httptestNewGET("/team"))
+	// QB(10) + RB1(20) + RB2(18) + WR1(15) + WR2(12) + TE(9) + FLEX(rbC,1)
+	// = 85; rbD (0.5, benched) must not add in.
+	want := "85.0"
+	if got := data["projected"]; got != want {
+		t.Fatalf("projected = %#v, want %q (starters only; the whole-roster sum would read 85.5)", got, want)
+	}
+}
+
+// TestTeamDataBenchPointsReadDashUntilLedgerPosts pins J3 F12: /team's
+// bench rows used to format player.Points directly — a field nothing in
+// this codebase ever populates from a real source, so a bench row read
+// "0.0" whether or not the weekly ledger had posted, contradicting
+// /matchups' own honest "—" for the identical not-yet-known case. This
+// fixture guarantees a genuine bench player (rbD; the other seven fill
+// every starting slot with nothing left over).
+func TestTeamDataBenchPointsReadDashUntilLedgerPosts(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: 1, Kickoff: now.Add(time.Hour), Away: "PIT", Home: "NYJ"}}
+	})
+	players := []Player{
+		{ID: "qb1", Name: "QB One", Position: "QB", NFLTeam: "PIT", Projection: 10},
+		{ID: "rbA", Name: "RB A", Position: "RB", NFLTeam: "PIT", Projection: 20},
+		{ID: "rbB", Name: "RB B", Position: "RB", NFLTeam: "PIT", Projection: 18},
+		{ID: "wrA", Name: "WR A", Position: "WR", NFLTeam: "PIT", Projection: 15},
+		{ID: "wrB", Name: "WR B", Position: "WR", NFLTeam: "PIT", Projection: 12},
+		{ID: "teA", Name: "TE A", Position: "TE", NFLTeam: "PIT", Projection: 9},
+		{ID: "rbC", Name: "RB C", Position: "RB", NFLTeam: "PIT", Projection: 1},
+		{ID: "rbD", Name: "Bench Rusher", Position: "RB", NFLTeam: "PIT", Projection: 0.5},
+	}
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return players, 1, "test" })
+	draftFixtureOntoTeam1(t, svc, now, []string{"qb1", "rbA", "rbB", "wrA", "wrB", "teA", "rbC", "rbD"})
+
+	benchRowFor := func(data map[string]any) map[string]any {
+		t.Helper()
+		bench, ok := data["bench"].([]map[string]any)
+		if !ok {
+			t.Fatalf("bench = %#v, want []map[string]any", data["bench"])
+		}
+		for _, row := range bench {
+			if row["id"] == "rbD" {
+				return row
+			}
+		}
+		t.Fatal("rbD is not on the bench — fixture assumption broken")
+		return nil
+	}
+
+	before := benchRowFor(svc.TeamData(httptestNewGET("/team")))
+	if before["points"] != "—" {
+		t.Fatalf("bench points before the ledger posts = %#v, want the honest dash, not a false 0.0", before["points"])
+	}
+
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
+		return []WeekStatLine{{Key: normalizePlayerKey("Bench Rusher", "RB"), Stats: map[string]float64{"reception": 4}}}
+	})
+	after := benchRowFor(svc.TeamData(httptestNewGET("/team")))
+	if after["points"] == "—" || after["points"] == "0.0" {
+		t.Fatalf("bench points once the ledger posts a line = %#v, want a real computed score", after["points"])
+	}
+}
+
+// TestSetLineupReportsEveryCascadingChange pins J3 F4: one lineup-set
+// action can cascade through auto-fill into two more slots, and the
+// result message must name every one of them, not just the slot the
+// manager directly touched. Fixture: RB1 = Cam Skattebo, RB2 = a fixed
+// high-projection incumbent that never moves, FLEX = Jaylen Warren,
+// bench = Bucky Irving (the highest remaining RB projection). Setting
+// FLEX to Cam Skattebo vacates RB1; auto-fill promotes Bucky Irving into
+// it; Jaylen Warren, with nowhere else to start, lands on the bench —
+// and the write never touched RB1 or the bench directly.
+func TestSetLineupReportsEveryCascadingChange(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	games := []GameInfo{{ID: "g-pit", Week: 1, Kickoff: now.Add(time.Hour), Away: "PIT", Home: "NYJ"}}
+	svc.SetScheduleSource(func() []GameInfo { return games })
+	players := []Player{
+		{ID: "cam", Name: "Cam Skattebo", Position: "RB", NFLTeam: "PIT", Projection: 10},
+		{ID: "jaylen", Name: "Jaylen Warren", Position: "RB", NFLTeam: "PIT", Projection: 8},
+		{ID: "bucky", Name: "Bucky Irving", Position: "RB", NFLTeam: "PIT", Projection: 12},
+		{ID: "incumbent", Name: "RB2 Incumbent", Position: "RB", NFLTeam: "PIT", Projection: 20},
+	}
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return players, 1, "test" })
+	draftFixtureOntoTeam1(t, svc, now, []string{"cam", "jaylen", "bucky", "incumbent"})
+
+	if err := svc.store.SetLineupSlot("team-1", 1, "RB1", "cam", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetLineupSlot("team-1", 1, "RB2", "incumbent", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetLineupSlot("team-1", 1, "FLEX", "jaylen", now); err != nil {
+		t.Fatal(err)
+	}
+
+	request, _ := http.NewRequest(http.MethodPost, "/team", nil)
+	message, err := svc.SetLineup(request, "team-1", 1, "FLEX", "cam")
+	if err != nil {
+		t.Fatalf("SetLineup: %v", err)
+	}
+	want := "Cam Skattebo starts at FLEX. Bucky Irving moves into RB1. Jaylen Warren moves to the bench."
+	if message != want {
+		t.Fatalf("message = %q, want %q", message, want)
+	}
+
+	lineup := svc.effectiveLineupForTeam(svc.store.Snapshot(), "team-1", 1)
+	if rb1, ok := lineup.slotAssignment("RB1"); !ok || !rb1.HasPlayer || rb1.Player.ID != "bucky" {
+		t.Fatalf("RB1 = %+v, want bucky", rb1)
+	}
+	if rb2, ok := lineup.slotAssignment("RB2"); !ok || !rb2.HasPlayer || rb2.Player.ID != "incumbent" {
+		t.Fatalf("RB2 = %+v, want incumbent unchanged", rb2)
+	}
+	for _, p := range lineup.Bench {
+		if p.ID == "jaylen" {
+			return
+		}
+	}
+	t.Fatalf("bench = %+v, want jaylen", lineup.Bench)
 }
 
 // TestSetLineupRequiresSignIn pins L1: a non-demo request with no signed-in

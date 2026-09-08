@@ -111,6 +111,105 @@ func TestNormalizeLineupWeekUsesPublishedScheduleAndCurrentFallback(t *testing.T
 	}
 }
 
+// TestTeamWeekOptionsKeepsPlayedWeeksAsReadOnlyOptions pins J3 F22:
+// teamWeekOptions used to offer only current-and-future weeks, so a
+// played week (one that is genuinely on the schedule, just closed) was
+// rejected with the same "not on the published schedule" notice as a
+// week that was never real — a false reason, and no way to review a
+// closed week's lineup at all. A played week must now stay in the
+// selector, and requesting it must open it (read-only), not fall back to
+// current, with a notice that says the true reason.
+func TestTeamWeekOptionsKeepsPlayedWeeksAsReadOnlyOptions(t *testing.T) {
+	now := time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC) // Tuesday, after week 1's games
+	games := []GameInfo{
+		{Week: 1, Away: "PIT", Home: "NYJ", Kickoff: now.Add(-48 * time.Hour)},
+		{Week: 2, Away: "PIT", Home: "NYJ", Kickoff: now.Add(48 * time.Hour)},
+	}
+
+	base := teamWeekOptions("", nil, games, now)
+	if base.CurrentWeek != 2 {
+		t.Fatalf("current week = %d, want 2", base.CurrentWeek)
+	}
+	if !containsInt(base.Weeks, 1) {
+		t.Fatalf("Weeks = %v, want played week 1 kept as a read-only option", base.Weeks)
+	}
+
+	played := teamWeekOptions("1", nil, games, now)
+	if played.Week != 1 {
+		t.Fatalf("requesting week 1: Week = %d, want 1 — a played week must open, not fall back to current", played.Week)
+	}
+	if played.Notice == "" || !strings.Contains(played.Notice, "closed") {
+		t.Fatalf("requesting week 1: Notice = %q, want an accurate closed-week notice", played.Notice)
+	}
+	if strings.Contains(played.Notice, "not on the published schedule") {
+		t.Fatalf("requesting week 1: Notice = %q, must not give the false not-on-schedule reason", played.Notice)
+	}
+
+	unknown := teamWeekOptions("99", nil, games, now)
+	if unknown.Week != 2 {
+		t.Fatalf("requesting week 99: Week = %d, want the fallback to current (2)", unknown.Week)
+	}
+	if !strings.Contains(unknown.Notice, "not on the published schedule") {
+		t.Fatalf("requesting week 99: Notice = %q, want the not-on-schedule fallback (unlike a played week, 99 was never real)", unknown.Notice)
+	}
+}
+
+// TestTeamDataOpensPlayedWeekReadOnlyWithItsStoredLineup is the TeamData-
+// level half of J3 F22: once a played week's own stored lineup exists,
+// selecting it must actually render that week's effective lineup (not
+// the current week), with an accurate closed-week notice and every slot
+// coming back locked — the read-only view the finding asked for.
+func TestTeamDataOpensPlayedWeekReadOnlyWithItsStoredLineup(t *testing.T) {
+	service, games, now := newLineupTestService(t)
+	request, _ := http.NewRequest(http.MethodPost, "/team", nil)
+	// WR1/wr-open, not RB1/rb-open: this fixture's RB1 auto-resolves to
+	// rb-locked (already kicked off) from the very start (see
+	// TestSetLineupLockBoundary's own doc comment) — a set of rb-open
+	// into RB1 would hit L7 (displacing a locked occupant). The WR slots
+	// have exactly two WR-eligible players, so nothing auto-resolves
+	// ahead of this explicit set.
+	if _, err := service.SetLineup(request, "team-1", 1, "WR1", "wr-open"); err != nil {
+		t.Fatal(err)
+	}
+
+	later := now.Add(6 * time.Hour) // past week 1's kickoffs and the pickem cutoff
+	games = append(games, GameInfo{ID: "g-pit-2", Week: 2, Kickoff: later.Add(48 * time.Hour), Away: "PIT", Home: "NYJ"})
+	service.SetScheduleSource(func() []GameInfo { return games })
+	service.now = func() time.Time { return later }
+
+	data := service.TeamData(httptestNewGET("/team?week=1"))
+	if data["week"] != "1" {
+		t.Fatalf("week = %#v, want 1 — a played week must open, not fall back to current", data["week"])
+	}
+	notice, _ := data["week_notice"].(string)
+	if data["has_week_notice"] != true || !strings.Contains(notice, "closed") {
+		t.Fatalf("week_notice = %#v, want an accurate closed-week notice", data["week_notice"])
+	}
+	if data["lineup_week_read_only"] != true {
+		t.Fatalf("lineup_week_read_only = %#v, want true for a played week", data["lineup_week_read_only"])
+	}
+	starters, ok := data["starters"].([]map[string]any)
+	if !ok {
+		t.Fatalf("starters = %#v, want []map[string]any", data["starters"])
+	}
+	found := false
+	for _, row := range starters {
+		if row["slot_id"] != "WR1" {
+			continue
+		}
+		found = true
+		if row["id"] != "wr-open" {
+			t.Fatalf("WR1 row = %#v, want wr-open — the lineup stored for week 1", row)
+		}
+		if row["locked"] != true {
+			t.Fatalf("WR1 row locked = %#v, want true — a played week's own slots read-only", row["locked"])
+		}
+	}
+	if !found {
+		t.Fatal("no WR1 row in starters")
+	}
+}
+
 func TestTeamDataCarriesNormalizedWeekAndDeadlineView(t *testing.T) {
 	service, games, now := newLineupTestService(t)
 	request, _ := http.NewRequest(http.MethodGet, "/team?week=2", nil)
