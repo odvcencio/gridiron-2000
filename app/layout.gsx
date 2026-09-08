@@ -241,6 +241,7 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 			<If cond={props.SignedIn}>
 				<div class="user-badge">
 					<span class="user-chip mono">{props.Initials}</span>
+					<div class="user-identity">
 					{/* comb — linden (2026-09-07), J5 F34: TeamName alone
 					    left this blank for a seatless member — the one
 					    place the chrome could confirm "you are signed
@@ -248,12 +249,20 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 					    (data.viewer.name) is the fallback; "No franchise
 					    yet" covers the (practically unreachable, since a
 					    signed-in viewer.name always resolves) case
-					    where even that is empty. */}
+					    where even that is empty.
+					    Coordinator follow-up on J5 F36: a one-word team
+					    name ("In Shedeur Time" once rendered "IN / SHED /
+					    EUR / TIME") broke mid-word inside the rail's own
+					    narrow column — the block wrapped with no line
+					    limit at all (.navigation-account .user-name's
+					    own overflow-wrap: anywhere, below). maxLines=2 +
+					    overflow="ellipsis" clamps it at a real line
+					    boundary instead. */}
 					<If cond={props.TeamName != ""}>
-						<TextBlock as="span" class="user-name" font="600 13px IBM Plex Mono" lineHeight={18} text={props.TeamName} />
+						<TextBlock as="span" class="user-name" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={2} overflow="ellipsis" text={props.TeamName} />
 					</If>
 					<If cond={props.TeamName == "" && props.DisplayName != ""}>
-						<TextBlock as="span" class="user-name" font="600 13px IBM Plex Mono" lineHeight={18} text={props.DisplayName} />
+						<TextBlock as="span" class="user-name" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={2} overflow="ellipsis" text={props.DisplayName} />
 					</If>
 					<If cond={props.TeamName == "" && props.DisplayName == ""}>
 						<span class="user-name">No franchise yet</span>
@@ -261,14 +270,19 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 					<If cond={props.IsCoManager}>
 						<span class="user-role-chip mono">CO-MANAGER</span>
 					</If>
-					{/* J5 F36: name the seat and the role beside the avatar on
-					    every signed-in page — "Pale moon · Manager" (or
-					    "· Commissioner", "· No seat"). */}
+					{/* J5 F36, coordinator follow-up: the role used to sit
+					    inline after the name ("Pale moon · Manager"),
+					    sharing the same narrow line and forcing the name
+					    to wrap around it. It now sits on its own line
+					    under the name, small and muted, with no leading
+					    separator — a wrapped/stacked block, not an inline
+					    phrase, needs no dot to read as one unit. */}
 					<span class="user-role mono">
-						<If cond={props.RoleCommissioner}>· Commissioner</If>
-						<If cond={props.RoleManager}>· Manager</If>
-						<If cond={props.RoleNoSeat}>· No seat</If>
+						<If cond={props.RoleCommissioner}>Commissioner</If>
+						<If cond={props.RoleManager}>Manager</If>
+						<If cond={props.RoleNoSeat}>No seat</If>
 					</span>
+					</div>
 				</div>
 				<Link href="/settings" class="access-link">Notification settings</Link>
 				<form method="post" action="/auth/logout" data-gosx-managed="false">

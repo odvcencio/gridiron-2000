@@ -19390,7 +19390,6 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
    word is the common case for every signed-in viewer, so it reads as
    part of the identity line rather than a special callout. */
 .user-role {
-  flex: 0 0 auto;
   color: var(--color-text-muted);
   font-size: var(--type-2xs);
   white-space: nowrap;
@@ -19772,4 +19771,34 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
 
 .admin-masthead-week-meta > * {
   width: 100%;
+}
+
+/* Coordinator follow-up on J5 F36 (regression, hemlock's /admin capture
+   at 1440): with the role rendered inline after the team name, a
+   single-word name too long for the rail's own column ("In Shedeur
+   Time") broke mid-word across four lines ("IN / SHED / EUR / TIME") —
+   .navigation-account .user-name's own overflow-wrap: anywhere (this
+   file, "Item 7") let the browser split anywhere once white-space:
+   normal removed the old single-line clamp, and the name's own TextBlock
+   carried no maxLines to stop it. .user-identity stacks the name and the
+   role vertically (app/layout.gsx's own PrimaryNavigation, shared by the
+   desktop rail, the mobile-enhanced bar, and the no-JS disclosure) so
+   the role no longer shares the name's own line at all; the name's own
+   TextBlock now clamps at maxLines=2 with a real ellipsis instead of
+   flowing without limit. */
+.user-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+/* overflow-wrap: normal (not "anywhere") lets the browser and the
+   text-layout runtime alike prefer a word-boundary break; a single word
+   that still cannot fit its own line clamps with an ellipsis (the
+   runtime's own grapheme-level fallback) rather than splitting silently
+   across lines with no mark that anything was cut. */
+.navigation-account .user-name {
+  overflow-wrap: normal;
+  word-break: normal;
 }
