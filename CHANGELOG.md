@@ -21,6 +21,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The console's own top hero card now leads with the week once the draft is complete: the week number, its close readiness in words, the first kickoff in league-local time, and the seat count, instead of the draft's pick count, date, and ready fraction. The task board's own seats row shows the week's own status in place of the same stale ready fraction.
 
 ### Fixed
+- The Signal Wire's filter chips now show a real count for every category. A chip with nothing behind it reads disabled with a plain reason instead of a link into an empty page, and the empty state names the category, how far back the wire's window reaches, and the nearest chip that does have something on it.
+- The Wire no longer tags an unrelated story "INJURY WATCH". A story with no real classification carries no label.
+- The Wire now uses one vocabulary — "sources" for every upstream provider, "signals" for every item, "tip" for the one submission flow — instead of seven overlapping words for the same two ideas.
+- The Wire's two refresh intervals (the page itself, and how often sources are checked) each carry their own clear label, and the source interval reads the real configured value instead of a hard-coded number.
+- Every Wire item no longer carries an unexplained percentage next to its source type; the plain source-trust word stays on its own.
+- The Wire's state words (LIVE, CACHED, STALE, DEGRADED, UNAVAILABLE) now match the words the Manager Guide documents. A failed source no longer reads as a quiet news day; it reads "Failed" with its reason and when it last succeeded. A source's "kept" count now says plainly that it is stories kept after filtering.
+- A confirmation banner from the Signal Wire's own tip form no longer appears on an unrelated page a manager happens to open next.
+- The transaction feed leads every roster-move line with the team's name; the division code now reads as a small secondary chip instead of repeating on every line. The feed's own refresh note states the cadence plainly and names the last real update instead of warning about failure.
+- The transaction feed's playoff-bracket panel now reads as one quiet line until the postseason is actually the live phase, instead of outweighing the week's own moves in developer language every time.
+- The Signal Wire and the transaction feed now use one league-local time format everywhere, with the zone and a relative phrase; a stray double space before the relative phrase on the transaction feed is gone.
 - Six status chips on the console (schedule, roster, and playoff cards) no longer overflow or clip their own borders; they size to their own text and wrap instead.
 - The console's pick-clock card no longer shows a blank "Deadline" cell when no pick is armed, or a blank "Duration source" cell; the Playoff Truth card no longer shows a blank "Source" cell before a bracket exists.
 - The console's job list no longer renders as overlapping, ragged boxes on a phone; every row now measures and aligns correctly.
