@@ -19100,6 +19100,53 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
   color: var(--color-text-muted);
 }
 
+/* comb — willow (2026-09-08 wave C): J6 F4. A Signal Wire filter chip
+   with zero items in the current window is no longer a link a manager
+   could click into an empty page — it renders as a disabled
+   .control-locked span (the same "disabled control, adjacent reason"
+   recipe /players already uses) inside the .wire-filter pill shape. */
+/* .wire-filter itself never set text-decoration: none (pre-existing —
+   not this wave's own defect), so an inactive, non-disabled chip like
+   "Injuries · 17" rendered as underlined plain text instead of the same
+   button-pill shape "All · N" and "is-active" already read as. Verified
+   independently while checking F4 on a fresh capture; fixed here since
+   this comb block already governs the chip's read-only-vs-clickable
+   distinction. */
+.wire-filter {
+  text-decoration: none;
+}
+
+.wire-filter.is-disabled {
+  display: inline-flex;
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.wire-filter.is-disabled:hover {
+  transform: none;
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.wire-filter.is-disabled .control-locked__reason {
+  text-transform: none;
+  font-family: var(--font-body);
+}
+
+/* comb — willow (2026-09-08 wave C): J6 F21. /activity repeated a team's
+   division code in a bare parenthetical on every one of 137 feed lines.
+   The team name now leads; the code renders as a small secondary chip
+   right after it, in the same inline flow as the actor-class marker
+   already on this row (.activity-actor-class). */
+.activity-team-code {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+  font-size: var(--type-2xs);
+}
+
 /* comb — cedar (2026-09-08 wave C): console shell — navigation, section
    order, headings, chips, task board, HQ header, backup copy,
    announcements, and the "This week" card (J4 F5/F17/F18/F19/F20/F25/

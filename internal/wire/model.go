@@ -125,6 +125,13 @@ type Status struct {
 	Sources            []SourceStatus   `json:"sources"`
 	Feeds              []FeedStatus     `json:"feeds"`
 	FeedStaleAfter     time.Duration    `json:"feed_stale_after"`
+	// FeedInterval is the configured syndication poll cadence itself
+	// (WIRE_FEED_INTERVAL, service.go's config.FeedInterval) — distinct
+	// from FeedStaleAfter, which pads that interval with a grace window
+	// before a feed reads stale. /wire's own source panel used to state
+	// a hard-coded "every 2 min" regardless of the real configured value
+	// (F13, gap-audit J6); this lets the page render the true number.
+	FeedInterval time.Duration `json:"feed_interval"`
 	SourceCounts       map[string]int64 `json:"source_counts"`
 	RelevantSignals    int64            `json:"relevant_signals"`
 	IgnoredPosts       int64            `json:"ignored_posts"`

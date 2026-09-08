@@ -54,8 +54,18 @@ type ActivityRow struct {
 	TimeISO      string
 	TimeRelative string
 	Team         string
-	Action       string
-	Player       string
+	// TeamName/TeamCode/HasTeamCode (F21, gap-audit J6) split the row's
+	// team name from its division code: the code renders as a secondary
+	// chip after the name instead of a parenthetical repeated on every
+	// one of 137 lines. Empty (HasTeamCode false) for a commissioner
+	// event or a draft pick's own provenance label, which keep the
+	// single combined Team string instead — see activityMaps' own doc
+	// comment (internal/league/service.go).
+	TeamName    string
+	TeamCode    string
+	HasTeamCode bool
+	Action      string
+	Player      string
 	// ActorClass is "" for an ordinary team roster move and "COMMISSIONER"
 	// for a wave-2 commissioner-console audit row — the distinct actor
 	// class /activity renders ahead of the actor's own name (Team carries
@@ -73,11 +83,16 @@ func activityRows(raw []map[string]any) []ActivityRow {
 		timeISO, _ := row["time_iso"].(string)
 		timeRelative, _ := row["time_relative"].(string)
 		team, _ := row["team"].(string)
+		teamName, _ := row["team_name"].(string)
+		teamCode, _ := row["team_code"].(string)
+		hasTeamCode, _ := row["has_team_code"].(bool)
 		action, _ := row["action"].(string)
 		player, _ := row["player"].(string)
 		actorClass, _ := row["actor_class"].(string)
 		out = append(out, ActivityRow{
-			Time: time, TimeISO: timeISO, TimeRelative: timeRelative, Team: team, Action: action, Player: player,
+			Time: time, TimeISO: timeISO, TimeRelative: timeRelative, Team: team,
+			TeamName: teamName, TeamCode: teamCode, HasTeamCode: hasTeamCode,
+			Action: action, Player: player,
 			ActorClass: actorClass,
 		})
 	}
