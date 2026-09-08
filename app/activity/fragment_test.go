@@ -386,6 +386,66 @@ func TestActivityFragmentConcurrentReads(t *testing.T) {
 	wait.Wait()
 }
 
+// TestActivityPlayoffCardDemotesUntilPlayoffsAreTheLivePhase is F22's
+// failing-test-first reproduction (gap-audit J6): the transaction feed's
+// loudest card used to be a full-size playoff-context panel regardless
+// of season phase. While the postseason is not yet the live phase, the
+// page renders one quiet plain-language line instead; the full card
+// (playoffTruthMap's own headline/detail — internal/league/
+// postseason_view.go, shared with /matchups and /team, left untouched)
+// returns once the season phase actually is playoffs.
+func TestActivityPlayoffCardDemotesUntilPlayoffsAreTheLivePhase(t *testing.T) {
+	program, err := route.LoadFileProgram("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := map[string]any{
+		"teams": []string{}, "team": "", "query": "", "has_filters": false,
+		"filtered_count": 0, "transactions_count": 0, "page": 1, "pages": 1,
+		"page_start": 0, "page_end": 0, "has_previous": false, "has_next": false,
+		"has_transactions": false, "transactions_empty": false,
+		"transactions": activityRows(nil),
+		"timezone": "EDT", "activity_fragment_url": "/activity/fragment", "activity_fragment_interval": "4s",
+	}
+	tests := []struct {
+		name        string
+		seasonPhase string
+		wantQuiet   bool
+	}{
+		{name: "preseason demotes to one line", seasonPhase: "", wantQuiet: true},
+		{name: "regular season demotes to one line", seasonPhase: "regular-season", wantQuiet: true},
+		{name: "playoffs shows the full card", seasonPhase: "playoffs", wantQuiet: false},
+		{name: "season complete shows the full card", seasonPhase: "season-complete", wantQuiet: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data := map[string]any{}
+			for k, v := range base {
+				data[k] = v
+			}
+			data["playoff_truth"] = map[string]any{
+				"headline": "PLAYOFFS NOT ACTIVE", "status_label": "WAITING",
+				"detail": "The published season phase is Preseason; playoff truth will appear after the regular season is final.",
+				"recovery": "", "season_phase": test.seasonPhase,
+			}
+			html, err := route.RenderProgramComponent(program, "Page", route.ProgramRenderEnv{
+				Values: map[string]any{"data": data},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			hasQuietLine := strings.Contains(html, "Playoff bracket: not seeded yet.")
+			hasFullCard := strings.Contains(html, `class="score-command playoff-truth-card"`)
+			if hasQuietLine != test.wantQuiet {
+				t.Errorf("quiet line present = %v, want %v: %s", hasQuietLine, test.wantQuiet, html)
+			}
+			if hasFullCard == test.wantQuiet {
+				t.Errorf("full card present = %v, want %v: %s", hasFullCard, !test.wantQuiet, html)
+			}
+		})
+	}
+}
+
 // TestActivityRefreshNoteIsCalmAndInsideThePolledRegion is F27's
 // failing-test-first reproduction (gap-audit J6): "If a refresh fails,
 // use [Refresh Activity now]" told a manager to expect failure, and the

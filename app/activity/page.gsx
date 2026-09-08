@@ -45,12 +45,29 @@ func Page() Node {
 		>
 		<ActivityRegion></ActivityRegion>
 		</div>
-		<section class="score-command playoff-truth-card" aria-labelledby="activity-playoff-truth-heading">
-			<header class="section-heading section-heading--split"><div><span class="section-index">POSTSEASON // ACTIVITY CONTEXT</span><h2 id="activity-playoff-truth-heading">{data.playoff_truth.headline}</h2></div><span class="position-chip">{data.playoff_truth.status_label}</span></header>
-			<p>{data.playoff_truth.detail}</p>
-			<If cond={data.playoff_truth.recovery != ""}><p class="scoring-note"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
-			<a href="/matchups" data-gosx-link class="access-link">Open persisted bracket truth →</a>
-		</section>
+		{/* F22 (gap-audit J6): the playoff card used to outweigh the feed
+			a manager actually opened /activity for, in words lifted from
+			the data model ("published season phase", "playoff truth",
+			"persisted"). While the postseason itself is not yet active,
+			this reads as one quiet line below the week's transactions;
+			the full card returns once playoffs are the live phase, when
+			a manager genuinely needs it. playoffTruthMap's own headline/
+			detail (internal/league/postseason_view.go) stay untouched —
+			/matchups and /team read the same shared data. */}
+		<If cond={data.playoff_truth.season_phase == "playoffs" || data.playoff_truth.season_phase == "season-complete"}>
+			<section class="score-command playoff-truth-card" aria-labelledby="activity-playoff-truth-heading">
+				<header class="section-heading section-heading--split"><div><span class="section-index">POSTSEASON // ACTIVITY CONTEXT</span><h2 id="activity-playoff-truth-heading">{data.playoff_truth.headline}</h2></div><span class="position-chip">{data.playoff_truth.status_label}</span></header>
+				<p>{data.playoff_truth.detail}</p>
+				<If cond={data.playoff_truth.recovery != ""}><p class="scoring-note"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
+				<a href="/matchups" data-gosx-link class="access-link">Open persisted bracket truth →</a>
+			</section>
+		</If>
+		<If cond={data.playoff_truth.season_phase != "playoffs" && data.playoff_truth.season_phase != "season-complete"}>
+			<p class="scoring-note">
+				Playoff bracket: not seeded yet. It appears after the last regular-season week closes.
+				<a href="/matchups" data-gosx-link>See the playoff bracket →</a>
+			</p>
+		</If>
 	</main>
 }
 
