@@ -71,6 +71,53 @@ func TestWireAndActivityTimeFormattersShareTheCanonicalGoLayout(t *testing.T) {
 	}
 }
 
+// TestLockerAndHomeTimeFormattersConvergeOnLeagueTimeStamp is J6 F20's
+// own residue (wave E): the Locker Room and the home dashboard still
+// carried their own time formats after the wire/activity convergence
+// above — the Locker Room's TimeLabel hand-rolled the exact same
+// absolute Format call with no relative phrase, and the home dashboard's
+// announcement list computed a second, separate relative field
+// (posted_ago) instead of reading the one converged answer
+// (Service.LeagueTimeStamp / its unexported sibling leagueTimeStamp)
+// every other league timestamp already uses.
+func TestLockerAndHomeTimeFormattersConvergeOnLeagueTimeStamp(t *testing.T) {
+	lockerSource, err := os.ReadFile("internal/league/locker.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	locker := string(lockerSource)
+	if !strings.Contains(locker, "TimeLabel:        s.leagueTimeStamp(post.PostedAt),") {
+		t.Error("internal/league/locker.go's TimeLabel no longer calls the converged s.leagueTimeStamp helper")
+	}
+	if strings.Contains(locker, `Format("`+timeFormatContractGoLayout+`")`) {
+		t.Error("internal/league/locker.go still hand-rolls the canonical Go layout instead of calling leagueTimeStamp")
+	}
+
+	serviceSource, err := os.ReadFile("internal/league/service.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := string(serviceSource)
+	if !strings.Contains(service, `"posted_at": s.leagueTimeStamp(a.PostedAt),`) {
+		t.Error("internal/league/service.go's announcementListMaps no longer calls the converged s.leagueTimeStamp helper for posted_at")
+	}
+	if strings.Contains(service, `"posted_ago": relativeTime(now, a.PostedAt),`) {
+		t.Error("internal/league/service.go's announcementListMaps still computes a separate posted_ago field")
+	}
+
+	homeSource, err := os.ReadFile("app/page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := string(homeSource)
+	if strings.Contains(home, "note.posted_ago") {
+		t.Error("app/page.gsx still reads note.posted_ago — the home announcement list must read only the converged note.posted_at")
+	}
+	if !strings.Contains(home, "{note.posted_at}") {
+		t.Error("app/page.gsx no longer renders note.posted_at")
+	}
+}
+
 // TestActivityTimeElementHasNoStrayWhitespace pins the double-space
 // regression's fix: the <time> element's own children render with no
 // whitespace text node between the absolute stamp and the relative

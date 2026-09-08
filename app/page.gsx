@@ -568,10 +568,15 @@ func Page() Node {
 					<Each of={data.announcements} as="note">
 						<article class="announcement-item">
 							<p>{note.body}</p>
+							{/* J6 F20 residue (wave E): posted_at now reads
+							    Service.leagueTimeStamp (internal/league/
+							    service.go), the same converged "absolute ·
+							    relative" helper the Locker Room's own
+							    TimeLabel and layout.gsx's announcement
+							    banner already read — no separate
+							    posted_ago field to join here anymore. */}
 							<small class="mono">
 								{note.posted_by}
-								·
-								{note.posted_ago}
 								·
 								{note.posted_at}
 							</small>

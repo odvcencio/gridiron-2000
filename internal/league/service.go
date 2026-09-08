@@ -4979,11 +4979,19 @@ func (s *Service) latestAnnouncementBanner() map[string]any {
 }
 
 // announcementListMaps renders up to limit announcements (newest first, as
-// stored) for the home page's announcements section: each entry's body,
-// absolute posted time, and a relative "N hours ago" label.
+// stored) for the home page's announcements section: each entry's body
+// and posted time.
+//
+// posted_at (J6 F20 residue, wave E): this used to hand-roll its own
+// absolute Format call plus a separate posted_ago field the template
+// joined back together itself — a second, independently computed answer
+// to "when," alongside latestAnnouncementBanner's own leagueTimeStamp
+// call three functions above. It now calls the same helper directly
+// (Service.LeagueTimeStamp's unexported sibling; both read this file),
+// which already carries the relative phrase, so app/page.gsx no longer
+// needs a posted_ago field to render one.
 func (s *Service) announcementListMaps(limit int) []map[string]any {
 	state := s.store.Snapshot()
-	now := s.clock()
 	n := len(state.Announcements)
 	if n > limit {
 		n = limit
@@ -4991,11 +4999,10 @@ func (s *Service) announcementListMaps(limit int) []map[string]any {
 	out := make([]map[string]any, 0, n)
 	for _, a := range state.Announcements[:n] {
 		out = append(out, map[string]any{
-			"id":         a.ID,
-			"body":       a.Body,
-			"posted_by":  a.PostedBy,
-			"posted_at":  a.PostedAt.In(s.LeagueLocation()).Format("Jan 2, 3:04 PM MST"),
-			"posted_ago": relativeTime(now, a.PostedAt),
+			"id":        a.ID,
+			"body":      a.Body,
+			"posted_by": a.PostedBy,
+			"posted_at": s.leagueTimeStamp(a.PostedAt),
 		})
 	}
 	return out

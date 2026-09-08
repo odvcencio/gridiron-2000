@@ -5,7 +5,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Changed
+- The home page's h1 now reads "Home · Week 1" (or "Home · Preseason" before the schedule opens) instead of the stage's own slogan. The slogan now reads as the lede sentence under the h1, and a desktop manager with open items sees an urgent count in the page header, next to the h1, matching the rail's own count.
+- The home masthead's eyebrow no longer carries a "00 //" section number.
+- The player pool and Locker Room mastheads no longer repeat their own heading as the eyebrow above it; both now name the page's job instead ("Roster & waivers", "League message board").
+- Manager pages (home, team, player pool, Pick'em, Locker Room, settings) no longer carry "NN //" numbered section eyebrows; the console keeps its own numbering.
+- The public header's Guide link now reads "Manager guide," matching the same link's name everywhere else in the app.
+- On a phone, the team page's inline "Set best lineup" button is hidden once the fixed action bar already submits the same lineup, so a manager sees one control for that action, not two (the Locker Room's composer already worked this way).
+- The Locker Room's post timestamps and the home page's announcement timestamps now read the same league-local, zone-and-relative format every other timestamp in the app uses, instead of their own formats.
+
+### Fixed
+- The home page's announcement list no longer computes its "time ago" label separately from its timestamp; both now come from the one converged time helper.
 
 ## [release-2026.09.08-97027d0-season3] — 2026-09-08
 
