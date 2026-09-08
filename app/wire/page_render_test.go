@@ -712,3 +712,55 @@ func TestWireVocabularyIsConsolidatedToSourcesAndSignals(t *testing.T) {
 		t.Error("page.server.go still carries the retired \"Transmit sighting\" label")
 	}
 }
+
+// TestWireIntervalLabelReadsTheConfiguredDuration is F13's failing-test-
+// first reproduction (gap-audit J6): the source panel used to print a
+// hard-coded "every 2 min" no matter what WIRE_FEED_INTERVAL actually
+// was. wireIntervalLabel now renders the real configured duration in
+// words, and a zero/unset duration still reads as English (the
+// signalwire default), never "0 minutes".
+func TestWireIntervalLabelReadsTheConfiguredDuration(t *testing.T) {
+	tests := []struct {
+		name string
+		in   time.Duration
+		want string
+	}{
+		{name: "default two minutes", in: 2 * time.Minute, want: "2 minutes"},
+		{name: "configured five minutes", in: 5 * time.Minute, want: "5 minutes"},
+		{name: "sub-minute", in: 45 * time.Second, want: "45 seconds"},
+		{name: "one minute singular", in: time.Minute, want: "1 minute"},
+		{name: "unset falls back to the default", in: 0, want: "2 minutes"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := wireIntervalLabel(test.in); got != test.want {
+				t.Fatalf("wireIntervalLabel(%v) = %q, want %q", test.in, got, test.want)
+			}
+		})
+	}
+}
+
+// TestWireRefreshIntervalsAreLabeledAndDistinct is F13's static
+// regression guard: the page masthead's own poll cadence and the source
+// panel's fetch cadence must each carry a distinct, unambiguous label —
+// neither one bare, neither one the word "Updates" for both — and the
+// source panel's number must come from the page data, not a literal.
+func TestWireRefreshIntervalsAreLabeledAndDistinct(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(source)
+	for _, want := range []string{
+		"<span>Page refresh</span>",
+		"Every {data.refresh_seconds} sec",
+		"Sources are checked every {data.source_check_interval}",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page.gsx missing %q", want)
+		}
+	}
+	if strings.Contains(body, "updates every 2 min") {
+		t.Error("page.gsx still hard-codes the source panel's refresh cadence")
+	}
+}

@@ -180,8 +180,8 @@ func Page() Node {
 					<strong class="mono" data-wire-count data-gosx-live-bind="count">{data.signal_count}</strong>
 				</div>
 				<div>
-					<span>Updates</span>
-					<strong class="mono">{data.refresh_seconds} SEC</strong>
+					<span>Page refresh</span>
+					<strong class="mono">Every {data.refresh_seconds} sec</strong>
 				</div>
 			</div>
 		</header>
@@ -261,7 +261,7 @@ func Page() Node {
 						<span class="signal-mark" aria-hidden="true"></span>
 						<div>
 							<strong>News sources</strong>
-							<small>{data.feed_ready}/{data.feed_count} ready · updates every 2 min</small>
+							<small>{data.feed_ready}/{data.feed_count} ready · Sources are checked every {data.source_check_interval}</small>
 						</div>
 					</div>
 					<If cond={data.bluesky_count > 0}>

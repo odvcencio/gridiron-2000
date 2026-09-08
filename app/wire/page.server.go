@@ -483,6 +483,29 @@ func wireModeLabel(mode string) string {
 	return "UNAVAILABLE"
 }
 
+// wireIntervalLabel names a duration in plain words ("2 minutes", "45
+// seconds") for a sentence, not a bare stat tile. F13 (gap-audit J6): the
+// source panel's own refresh cadence used to be a hard-coded "2 min" no
+// matter what WIRE_FEED_INTERVAL was actually set to; this reads the
+// real configured value (signalwire.Status.FeedInterval).
+func wireIntervalLabel(d time.Duration) string {
+	if d <= 0 {
+		d = 2 * time.Minute
+	}
+	if d < time.Minute {
+		n := int(d / time.Second)
+		if n < 1 {
+			n = 1
+		}
+		return fmt.Sprintf("%d %s", n, league.Plural(n, "second"))
+	}
+	n := int(d / time.Minute)
+	if n < 1 {
+		n = 1
+	}
+	return fmt.Sprintf("%d %s", n, league.Plural(n, "minute"))
+}
+
 func wireFeedStaleThreshold(status signalwire.Status) time.Duration {
 	if status.FeedStaleAfter > 0 {
 		return status.FeedStaleAfter
@@ -740,7 +763,8 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 		"injury_rows":      openStatus.Injuries.Rows,
 		"injury_updated":   displayTime(openStatus.Injuries.LastUpdated),
 		"season":           openStatus.Season,
-		"refresh_seconds":  20,
+		"refresh_seconds":       20,
+		"source_check_interval": wireIntervalLabel(wireStatus.FeedInterval),
 	}
 }
 
