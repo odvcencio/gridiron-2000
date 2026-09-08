@@ -375,6 +375,74 @@ func TestWeekStateSlateLineAcrossPreWeekLiveBetweenGamesAndComplete(t *testing.T
 	})
 }
 
+// TestWeekStateExitsInProgressSixHoursPastLastKickoffWithNoFinalFlag pins
+// J3 F2: a week must leave MatchupStateInProgress once its last kickoff is
+// more than six hours past, even when no game ever carries a Final flag
+// (a stalled or unreachable stats source) — before this fix the week
+// stayed "in progress" forever in that case, so Tuesday morning after a
+// Monday night game still read as a live game clock.
+func TestWeekStateExitsInProgressSixHoursPastLastKickoffWithNoFinalFlag(t *testing.T) {
+	svc := newTestService(t, true)
+	provider := scheduleProvider{svc: svc}
+	kickoff := time.Date(2026, 9, 14, 20, 20, 0, 0, time.UTC) // Monday night kickoff
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: 1, Kickoff: kickoff}} // Final never set
+	})
+
+	t.Run("still within six hours", func(t *testing.T) {
+		now := kickoff.Add(5 * time.Hour)
+		state, status, _, _ := provider.weekState(1, nil, now)
+		if state != MatchupStateInProgress {
+			t.Fatalf("state = %q at +5h, want in_progress (no Final flag, still within the grace window)", state)
+		}
+		if strings.Contains(status, "over") {
+			t.Fatalf("status = %q at +5h, must not yet claim the week is over", status)
+		}
+	})
+
+	t.Run("more than six hours past last kickoff", func(t *testing.T) {
+		now := kickoff.Add(7 * time.Hour) // Tuesday morning, no Final flag anywhere
+		state, status, clock, _ := provider.weekState(1, nil, now)
+		if state == MatchupStateInProgress {
+			t.Fatalf("state = %q at +7h with no Final flag, want the week to have left in_progress", state)
+		}
+		if status != "Games are over · fantasy results await week close" {
+			t.Fatalf("status = %q, want the games-over sentence", status)
+		}
+		if clock != "AWAITING CLOSE" {
+			t.Fatalf("clock = %q, want AWAITING CLOSE", clock)
+		}
+	})
+}
+
+// TestMatchupSlateLineOnlyNamesASlateInsideAGameWindow pins the second
+// half of J3 F2: matchupSlateLine must not guess a broadcast-window name
+// from the hour of day alone when no game is actually inside its window
+// (the Friday-between-weeks case) — it must name a slate only while a
+// game is inside its window.
+func TestMatchupSlateLineOnlyNamesASlateInsideAGameWindow(t *testing.T) {
+	location := time.UTC
+	thursdayKickoff := time.Date(2026, 9, 10, 20, 20, 0, 0, time.UTC)
+	sundayKickoff := time.Date(2026, 9, 13, 13, 0, 0, 0, time.UTC)
+	games := []GameInfo{{Week: 1, Kickoff: thursdayKickoff}, {Week: 1, Kickoff: sundayKickoff}}
+
+	t.Run("inside a game's window", func(t *testing.T) {
+		now := thursdayKickoff.Add(time.Hour)
+		got := matchupSlateLine(now, games, location)
+		if !strings.Contains(got, "slate in progress") {
+			t.Fatalf("slate = %q, want a slate-in-progress phrase while a game is live", got)
+		}
+	})
+
+	t.Run("between windows (Friday, no game live)", func(t *testing.T) {
+		now := thursdayKickoff.Add(24 * time.Hour) // Friday, 20:20 UTC — no game live
+		got := matchupSlateLine(now, games, location)
+		if got != "" {
+			t.Fatalf("slate = %q, want empty with no game inside its window", got)
+		}
+	})
+}
+
 func TestDemoProviderReturnsPreseasonSnapshot(t *testing.T) {
 	snapshot, err := demoProvider{}.Snapshot(context.Background(), time.Now())
 	if err != nil {
