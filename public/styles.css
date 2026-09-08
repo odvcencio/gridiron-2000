@@ -19917,3 +19917,52 @@ body.is-on-clock .draft-command__pill-sentence {
   overflow-wrap: normal;
   word-break: normal;
 }
+
+/* comb — aspen (2026-09-08 wave E) */
+
+/* Decision 1 (J3 F21, J5 F29): the home masthead's slogan-turned-lede
+   sentence reads a step down from the h1, ahead of the unchanged summary
+   paragraph beneath it. Compound selector (two classes) so it wins over
+   the existing ".home-action-center__header p" rule regardless of
+   source order. */
+.home-action-center__header .home-action-center__lede {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+/* Decision 1: the desktop masthead's own copy of the rail's urgent chip
+   (app/layout.gsx .rail-attention-chip — same class, same
+   data.league.attention source, so the rail and the masthead can never
+   disagree). Hidden by default; shown only past the 899px desktop
+   threshold (the cherry re-audit's own line, public/styles.css "width >
+   899px") so a phone or tablet viewport keeps exactly the one urgent
+   chip its mobile bar already carries. */
+.home-action-center__urgent-chip {
+  display: none;
+}
+
+@media (width > 899px) {
+  .home-action-center__urgent-chip {
+    display: inline-flex;
+    align-self: flex-start;
+  }
+}
+
+/* Decision 7 (mobile-pass open question, wave E): /locker already hides
+   its own in-page composer submit at this exact tier
+   (.locker-post-form__submit, "comb — linden" above) because the fixed
+   .page-action-bar already submits the identical form — the in-page
+   control is redundant there, not a second way to do a different thing.
+   /team has the same shape: .lineup-auto-form's own "Set best lineup"
+   button (form="lineup-auto-form") and the fixed .page-action-bar's own
+   link both submit that one form (teamPrimaryAction,
+   internal/league/service.go) once the roster is complete, and neither
+   used to hide — a phone-width manager saw the identical action twice,
+   once inline and once fixed at the bottom of the screen. Hidden here,
+   not removed from the DOM: a signed-in phone visitor still submits
+   through the one remaining (fixed) control. */
+@media (max-width: 56.1875rem) {
+  .lineup-auto-form {
+    display: none;
+  }
+}

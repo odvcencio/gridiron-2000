@@ -833,7 +833,7 @@ func TeamLineupRegion() Node {
 				<section class="roster-panel" id="lineup">
 					<header class="section-heading section-heading--split">
 						<div>
-							<span class="section-index">01 // STARTING LINEUP</span>
+							<span class="section-index">STARTING LINEUP</span>
 							<h2>
 								Week
 								{data.week}

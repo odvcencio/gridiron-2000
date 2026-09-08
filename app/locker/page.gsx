@@ -12,9 +12,13 @@ func Page() Node {
 	return <main class="page board-page" id="main-content">
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
+				{/* Decision 2 (J1 F28, wave E): the eyebrow used to repeat the
+				    h1's own words ("LOCKER ROOM" / "Locker Room"). "League
+				    message board" names the page's job without restating the
+				    heading. */}
 				<span class="signal-label">
 					<span class="signal-mark" aria-hidden="true"></span>
-					LOCKER ROOM
+					LEAGUE MESSAGE BOARD
 				</span>
 				<h1>Locker Room</h1>
 				<p>
@@ -107,7 +111,7 @@ func LockerBoard() Node {
 	return <section class="player-pool">
 		<div class="pool-toolbar">
 			<div>
-				<span class="section-index">01 // THE BOARD</span>
+				<span class="section-index">THE BOARD</span>
 				<h2>Every post</h2>
 			</div>
 		</div>

@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // LockerPostView is one Locker Room post or reply as Page() and the
@@ -236,7 +235,17 @@ func (s *Service) lockerAuthorLabel(post LockerPost) string {
 // replies) into the page's strict-component view. Only a top-level call
 // passes replies; lockerPostView recurses with nil so the one flat level
 // GC-4 specifies can never grow a second.
-func (s *Service) lockerPostView(post LockerPost, replies []LockerPost, viewerEmail string, commissioner bool, location *time.Location) LockerPostView {
+//
+// TimeLabel (J6 F20 residue, wave E): this used to hand-roll
+// post.PostedAt.In(location).Format with the canonical absolute layout
+// leagueAbsoluteTimeStamp already applies, but with no relative phrase,
+// and computed a second time instead of read from the one helper every
+// other league timestamp converges on (Service.LeagueTimeStamp,
+// exported for exactly this convergence — see its own doc comment). It
+// now calls that helper directly, which also reads
+// Service.LeagueLocation() (the same *time.Location s.matchupLocation()
+// already returned here) so the zone stays identical.
+func (s *Service) lockerPostView(post LockerPost, replies []LockerPost, viewerEmail string, commissioner bool) LockerPostView {
 	removed := !post.RemovedAt.IsZero()
 	canRemove := !removed && (commissioner || (viewerEmail != "" && strings.EqualFold(strings.TrimSpace(post.AuthorEmail), viewerEmail)))
 	view := LockerPostView{
@@ -244,7 +253,7 @@ func (s *Service) lockerPostView(post LockerPost, replies []LockerPost, viewerEm
 		ParentID:         post.ParentID,
 		Body:             post.Body,
 		AuthorLabel:      s.lockerAuthorLabel(post),
-		TimeLabel:        post.PostedAt.In(location).Format("Jan 2, 3:04 PM MST"),
+		TimeLabel:        s.leagueTimeStamp(post.PostedAt),
 		Removed:          removed,
 		CanRemove:        canRemove,
 		CommissionerNote: !removed && post.CommissionerNote,
@@ -254,7 +263,7 @@ func (s *Service) lockerPostView(post LockerPost, replies []LockerPost, viewerEm
 	}
 	replyViews := make([]LockerPostView, 0, len(replies))
 	for _, reply := range replies {
-		replyViews = append(replyViews, s.lockerPostView(reply, nil, viewerEmail, commissioner, location))
+		replyViews = append(replyViews, s.lockerPostView(reply, nil, viewerEmail, commissioner))
 	}
 	view.Replies = replyViews
 	return view
@@ -294,7 +303,7 @@ func (s *Service) LockerData(r *http.Request) map[string]any {
 	views := make([]LockerPostView, 0, len(pageTop))
 	for _, post := range pageTop {
 		replies := lockerRepliesFor(state.LockerPosts, post.ID)
-		views = append(views, s.lockerPostView(post, replies, viewerEmail, commissioner, location))
+		views = append(views, s.lockerPostView(post, replies, viewerEmail, commissioner))
 	}
 	readOnlyReason := ""
 	if readOnly {

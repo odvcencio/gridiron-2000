@@ -186,9 +186,22 @@ func TestMobilePassStylesheetContracts(t *testing.T) {
 	}
 }
 
-// TestAnonymousHeaderLabelsUseAuthenticationLanguage pins the layout copy:
-// the anonymous header's sign-in link says so, and its guide link is the
-// one word that fits beside it on a 360px phone.
+// TestAnonymousHeaderLabelsUseAuthenticationLanguage pins the layout
+// copy: the anonymous header's sign-in link says so, and its guide link
+// names the destination the same way PrimaryNavigation's own "/guide"
+// link already does.
+//
+// Deliberate pin update (Decision 9, J5 F33, wave E): this used to
+// require the one-word "Guide" — chosen so the label fit beside "Sign
+// in" on a 360px phone with no wrap — but that left the same href
+// carrying two different names in the same file (the signed-in rail's
+// own "/guide" link already read "Manager guide"). Decision 9 settles
+// that in the nav map's favor: the label repeats the canonical name.
+// .minimal-bar's own site-brand already shrinks under an ellipsis
+// (min-width: 0, public/styles.css), so the wider label has room to grow
+// into without a new horizontal-overflow bug — see
+// TestBrowserPublicHeaderNoOverflowAtNarrowWidth for the browser-level
+// proof.
 func TestAnonymousHeaderLabelsUseAuthenticationLanguage(t *testing.T) {
 	layout, err := os.ReadFile(filepath.Join("app", "layout.gsx"))
 	if err != nil {
@@ -198,8 +211,8 @@ func TestAnonymousHeaderLabelsUseAuthenticationLanguage(t *testing.T) {
 	if strings.Contains(markup, "League access") {
 		t.Error("layout.gsx still labels the sign-in link \"League access\"")
 	}
-	if !strings.Contains(markup, `class="access-link access-link--guide">Guide</a>`) {
-		t.Error("layout.gsx's anonymous header guide link is not the one-word \"Guide\"")
+	if !strings.Contains(markup, `class="access-link access-link--guide">Manager guide</a>`) {
+		t.Error("layout.gsx's anonymous header guide link no longer reads \"Manager guide\", the nav map's own name for /guide")
 	}
 	if got := len(regexp.MustCompile(`(?m)^\s*Sign in$`).FindAllString(markup, -1)); got != 2 {
 		t.Errorf("layout.gsx carries %d \"Sign in\" link labels, want 2 (the minimal-bar and the rail account panel)", got)
