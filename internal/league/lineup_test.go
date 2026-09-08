@@ -855,6 +855,62 @@ func TestTeamDataProjectedSumsStartersOnly(t *testing.T) {
 	}
 }
 
+// TestTeamDataBenchPointsReadDashUntilLedgerPosts pins J3 F12: /team's
+// bench rows used to format player.Points directly — a field nothing in
+// this codebase ever populates from a real source, so a bench row read
+// "0.0" whether or not the weekly ledger had posted, contradicting
+// /matchups' own honest "—" for the identical not-yet-known case. This
+// fixture guarantees a genuine bench player (rbD; the other seven fill
+// every starting slot with nothing left over).
+func TestTeamDataBenchPointsReadDashUntilLedgerPosts(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: 1, Kickoff: now.Add(time.Hour), Away: "PIT", Home: "NYJ"}}
+	})
+	players := []Player{
+		{ID: "qb1", Name: "QB One", Position: "QB", NFLTeam: "PIT", Projection: 10},
+		{ID: "rbA", Name: "RB A", Position: "RB", NFLTeam: "PIT", Projection: 20},
+		{ID: "rbB", Name: "RB B", Position: "RB", NFLTeam: "PIT", Projection: 18},
+		{ID: "wrA", Name: "WR A", Position: "WR", NFLTeam: "PIT", Projection: 15},
+		{ID: "wrB", Name: "WR B", Position: "WR", NFLTeam: "PIT", Projection: 12},
+		{ID: "teA", Name: "TE A", Position: "TE", NFLTeam: "PIT", Projection: 9},
+		{ID: "rbC", Name: "RB C", Position: "RB", NFLTeam: "PIT", Projection: 1},
+		{ID: "rbD", Name: "Bench Rusher", Position: "RB", NFLTeam: "PIT", Projection: 0.5},
+	}
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return players, 1, "test" })
+	draftFixtureOntoTeam1(t, svc, now, []string{"qb1", "rbA", "rbB", "wrA", "wrB", "teA", "rbC", "rbD"})
+
+	benchRowFor := func(data map[string]any) map[string]any {
+		t.Helper()
+		bench, ok := data["bench"].([]map[string]any)
+		if !ok {
+			t.Fatalf("bench = %#v, want []map[string]any", data["bench"])
+		}
+		for _, row := range bench {
+			if row["id"] == "rbD" {
+				return row
+			}
+		}
+		t.Fatal("rbD is not on the bench — fixture assumption broken")
+		return nil
+	}
+
+	before := benchRowFor(svc.TeamData(httptestNewGET("/team")))
+	if before["points"] != "—" {
+		t.Fatalf("bench points before the ledger posts = %#v, want the honest dash, not a false 0.0", before["points"])
+	}
+
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
+		return []WeekStatLine{{Key: normalizePlayerKey("Bench Rusher", "RB"), Stats: map[string]float64{"reception": 4}}}
+	})
+	after := benchRowFor(svc.TeamData(httptestNewGET("/team")))
+	if after["points"] == "—" || after["points"] == "0.0" {
+		t.Fatalf("bench points once the ledger posts a line = %#v, want a real computed score", after["points"])
+	}
+}
+
 // TestSetLineupReportsEveryCascadingChange pins J3 F4: one lineup-set
 // action can cascade through auto-fill into two more slots, and the
 // result message must name every one of them, not just the slot the

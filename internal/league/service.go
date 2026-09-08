@@ -2535,6 +2535,19 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	benchRows := playerMapsWithScoring(lineup.Bench, scoringValues, s.matchupIndexFor(games, week), drafted)
 	addBenchGroupHeaders(benchRows)
 	addScheduleLabels(benchRows, lineup.Bench, games, week, s.matchupLocation())
+	// J3 F12: playerMap's own "points" field is a bare formatted
+	// player.Points — a field nothing in this codebase ever populates
+	// from a real source, so every starter and bench row alike always
+	// read the same false "0.0", whether or not the weekly ledger had
+	// posted. Both row sets now carry the same ledger-truth PointsText a
+	// starting slot's own StarterLedgerRow (matchup_ledger.go) already
+	// renders on /matchups — a real number once matched, else the same
+	// honest "—" before the ledger has anything to say about that
+	// player, never an implied zero.
+	weeklyStats := s.matchupStatsSnapshot(week)
+	weeklyLineByKey := weekStatLinesByKey(weeklyStats.lines)
+	applyWeeklyPointsText(starterRows, general, weeklyStats, scoringValues, weeklyLineByKey, now)
+	applyWeeklyPointsText(benchRows, general, weeklyStats, scoringValues, weeklyLineByKey, now)
 	draftClass := s.draftClassTeaser(state, teamID, 3)
 
 	data := map[string]any{
@@ -2611,6 +2624,14 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		"bench_capacity":       strconv.Itoa(preset.Bench),
 		"bench":                benchRows,
 		"bench_empty":          len(lineup.Bench) == 0,
+		// points_source_line/points_updated_at (J3 F12) name the same
+		// "Weekly ledger (nflverse)" source /matchups' own status line
+		// carries, beside the same PTS column this page's rows now
+		// render truthfully — a PTS cell reading "—" needs the same
+		// provenance a reader of /matchups already gets, not a bare
+		// unlabeled dash.
+		"points_source_line": "Weekly ledger (nflverse)",
+		"points_updated_at":  s.formatMatchupUpdateOrUnavailable(s.statsUpdatedAt()),
 		// RESERVE and IR sections (roster-ops SK spec): render-tolerant —
 		// has_reserve/has_ir are false, and the section stays hidden,
 		// whenever the active roster shape carries no such zone.

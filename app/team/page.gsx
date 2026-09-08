@@ -896,6 +896,7 @@ func TeamLineupRegion() Node {
 								<span>PROJ</span>
 								<span>PTS</span>
 							</div>
+							<p class="mono muted">{data.points_source_line} · {data.points_updated_at}</p>
 							<div class="roster-list">
 								<Each of={data.bench} as="player">
 									<RosterRow {...player}></RosterRow>
