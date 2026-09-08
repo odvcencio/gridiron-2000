@@ -61,6 +61,10 @@ type navigationViewerFixture struct {
 	// must show instead of a blank name beside the initials chip.
 	noTeamName bool
 	viewerName string
+	// teamNameOverride (coordinator follow-up on J5 F36) substitutes the
+	// fixture's own default "Quality Agents" team name — used to drive a
+	// long, single-word name through the rail's real render path.
+	teamNameOverride string
 }
 
 type renderedNavigationGroup struct {
@@ -113,6 +117,9 @@ func Page() Node {
 	if viewer.noTeamName {
 		teamName = ""
 		viewerName = viewer.viewerName
+	}
+	if viewer.teamNameOverride != "" {
+		teamName = viewer.teamNameOverride
 	}
 	fixtureData := func(*route.RouteContext, route.FilePage) (any, error) {
 		return map[string]any{
@@ -1053,9 +1060,15 @@ func TestFooterLineRendersAsDividerTextNotACommentLine(t *testing.T) {
 
 // TestRailNamesSeatAndRoleBesideAvatar pins J5 F36: every signed-in
 // surface (desktop rail, mobile-enhanced dialog, no-JS static disclosure)
-// shows the seat's role beside the avatar — "· Manager", "· Commissioner",
-// or "· No seat" — as a plain, always-present part of the identity line,
-// mutually exclusive with the other two.
+// shows the seat's role beside the avatar — "Manager", "Commissioner", or
+// "No seat" — mutually exclusive with the other two.
+//
+// Coordinator follow-up (regression, hemlock's /admin capture at 1440):
+// the role used to render inline after the team name ("Pale moon ·
+// Manager"), sharing its line and squeezing a long name until it broke
+// mid-word. It now renders on its own line inside .user-identity, with
+// no leading separator — a stacked line reads as its own unit without a
+// dot to join it to the name above.
 func TestRailNamesSeatAndRoleBesideAvatar(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1063,10 +1076,10 @@ func TestRailNamesSeatAndRoleBesideAvatar(t *testing.T) {
 		hasSeat bool
 		want string
 	}{
-		{name: "seated manager", hasSeat: true, want: "· Manager"},
-		{name: "commissioner with a seat", commissioner: true, hasSeat: true, want: "· Commissioner"},
-		{name: "commissioner without a seat", commissioner: true, want: "· Commissioner"},
-		{name: "seatless member", want: "· No seat"},
+		{name: "seated manager", hasSeat: true, want: "Manager"},
+		{name: "commissioner with a seat", commissioner: true, hasSeat: true, want: "Commissioner"},
+		{name: "commissioner without a seat", commissioner: true, want: "Commissioner"},
+		{name: "seatless member", want: "No seat"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1086,6 +1099,53 @@ func TestRailNamesSeatAndRoleBesideAvatar(t *testing.T) {
 					t.Errorf("surface %d .user-role text = %q, want %q", index, text, test.want)
 				}
 			}
+			// .user-role must now sit inside .user-identity, alongside
+			// .user-name, not as a direct sibling flex item of .user-badge
+			// squeezed onto the name's own line.
+			identities := findNodes(document, func(node *html.Node) bool {
+				return node.Type == html.ElementNode && hasClass(node, "user-identity")
+			})
+			if len(identities) != 3 {
+				t.Fatalf("rendered %d .user-identity wrappers, want desktop/enhanced/static (3)", len(identities))
+			}
+			for index, identity := range identities {
+				names := findNodes(identity, func(node *html.Node) bool {
+					return node.Type == html.ElementNode && hasClass(node, "user-name")
+				})
+				roleInIdentity := findNodes(identity, func(node *html.Node) bool {
+					return node.Type == html.ElementNode && hasClass(node, "user-role")
+				})
+				if len(names) != 1 || len(roleInIdentity) != 1 {
+					t.Errorf("surface %d .user-identity holds %d .user-name and %d .user-role, want exactly one each", index, len(names), len(roleInIdentity))
+				}
+			}
 		})
+	}
+}
+
+// TestRailTeamNameClampsInsteadOfBreakingMidWord is the coordinator's own
+// regression pin: a single-word team name ("In Shedeur Time" once broke
+// as "IN / SHED / EUR / TIME" in a real capture at 1440px) must clamp at
+// a real line boundary — .user-name's own TextBlock now carries
+// maxLines=2 and overflow=ellipsis instead of flowing without a line
+// limit — on every signed-in surface.
+func TestRailTeamNameClampsInsteadOfBreakingMidWord(t *testing.T) {
+	body := renderNavigationLayout(t, "/pickem?week=2", navigationViewerFixture{
+		signedIn: true, hasSeat: true, teamNameOverride: "InShedeurTimeAVeryLongUnbrokenFranchiseName",
+	})
+	document := parseNavigationDocument(t, body)
+	names := findNodes(document, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && hasClass(node, "user-name")
+	})
+	if len(names) != 3 {
+		t.Fatalf("rendered %d .user-name elements, want desktop/enhanced/static (3)", len(names))
+	}
+	for index, name := range names {
+		if nodeAttr(name, "data-gosx-text-layout-max-lines") != "2" {
+			t.Errorf("surface %d .user-name data-gosx-text-layout-max-lines = %q, want \"2\"", index, nodeAttr(name, "data-gosx-text-layout-max-lines"))
+		}
+		if nodeAttr(name, "data-gosx-text-layout-overflow") != "ellipsis" {
+			t.Errorf("surface %d .user-name data-gosx-text-layout-overflow = %q, want \"ellipsis\"", index, nodeAttr(name, "data-gosx-text-layout-overflow"))
+		}
 	}
 }

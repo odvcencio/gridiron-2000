@@ -701,6 +701,164 @@ func TestActivityMapsRendersCommissionerEventAsDistinctActorClass(t *testing.T) 
 	}
 }
 
+// TestActivityMapsCarriesActionTypeForEveryEntryKind is the coordinator's
+// failing-test-first reproduction (J4 F33 follow-up, handed over from
+// hemlock's commissioner-actions team-filter work): the feed's own rows
+// carried no normalized action-type bucket, so nothing could filter by
+// "the transaction types the feed already carries" the way it already
+// filters by team. Every entry kind now carries "action_type": a draft
+// pick reads "draft"; add/drop/claim/trade/commissioner Transaction
+// rows read their own bucket (claim -> "waiver", auto-drop -> "drop",
+// commissioner/commissioner_correction -> "commissioner"); a lineup-
+// intervention commissioner event (Kind prefixed "lineup.") reads
+// "lineup", distinct from every other commissioner event's "commissioner".
+func TestActivityMapsCarriesActionTypeForEveryEntryKind(t *testing.T) {
+	svc := newTestService(t, true)
+	base := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	state := PersistedState{
+		Picks: []DraftPick{
+			{TeamID: "team-1", PlayerID: "p1", Round: 1, Number: 1, MadeAt: base},
+		},
+		Transactions: []Transaction{
+			{ID: "txn-add", Type: "add", TeamID: "team-1", Adds: []TransactionPlayer{{Name: "Add Guy", Position: "WR"}}, At: base.Add(time.Minute)},
+			{ID: "txn-drop", Type: "drop", TeamID: "team-1", Drops: []TransactionPlayer{{Name: "Drop Guy", Position: "RB"}}, At: base.Add(2 * time.Minute)},
+			{ID: "txn-claim", Type: "claim", TeamID: "team-1", Adds: []TransactionPlayer{{Name: "Claim Guy", Position: "TE"}}, At: base.Add(3 * time.Minute)},
+			{ID: "txn-autodrop", Type: "auto-drop", TeamID: "team-1", Drops: []TransactionPlayer{{Name: "Auto Guy", Position: "K"}}, At: base.Add(4 * time.Minute)},
+			{ID: "txn-trade", Type: "trade", TeamID: "team-1", OtherTeamID: "team-2", Adds: []TransactionPlayer{{Name: "Got Guy", Position: "QB"}}, Drops: []TransactionPlayer{{Name: "Gave Guy", Position: "QB"}}, At: base.Add(5 * time.Minute)},
+			{ID: "txn-comm", Type: "commissioner", TeamID: "team-1", Adds: []TransactionPlayer{{Name: "Comm Guy", Position: "DST"}}, At: base.Add(6 * time.Minute)},
+			{ID: "txn-comm-fix", Type: "commissioner_correction", TeamID: "team-1", Adds: []TransactionPlayer{{Name: "Fix Guy", Position: "DST"}}, At: base.Add(7 * time.Minute)},
+		},
+		CommissionerEvents: []CommissionerEvent{
+			{ID: "ce-lineup", ActorEmail: "alex@example.com", ActorName: "Alex", Kind: "lineup.intervention_set", Summary: "set a lineup slot", At: base.Add(8 * time.Minute)},
+			{ID: "ce-other", ActorEmail: "alex@example.com", ActorName: "Alex", Kind: "announcement.post", Summary: "posted an announcement", At: base.Add(9 * time.Minute)},
+		},
+	}
+	rows := svc.activityMaps(state, 0)
+	if len(rows) != 10 {
+		t.Fatalf("len(rows) = %d, want 10", len(rows))
+	}
+	// Each seeded entry carries a distinguishable player name or summary
+	// (no shared, stable row ID exists across draft picks, transactions,
+	// and commissioner events), so rows are identified by that.
+	want := []struct {
+		contains string
+		field    string
+		wantType string
+	}{
+		{contains: "Add Guy", field: "player", wantType: "add"},
+		{contains: "Drop Guy", field: "player", wantType: "drop"},
+		{contains: "Claim Guy", field: "player", wantType: "waiver"},
+		{contains: "Auto Guy", field: "player", wantType: "drop"},
+		{contains: "Got Guy", field: "player", wantType: "trade"},
+		{contains: "Comm Guy", field: "player", wantType: "commissioner"},
+		{contains: "Fix Guy", field: "player", wantType: "commissioner"},
+		{contains: "set a lineup slot", field: "action", wantType: "lineup"},
+		{contains: "posted an announcement", field: "action", wantType: "commissioner"},
+	}
+	for _, test := range want {
+		found := false
+		for _, row := range rows {
+			value, _ := row[test.field].(string)
+			if strings.Contains(value, test.contains) {
+				found = true
+				if row["action_type"] != test.wantType {
+					t.Errorf("row with %s %q has action_type = %v, want %q", test.field, test.contains, row["action_type"], test.wantType)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("no row's %s contained %q: %+v", test.field, test.contains, rows)
+		}
+	}
+	// The draft pick's own row (Round 1, Pick 1) carries action_type "draft".
+	foundDraft := false
+	for _, row := range rows {
+		if player, _ := row["player"].(string); strings.Contains(player, "R1 · P1") {
+			foundDraft = true
+			if row["action_type"] != "draft" {
+				t.Errorf("draft pick row action_type = %v, want \"draft\"", row["action_type"])
+			}
+		}
+	}
+	if !foundDraft {
+		t.Errorf("no row's player carried the seeded pick's own round/pick suffix: %+v", rows)
+	}
+}
+
+// TestActivityDataFiltersByActionTypeAndNamesTheChoiceInTheEmptyState is
+// the coordinator's failing-test-first reproduction for the data layer:
+// a "type" query parameter filters the feed the same way "team" already
+// does, applied through the same preserved-state machinery, and a
+// filtered-empty result names the manager's own choice instead of a
+// generic "no moves match".
+func TestActivityDataFiltersByActionTypeAndNamesTheChoiceInTheEmptyState(t *testing.T) {
+	svc := newTestService(t, true)
+	svc.teams = []Team{
+		{ID: "team-1", Name: "Pale moon", Abbreviation: "PM"},
+		{ID: "team-2", Name: "Beta Bears", Abbreviation: "BET"},
+		{ID: "team-3", Name: "Gamma Ghosts", Abbreviation: "GAM"},
+	}
+	base := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	transactions := []Transaction{
+		// Pale moon (team-1) only ever adds — no trade of its own — so
+		// type=trade&team=PM below is a genuine empty result, not an
+		// artifact of the trade's own counterparty leaking team-1 in.
+		{ID: "txn-add", Type: "add", TeamID: "team-1", Adds: []TransactionPlayer{{PlayerID: "p-add", Name: "Add Guy", Position: "WR"}}, At: base},
+		// A trade's own Drops must already sit on the giving team's
+		// roster (Store.recordTransactionWithAuthority's ownership
+		// check), so team-2 "adds" its own give-piece first.
+		{ID: "txn-pretrade", Type: "add", TeamID: "team-2", Adds: []TransactionPlayer{{PlayerID: "p-gave", Name: "Gave Guy", Position: "QB"}}, At: base.Add(30 * time.Second)},
+		{ID: "txn-trade", Type: "trade", TeamID: "team-2", OtherTeamID: "team-3", Adds: []TransactionPlayer{{PlayerID: "p-got", Name: "Got Guy", Position: "QB"}}, Drops: []TransactionPlayer{{PlayerID: "p-gave", Name: "Gave Guy", Position: "QB"}}, At: base.Add(time.Minute)},
+	}
+	for _, txn := range transactions {
+		if err := svc.store.RecordTransaction(txn, 99); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// type=trade returns only the trade row, preserved into previous_href.
+	request, _ := http.NewRequest(http.MethodGet, "/activity?type=trade", nil)
+	data := svc.ActivityData(request)
+	rows, _ := data["transactions"].([]map[string]any)
+	if len(rows) != 1 || rows[0]["action_type"] != "trade" {
+		t.Fatalf("type=trade rows = %+v, want the one trade row", rows)
+	}
+	if data["has_filters"] != true {
+		t.Fatalf("has_filters = %v, want true when type is set", data["has_filters"])
+	}
+	if data["previous_href"] != "/activity?type=trade" {
+		t.Fatalf("previous_href = %v, want type preserved", data["previous_href"])
+	}
+	typeOptions, ok := data["type_options"].([]map[string]any)
+	if !ok || len(typeOptions) == 0 {
+		t.Fatalf("type_options = %#v, want a non-empty option list", data["type_options"])
+	}
+	sawTrade := false
+	for _, opt := range typeOptions {
+		if opt["value"] == "trade" {
+			sawTrade = true
+			if opt["selected"] != true {
+				t.Fatalf("type_options trade entry = %+v, want selected=true", opt)
+			}
+		}
+	}
+	if !sawTrade {
+		t.Fatalf("type_options missing a \"trade\" entry: %+v", typeOptions)
+	}
+
+	// type=trade&team=PM (Pale moon has no trade of its own here — its
+	// only row is an add) names the manager's own choice in the empty
+	// state instead of a generic "no moves match".
+	request, _ = http.NewRequest(http.MethodGet, "/activity?type=trade&team=PM", nil)
+	data = svc.ActivityData(request)
+	if data["transactions_empty"] != true {
+		t.Fatalf("transactions_empty = %v, want true", data["transactions_empty"])
+	}
+	if data["filtered_empty_message"] != "No trades for Pale moon this season." {
+		t.Fatalf("filtered_empty_message = %q, want %q", data["filtered_empty_message"], "No trades for Pale moon this season.")
+	}
+}
+
 func TestActivityMapsUsesLeagueTimezoneAndZoneLabel(t *testing.T) {
 	svc := activityParityService(t)
 	svc.cfg.Timezone = "America/Los_Angeles"

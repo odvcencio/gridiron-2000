@@ -206,7 +206,7 @@ func (s *Service) CommissionerAttentionDataReadOnly(_ *http.Request) map[string]
 	schedule := s.adminScheduleMap(state, now)
 	close := map[string]any{}
 	if value, ok := schedule["close"].(map[string]any); ok {
-		for _, key := range []string{"week", "ready", "final", "games_known", "games_total", "games_final", "stats_fresh", "reason"} {
+		for _, key := range []string{"week", "ready", "final", "games_known", "games_total", "games_final", "stats_fresh", "reason", "progress_sentence"} {
 			close[key] = value[key]
 		}
 	}
@@ -710,6 +710,17 @@ func (s *Service) adminWeekCloseMapWithKickoff(week int, now time.Time) map[stri
 		out["first_kickoff_display"] = ""
 		out["first_kickoff_iso"] = ""
 	}
+	// progress_sentence (coordinator addendum, wave C, 2026-09-08): the
+	// league-status card and the This week card's own first line used
+	// close's readiness "reason" ("waiting for 16 of 16 games to go
+	// final") even before the week's own first kickoff — a close reason
+	// glued on before there was anything to close. weekProgressSentence
+	// (season.go) is the exact function the attention line already reads
+	// for this same week ("Week 2 starts Thu Sep 17 · 8:15 PM EDT"
+	// before kickoff, in-progress and games-final counts after); both
+	// cards now read that one function's own words instead of a second,
+	// readiness-only sentence.
+	out["progress_sentence"] = s.weekProgressSentence(week, now)
 	return out
 }
 

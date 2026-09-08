@@ -19130,6 +19130,17 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
   .avail-row__rank-button-label {
     display: none;
   }
+
+  /* The coarse-pointer baseline rule (.site-frame button:not(...)) sets
+     min-width: 0 with a specificity no class chain beats, so the "+"
+     control gets an explicit width instead: 2.75rem (44px), the same
+     touch floor every other control in the room meets
+     (TestBrowserDraftRoomTouchTargetsAtPhoneWidth). */
+  .avail-row__actions form .avail-row__rank-button {
+    width: 2.75rem;
+    padding-inline: 0;
+    justify-content: center;
+  }
 }
 
 /* comb — rowan (2026-09-08 wave D): owner debrief item 2 — the row-level
@@ -19374,8 +19385,14 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
    needs the inline label on the row itself (this file's own comment on
    that rule: "the two-line row layout there carries its own inline
    PROJ/PTS labels") — so this only hides the redundant copy above the
-   899px desktop threshold, leaving the phone row's own label alone. */
-@media (width > 899px) {
+   899px desktop threshold, leaving the phone row's own label alone.
+   Season3 integration note: the lower edge is the rail band's upper
+   edge (68.75rem, 1100px), not 899px. Between 900px and 1100px the
+   page runs the two-line phone rows (the "(width <= 899px),
+   (min-width: 56.25rem) and (max-width: 68.75rem)" block above), and a
+   desktop grid-template-columns applied there pushed .lineup-slot to
+   816px inside a narrower column (TestBrowserRailBandNoHorizontalOverflow). */
+@media (width > 68.75rem) {
   .lineup-slot__proj small,
   .lineup-slot__pts small {
     display: none;
@@ -19499,7 +19516,6 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
    word is the common case for every signed-in viewer, so it reads as
    part of the identity line rather than a special callout. */
 .user-role {
-  flex: 0 0 auto;
   color: var(--color-text-muted);
   font-size: var(--type-2xs);
   white-space: nowrap;
@@ -19881,4 +19897,34 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
 
 .admin-masthead-week-meta > * {
   width: 100%;
+}
+
+/* Coordinator follow-up on J5 F36 (regression, hemlock's /admin capture
+   at 1440): with the role rendered inline after the team name, a
+   single-word name too long for the rail's own column ("In Shedeur
+   Time") broke mid-word across four lines ("IN / SHED / EUR / TIME") —
+   .navigation-account .user-name's own overflow-wrap: anywhere (this
+   file, "Item 7") let the browser split anywhere once white-space:
+   normal removed the old single-line clamp, and the name's own TextBlock
+   carried no maxLines to stop it. .user-identity stacks the name and the
+   role vertically (app/layout.gsx's own PrimaryNavigation, shared by the
+   desktop rail, the mobile-enhanced bar, and the no-JS disclosure) so
+   the role no longer shares the name's own line at all; the name's own
+   TextBlock now clamps at maxLines=2 with a real ellipsis instead of
+   flowing without limit. */
+.user-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+/* overflow-wrap: normal (not "anywhere") lets the browser and the
+   text-layout runtime alike prefer a word-boundary break; a single word
+   that still cannot fit its own line clamps with an ellipsis (the
+   runtime's own grapheme-level fallback) rather than splitting silently
+   across lines with no mark that anything was cut. */
+.navigation-account .user-name {
+  overflow-wrap: normal;
+  word-break: normal;
 }
