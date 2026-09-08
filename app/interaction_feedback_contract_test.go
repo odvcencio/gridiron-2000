@@ -83,8 +83,11 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// lineupMutationSuccess still calls RedirectWithNotice unchanged for
 	// its own no-single-row case (SET BEST LINEUP), so this inventory's
 	// count there is unaffected.
+	// Commissioner roster correction (2026-09-07): app/admin/page.server.go
+	// adds one RedirectBackWithNotice call for the "roster-correction"
+	// action's own successful commit (40 -> 41).
 	const wantRedirects = 14
-	const wantRedirectBacks = 40
+	const wantRedirectBacks = 41
 	redirects := 0
 	redirectBacks := 0
 	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, walkErr error) error {

@@ -53,6 +53,22 @@ func adminSectionTarget(section string) string {
 	return "/admin?section=" + url.QueryEscape(section) + "#admin-" + section
 }
 
+// rosterCorrectionConfirmValue is the "roster-correction" action's own
+// review-confirm gate: the confirm form's hidden field carries this exact
+// literal (page.gsx), mirroring the internal/league players.go pattern
+// (playerAddDropConfirmation's checkbox value) — a non-secret marker that
+// a native form cannot submit without deliberately opening the review
+// step's own confirm control.
+const rosterCorrectionConfirmValue = "correct-roster"
+
+// rosterCorrectionReviewField is the action.Validation field key the
+// review step's SUCCESSFUL preview (not an error) is carried under, kept
+// distinct from the shared "admin" field key every genuine validation
+// error in this file uses — see page_server.go's Load callback, which
+// reads this key to render the confirm panel rather than an error banner.
+const rosterCorrectionReviewField = "roster_correction_review"
+
+
 func adminNotificationReceiptText(receipt league.NotificationReceipt) string {
 	parts := make([]string, 0, 6)
 	if receipt.TransportNotWired {
@@ -239,7 +255,7 @@ func init() {
 					}
 				}
 			}
-			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-start", "draft-reschedule", "draft-reset", "draft-undo", "league-reset", "seat-trim", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete", "schedule-generate", "schedule-regenerate", "close-week-ready", "close-week-force", "run-waivers", "playoff-preview", "playoff-publish", "playoff-advance", "playoff-correct"} {
+			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-start", "draft-reschedule", "draft-reset", "draft-undo", "league-reset", "seat-trim", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete", "schedule-generate", "schedule-regenerate", "close-week-ready", "close-week-force", "run-waivers", "playoff-preview", "playoff-publish", "playoff-advance", "playoff-correct", "roster-correction"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("admin"); message != "" {
 						data["has_admin_error"] = true
@@ -247,6 +263,27 @@ func init() {
 					}
 				}
 			}
+			// roster-correction's own review-confirm state (distinct from
+			// the shared "admin" error field just above): a successful
+			// review-step submission is not an error, it is the console
+			// pausing for the commissioner's explicit second confirm — see
+			// this action's own handler doc comment, below.
+			data["roster_correction_review_pending"] = false
+			data["roster_correction_review_summary"] = ""
+			rosterCorrectionForm := map[string]any{"team_id": "", "drop_id": "", "add_id": "", "reason": ""}
+			if view, ok := ctx.ActionState("roster-correction"); ok {
+				if summary := view.Error(rosterCorrectionReviewField); summary != "" {
+					data["roster_correction_review_pending"] = true
+					data["roster_correction_review_summary"] = summary
+				}
+				if !view.OK() {
+					rosterCorrectionForm["team_id"] = view.Value("team_id")
+					rosterCorrectionForm["drop_id"] = view.Value("drop_id")
+					rosterCorrectionForm["add_id"] = view.Value("add_id")
+					rosterCorrectionForm["reason"] = view.Value("reason")
+				}
+			}
+			data["roster_correction_form"] = rosterCorrectionForm
 			generation := map[string]any{"weeks": "14", "start_week": "1", "seed": ""}
 			if view, ok := ctx.ActionState("schedule-generate"); ok {
 				generation["weeks"] = view.Value("weeks")
@@ -808,6 +845,51 @@ func init() {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("announcements"), "Announcement removed.")
+				return nil
+			},
+			// roster-correction is a two-submit review-confirm action (the
+			// product contract's own classification for a consequence-
+			// bearing action that is neither reversible-immediate nor a
+			// typed destructive confirmation): the first submit (no
+			// confirmation field) resolves real team/player names through
+			// AdminRosterCorrectionPreview — which never writes anything —
+			// and pauses on a restated plain-language summary naming the
+			// team and both players; only the second submit, carrying the
+			// same team/drop/add/reason plus rosterCorrectionConfirmValue,
+			// actually calls AdminRosterCorrection and commits. Both
+			// submits re-run the identical validation, so a stale confirm
+			// (league state moved between the two requests) surfaces a
+			// fresh, honest error instead of committing an unreviewed
+			// change.
+			"roster-correction": func(ctx *action.Context) error {
+				teamID := ctx.FormData["team_id"]
+				dropID := ctx.FormData["drop_id"]
+				addID := ctx.FormData["add_id"]
+				reason := ctx.FormData["reason"]
+				preview, err := league.Default().AdminRosterCorrectionPreview(ctx.Request, teamID, dropID, addID, reason)
+				if err != nil {
+					return actionui.Validation(ctx, "admin", "admin", err)
+				}
+				if strings.TrimSpace(ctx.FormData["confirmation"]) != rosterCorrectionConfirmValue {
+					message := "Review the correction below, then confirm."
+					return action.Validation(message, map[string]string{rosterCorrectionReviewField: preview.Summary}, ctx.FormData)
+				}
+				result, err := league.Default().AdminRosterCorrection(ctx.Request, teamID, dropID, addID, reason)
+				if err != nil {
+					return actionui.Validation(ctx, "admin", "admin", err)
+				}
+				// This section's own adminSectionTarget, with the default
+				// "#admin-roster" anchor swapped for the correction panel's
+				// own, more specific "#roster-correction" id.
+				target := adminSectionTarget("roster")
+				if before, _, found := strings.Cut(target, "#"); found {
+					target = before
+				}
+				target += "#roster-correction"
+				// No trailing period: result.Summary ends with the
+				// commissioner's own free-text reason, which may already
+				// carry its own closing punctuation.
+				actionui.RedirectBackWithNotice(ctx, target, "Roster corrected: "+result.Summary)
 				return nil
 			},
 		},

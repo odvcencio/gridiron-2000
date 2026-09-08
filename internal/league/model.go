@@ -462,6 +462,18 @@ type PersistedState struct {
 	// a nil map decodes safely on an old file, and the store normalizes
 	// it in load/NewStore/cloneState.
 	SeatReleaseNotices map[string]SeatReleaseNotice `json:"seatReleaseNotices,omitempty"`
+
+	// RosterCorrectionNotices maps team ID to the one pending, one-time
+	// flash a commissioner roster correction (AdminRosterCorrection,
+	// admin_roster_correction.go) leaves for that team's own manager. The
+	// affected team's /team page shows it on the manager's next visit and
+	// consumes (pops) it in the same read, so it never has to reappear —
+	// the durable mailbox the CommissionerEvents audit row itself is not,
+	// since that row is permanent history, not a one-time flash. Additive
+	// under schema version 11 — the CommissionerEvents precedent above: a
+	// nil map decodes safely on an old file, and the store normalizes it
+	// in load/NewStore/cloneState.
+	RosterCorrectionNotices map[string]RosterCorrectionNotice `json:"rosterCorrectionNotices,omitempty"`
 }
 
 // SeatReleaseNotice is one durable record of a seat release, keyed by the
@@ -471,6 +483,17 @@ type PersistedState struct {
 type SeatReleaseNotice struct {
 	TeamID string    `json:"teamId"`
 	At     time.Time `json:"at"`
+}
+
+// RosterCorrectionNotice is one pending one-time flash for a team whose
+// roster the commissioner corrected on its behalf. Summary is the plain-
+// language sentence the team's own manager reads ("The commissioner
+// corrected your roster: adds ... — reason: ..."); At is the correction's
+// own instant, carried through in case a future surface wants it.
+type RosterCorrectionNotice struct {
+	TeamID  string    `json:"teamId"`
+	Summary string    `json:"summary"`
+	At      time.Time `json:"at"`
 }
 
 // CommissionerEventRefs names the entities one commissioner action

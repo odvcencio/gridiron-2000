@@ -2379,6 +2379,12 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 			"identity_available":            identityAvailable,
 			"identity_error":                identityError,
 			"badge_grid":                    []map[string]any{},
+			// has_roster_correction_notice/roster_correction_notice: a
+			// seatless viewer owns no team, so there is never a pending
+			// correction flash to show — see the seated branch's own
+			// consume-and-render doc comment near this map's other copy.
+			"has_roster_correction_notice": false,
+			"roster_correction_notice":     "",
 		}
 	}
 	teamID = lineupTarget.TeamID
@@ -2617,10 +2623,10 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		// week" treatment, so a caller never has to infer it from
 		// week < current or from every slot's own locked state.
 		"lineup_week_read_only": weekSelection.ReadOnly,
-		"lineup_deadline":        lineupDeadlineMap,
-		"starters":               starterRows,
-		"starters_filled":        strconv.Itoa(filled),
-		"starters_total":         strconv.Itoa(len(lineup.Slots)),
+		"lineup_deadline":       lineupDeadlineMap,
+		"starters":              starterRows,
+		"starters_filled":       strconv.Itoa(filled),
+		"starters_total":        strconv.Itoa(len(lineup.Slots)),
 		// starters_empty/starters_empty_label back /team's persistent,
 		// beside-the-count warning (gap-audit finding: SET BEST LINEUP used
 		// to report plain success while a starting slot, e.g. K with no
@@ -2697,6 +2703,21 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	}
 	for key, value := range radarCopy {
 		data[key] = value
+	}
+	// roster_correction_notice (build brief item 3): a one-time flash for a
+	// commissioner roster correction made on this team's behalf. Popped
+	// exactly once, on a real full-page load of the team's own terminal —
+	// never on a commissioner's lineup-intervention view of a claimed seat
+	// that is not their own, and never on the read-only fragment poll
+	// (TeamDataReadOnly), which must stay a pure observation boundary (see
+	// that method's own doc comment).
+	data["has_roster_correction_notice"] = false
+	data["roster_correction_notice"] = ""
+	if !readOnly && !lineupTarget.Intervention && teamID != "" {
+		if notice, ok, err := s.store.ConsumeRosterCorrectionNotice(teamID); err == nil && ok {
+			data["has_roster_correction_notice"] = true
+			data["roster_correction_notice"] = notice.Summary
+		}
 	}
 	return data
 }
