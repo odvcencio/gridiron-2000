@@ -19239,6 +19239,20 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
     justify-content: flex-start;
     text-align: left;
   }
+
+  /* Coordinator follow-up: .matchup-team-line's own flex-wrap: wrap (the
+     "Item 0 re-verify follow-up" block, this file) exists to save a real
+     3-column desktop layout from clipping a long manager name — but the
+     stack above already gives this row the full card width, and the
+     row still wrapped regardless, dropping ".matchup-team-line__meta"
+     (" · 0-0") onto its own line with the separator dot leading it. At
+     this width the manager name and record now share one line; the
+     manager name's own TextBlock (maxLines=1, overflow=ellipsis) still
+     clamps a name that genuinely does not fit, so nothing regresses to
+     the un-wrapped clipping the desktop fix was written against. */
+  .matchups-page .matchup-team-line {
+    flex-wrap: nowrap;
+  }
 }
 
 /* J0 team-lineup residue after pine (comb — pine's own 8-column desktop
