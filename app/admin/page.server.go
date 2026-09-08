@@ -295,17 +295,31 @@ func init() {
 				regeneration["confirm"] = view.Value("confirm")
 			}
 			closeForm := map[string]any{"week": "1", "confirm": ""}
+			currentCloseWeek := ""
 			if schedule, ok := data["schedule"].(map[string]any); ok {
 				if close, ok := schedule["close"].(map[string]any); ok {
-					closeForm["week"] = fmt.Sprint(close["week"])
+					currentCloseWeek = fmt.Sprint(close["week"])
+					closeForm["week"] = currentCloseWeek
 				}
 			}
 			if view, ok := ctx.ActionState("close-week-ready"); ok {
 				closeForm["week"] = view.Value("week")
 			}
+			// F23 (J4 console gap-audit): ActionState survives a
+			// *successful* force close, not just a validation failure, so
+			// after week 1 closed and the panel advanced to week 2, this
+			// still held week 1's own submitted values — priming week 2's
+			// box with a "CLOSE WEEK 1" phrase that could only fail. A
+			// submission still names the week actually on screen right now
+			// (currentCloseWeek) exactly when it was rejected and needs
+			// redisplay; once the panel has moved on, the submission that
+			// moved it is stale and the fresh defaults above stand.
 			if view, ok := ctx.ActionState("close-week-force"); ok {
-				closeForm["week"] = view.Value("week")
-				closeForm["confirm"] = view.Value("confirm")
+				week := view.Value("week")
+				if currentCloseWeek == "" || week == currentCloseWeek {
+					closeForm["week"] = week
+					closeForm["confirm"] = view.Value("confirm")
+				}
 			}
 			data["schedule_generation"] = generation
 			data["schedule_regeneration"] = regeneration

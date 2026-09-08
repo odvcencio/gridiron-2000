@@ -339,7 +339,7 @@ func TestAdminResetLeagueRestoresRuntimeTopologyDefaults(t *testing.T) {
 		clearRosterShape()
 		clearSeatTrim()
 	})
-	if err := service.AdminResetLeague(request, ResetLeagueConfirmation); err != nil {
+	if err := service.AdminResetLeague(request, resetLeagueConfirmation(service.cfg.Name)); err != nil {
 		t.Fatalf("AdminResetLeague: %v", err)
 	}
 	if got := CurrentRoster().Name; got != ActiveRosterPreset.Name {
@@ -378,7 +378,7 @@ func TestAdminResetLeagueTopologyPublicationLinearizesRosterMutations(t *testing
 			}
 		}
 		resetDone := make(chan error, 1)
-		go func() { resetDone <- service.AdminResetLeague(request, ResetLeagueConfirmation) }()
+		go func() { resetDone <- service.AdminResetLeague(request, resetLeagueConfirmation(service.cfg.Name)) }()
 		<-resetPaused
 
 		shapeDone := make(chan error, 1)
@@ -437,7 +437,7 @@ func TestAdminResetLeagueTopologyPublicationLinearizesRosterMutations(t *testing
 		<-trimPaused
 
 		resetDone := make(chan error, 1)
-		go func() { resetDone <- service.AdminResetLeague(request, ResetLeagueConfirmation) }()
+		go func() { resetDone <- service.AdminResetLeague(request, resetLeagueConfirmation(service.cfg.Name)) }()
 		select {
 		case err := <-resetDone:
 			close(releaseTrim)
@@ -467,17 +467,17 @@ func TestAdminResetConfirmationsAreDistinctAndServerValidated(t *testing.T) {
 	service.store.state.Picks = []DraftPick{{Number: 1, TeamID: "team-1", PlayerID: "p-1"}}
 	before := service.store.Snapshot()
 
-	if err := service.AdminResetDraft(request, ResetLeagueConfirmation); err == nil {
+	if err := service.AdminResetDraft(request, resetLeagueConfirmation(service.cfg.Name)); err == nil {
 		t.Fatal("RESET LEAGUE must not authorize ResetDraft")
 	}
-	if err := service.AdminResetLeague(request, ResetDraftConfirmation); err == nil {
+	if err := service.AdminResetLeague(request, resetDraftConfirmation(service.cfg.Name)); err == nil {
 		t.Fatal("RESET DRAFT must not authorize ResetLeague")
 	}
 	after := service.store.Snapshot()
 	if len(after.Picks) != len(before.Picks) {
 		t.Fatalf("wrong reset phrase mutated picks: before=%#v after=%#v", before.Picks, after.Picks)
 	}
-	if err := service.AdminResetDraft(request, ResetDraftConfirmation); err != nil {
+	if err := service.AdminResetDraft(request, resetDraftConfirmation(service.cfg.Name)); err != nil {
 		t.Fatalf("exact draft reset confirmation: %v", err)
 	}
 }
