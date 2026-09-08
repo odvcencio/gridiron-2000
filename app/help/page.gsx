@@ -71,8 +71,8 @@ func Page() Node {
 						<Each of={category.topics} as="topic">
 							<article class="guide-card help-topic-card">
 								<span class="section-index">/{topic.id}</span>
-								<h4>{topic.title}</h4>
-								<p>{topic.summary}</p>
+								<TextBlock as="h4" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text={topic.title} />
+								<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={topic.summary} />
 								<a class="guide-card__link" href={"/help/" + topic.id} data-gosx-link>Open topic →</a>
 							</article>
 						</Each>
@@ -94,14 +94,14 @@ func Page() Node {
 			<header class="guide-section__heading"><span class="section-index">04 // CONCEPT TRANSITION</span><h2 id="migration-heading">Bring the questions, verify the rules.</h2><p>There is no automatic account, roster, history, or password migration. Map concepts, then confirm the new runtime.</p></header>
 			<div class="help-mapping-table" role="table" aria-label="Platform migration concept mappings">
 				<div class="help-mapping-row help-mapping-row--head" role="row"><strong role="columnheader">Gridiron concept</strong><strong role="columnheader">Incoming alias</strong><strong role="columnheader">Material difference + next action</strong></div>
-				<Each of={data.migration} as="mapping"><div class="help-mapping-row" role="row"><strong role="cell">{mapping.canonical}</strong><span role="cell">{mapping.incoming_aliases}</span><span role="cell">{mapping.difference} <b>Next:</b> {mapping.next_action}</span></div></Each>
+				<Each of={data.migration} as="mapping"><div class="help-mapping-row" role="row"><TextBlock as="strong" role="cell" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text={mapping.canonical} /><TextBlock as="span" role="cell" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={mapping.incoming_aliases} /><TextBlock as="span" role="cell" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis">{mapping.difference} <b>Next:</b> {mapping.next_action}</TextBlock></div></Each>
 			</div>
 			<p class="scoring-note">Privacy, consequence, and runtime-source details are available on <a href="/help/concept-transition" data-gosx-link>the full concept-transition topic</a>.</p>
 		</section>
 
 		<section class="guide-section guide-section--accent" id="glossary" aria-labelledby="glossary-heading">
 			<header class="guide-section__heading"><span class="section-index">05 // CANONICAL VOCABULARY</span><h2 id="glossary-heading">Say the thing that owns the rule.</h2><p>Aliases are searchable; canonical terms carry the product meaning.</p></header>
-			<div class="help-glossary-grid"><Each of={data.glossary} as="entry"><article class="help-glossary-entry"><h3><dfn>{entry.term}</dfn></h3><p>{entry.definition}</p><If cond={entry.aliases}><small>Also searched as: {entry.aliases}</small></If><a href={"/help/" + entry.topic_id} data-gosx-link>Topic →</a></article></Each></div>
+			<div class="help-glossary-grid"><Each of={data.glossary} as="entry"><article class="help-glossary-entry"><h3><TextBlock as="dfn" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text={entry.term} /></h3><TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={4} overflow="ellipsis" text={entry.definition} /><If cond={entry.aliases}><small>Also searched as: {entry.aliases}</small></If><a href={"/help/" + entry.topic_id} data-gosx-link>Topic →</a></article></Each></div>
 		</section>
 
 		<section class="guide-section" id="recovery" aria-labelledby="recovery-heading">

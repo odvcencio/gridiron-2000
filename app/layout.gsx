@@ -224,7 +224,7 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 			<If cond={props.SignedIn}>
 				<div class="user-badge">
 					<span class="user-chip mono">{props.Initials}</span>
-					<span class="user-name">{props.TeamName}</span>
+					<TextBlock as="span" class="user-name" font="600 13px IBM Plex Mono" lineHeight={18} text={props.TeamName} />
 					<If cond={props.IsCoManager}>
 						<span class="user-role-chip mono">CO-MANAGER</span>
 					</If>
@@ -362,7 +362,7 @@ func Layout() Node {
 					<a href="/" data-gosx-link class="site-brand" aria-label={data.league.name + " league home"}>
 						<span class="brand-badge">{data.league.short_code}</span>
 						<span class="brand-copy">
-							<strong>{data.league.name}</strong>
+							<TextBlock mode="native" as="strong" font="400 24px Archivo Black" lineHeight={28} maxWidth={200} maxLines={2} overflow="ellipsis" text={data.league.name} />
 							<small>{data.league.tagline}</small>
 						</span>
 					</a>
@@ -405,7 +405,7 @@ func Layout() Node {
 			<header class="mobile-navigation-enhanced" data-navigation-surface="mobile-enhanced-bar">
 				<a href="/" data-gosx-link class="mobile-brand" aria-label={data.league.name + " league home"}>
 					<span class="brand-badge">{data.league.short_code}</span>
-					<strong>{data.league.name}</strong>
+					<TextBlock mode="native" as="strong" font="400 15px Archivo Black" lineHeight={18} maxWidth={160} maxLines={2} overflow="ellipsis" text={data.league.name} />
 				</a>
 				<If cond={data.viewer.has_seat && data.league.attention.has_items && data.viewer.demo == false}>
 					<a
@@ -482,7 +482,7 @@ func Layout() Node {
 				<summary>
 					<span class="mobile-brand">
 						<span class="brand-badge">{data.league.short_code}</span>
-						<strong>{data.league.name}</strong>
+						<TextBlock mode="native" as="strong" font="400 15px Archivo Black" lineHeight={18} maxWidth={160} maxLines={2} overflow="ellipsis" text={data.league.name} />
 					</span>
 					<span class="mobile-navigation-static__label mono">MENU</span>
 				</summary>
@@ -569,7 +569,15 @@ func Layout() Node {
 		<If cond={(data.viewer.signed_in || data.viewer.demo) && data.league.latest_announcement.has}>
 			<div class="announcement-banner" role="status">
 				<span class="announcement-banner__label mono">COMMISSIONER NOTE</span>
-				<p>{data.league.latest_announcement.body}</p>
+				<TextBlock
+					as="p"
+					class="announcement-banner__body"
+					font="400 15px Plus Jakarta Sans"
+					lineHeight={22}
+					maxLines={3}
+					overflow="ellipsis"
+					text={data.league.latest_announcement.body}
+				/>
 				<span class="announcement-banner__time mono">
 					{data.league.latest_announcement.posted_at}
 				</span>

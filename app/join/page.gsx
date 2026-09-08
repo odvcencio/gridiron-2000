@@ -11,7 +11,7 @@ func Page() Node {
 	return <main class="page join-page" id="main-content">
 		<div class="notice-stack" aria-live="polite">
 			<If cond={data.has_signup_error}>
-				<p class="error-message">{data.signup_error}</p>
+				<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.signup_error} />
 			</If>
 		</div>
 		<section class="hero-command">
@@ -21,7 +21,7 @@ func Page() Node {
 					FANTASY SIGNUP
 				</div>
 				<p class="hero-kicker">{data.league.hero_kicker}</p>
-				<h1>{data.public_entry.headline}</h1>
+				<TextBlock as="h1" font="400 24px Archivo Black" lineHeight={28} maxLines={2} overflow="ellipsis" text={data.public_entry.headline} />
 				<If cond={data.public_entry.can_claim}>
 					<p class="hero-deck">
 						Open seats remaining:
@@ -77,15 +77,15 @@ func Page() Node {
 					</form>
 					</If>
 					<If cond={data.identity_available == false}>
-						<p class="error-message" role="status">{data.identity_error}</p>
+						<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" role="status" text={data.identity_error} />
 					</If>
 				</If>
 				<If cond={data.public_entry.can_claim == false}>
-					<p class="hero-deck">
+					<TextBlock as="p" class="hero-deck" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 						<strong>{data.public_entry.state_label}</strong>
 						<br></br>
 						{data.public_entry.detail}
-					</p>
+					</TextBlock>
 					<If cond={data.public_entry.action_href != "/join"}>
 						<div class="hero-actions">
 							<a href={data.public_entry.action_href} data-gosx-link class="button button--primary">{data.public_entry.action_label}</a>

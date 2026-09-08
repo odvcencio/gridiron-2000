@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -15,6 +16,14 @@ import (
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
 )
+
+// textLayoutSourceAttr matches a converted <TextBlock>'s own
+// data-gosx-text-layout-source="..." attribute (server/textblock.go):
+// the runtime's measurement hint carries a second, literal copy of the
+// element's own text as an attribute value, so a plain-text repetition
+// count over the raw HTML must strip it first or double-count every
+// TextBlock-wrapped phrase against its own attribute copy.
+var textLayoutSourceAttr = regexp.MustCompile(`data-gosx-text-layout-source="[^"]*"`)
 
 func TestSettingsLoadConsumesOneNativeNoticeAndSharedActionFeedback(t *testing.T) {
 	sourceBytes, err := os.ReadFile("page.server.go")
@@ -286,7 +295,8 @@ func TestSettingsPageLimitsNotConfiguredRepetition(t *testing.T) {
 		t.Fatalf("GET / (settings page) = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if got := strings.Count(body, "not configured"); got > 2 {
+	prose := textLayoutSourceAttr.ReplaceAllString(body, "")
+	if got := strings.Count(prose, "not configured"); got > 2 {
 		t.Errorf("settings render states \"not configured\" %d times, want at most 2: %s", got, body)
 	}
 	if !strings.Contains(body, `<a href="/locker" data-gosx-link>Ask the commissioner to turn on email</a>`) {

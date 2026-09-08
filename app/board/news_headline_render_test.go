@@ -66,7 +66,11 @@ func TestBoardRowNewsHeadlineStaysOutOfSummaryDetail(t *testing.T) {
 		t.Fatalf("board row missing its <summary>: %s", body)
 	}
 	summary := body[summaryStart:summaryEnd]
-	if !strings.Contains(summary, "<small>CIN · BYE 5 · Questionable</small>") {
+	// The meta line now renders through TextBlock (text-flow wave,
+	// 2026-09-05), so the literal <small>CIN · BYE 5 · Questionable</small>
+	// tag carries extra data-gosx-text-layout-* attributes; the source
+	// text TextBlock measures from is still the exact detail phrase.
+	if !strings.Contains(summary, `data-gosx-text-layout-source="CIN · BYE 5 · Questionable"`) {
 		t.Fatalf("summary detail line missing or changed: %s", summary)
 	}
 	if strings.Contains(summary, headline) || strings.Contains(summary, html.EscapeString(headline)) {
@@ -194,8 +198,13 @@ func TestBoardPageGSXNewsIconCoversBothPoolRowTemplates(t *testing.T) {
 	if got := strings.Count(body, "📰"); got != 2 {
 		t.Fatalf("newspaper glyph count = %d, want 2", got)
 	}
-	if strings.Contains(body, "<small>{props.Player.detail}") == false || strings.Contains(body, "<small>{player.detail}") == false {
-		t.Fatal("expected both pool-row templates to still keep <small>{...detail}</small> as the one-line summary")
+	// The detail line now renders through TextBlock, one-line clamped by
+	// maxLines=1/overflow=ellipsis (text-flow wave, 2026-09-05) rather
+	// than the bare <small>{...detail}</small> element.
+	wantOne := `<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Player.detail} />`
+	wantTwo := `<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={player.detail} />`
+	if strings.Contains(body, wantOne) == false || strings.Contains(body, wantTwo) == false {
+		t.Fatal("expected both pool-row templates to still keep a one-line TextBlock detail summary")
 	}
 }
 

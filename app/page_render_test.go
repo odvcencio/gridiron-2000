@@ -630,8 +630,15 @@ func TestHomepageActionCenterNavigationContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := string(pageSource)
-	taskStart := strings.Index(page, "component ActionCenterTask")
-	nativeStart := strings.Index(page, "component ActionCenterNativeTask")
+	// ActionCenterTask/ActionCenterNativeTask moved from strict `component`
+	// declarations to plain `func ... Node` ones (text-flow wave,
+	// 2026-09-05): a strict server component may not call the framework's
+	// own TextBlock tag (v0.39 strict-component call rule), and both task
+	// renderers now flow their Label/Detail text through TextBlock. The
+	// marker below matches either declaration keyword so this test still
+	// pins the same three-component order and href-gating contract.
+	taskStart := strings.Index(page, "ActionCenterTask(props")
+	nativeStart := strings.Index(page, "ActionCenterNativeTask(props")
 	panelStart := strings.Index(page, "component ActionCenterPanel")
 	if taskStart < 0 || nativeStart <= taskStart || panelStart <= nativeStart {
 		t.Fatalf("homepage action-center navigation components are not ordered")

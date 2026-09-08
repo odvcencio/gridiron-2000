@@ -43,16 +43,16 @@ func MiniMatchup(props MiniMatchupProps) Node {
 		<div class="mini-team">
 			<TeamMark {...props.Away}></TeamMark>
 			<div>
-				<strong>{props.Away.Name}</strong>
-				<small>{props.Away.Manager}</small>
+				<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Away.Name} />
+				<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Away.Manager} />
 			</div>
 			<b class="score" data-score-team={props.Away.ID} data-gosx-live-bind={"scores." + props.Away.ID} data-gosx-live-flash-class="score-flash">{props.Away.Score}</b>
 		</div>
 		<div class="mini-team">
 			<TeamMark {...props.Home}></TeamMark>
 			<div>
-				<strong>{props.Home.Name}</strong>
-				<small>{props.Home.Manager}</small>
+				<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Home.Name} />
+				<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Home.Manager} />
 			</div>
 			<b class="score" data-score-team={props.Home.ID} data-gosx-live-bind={"scores." + props.Home.ID} data-gosx-live-flash-class="score-flash">{props.Home.Score}</b>
 		</div>
@@ -92,19 +92,13 @@ type StandingRowProps struct {
 	AvatarImageURL string
 }
 
-component StandingRow(props: StandingRowProps) {
+func StandingRow(props StandingRowProps) Node {
 	return <div class="standing-row">
 		<span class="rank mono">{props.Rank}</span>
-		<TeamMark
-			Tone={props.Tone}
-			Abbreviation={props.Abbreviation}
-			Name={props.Name}
-			HasAvatarImage={props.HasAvatarImage}
-			AvatarImageURL={props.AvatarImageURL}
-		></TeamMark>
+		<TeamMark {...props}></TeamMark>
 		<div class="standing-team">
-			<strong>{props.Name}</strong>
-			<small>{props.Manager}</small>
+			<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Name} />
+			<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Manager} />
 		</div>
 		<span class="record mono">{props.Record}</span>
 		<span class="points mono">{props.PointsFor}</span>
@@ -139,7 +133,7 @@ type ActionCenterPanelProps struct {
 	CommissionerActions []ActionCenterActionCard
 }
 
-component ActionCenterTask(props: ActionCenterActionCard) {
+func ActionCenterTask(props ActionCenterActionCard) Node {
 	return <a
 		href={props.Href}
 		data-gosx-link
@@ -159,13 +153,13 @@ component ActionCenterTask(props: ActionCenterActionCard) {
 				<time class="mono home-action-center__due" dateTime={props.DueAt}>{props.DueLabel}</time>
 			</If>
 		</span>
-		<strong>{props.Label}</strong>
-		<span class="home-action-center__task-detail">{props.Detail}</span>
+		<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text={props.Label} />
+		<TextBlock as="span" class="home-action-center__task-detail" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={props.Detail} />
 		<span class="home-action-center__task-arrow" aria-hidden="true">→</span>
 	</a>
 }
 
-component ActionCenterNativeTask(props: ActionCenterActionCard) {
+func ActionCenterNativeTask(props ActionCenterActionCard) Node {
 	return <a
 		href={props.Href}
 		class={"home-action-center__task home-action-center__task--" + props.Priority}
@@ -184,8 +178,8 @@ component ActionCenterNativeTask(props: ActionCenterActionCard) {
 				<time class="mono home-action-center__due" dateTime={props.DueAt}>{props.DueLabel}</time>
 			</If>
 		</span>
-		<strong>{props.Label}</strong>
-		<span class="home-action-center__task-detail">{props.Detail}</span>
+		<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text={props.Label} />
+		<TextBlock as="span" class="home-action-center__task-detail" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={props.Detail} />
 		<span class="home-action-center__task-arrow" aria-hidden="true">→</span>
 	</a>
 }
@@ -299,6 +293,22 @@ func Page() Node {
 					<p class="hero-kicker">
 						{data.league.hero_kicker}
 					</p>
+					{/* Plain markup, not <TextBlock>: the anonymous/demo hero is the
+					    one surface a signed-out visitor must load with ZERO
+					    JavaScript (TestHomepageBootstrapAndHubGateOnSignedInAndSeated,
+					    page_render_test.go — the bootstrap runtime and the scores-live
+					    hub load only once signed_in && has_seat), so bootstrap-mode
+					    <TextBlock> is forbidden here. mode="native" was tried and
+					    reverted: server/textblock.go's textBlockNativeStyle hardcodes
+					    white-space: pre on every native element, and without a
+					    maxWidth (this hero has none — it is a fluid-width column, not
+					    a fixed one) textlayout.LayoutText never inserts a wrap point,
+					    so the browser never wraps it either — a live measurement (a
+					    long league name, textflow-wave verification) showed the
+					    headline running 1388px wide inside a 375px column and
+					    overflowing the whole page. Plain markup's own default
+					    white-space: normal already wraps for free, with nothing to
+					    clip: there was no CSS truncation here to retire. */}
 					<h1 class="display--hero">
 						{data.league.name}
 						{" "}
@@ -321,6 +331,10 @@ func Page() Node {
 						</a>
 						<a href="/guide" data-gosx-link class="button button--ghost">Read the manager guide</a>
 					</div>
+					{/* Plain markup, not <TextBlock>: bootstrap mode is forbidden on
+					    this signed-out surface (see the h1's own doc comment above),
+					    and native mode would flatten <strong> into plain text. No
+					    CSS truncation exists on .demo-message to retire either. */}
 					<If cond={data.viewer.demo}>
 						<p class="demo-message">
 							<strong>REHEARSAL MODE:</strong>
@@ -387,7 +401,7 @@ func Page() Node {
 						<h2 id="home-practice-heading">Practice the draft room</h2>
 					</div>
 				</header>
-				<p>Take a few picks on the clock against the other seats, played by bots. Nothing you do there counts.</p>
+				<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} text="Take a few picks on the clock against the other seats, played by bots. Nothing you do there counts." />
 				<a href={data.practice.href} data-gosx-link class="access-link">Open the practice draft →</a>
 			</section>
 		</If>
@@ -549,9 +563,7 @@ func Page() Node {
 				</div>
 				<div class="commissioner-note">
 					<span>Commissioner’s desk</span>
-					<p>
-						Scheduled time is the meeting point, not an auto-start. The commissioner randomizes draft order about one hour before the room opens. Draft order locks when the commissioner starts the draft.
-					</p>
+					<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} text="Scheduled time is the meeting point, not an auto-start. The commissioner randomizes draft order about one hour before the room opens. Draft order locks when the commissioner starts the draft." />
 					<a href="/draft" data-gosx-link>Review draft protocol</a>
 				</div>
 			</aside>

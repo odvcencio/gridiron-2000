@@ -168,13 +168,22 @@ func TestActivityRegionVerbJunctionsCarryARealSpace(t *testing.T) {
 		}
 	}
 
+	// Team/Player now render through TextBlock (text-flow wave,
+	// 2026-09-05), so the literal <strong class="activity-token-gap">
+	// opening tag carries extra data-gosx-text-layout-* attributes ahead
+	// of its class; this checks the same element order, class, and text,
+	// and that each still immediately precedes its own real-space verb
+	// wrapper — the load-bearing part of this fix.
 	for _, want := range []string{
-		`<strong class="activity-token-gap">Commissioner</strong><span class="activity-verb"> deleted an announcement</span>`,
-		`<strong class="activity-token-gap">Hot Path (W4)</strong><span class="activity-verb"> drafts </span><b class="activity-token-gap">Bills D/ST (DST)</b>`,
+		`data-gosx-text-layout-source="Commissioner" class="activity-token-gap">Commissioner</strong><span class="activity-verb"> deleted an announcement</span>`,
+		`data-gosx-text-layout-source="Hot Path (W4)" class="activity-token-gap">Hot Path (W4)</strong><span class="activity-verb"> drafts </span>`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("rendered activity row is missing the real-space verb wrapper: want %q in %s", want, html)
 		}
+	}
+	if !strings.Contains(html, `data-gosx-text-layout-source="Bills D/ST (DST)" class="activity-token-gap">Bills D/ST (DST)</b>`) {
+		t.Errorf("rendered activity row is missing the Player TextBlock: %s", html)
 	}
 
 	if text := activityTextContent(html); !strings.Contains(text, "Commissioner deleted an announcement") {

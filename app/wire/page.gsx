@@ -25,6 +25,17 @@ type SignalCardProps struct {
 	Retained           bool
 }
 
+// SignalCard stays a strict component (not a <TextBlock>-bearing func):
+// GoSX v0.55.2 forbids <TextBlock> inside a strict server component ("v0.39
+// strict server components may call only same-file strict components"),
+// and app/wire/page.server.go's FeedFragment renders this exact component
+// as a production render ENTRY (route.RenderProgramComponentNode) for the
+// /wire/fragment poll target — the entry-props binding that path uses only
+// runs for a strict component (route/fileprogram.go renderFileProgramHTML),
+// so converting this one to a legacy func would silently render every
+// field empty in production, not just in a test. .wire-event__label and
+// the footer's source span carry no CSS truncation to retire (flex-wrap,
+// already flows), so this is a documented exception, not a regression.
 component SignalCard(props: SignalCardProps) {
 	return <article class={"wire-event wire-event--" + props.Category} data-wire-event={props.ID} data-wire-category={props.Category}>
 		<header>
@@ -264,7 +275,7 @@ func Page() Node {
 					<div class="wire-source-list">
 						<Each of={data.feeds_visible} as="feed">
 							<div>
-								<a href={feed.url} target="_blank" rel="noreferrer"><strong>{feed.name} ↗</strong></a>
+								<a href={feed.url} target="_blank" rel="noreferrer"><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis">{feed.name} ↗</TextBlock></a>
 								<small class="mono">{feed.evidence} · {feed.state} · {feed.accepted} kept</small>
 								<small class="mono">LAST CHECK · {feed.checked} · LAST PUBLISHED · {feed.published}</small>
 								<If cond={feed.has_error}>
@@ -277,7 +288,7 @@ func Page() Node {
 								<summary class="wire-more__summary">Show {data.feeds_overflow_count} more feed<If cond={data.feeds_overflow_count != 1}>s</If></summary>
 								<Each of={data.feeds_overflow} as="feed">
 									<div>
-										<a href={feed.url} target="_blank" rel="noreferrer"><strong>{feed.name} ↗</strong></a>
+										<a href={feed.url} target="_blank" rel="noreferrer"><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis">{feed.name} ↗</TextBlock></a>
 										<small class="mono">{feed.evidence} · {feed.state} · {feed.accepted} kept</small>
 										<small class="mono">LAST CHECK · {feed.checked} · LAST PUBLISHED · {feed.published}</small>
 										<If cond={feed.has_error}>
@@ -289,7 +300,7 @@ func Page() Node {
 						</If>
 						<Each of={data.sources_visible} as="source">
 							<div>
-								<strong>Bluesky · @{source.name}</strong>
+								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis">Bluesky · @{source.name}</TextBlock>
 								<small class="mono">CURATED SOCIAL</small>
 							</div>
 						</Each>
@@ -298,7 +309,7 @@ func Page() Node {
 								<summary class="wire-more__summary">Show {data.sources_overflow_count} more account<If cond={data.sources_overflow_count != 1}>s</If></summary>
 								<Each of={data.sources_overflow} as="source">
 									<div>
-										<strong>Bluesky · @{source.name}</strong>
+										<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis">Bluesky · @{source.name}</TextBlock>
 										<small class="mono">CURATED SOCIAL</small>
 									</div>
 								</Each>
@@ -313,7 +324,7 @@ func Page() Node {
 						<b>Add a sighting</b>
 					</header>
 					<If cond={data.has_notice}>
-						<p class="flash-message" role="status">{data.notice}</p>
+						<TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" role="status" text={data.notice} />
 					</If>
 					<If cond={data.can_submit}>
 						<form id="wire-sighting-form" method="post" action={actionPath("submit-sighting")} data-gosx-managed="true">
@@ -345,7 +356,7 @@ func Page() Node {
 								<If cond={data.has_summary_error}><small class="field-error">{data.summary_error}</small></If>
 							</label>
 							<If cond={data.has_submit_error}>
-								<p class="error-message" role="alert">{data.submit_error}</p>
+								<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" role="alert" text={data.submit_error} />
 							</If>
 							<button class="button button--primary" type="submit">Transmit sighting</button>
 						</form>

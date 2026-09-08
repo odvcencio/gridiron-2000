@@ -19,7 +19,7 @@ func TestSignedInConsoleBranchesOnFantasySeat(t *testing.T) {
 	for _, want := range []string{
 		`<If cond={data.public_entry.has_seat}>`,
 		`<If cond={data.public_entry.has_seat == false}>`,
-		`<strong>{data.public_entry.team_name}</strong>`,
+		`text={data.public_entry.team_name}`,
 		`data.public_entry.admitted`,
 		`data.public_entry.can_claim`,
 		`data.public_entry.action_label`,

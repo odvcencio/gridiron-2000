@@ -191,7 +191,11 @@ func TestLoginPageHasExactlyOneH1AtTheTopOfTheConsole(t *testing.T) {
 	if posterAt < 0 {
 		t.Fatal("login page missing .login-poster")
 	}
-	posterH2At := strings.Index(body[posterAt:], "<h2>")
+	// "<h2" (not the exact "<h2>") matches both a bare heading and the
+	// textflow wave's own <TextBlock as="h2" ...> render (this file's
+	// page.gsx), which carries data-gosx-text-layout-* attributes on the
+	// same tag.
+	posterH2At := strings.Index(body[posterAt:], "<h2")
 	posterCloseAt := strings.Index(body[posterAt:], "</div>")
 	if posterH2At < 0 || (posterCloseAt >= 0 && posterH2At > posterCloseAt) {
 		t.Error("login-poster's own former h1 (the league name + headline span) is not rendering as an h2 inside .login-poster")
