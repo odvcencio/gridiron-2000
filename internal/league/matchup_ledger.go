@@ -368,6 +368,61 @@ func starterGameKnownZeroSoFar(player Player, week int, snapshot matchupStatsSna
 	return false
 }
 
+// weeklyPlayerPointsText (J3 F12) is a starting slot's own PointsText
+// join/fallback rule (teamWeekLedgerFromSnapshot, below), generalized to
+// any player — not only one holding a starting slot this week. /team's
+// bench rows (and, ahead of F23's own PROJ/PTS columns landing on
+// starter rows, its starter rows too) used to format player.Points
+// directly: a field nothing in this codebase ever populates from a real
+// source, so it always read the false "0.0", scored week or not. This
+// renders the exact same "—" a starter's own row renders before the
+// weekly ledger has anything to say about that player, so the two
+// surfaces can never disagree about whether a week has posted.
+func weeklyPlayerPointsText(player Player, snapshot matchupStatsSnapshot, values map[string]float64, lineByKey map[string]WeekStatLine, now time.Time) string {
+	if snapshot.sourceErr != nil {
+		return "—"
+	}
+	if len(snapshot.lines) == 0 {
+		return "—"
+	}
+	if line, joined := lineByKey[normalizePlayerKey(player.Name, player.Position)]; joined {
+		return fmt.Sprintf("%.1f", scorePlayerStats(line.Stats, values))
+	}
+	if snapshot.hasLive && snapshot.live.Degraded {
+		return "—"
+	}
+	if starterGameNotStarted(player.NFLTeam, snapshot, now) {
+		return "—"
+	}
+	return "0.0"
+}
+
+// applyWeeklyPointsText overwrites each row's playerMap-sourced "points"
+// field (see weeklyPlayerPointsText's own doc comment) in place. rows is
+// starterRowMaps' or playerMapsWithScoring's own []map[string]any output
+// — every row carrying a player also carries "id" (playerMap's own key);
+// a row with no "id" (an empty starting slot) is left untouched. players
+// backs the id->Player lookup; passing a superset (the whole roster) is
+// fine, since only rows whose "id" actually matches are ever touched.
+func applyWeeklyPointsText(rows []map[string]any, players []Player, snapshot matchupStatsSnapshot, values map[string]float64, lineByKey map[string]WeekStatLine, now time.Time) {
+	if len(rows) == 0 || len(players) == 0 {
+		return
+	}
+	byID := make(map[string]Player, len(players))
+	for _, p := range players {
+		byID[p.ID] = p
+	}
+	for _, row := range rows {
+		id, _ := row["id"].(string)
+		if id == "" {
+			continue
+		}
+		if player, ok := byID[id]; ok {
+			row["points"] = weeklyPlayerPointsText(player, snapshot, values, lineByKey, now)
+		}
+	}
+}
+
 // teamWeekLedger is the canonical scoring/ledger calculation. It calls the
 // same scorePlayerPoints helper as MatchupScorer.TeamWeekScore, while adding
 // one row per configured slot and explicit source/join states for rendering.

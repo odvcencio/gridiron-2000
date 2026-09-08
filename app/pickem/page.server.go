@@ -159,8 +159,15 @@ func pickemSetAction(ctx *action.Context, set func(*http.Request, string, string
 	// triggered that re-render, so a selected pick kept aria-pressed=false
 	// and "YOUR PICKS THIS WEEK 0" until a manual reload. This matches the
 	// already-working team-rename and notification-set actions.
+	//
+	// J3 F8: the target now names the picked game's own row
+	// (PickemRedirectTargetForGame), and a managed request keeps that
+	// fragment (RedirectWithNoticeToRow) instead of stripping it — a
+	// manager making fourteen picks lands back on the game just answered,
+	// not the top of the page, whether or not JavaScript is available.
 	message := ctx.FormData["team"] + " picked."
-	actionui.RedirectWithNotice(ctx, league.Default().PickemRedirectTarget(ctx.FormData["week"]), message)
+	target := league.Default().PickemRedirectTargetForGame(ctx.FormData["week"], ctx.FormData["game_id"])
+	actionui.RedirectWithNoticeToRow(ctx, target, message)
 	return nil
 }
 

@@ -826,7 +826,7 @@ func (s *Service) SetLineup(r *http.Request, requestedTeam string, week int, slo
 		}
 		s.recordLineupInterventionEvent(r, teamID, week, "", "lineup.intervention_set",
 			fmt.Sprintf("cleared %s for %s in week %d", slot.ID, s.TeamLabel(teamID), week))
-		return fmt.Sprintf("%s cleared.", slot.ID), nil
+		return s.lineupChangeResultMessage(teamID, week, general, games, now, current, slot.ID, fmt.Sprintf("%s cleared.", slot.ID)), nil
 	}
 
 	player, ok := byID[playerID]
@@ -847,7 +847,79 @@ func (s *Service) SetLineup(r *http.Request, requestedTeam string, week int, slo
 	}
 	s.recordLineupInterventionEvent(r, teamID, week, player.ID, "lineup.intervention_set",
 		fmt.Sprintf("set %s to start %s for %s in week %d", slot.ID, player.Name, s.TeamLabel(teamID), week))
-	return fmt.Sprintf("%s starts at %s.", player.Name, slot.ID), nil
+	return s.lineupChangeResultMessage(teamID, week, general, games, now, current, slot.ID, fmt.Sprintf("%s starts at %s.", player.Name, slot.ID)), nil
+}
+
+// lineupChangeResultMessage re-resolves teamID's week-`week` effective
+// lineup after a lineup write and names every slot the write actually
+// changed (J3 F4), not just the one slot SetLineup directly touched:
+// effectiveLineup's auto-fill can promote a bench player into a slot the
+// write only vacated as a side effect, and bump another starter to the
+// bench in the same stroke — a manager who never saw those two sentences
+// found out about the lost starter only after the fact, if at all.
+// lineupChangeMessages does the actual before/after diff; fallback covers
+// the (rare) case where the write produced no reportable change at all —
+// clearing a slot that auto-fill immediately re-fills with the same
+// player, say — so an action the manager took always reads a
+// confirmation.
+func (s *Service) lineupChangeResultMessage(teamID string, week int, general []Player, games []GameInfo, now time.Time, before EffectiveLineup, primarySlotID, fallback string) string {
+	after := s.store.Snapshot()
+	resolved := effectiveLineup(CurrentRoster(), general, after.Lineups[teamID], week, games, now)
+	messages := lineupChangeMessages(before, resolved, primarySlotID)
+	if len(messages) == 0 {
+		return fallback
+	}
+	return strings.Join(messages, " ")
+}
+
+// lineupChangeMessages compares before and after (the same team/week's
+// effective lineup, taken immediately before and after one lineup write)
+// and names every starting-slot change between them, in this order: the
+// acted-on slot (primarySlotID) first, in the direct "starts at" voice,
+// whatever it held before; every other slot the write's auto-fill
+// cascade filled or changed next, in engine order, in the "moves into"
+// voice; and last, any player who held a starting slot before and holds
+// none after — bumped to the bench by this same write.
+func lineupChangeMessages(before, after EffectiveLineup, primarySlotID string) []string {
+	beforeBySlot := make(map[string]SlotAssignment, len(before.Slots))
+	for _, a := range before.Slots {
+		beforeBySlot[a.Slot.ID] = a
+	}
+	afterByPlayer := make(map[string]string, len(after.Slots))
+	for _, a := range after.Slots {
+		if a.HasPlayer {
+			afterByPlayer[a.Player.ID] = a.Slot.ID
+		}
+	}
+
+	var messages []string
+	if primary, ok := after.slotAssignment(primarySlotID); ok {
+		prev := beforeBySlot[primarySlotID]
+		switch {
+		case primary.HasPlayer && (!prev.HasPlayer || prev.Player.ID != primary.Player.ID):
+			messages = append(messages, fmt.Sprintf("%s starts at %s.", primary.Player.Name, primary.Slot.ID))
+		case !primary.HasPlayer && prev.HasPlayer:
+			messages = append(messages, fmt.Sprintf("%s cleared.", primarySlotID))
+		}
+	}
+	for _, a := range after.Slots {
+		if a.Slot.ID == primarySlotID || !a.HasPlayer {
+			continue
+		}
+		prev := beforeBySlot[a.Slot.ID]
+		if !prev.HasPlayer || prev.Player.ID != a.Player.ID {
+			messages = append(messages, fmt.Sprintf("%s moves into %s.", a.Player.Name, a.Slot.ID))
+		}
+	}
+	for _, prev := range before.Slots {
+		if !prev.HasPlayer {
+			continue
+		}
+		if _, stillStarting := afterByPlayer[prev.Player.ID]; !stillStarting {
+			messages = append(messages, fmt.Sprintf("%s moves to the bench.", prev.Player.Name))
+		}
+	}
+	return messages
 }
 
 // LineupAuto applies the section 4.7 SET BEST LINEUP action for teamID's
@@ -1015,13 +1087,15 @@ func (s *Service) effectiveLineupForTeam(state PersistedState, teamID string, we
 // slot and is not locked for week, highest projection first (ties by
 // name). currentID is the slot's currently resolved player ID, if any —
 // its option is marked selected; an empty currentID selects the clear
-// option instead. A locked player never appears: L6 forbids moving a
-// locked player into any slot, so offering one in the list would only
-// invite a rejected submit.
+// option instead. J3 F29: a locked player used to vanish from this list
+// outright — a manager who came looking for a specific teammate read the
+// absence as a bug, not a rule. A locked player now stays in the list,
+// disabled (L6 would refuse the submit if a form somehow bypassed the
+// disabled attribute anyway), with its label naming the reason.
 func lineupSlotOptions(roster []Player, slot SlotInstance, week int, games []GameInfo, now time.Time, currentID string) []map[string]any {
 	eligible := make([]Player, 0, len(roster))
 	for _, p := range roster {
-		if !slot.Def.Fits(p.Position) || playerLocked(games, week, p.NFLTeam, now) {
+		if !slot.Def.Fits(p.Position) {
 			continue
 		}
 		eligible = append(eligible, p)
@@ -1033,12 +1107,18 @@ func lineupSlotOptions(roster []Player, slot SlotInstance, week int, games []Gam
 		return eligible[i].Name < eligible[j].Name
 	})
 	out := make([]map[string]any, 0, len(eligible)+1)
-	out = append(out, map[string]any{"id": "", "label": "— EMPTY —", "selected": currentID == ""})
+	out = append(out, map[string]any{"id": "", "label": "— EMPTY —", "selected": currentID == "", "disabled": false})
 	for _, p := range eligible {
+		locked := playerLocked(games, week, p.NFLTeam, now)
+		label := fmt.Sprintf("%s · %s · %s", p.Name, p.Position, p.NFLTeam)
+		if locked {
+			label += " — locked, game started"
+		}
 		out = append(out, map[string]any{
 			"id":       p.ID,
-			"label":    fmt.Sprintf("%s · %s · %s", p.Name, p.Position, p.NFLTeam),
+			"label":    label,
 			"selected": p.ID == currentID,
+			"disabled": locked,
 		})
 	}
 	return out
