@@ -141,7 +141,7 @@ func TestDraftTeamProjectionKeepsOpenSeatsOutOfReadiness(t *testing.T) {
 	cards := draftTeamProps([]map[string]any{
 		{"id": "team-1", "name": "Claimed", "claimed": true, "ready": false},
 		{"id": "team-2", "name": "Open", "claimed": false, "ready": false},
-	})
+	}, "", false)
 	if len(cards) != 2 || !cards[0].Claimed || cards[1].Claimed {
 		t.Fatalf("team claim projection = %+v, want claimed and open cards", cards)
 	}
@@ -160,6 +160,88 @@ func TestDraftTeamProjectionKeepsOpenSeatsOutOfReadiness(t *testing.T) {
 		if !strings.Contains(source, truth) {
 			t.Errorf("draft team readiness contract omits %q", truth)
 		}
+	}
+}
+
+// TestDraftTeamProjectionHidesBoardSizeFromOtherSeats is Decision 4's
+// own failing-test-first reproduction (J5 F31): the room's team grid
+// used to print every seat's real Big Board size ("BOARD 22 TARGETS")
+// to every viewer, including a rival seat mid-snake-draft. Only that
+// seat's own manager and the commissioner should see the real count;
+// every other seat sees BoardSet alone. Two viewers, both checked:
+// the seat's own manager (team-1 viewing team-1) and a rival seat
+// (team-2 viewing team-1) — the commissioner half is
+// TestDraftTeamProjectionShowsBoardSizeToCommissioner, below.
+func TestDraftTeamProjectionHidesBoardSizeFromOtherSeats(t *testing.T) {
+	raw := []map[string]any{
+		{"id": "team-1", "name": "Has A Board", "claimed": true, "board_count": 22, "board_gap": true},
+		{"id": "team-2", "name": "No Board Yet", "claimed": true, "board_count": 0, "board_gap": false},
+	}
+
+	// The seat's own manager (viewing as team-1) sees the real count
+	// for their OWN seat, but still only BoardSet for a rival's.
+	own := draftTeamProps(raw, "team-1", false)
+	if len(own) != 2 {
+		t.Fatalf("len(own) = %d, want 2", len(own))
+	}
+	if !own[0].BoardVisible || own[0].BoardCount != 22 || !own[0].BoardGap {
+		t.Fatalf("own seat (team-1 viewing team-1) = %+v, want BoardVisible with the real count and gap", own[0])
+	}
+	if own[1].BoardVisible {
+		t.Fatalf("rival seat (team-1 viewing team-2) = %+v, want BoardVisible false", own[1])
+	}
+	if own[1].BoardSet {
+		t.Fatalf("rival seat (team-1 viewing team-2) BoardSet = true, want false (board_count is 0): %+v", own[1])
+	}
+
+	// A rival seat (viewing as team-2) sees neither real count: its own
+	// board is empty (BoardSet false) and team-1's board (BoardSet
+	// true) never reveals the "22".
+	rival := draftTeamProps(raw, "team-2", false)
+	if rival[0].BoardVisible {
+		t.Fatalf("rival's own view of team-1 = %+v, want BoardVisible false", rival[0])
+	}
+	if !rival[0].BoardSet {
+		t.Fatalf("rival's own view of team-1 BoardSet = false, want true (board_count is 22, only the count itself is hidden)")
+	}
+	if !rival[1].BoardVisible || rival[1].BoardCount != 0 {
+		t.Fatalf("rival viewing their own seat (team-2) = %+v, want BoardVisible with the real (zero) count", rival[1])
+	}
+
+	sourceBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	for _, truth := range []string{
+		"<If cond={props.BoardVisible}>",
+		"<If cond={props.BoardVisible == false}>",
+		"BOARD SET",
+		"NO BOARD",
+	} {
+		if !strings.Contains(source, truth) {
+			t.Errorf("draft team board-privacy contract omits %q", truth)
+		}
+	}
+}
+
+// TestDraftTeamProjectionShowsBoardSizeToCommissioner is Decision 4's
+// own commissioner half: the commissioner sees every seat's real board
+// size in the room's team grid, the same as before this fix.
+func TestDraftTeamProjectionShowsBoardSizeToCommissioner(t *testing.T) {
+	raw := []map[string]any{
+		{"id": "team-1", "name": "Has A Board", "claimed": true, "board_count": 22, "board_gap": true},
+		{"id": "team-2", "name": "No Board Yet", "claimed": true, "board_count": 0, "board_gap": false},
+	}
+	cards := draftTeamProps(raw, "", true)
+	if len(cards) != 2 {
+		t.Fatalf("len(cards) = %d, want 2", len(cards))
+	}
+	if !cards[0].BoardVisible || cards[0].BoardCount != 22 || !cards[0].BoardGap {
+		t.Fatalf("commissioner view of team-1 = %+v, want BoardVisible with the real count and gap", cards[0])
+	}
+	if !cards[1].BoardVisible || cards[1].BoardCount != 0 {
+		t.Fatalf("commissioner view of team-2 = %+v, want BoardVisible with the real (zero) count", cards[1])
 	}
 }
 

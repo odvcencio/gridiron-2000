@@ -43,8 +43,19 @@ type DraftTeamCard struct {
 	Claimed        bool
 	Ready          bool
 	Autopick       bool
-	BoardCount     int
-	BoardGap       bool
+	// BoardVisible/BoardSet/BoardCount/BoardGap (Decision 4, J5 F31): a
+	// seat's own Big Board size is a competitive signal in a snake
+	// draft, so only that seat's own manager and the commissioner see
+	// the real BoardCount/BoardGap here — every other seat sees only
+	// BoardSet (a plain "has a board or does not," carrying no count).
+	// draftTeamProps computes BoardVisible from the request's own
+	// viewer; BoardCount/BoardGap stay populated either way (BoardSet
+	// is derived from BoardCount, and a future caller may need the raw
+	// value), so page.gsx alone decides what a given viewer sees.
+	BoardVisible bool
+	BoardSet     bool
+	BoardCount   int
+	BoardGap     bool
 }
 
 type DraftSeatControlCard struct {
@@ -996,11 +1007,22 @@ func draftPlayerProps(raw []map[string]any) []draftPlayerCardView {
 // typed DraftTeamCard values so the draft-room grid's {...team} spread
 // into strict DraftTeam proves clean: the tier-2 spread boundary rejects a
 // map[string]any source outright (it "cannot prove field coverage").
-func draftTeamProps(raw []map[string]any) []DraftTeamCard {
+//
+// viewerTeamID/viewerIsCommissioner (Decision 4, J5 F31) gate BoardVisible
+// per seat: the room's own team grid (DraftTeam, page.gsx) renders for
+// every viewer with room access, not only the commissioner, so a seat's
+// real Big Board size — a real competitive signal in a snake draft —
+// must not leak to every OTHER seat the way it did before this fix. Only
+// the seat's own manager (team.id == viewerTeamID) and the commissioner
+// see BoardCount/BoardGap; every other seat's card renders BoardSet
+// alone.
+func draftTeamProps(raw []map[string]any, viewerTeamID string, viewerIsCommissioner bool) []DraftTeamCard {
 	out := make([]DraftTeamCard, 0, len(raw))
 	for _, team := range raw {
+		boardCount := intField(team, "board_count")
+		teamID := stringField(team, "id")
 		out = append(out, DraftTeamCard{
-			TeamID:         stringField(team, "id"),
+			TeamID:         teamID,
 			OnClock:        boolField(team, "on_clock"),
 			Tone:           stringField(team, "tone"),
 			HasAvatarImage: boolField(team, "has_avatar_image"),
@@ -1016,7 +1038,9 @@ func draftTeamProps(raw []map[string]any) []DraftTeamCard {
 			Claimed:        boolField(team, "claimed"),
 			Ready:          boolField(team, "ready"),
 			Autopick:       boolField(team, "autopick"),
-			BoardCount:     intField(team, "board_count"),
+			BoardVisible:   viewerIsCommissioner || (viewerTeamID != "" && teamID == viewerTeamID),
+			BoardSet:       boardCount > 0,
+			BoardCount:     boardCount,
 			BoardGap:       boolField(team, "board_gap"),
 		})
 	}
@@ -1176,7 +1200,8 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	teams, _ := data["teams"].([]map[string]any)
 	players, _ := data["available"].([]map[string]any)
 	queueRaw, _ := data["queue"].([]map[string]any)
-	typedTeams := draftTeamProps(teams)
+	viewer := mapField(data, "viewer")
+	typedTeams := draftTeamProps(teams, stringField(viewer, "team_id"), boolField(viewer, "is_commissioner"))
 	typedPlayers := draftPlayerProps(players)
 	typedQueue := draftPlayerProps(queueRaw)
 	// J1 F12: the row-level confirm panel's specialist warning applies to

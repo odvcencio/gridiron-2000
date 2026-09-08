@@ -307,6 +307,8 @@ type DraftTeamProps struct {
 	Claimed        bool
 	Ready          bool
 	Autopick       bool
+	BoardVisible   bool
+	BoardSet       bool
 	BoardCount     int
 	BoardGap       bool
 }
@@ -360,9 +362,26 @@ component DraftTeam(props: DraftTeamProps) {
 		<If cond={props.Autopick}>
 			<b class="autopick-badge mono">AUTO</b>
 		</If>
-		<small class="mono draft-board-summary">BOARD {props.BoardCount} TARGETS</small>
-		<If cond={props.BoardGap}>
-			<b class="ready-state">BOARD GAP</b>
+		{/* comb — yew (2026-09-08 wave E), Decision 4 (J5 F31): a seat's
+		    real Big Board size is a competitive signal in a snake draft
+		    — this room-wide grid renders for every viewer, not only the
+		    seat's own manager or the commissioner, so only they see the
+		    real BoardCount/BoardGap here (draftTeamProps' own
+		    BoardVisible, app/draft/page.server.go). Every other seat
+		    sees BoardSet alone: whether a board exists, never its size. */}
+		<If cond={props.BoardVisible}>
+			<small class="mono draft-board-summary">BOARD {props.BoardCount} TARGETS</small>
+			<If cond={props.BoardGap}>
+				<b class="ready-state">BOARD GAP</b>
+			</If>
+		</If>
+		<If cond={props.BoardVisible == false}>
+			<If cond={props.BoardSet}>
+				<small class="mono draft-board-summary">BOARD SET</small>
+			</If>
+			<If cond={props.BoardSet == false}>
+				<small class="mono draft-board-summary">NO BOARD</small>
+			</If>
 		</If>
 	</div>
 }
