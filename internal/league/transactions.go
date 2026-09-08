@@ -126,6 +126,22 @@ func activityLine(t Transaction) (action string, player string) {
 			return "commissioner adds", adds
 		}
 		return "commissioner drops", drops
+	case "commissioner_correction":
+		// The commissioner corrects a NAMED team's roster on that team's own
+		// behalf (AdminRosterCorrection, admin_roster_correction.go) — most
+		// often to undo a bad autopick right after the draft. t.TeamID is
+		// the corrected team (this feed row's own subject), matching every
+		// other roster-move row's convention. The reason lives on the
+		// companion CommissionerEvent row (t.Note carries it here too, for
+		// a direct Store reader, but this feed line stays the same short
+		// shape as every other roster-move row).
+		if adds != "" && drops != "" {
+			return "commissioner corrects: adds", adds + " · drops " + drops
+		}
+		if adds != "" {
+			return "commissioner corrects: adds", adds
+		}
+		return "commissioner corrects: drops", drops
 	default:
 		text := adds
 		if drops != "" {

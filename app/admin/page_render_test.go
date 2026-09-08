@@ -1684,3 +1684,284 @@ func TestInviteRemoveHasAccessibleNameAndReviewConfirmStep(t *testing.T) {
 		t.Error("invite remove still exposes a bare, unnamed ✕ submit button outside a review-confirm disclosure")
 	}
 }
+
+// TestRosterCorrectionPanelRendersFromFreshLeague pins the console's own
+// pre-draft, no-team-chosen empty state: the panel, its team select with
+// real team names, and the "CHOOSE A TEAM" empty state, all present
+// without any draft ever having run.
+func TestRosterCorrectionPanelRendersFromFreshLeague(t *testing.T) {
+	body := renderAdminPage(t)
+	for _, want := range []string{
+		`id="roster-correction"`,
+		"06B // ROSTER CORRECTION",
+		"Correct a team&#39;s roster",
+		`id="admin-roster-correction-team"`,
+		"CHOOSE A TEAM",
+		"Choose the team whose roster needs a correction.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("roster correction panel missing %q in fresh render", want)
+		}
+	}
+	// The team select lists the neutral reference league's real team
+	// names ("East 1", ...), not bare team IDs.
+	if !strings.Contains(body, `<option value="team-1">East 1</option>`) {
+		t.Errorf("roster correction team select does not list East 1 by its real name: %s", body)
+	}
+	if strings.Contains(body, "REVIEW:") {
+		t.Error("a fresh render must not show the review-confirm panel with nothing submitted")
+	}
+}
+
+// TestRosterCorrectionMarkupContract pins the panel's own source shape:
+// the disabled-with-inline-reason binding for a locked drop option, the
+// plain GET team/position filter forms (works without JavaScript), and
+// the review-confirm disclosure's hidden fields and confirm value.
+func TestRosterCorrectionMarkupContract(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(source)
+	for _, want := range []string{
+		// Team select: a plain GET form, no JavaScript required.
+		`<form method="get" action="/admin" class="clock-controls">`,
+		`name="correction_team"`,
+		// Drop select: disabled binds straight to the option's own
+		// disabled flag; the lock reason is folded into that same
+		// option's label text (drop_options' own "label" field already
+		// carries it) since an individual <option> has no separate
+		// element to hold an adjacent reason.
+		`<select id="admin-roster-correction-drop" name="drop_id">`,
+		`<option value={opt.id} disabled={opt.disabled}>{opt.label}</option>`,
+		// Add select: filterable by position through a second plain GET
+		// form, not client-side script.
+		`name="correction_pos"`,
+		`name="add_id"`,
+		// Required reason field.
+		`name="reason"`,
+		`required="required"`,
+		// The review-confirm gate: a restated plain-language summary,
+		// then a second, distinct submit that actually commits.
+		"roster_correction_review_pending",
+		"roster_correction_review_summary",
+		`name="confirmation" value="correct-roster"`,
+		">Review correction<",
+		">Confirm correction<",
+	} {
+		if !strings.Contains(markup, want) {
+			t.Errorf("roster correction panel source missing %q", want)
+		}
+	}
+}
+
+// TestRosterCorrectionReviewConfirmFlow drives the real two-step HTTP
+// action as the commissioner against a fully drafted league: the first
+// POST (no confirmation field) resolves and restates the exact team and
+// both player names without changing anything; the second POST (the
+// confirm panel's own hidden fields, unchanged, plus confirmation=
+// correct-roster) commits, and the roster, the transaction ledger, and
+// the commissioner-event audit trail all reflect it.
+func TestRosterCorrectionReviewConfirmFlow(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestRosterCorrectionReviewConfirmFlowFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_ROSTER_CORRECTION_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("roster-correction fixture: %v\n%s", err, output)
+	}
+}
+
+func TestRosterCorrectionReviewConfirmFlowFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_ROSTER_CORRECTION_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	service := league.Default()
+	pool := adminTaskFixturePool(200)
+	service.SetPlayerSource(func() ([]league.Player, int64, string) { return pool, 1, "demo" })
+	setupRequest := httptest.NewRequest(http.MethodPost, "/admin", nil)
+	if started, err := service.AdminStartDraft(setupRequest); err != nil || !started {
+		t.Fatalf("start draft: started=%v err=%v", started, err)
+	}
+	data := service.AdminData(setupRequest)
+	required, _ := data["draft_required_players"].(int)
+	if required < 1 {
+		t.Fatalf("draft_required_players = %#v", data["draft_required_players"])
+	}
+	for pick := 1; pick <= required; pick++ {
+		data = service.AdminData(setupRequest)
+		token, _ := data["current_pick_token"].(string)
+		if _, _, _, err := service.AdminForceAutopick(setupRequest, league.ForceCurrentPickConfirmation, token); err != nil {
+			t.Fatalf("complete fixture pick %d/%d: %v", pick, required, err)
+		}
+	}
+
+	correctionData := service.AdminRosterCorrectionData(httptest.NewRequest(http.MethodGet, "/admin?correction_team=team-1", nil))
+	dropOptions, _ := correctionData["drop_options"].([]map[string]any)
+	addOptions, _ := correctionData["add_options"].([]map[string]any)
+	if len(dropOptions) == 0 || len(addOptions) == 0 {
+		t.Fatalf("fixture draft did not produce a rosterable drop/add pair: drop=%d add=%d", len(dropOptions), len(addOptions))
+	}
+	dropID, _ := dropOptions[0]["id"].(string)
+	dropLabel, _ := dropOptions[0]["label"].(string)
+	addID, _ := addOptions[0]["id"].(string)
+	addLabel, _ := addOptions[0]["label"].(string)
+	if dropID == "" || addID == "" {
+		t.Fatalf("drop/add option missing an id: drop=%+v add=%+v", dropOptions[0], addOptions[0])
+	}
+
+	handler := adminTestHandler(t)
+	get := httptest.NewRequest(http.MethodGet, "/", nil)
+	getRes := httptest.NewRecorder()
+	handler.ServeHTTP(getRes, get)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("GET admin = %d: %s", getRes.Code, getRes.Body.String())
+	}
+	cookie := getRes.Result().Cookies()[0]
+
+	reviewForm := url.Values{
+		"csrf_token": {adminCSRFToken(t, getRes.Body.String())},
+		"team_id":    {"team-1"},
+		"drop_id":    {dropID},
+		"add_id":     {addID},
+		"reason":     {"fixing a bad autopick"},
+	}
+	reviewPost := httptest.NewRequest(http.MethodPost, "/__actions/roster-correction", strings.NewReader(reviewForm.Encode()))
+	reviewPost.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reviewPost.AddCookie(cookie)
+	reviewRes := httptest.NewRecorder()
+	handler.ServeHTTP(reviewRes, reviewPost)
+	if reviewRes.Code != http.StatusSeeOther {
+		t.Fatalf("review POST = %d: %s", reviewRes.Code, reviewRes.Body.String())
+	}
+
+	reviewCookies := reviewRes.Result().Cookies()
+	if len(reviewCookies) == 0 {
+		t.Fatal("review POST set no cookie carrying the flashed review state")
+	}
+	reload := httptest.NewRequest(http.MethodGet, "/", nil)
+	reload.AddCookie(reviewCookies[0])
+	reloadRes := httptest.NewRecorder()
+	handler.ServeHTTP(reloadRes, reload)
+	if reloadRes.Code != http.StatusOK {
+		t.Fatalf("reload after review = %d: %s", reloadRes.Code, reloadRes.Body.String())
+	}
+	reviewBody := reloadRes.Body.String()
+	if !strings.Contains(reviewBody, "REVIEW:") {
+		t.Fatalf("review step did not render its confirm panel: %s", reviewBody)
+	}
+	// The restated summary must name the real team and both real players
+	// — the whole point of a review-confirm gate — not a bare "reviewed."
+	if !strings.Contains(reviewBody, "East 1") {
+		t.Errorf("review summary does not name the team: %s", reviewBody)
+	}
+	if !strings.Contains(reviewBody, dropLabelPlayerName(dropLabel)) {
+		t.Errorf("review summary does not name the drop player %q: %s", dropLabel, reviewBody)
+	}
+	if !strings.Contains(reviewBody, dropLabelPlayerName(addLabel)) {
+		t.Errorf("review summary does not name the add player %q: %s", addLabel, reviewBody)
+	}
+	if !strings.Contains(reviewBody, `name="confirmation" value="correct-roster"`) {
+		t.Fatalf("review step is missing its confirm control: %s", reviewBody)
+	}
+
+	// The review step itself must not have committed anything yet (the
+	// draft's own picks already populate the feed, so this checks for a
+	// correction-specific row rather than the feed's bare non-empty flag).
+	if snapshot := service.ActivityData(httptest.NewRequest(http.MethodGet, "/activity", nil)); rosterCorrectionRowPresent(snapshot) {
+		t.Fatal("the review step committed a correction before any confirm")
+	}
+
+	confirmForm := url.Values{
+		"csrf_token":   {adminCSRFToken(t, reviewBody)},
+		"team_id":      {"team-1"},
+		"drop_id":      {dropID},
+		"add_id":       {addID},
+		"reason":       {"fixing a bad autopick"},
+		"confirmation": {"correct-roster"},
+	}
+	confirmPost := httptest.NewRequest(http.MethodPost, "/__actions/roster-correction", strings.NewReader(confirmForm.Encode()))
+	confirmPost.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	confirmPost.AddCookie(reviewCookies[0])
+	confirmRes := httptest.NewRecorder()
+	handler.ServeHTTP(confirmRes, confirmPost)
+	if confirmRes.Code != http.StatusSeeOther {
+		t.Fatalf("confirm POST = %d: %s", confirmRes.Code, confirmRes.Body.String())
+	}
+	if target := confirmRes.Header().Get("Location"); !strings.Contains(target, "#roster-correction") {
+		t.Errorf("confirm redirect = %q, want the #roster-correction anchor", target)
+	}
+
+	// The roster changed.
+	teamData := service.TeamData(httptest.NewRequest(http.MethodGet, "/team", nil))
+	roster, _ := teamData["team"].(map[string]any)
+	_ = roster
+	if teamData["has_roster_correction_notice"] != true {
+		t.Fatal("team-1's own /team view has no pending roster-correction notice after the commissioner corrected it")
+	}
+	notice, _ := teamData["roster_correction_notice"].(string)
+	if !strings.Contains(notice, "The commissioner corrected your roster:") {
+		t.Fatalf("roster_correction_notice = %q, want the one-time flash sentence", notice)
+	}
+
+	// The transaction ledger and the commissioner-event audit trail both
+	// carry the correction.
+	activity := service.ActivityData(httptest.NewRequest(http.MethodGet, "/activity", nil))
+	entries, _ := activity["transactions"].([]map[string]any)
+	foundLedgerRow := false
+	foundAuditRow := false
+	for _, entry := range entries {
+		action, _ := entry["action"].(string)
+		if strings.Contains(action, "commissioner corrects") {
+			foundLedgerRow = true
+		}
+		if entry["is_commissioner_event"] == true && strings.Contains(action, "corrects East 1") {
+			foundAuditRow = true
+		}
+	}
+	if !foundLedgerRow {
+		t.Errorf("no transaction-ledger row for the correction in /activity: %+v", entries)
+	}
+	if !foundAuditRow {
+		t.Errorf("no commissioner-event audit row for the correction in /activity: %+v", entries)
+	}
+	if !rosterCorrectionRowPresent(activity) {
+		t.Fatal("rosterCorrectionRowPresent disagrees with the row-by-row check above")
+	}
+}
+
+// rosterCorrectionRowPresent reports whether /activity's merged feed
+// (league.Service.ActivityData) already carries a commissioner-correction
+// row — either the transaction-ledger line or the commissioner-event
+// audit line. Used both to confirm the review step commits nothing and to
+// confirm the later confirm step commits both rows.
+func rosterCorrectionRowPresent(activity map[string]any) bool {
+	entries, _ := activity["transactions"].([]map[string]any)
+	for _, entry := range entries {
+		action, _ := entry["action"].(string)
+		if strings.Contains(action, "commissioner corrects") {
+			return true
+		}
+		if entry["is_commissioner_event"] == true && strings.Contains(action, "corrects East 1") {
+			return true
+		}
+	}
+	return false
+}
+
+// dropLabelPlayerName strips a drop/add option's own trailing annotation
+// ("Name (POS)" or "Name (POS · TEAM) — N.N proj pts") down to just the
+// player's name, so a review-summary assertion can look for the bare name
+// without also having to match the option's own formatting.
+func dropLabelPlayerName(label string) string {
+	if idx := strings.Index(label, " ("); idx >= 0 {
+		return label[:idx]
+	}
+	return label
+}

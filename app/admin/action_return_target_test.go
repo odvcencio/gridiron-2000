@@ -41,7 +41,7 @@ func TestAdminPlainLanguageErrorNeverEchoesAStoreError(t *testing.T) {
 }
 
 // adminActionSection names every /admin/__actions/<name> handler's owning
-// section (gap-audit item 1). All 33 handlers in page.server.go's Actions
+// section (gap-audit item 1). All 34 handlers in page.server.go's Actions
 // map must redirect back to this section on success — 27 previously landed
 // on a hard "/admin" with focus reset to <main> and scrollY 0; the other 2
 // (order-randomize, announcement-post) and the 4 playoff actions (behind
@@ -80,6 +80,7 @@ var adminActionSection = map[string]string{
 	"clock-set-autopick":   "seats",
 	"roster-shape-apply":   "roster",
 	"roster-shape-reset":   "roster",
+	"roster-correction":    "roster",
 	"announcement-post":    "announcements",
 	"announcement-delete":  "announcements",
 }

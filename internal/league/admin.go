@@ -471,6 +471,11 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// (drives the Reset button), and whether the draft has already
 		// started (drives the read-only lock view).
 		"roster_shape": s.rosterShapeMap(state),
+		// Roster correction panel (same 06 // ROSTER SHAPE section): lets
+		// the commissioner correct a NAMED team's roster on that team's own
+		// behalf (a bad autopick, most often) — distinct from the shape
+		// editor above, which only sets slot/bench/reserve/IR counts.
+		"roster_correction": s.AdminRosterCorrectionData(r),
 		// Announcements panel (league-announcements spec): the full stored
 		// feed (newest first), for per-item delete. GSX conditions cannot
 		// call .length on server data, so announcements_empty ships as its

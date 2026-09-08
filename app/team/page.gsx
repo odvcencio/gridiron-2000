@@ -248,6 +248,9 @@ func Page() Node {
 			<If cond={data.has_notice}>
 				<p class="flash-message">{data.notice}</p>
 			</If>
+			<If cond={data.has_roster_correction_notice}>
+				<p class="flash-message" role="status">{data.roster_correction_notice}</p>
+			</If>
 			<If cond={data.has_avatar_error}>
 				<p class="error-message">{data.avatar_error}</p>
 			</If>

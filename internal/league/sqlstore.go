@@ -630,6 +630,7 @@ const (
 	kvScheduleHeader          = "schedule_header"
 	kvTrimmedTeamIDs          = "trimmed_team_ids"
 	kvSeatRevisions           = "seat_revisions"
+	kvRosterCorrectionNotices = "roster_correction_notices"
 )
 
 // scheduleHeader is the SeasonSchedule minus its weeks: the part that has
@@ -682,6 +683,9 @@ var collectionSpecs = [collectionCount]collectionSpec{
 			}
 			if len(st.SeatRevisions) > 0 {
 				put(kvSeatRevisions, sink.jsonValue(st.SeatRevisions))
+			}
+			if len(st.RosterCorrectionNotices) > 0 {
+				put(kvRosterCorrectionNotices, sink.jsonValue(st.RosterCorrectionNotices))
 			}
 		},
 	},
@@ -1444,6 +1448,13 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 			return state, fmt.Errorf("kv %s: %w", kvSeatRevisions, err)
 		}
 		state.SeatRevisions = revisions
+	}
+	if raw, ok := scalars[kvRosterCorrectionNotices]; ok {
+		var notices map[string]RosterCorrectionNotice
+		if err := json.Unmarshal([]byte(raw), &notices); err != nil {
+			return state, fmt.Errorf("kv %s: %w", kvRosterCorrectionNotices, err)
+		}
+		state.RosterCorrectionNotices = notices
 	}
 
 	if err := queryRows(db, `SELECT "number", "round", "team_id", "player_id", "made_at", "made_by" FROM picks ORDER BY "number"`,
@@ -2304,6 +2315,9 @@ func normalizeState(state *PersistedState) {
 	}
 	if state.CommissionerEvents == nil {
 		state.CommissionerEvents = []CommissionerEvent{}
+	}
+	if state.RosterCorrectionNotices == nil {
+		state.RosterCorrectionNotices = map[string]RosterCorrectionNotice{}
 	}
 	normalizeIdentityCollections(state)
 }
