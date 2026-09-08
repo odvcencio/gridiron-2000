@@ -12,7 +12,7 @@ func TestPostLockerTopLevelAndFlatReply(t *testing.T) {
 	store := newTestStore(t)
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 
-	top, err := store.PostLocker("", "Welcome to the Locker Room.", "primary@example.com", "Primary", "team-1", now)
+	top, err := store.PostLocker("", "Welcome to the Locker Room.", "primary@example.com", "Primary", "team-1", false, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +20,7 @@ func TestPostLockerTopLevelAndFlatReply(t *testing.T) {
 		t.Fatalf("top-level post = %+v", top)
 	}
 
-	reply, err := store.PostLocker(top.ID, "Good to be here.", "co@example.com", "Co-Manager", "team-2", now.Add(time.Minute))
+	reply, err := store.PostLocker(top.ID, "Good to be here.", "co@example.com", "Co-Manager", "team-2", false, now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,15 +38,15 @@ func TestPostLockerRejectsNestedReplyBeyondOneLevel(t *testing.T) {
 	store := newTestStore(t)
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 
-	top, err := store.PostLocker("", "Top post.", "primary@example.com", "Primary", "team-1", now)
+	top, err := store.PostLocker("", "Top post.", "primary@example.com", "Primary", "team-1", false, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reply, err := store.PostLocker(top.ID, "First reply.", "co@example.com", "Co-Manager", "team-2", now.Add(time.Minute))
+	reply, err := store.PostLocker(top.ID, "First reply.", "co@example.com", "Co-Manager", "team-2", false, now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.PostLocker(reply.ID, "Reply to a reply.", "primary@example.com", "Primary", "team-1", now.Add(2*time.Minute)); err == nil {
+	if _, err := store.PostLocker(reply.ID, "Reply to a reply.", "primary@example.com", "Primary", "team-1", false, now.Add(2*time.Minute)); err == nil {
 		t.Fatal("a reply to a reply was accepted")
 	} else if !strings.Contains(err.Error(), "one level") {
 		t.Fatalf("error = %q, want the one-level message", err.Error())
@@ -55,7 +55,7 @@ func TestPostLockerRejectsNestedReplyBeyondOneLevel(t *testing.T) {
 
 func TestPostLockerRejectsUnknownParent(t *testing.T) {
 	store := newTestStore(t)
-	if _, err := store.PostLocker("does-not-exist", "A reply to nothing.", "primary@example.com", "Primary", "team-1", time.Now()); err == nil {
+	if _, err := store.PostLocker("does-not-exist", "A reply to nothing.", "primary@example.com", "Primary", "team-1", false, time.Now()); err == nil {
 		t.Fatal("a reply to an unknown parent was accepted")
 	}
 }
@@ -64,17 +64,17 @@ func TestPostLockerValidatesBodyLength(t *testing.T) {
 	store := newTestStore(t)
 	now := time.Now()
 
-	if _, err := store.PostLocker("", "   ", "primary@example.com", "Primary", "team-1", now); err == nil {
+	if _, err := store.PostLocker("", "   ", "primary@example.com", "Primary", "team-1", false, now); err == nil {
 		t.Fatal("an empty (whitespace-only) body was accepted")
 	}
 
 	exact := strings.Repeat("x", lockerBodyMaxRunes)
-	if _, err := store.PostLocker("", exact, "primary@example.com", "Primary", "team-1", now); err != nil {
+	if _, err := store.PostLocker("", exact, "primary@example.com", "Primary", "team-1", false, now); err != nil {
 		t.Fatalf("exactly %d runes was rejected: %v", lockerBodyMaxRunes, err)
 	}
 
 	oversize := strings.Repeat("x", lockerBodyMaxRunes+1)
-	if _, err := store.PostLocker("", oversize, "primary@example.com", "Primary", "team-1", now.Add(time.Second)); err == nil {
+	if _, err := store.PostLocker("", oversize, "primary@example.com", "Primary", "team-1", false, now.Add(time.Second)); err == nil {
 		t.Fatal("a body over the rune limit was accepted")
 	}
 }
@@ -84,19 +84,19 @@ func TestPostLockerRateLimitsSixPerMinutePerIdentity(t *testing.T) {
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 
 	for i := 0; i < lockerPostRateLimit; i++ {
-		if _, err := store.PostLocker("", "post", "primary@example.com", "Primary", "team-1", now.Add(time.Duration(i)*time.Second)); err != nil {
+		if _, err := store.PostLocker("", "post", "primary@example.com", "Primary", "team-1", false, now.Add(time.Duration(i)*time.Second)); err != nil {
 			t.Fatalf("post %d within the limit failed: %v", i, err)
 		}
 	}
-	if _, err := store.PostLocker("", "post", "primary@example.com", "Primary", "team-1", now.Add(6*time.Second)); err == nil {
+	if _, err := store.PostLocker("", "post", "primary@example.com", "Primary", "team-1", false, now.Add(6*time.Second)); err == nil {
 		t.Fatal("the seventh post inside one minute was accepted")
 	}
 	// A different identity is never throttled by another identity's log.
-	if _, err := store.PostLocker("", "post", "co@example.com", "Co-Manager", "team-2", now.Add(6*time.Second)); err != nil {
+	if _, err := store.PostLocker("", "post", "co@example.com", "Co-Manager", "team-2", false, now.Add(6*time.Second)); err != nil {
 		t.Fatalf("a different identity's post was refused: %v", err)
 	}
 	// Once the window rolls forward, the original identity may post again.
-	if _, err := store.PostLocker("", "post", "primary@example.com", "Primary", "team-1", now.Add(90*time.Second)); err != nil {
+	if _, err := store.PostLocker("", "post", "primary@example.com", "Primary", "team-1", false, now.Add(90*time.Second)); err != nil {
 		t.Fatalf("a post after the rate window rolled forward was refused: %v", err)
 	}
 }
@@ -105,7 +105,7 @@ func TestRemoveLockerPostTombstonesAndIsIdempotent(t *testing.T) {
 	store := newTestStore(t)
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 
-	post, err := store.PostLocker("", "Removable post.", "primary@example.com", "Primary", "team-1", now)
+	post, err := store.PostLocker("", "Removable post.", "primary@example.com", "Primary", "team-1", false, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestLockerGenerationAdvancesOnPostAndRemoval(t *testing.T) {
 	store := newTestStore(t)
 	now := time.Now()
 	before := store.LockerGeneration()
-	post, err := store.PostLocker("", "post", "primary@example.com", "Primary", "team-1", now)
+	post, err := store.PostLocker("", "post", "primary@example.com", "Primary", "team-1", false, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,14 +171,14 @@ func TestServicePostLockerPostRequiresAdmission(t *testing.T) {
 	}
 
 	lockerRequestFor(t, "unadmitted@example.com", func(r *http.Request) {
-		if _, err := service.PostLockerPost(r, "", "hello"); err == nil {
+		if _, err := service.PostLockerPost(r, "", "hello", false); err == nil {
 			t.Fatal("an un-admitted signed-in identity posted successfully")
 		} else if !strings.Contains(err.Error(), "admission") {
 			t.Fatalf("error = %q, want an admission message", err.Error())
 		}
 	})
 	lockerRequestFor(t, "primary@example.com", func(r *http.Request) {
-		post, err := service.PostLockerPost(r, "", "hello, league")
+		post, err := service.PostLockerPost(r, "", "hello, league", false)
 		if err != nil {
 			t.Fatalf("an admitted seated identity failed to post: %v", err)
 		}
@@ -194,7 +194,7 @@ func TestServicePostLockerPostAllowsSeatlessMember(t *testing.T) {
 		t.Fatal(err)
 	}
 	lockerRequestFor(t, "seatless@example.com", func(r *http.Request) {
-		post, err := service.PostLockerPost(r, "", "seatless voices count too")
+		post, err := service.PostLockerPost(r, "", "seatless voices count too", false)
 		if err != nil {
 			t.Fatalf("an admitted seatless identity failed to post: %v", err)
 		}
@@ -207,10 +207,70 @@ func TestServicePostLockerPostAllowsSeatlessMember(t *testing.T) {
 func TestServicePostLockerPostDemoModeIsReadOnly(t *testing.T) {
 	service := newTestService(t, true)
 	request := httptest.NewRequest(http.MethodGet, "/locker", nil)
-	if _, err := service.PostLockerPost(request, "", "demo post"); err == nil {
+	if _, err := service.PostLockerPost(request, "", "demo post", false); err == nil {
 		t.Fatal("demo mode accepted a Locker Room post")
 	} else if !strings.Contains(err.Error(), "read-only") {
 		t.Fatalf("error = %q, want a read-only message", err.Error())
+	}
+}
+
+// TestServicePostLockerPostCommissionerNoteRequiresCommissionerCapability
+// is J6 F19's own regression test (2026-09-04 audit): the Locker Room had
+// no way to post an official ruling and no way to tell one from trash
+// talk. The commissioner_note choice is trusted only when the acting
+// request itself carries commissioner capability — a form value from
+// anyone else must never mark a post as official.
+func TestServicePostLockerPostCommissionerNoteRequiresCommissionerCapability(t *testing.T) {
+	service := newTestService(t, false)
+	if _, _, err := service.store.AssignMember("member@example.com", "Member"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.store.EnsureMember("commish@example.com", "Commissioner"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COMMISSIONER_EMAILS", "commish@example.com")
+
+	lockerRequestFor(t, "member@example.com", func(r *http.Request) {
+		post, err := service.PostLockerPost(r, "", "not the commissioner", true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if post.CommissionerNote {
+			t.Fatalf("a non-commissioner's commissioner_note request was honored: %+v", post)
+		}
+	})
+
+	lockerRequestFor(t, "commish@example.com", func(r *http.Request) {
+		post, err := service.PostLockerPost(r, "", "an official ruling", true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !post.CommissionerNote {
+			t.Fatalf("the commissioner's commissioner_note request was dropped: %+v", post)
+		}
+	})
+
+	state := service.store.Snapshot()
+	posts := state.LockerPosts
+	if len(posts) != 2 {
+		t.Fatalf("len(LockerPosts) = %d, want 2", len(posts))
+	}
+	if posts[0].CommissionerNote {
+		t.Fatalf("member post carries CommissionerNote: %+v", posts[0])
+	}
+	if !posts[1].CommissionerNote {
+		t.Fatalf("commissioner post does not carry CommissionerNote: %+v", posts[1])
+	}
+	// The flag persists through the kv-backed LockerCommissionerNotes set
+	// (colScalars), not a locker_posts column (J6 F19, 2026-09-04 audit
+	// rework) — TestLockerCommissionerNoteRoundTripsThroughKVNotAColumn
+	// (sqlstore_test.go) covers the on-disk round trip; this asserts the
+	// in-memory set itself matches which post is which.
+	if state.LockerCommissionerNotes[posts[0].ID] {
+		t.Errorf("LockerCommissionerNotes marks the member post %q true", posts[0].ID)
+	}
+	if !state.LockerCommissionerNotes[posts[1].ID] {
+		t.Errorf("LockerCommissionerNotes does not mark the commissioner post %q true", posts[1].ID)
 	}
 }
 
@@ -225,7 +285,7 @@ func TestServiceRemoveLockerPostAuthorOrCommissioner(t *testing.T) {
 
 	var postID string
 	lockerRequestFor(t, "author@example.com", func(r *http.Request) {
-		post, err := service.PostLockerPost(r, "", "removable")
+		post, err := service.PostLockerPost(r, "", "removable", false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -262,7 +322,7 @@ func TestServiceRemoveLockerPostRequiresExplicitConfirmation(t *testing.T) {
 
 	var postID string
 	lockerRequestFor(t, "author2@example.com", func(r *http.Request) {
-		post, err := service.PostLockerPost(r, "", "needs confirmation")
+		post, err := service.PostLockerPost(r, "", "needs confirmation", false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -315,7 +375,7 @@ func TestLockerDataPaginationOrderingAndTruthfulEmptyState(t *testing.T) {
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 	base := 60
 	for i := 0; i < base; i++ {
-		if _, err := service.store.PostLocker("", "post", "primary@example.com", "Primary", team, now.Add(time.Duration(i)*time.Hour)); err != nil {
+		if _, err := service.store.PostLocker("", "post", "primary@example.com", "Primary", team, false, now.Add(time.Duration(i)*time.Hour)); err != nil {
 			t.Fatalf("seed post %d: %v", i, err)
 		}
 	}
@@ -349,14 +409,14 @@ func TestLockerDataRepliesNestOneLevelOldestFirstUnderTheirParent(t *testing.T) 
 	}
 	team := member.TeamID
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
-	top, err := service.store.PostLocker("", "top", "primary@example.com", "Primary", team, now)
+	top, err := service.store.PostLocker("", "top", "primary@example.com", "Primary", team, false, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.store.PostLocker(top.ID, "second reply", "primary@example.com", "Primary", team, now.Add(2*time.Minute)); err != nil {
+	if _, err := service.store.PostLocker(top.ID, "second reply", "primary@example.com", "Primary", team, false, now.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.store.PostLocker(top.ID, "first reply", "primary@example.com", "Primary", team, now.Add(time.Minute)); err != nil {
+	if _, err := service.store.PostLocker(top.ID, "first reply", "primary@example.com", "Primary", team, false, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 

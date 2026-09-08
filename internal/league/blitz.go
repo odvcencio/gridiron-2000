@@ -976,6 +976,18 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 
 	entry := state.BlitzEntries[owner][slate]
 	slots := s.blitzSlotMaps(entry, slateGames, liveStats, scoringValues, pool, now)
+	// myEntryTotal (J6 F11, 2026-09-04 audit) sums the same per-slot
+	// points blitzSlotMaps already formats, so the masthead can name the
+	// viewer's own result once the slate closes instead of leaving her
+	// question ("what is my standing") unanswered.
+	myEntryTotal := 0.0
+	for _, slot := range slots {
+		if points, ok := slot["points"].(string); ok {
+			if parsed, err := strconv.ParseFloat(points, 64); err == nil {
+				myEntryTotal += parsed
+			}
+		}
+	}
 	// entryOpen gates the slate as a whole (sign-in, sunset, every game
 	// final). Each eligible row then gates itself on its own game's
 	// kickoff, so a slate that is still open never offers an Add button
@@ -1052,7 +1064,19 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 		"slate_label":           blitzSlateLabel(slate),
 		"other_slate":           other,
 		"other_slate_label":     blitzSlateLabel(other),
-		"can_enter":             owner != "" && !archived,
+		// can_enter also requires !closed (J6 F11, 2026-09-04 audit): the
+		// entry builder's own headings ("Your five", "Add to your
+		// entry") used to keep inviting a new pick after every game in
+		// the slate went final. Actual submission was already refused —
+		// entryOpen below — so this only fixes what the section says
+		// about itself.
+		"can_enter": owner != "" && !archived && !closed,
+		// my_entry_total/has_entry (J6 F11) let the masthead answer "what
+		// is my standing" once the slate closes: "you did not enter" or
+		// her own scored total, instead of an unconditional "Entries
+		// this slate / 0" sitting beside a "SLATE CLOSED" notice.
+		"my_entry_total": fmt.Sprintf("%.1f", myEntryTotal),
+		"has_entry":      len(slots) > 0,
 		// entry_open gates the slate; each eligible row's own can_add
 		// gates the player (see entryOpen above). The template reads
 		// can_add for the Add button, never entry_open, so a started

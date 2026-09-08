@@ -17,6 +17,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -43,6 +44,16 @@ const tradeOfferMaxAge = 7 * 24 * time.Hour
 
 // tradeHistoryCap bounds the terminal ledger rendered in the Trade Desk.
 const tradeHistoryCap = 20
+
+// tradeRecentExecutionWindow bounds how long the trade desk and home
+// Action Center keep announcing a just-executed trade (J3 F32, 2026-09-04
+// audit): a trade can execute — moving the viewer's own roster — while
+// the review window closes with nobody watching. There is no "last visit"
+// timestamp anywhere in this app to compare against, so a fixed, roughly
+// long-weekend-sized window is the owner call standing in for one: long
+// enough to catch a manager back from a couple of days away, short enough
+// that the notice never reads as stale news.
+const tradeRecentExecutionWindow = 72 * time.Hour
 
 // tradeNoteMaxRunes is T14's note-length bound (section 6.3).
 const tradeNoteMaxRunes = 280
@@ -1222,11 +1233,34 @@ func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string
 }
 
 // TradeRosterOption is one player a trade composer's checkbox group
-// offers, from either side's roster.
+// offers, from either side's roster. Position, NFLTeam, ByeLabel,
+// Projection, and SeasonPoints (J3 F31, 2026-09-04 audit) let the composer
+// answer "what am I judging this deal by" from the pool data the app
+// already carries — Label alone showed only a name and a position, and
+// the manager had to open /players in another tab to see anything else.
 type TradeRosterOption struct {
 	ID       string
 	Label    string
 	Selected bool
+	Position string
+	NFLTeam  string
+	// ByeLabel is "" when the player's bye week is unknown (ByeWeek 0);
+	// the template renders it only when non-empty.
+	ByeLabel string
+	// Projection is this week's projected points, formatted to one
+	// decimal (Player.Projection, the same field /team and /players
+	// already label PROJ).
+	Projection string
+	// SeasonPoints is the pool's own running points figure for this
+	// player (Player.Points), formatted to one decimal. Before any week
+	// has scored, it is honestly "0.0" — the same true-zero the app
+	// already shows elsewhere rather than hiding the column.
+	SeasonPoints string
+	// Detail is Position/NFLTeam/ByeLabel/Projection/SeasonPoints
+	// pre-joined into one line with correct separators (never a stray
+	// double-dot when ByeLabel is empty), the same "build the sentence
+	// server-side" shape blitz.go's row maps already use.
+	Detail string
 }
 
 // TradeCounterparty is one other team the compose panel's partner picker
@@ -1313,6 +1347,39 @@ func (s *Service) TradesDataReadOnly(r *http.Request) map[string]any {
 	return s.tradesData(r, true)
 }
 
+// recentlyExecutedTradeForTeam finds the most recently executed trade
+// offer naming teamID on either side, resolved within
+// tradeRecentExecutionWindow of now (J3 F32, 2026-09-04 audit). ok is
+// false when none qualifies. Shared by tradesData (the trade desk's own
+// notice) and service.go's Action Center facts gathering (the home
+// page's), so both surfaces agree on exactly the same trade and window.
+func (s *Service) recentlyExecutedTradeForTeam(state PersistedState, teamID string, now time.Time) (otherTeam, atLabel string, ok bool) {
+	if teamID == "" {
+		return "", "", false
+	}
+	var best TradeOffer
+	found := false
+	for _, offer := range state.TradeOffers {
+		if offer.Status != TradeStatusExecuted || (offer.FromTeamID != teamID && offer.ToTeamID != teamID) {
+			continue
+		}
+		if offer.ResolvedAt.IsZero() || now.Sub(offer.ResolvedAt) > tradeRecentExecutionWindow {
+			continue
+		}
+		if !found || offer.ResolvedAt.After(best.ResolvedAt) {
+			best, found = offer, true
+		}
+	}
+	if !found {
+		return "", "", false
+	}
+	other := best.ToTeamID
+	if other == teamID {
+		other = best.FromTeamID
+	}
+	return s.teamByID(other).Name, s.leagueTimeStamp(best.ResolvedAt), true
+}
+
 func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 	var viewer map[string]any
 	var state PersistedState
@@ -1348,7 +1415,20 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 		out := make([]TradeRosterOption, 0, len(rosters[id]))
 		for _, playerID := range rosters[id] {
 			if p, ok := pool.byID[playerID]; ok {
-				out = append(out, TradeRosterOption{ID: p.ID, Label: fmt.Sprintf("%s (%s)", p.Name, p.Position)})
+				byeLabel := ""
+				detailParts := []string{p.NFLTeam}
+				if p.ByeWeek > 0 {
+					byeLabel = "Bye " + strconv.Itoa(p.ByeWeek)
+					detailParts = append(detailParts, byeLabel)
+				}
+				projection, seasonPoints := fmt.Sprintf("%.1f", p.Projection), fmt.Sprintf("%.1f", p.Points)
+				detailParts = append(detailParts, "PROJ "+projection, "PTS "+seasonPoints)
+				out = append(out, TradeRosterOption{
+					ID: p.ID, Label: fmt.Sprintf("%s (%s)", p.Name, p.Position),
+					Position: p.Position, NFLTeam: p.NFLTeam, ByeLabel: byeLabel,
+					Projection: projection, SeasonPoints: seasonPoints,
+					Detail: strings.Join(detailParts, " · "),
+				})
 			}
 		}
 		return out
@@ -1420,10 +1500,19 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 
 	history := s.tradeHistoryRows(state, pool, teamID, isCommissioner, threshold)
 	reviewIndex, voteIndex, historyIndex := tradeSectionIndexLabels(isCommissioner, len(votePanel) > 0)
+	// recent_execution_* (J3 F32, 2026-09-04 audit): the review window can
+	// close and execute a trade — moving the viewer's own roster — with
+	// nobody watching. This notice is the trade desk's own half; the home
+	// Action Center's card (hq.go's tradeActions) reads the same
+	// recentlyExecutedTradeForTeam so both surfaces agree.
+	recentOtherTeam, recentAt, recentOK := s.recentlyExecutedTradeForTeam(state, teamID, now)
 	return map[string]any{
 		"viewer":                    viewer,
 		"public_entry":              publicEntry,
 		"league":                    s.leagueMapForViewer(r),
+		"recent_execution_visible":  recentOK,
+		"recent_execution_team":     recentOtherTeam,
+		"recent_execution_at":       recentAt,
 		"can_edit":                  canEdit,
 		"can_compose":               canCompose,
 		"is_commissioner":           isCommissioner,
