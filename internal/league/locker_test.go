@@ -250,7 +250,8 @@ func TestServicePostLockerPostCommissionerNoteRequiresCommissionerCapability(t *
 		}
 	})
 
-	posts := service.store.Snapshot().LockerPosts
+	state := service.store.Snapshot()
+	posts := state.LockerPosts
 	if len(posts) != 2 {
 		t.Fatalf("len(LockerPosts) = %d, want 2", len(posts))
 	}
@@ -259,6 +260,17 @@ func TestServicePostLockerPostCommissionerNoteRequiresCommissionerCapability(t *
 	}
 	if !posts[1].CommissionerNote {
 		t.Fatalf("commissioner post does not carry CommissionerNote: %+v", posts[1])
+	}
+	// The flag persists through the kv-backed LockerCommissionerNotes set
+	// (colScalars), not a locker_posts column (J6 F19, 2026-09-04 audit
+	// rework) — TestLockerCommissionerNoteRoundTripsThroughKVNotAColumn
+	// (sqlstore_test.go) covers the on-disk round trip; this asserts the
+	// in-memory set itself matches which post is which.
+	if state.LockerCommissionerNotes[posts[0].ID] {
+		t.Errorf("LockerCommissionerNotes marks the member post %q true", posts[0].ID)
+	}
+	if !state.LockerCommissionerNotes[posts[1].ID] {
+		t.Errorf("LockerCommissionerNotes does not mark the commissioner post %q true", posts[1].ID)
 	}
 }
 
