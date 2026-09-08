@@ -5,7 +5,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- The Locker Room, Preseason Blitz, Settings, Rules & Scoring, Team Terminal, Big Board, and Trade Desk each keep their own confirmation banner. Posting on one of these pages no longer shows its confirmation on a different page you open next.
 
 ## [release-2026.09.08-97027d0-season3] — 2026-09-08
 

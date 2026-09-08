@@ -13,10 +13,17 @@ import (
 	"m31labs.dev/gosx/action"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
-	"m31labs.dev/gosx/session"
 )
 
 const boardPoolAnchor = "#board-pool"
+
+// NoticeRoute is /board's own confirmation scope (J6 F15 residue, wave
+// E): every page used to read the same untagged session flash every
+// other page's own action wrote, so a manager who changed their board
+// here and opened another page before following the redirect saw that
+// other page's confirmation instead. See
+// internal/actionui.RedirectBackWithScopedNotice and ScopedNotice.
+const NoticeRoute = "/board"
 
 // boardRankAnchor is the Big Board panel's own id (F7: reordering or
 // removing a ranked player with no JavaScript returned to #board-pool,
@@ -142,11 +149,9 @@ func init() {
 			data["board_rank_return_target"] = boardRankReturnTargetForData(data)
 			data["has_notice"] = false
 			data["notice"] = ""
-			if store := session.Current(ctx.Request); store != nil {
-				if flashes := store.Flashes("notice"); len(flashes) > 0 {
-					data["has_notice"] = true
-					data["notice"] = fmt.Sprint(flashes[0])
-				}
+			if notice, ok := actionui.ScopedNotice(ctx.Request, NoticeRoute); ok {
+				data["has_notice"] = true
+				data["notice"] = notice
 			}
 			data["has_board_error"] = false
 			data["board_error"] = ""
@@ -176,7 +181,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "board", "player_id", err)
 				}
-				actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), player.Name+" added to your board.")
+				actionui.RedirectBackWithScopedNotice(ctx, NoticeRoute, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), player.Name+" added to your board.")
 				return nil
 			},
 			"board-move": func(ctx *action.Context) error {
@@ -184,7 +189,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "board", "player_id", err)
 				}
-				actionui.RedirectBackWithNotice(ctx, boardRankRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), "Board order updated.")
+				actionui.RedirectBackWithScopedNotice(ctx, NoticeRoute, boardRankRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), "Board order updated.")
 				return nil
 			},
 			// board-move-to is the absolute-index action the declarative
@@ -207,14 +212,14 @@ func init() {
 				if err := league.Default().BoardRemove(ctx.Request, ctx.FormData["player_id"]); err != nil {
 					return actionui.Validation(ctx, "board", "player_id", err)
 				}
-				actionui.RedirectBackWithNotice(ctx, boardRankRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), "Player removed from your board.")
+				actionui.RedirectBackWithScopedNotice(ctx, NoticeRoute, boardRankRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), "Player removed from your board.")
 				return nil
 			},
 			"board-clear": func(ctx *action.Context) error {
 				if err := league.Default().BoardClear(ctx.Request, ctx.FormData["confirmation"]); err != nil {
 					return action.Error(http.StatusUnauthorized, err.Error())
 				}
-				actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), "Your board is cleared.")
+				actionui.RedirectBackWithScopedNotice(ctx, NoticeRoute, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), "Your board is cleared.")
 				return nil
 			},
 			// board-clear-drafted is J1 F34's own bulk action (2026-09-04
@@ -232,7 +237,7 @@ func init() {
 				if removed > 0 {
 					message = fmt.Sprintf("Cleared %d drafted %s from your Big Board.", removed, league.Plural(removed, "player"))
 				}
-				actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
+				actionui.RedirectBackWithScopedNotice(ctx, NoticeRoute, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil
 			},
 		},

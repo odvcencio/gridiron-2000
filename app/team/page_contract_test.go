@@ -225,7 +225,12 @@ func TestLineupContinuityContracts(t *testing.T) {
 		`target = strings.TrimSpace(ctx.FormData["team_id"])`,
 		`url.QueryEscape(target)`,
 		`result.Result.Redirect = teamLineupTarget(ctx)`,
-		`actionui.RedirectWithNoticeToRow(ctx, target, message)`,
+		// J6 F15 residue (wave E): this row-targeted redirect moved from
+		// RedirectWithNoticeToRow to RedirectWithScopedNoticeToRow so a
+		// confirmation posted here never renders on another page. See
+		// TestScopedNoticePostedOnOnePageNeverRendersOnAnother
+		// (app/interaction_feedback_contract_test.go).
+		`actionui.RedirectWithScopedNoticeToRow(ctx, NoticeRoute, target, message)`,
 		`"reserve-place"`,
 		`"reserve-activate"`,
 		`"ir-place"`,

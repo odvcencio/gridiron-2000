@@ -106,6 +106,44 @@ func RedirectBackWithScopedNotice(ctx *action.Context, route, fallback, message 
 	ctx.RedirectBackWithMessage(fallback, message)
 }
 
+// RedirectWithScopedNotice is RedirectWithNotice, but the flash it writes
+// is readable only by ScopedNotice(request, route) for the SAME route —
+// see noticeFlashKey's doc comment. Use this, not
+// RedirectBackWithScopedNotice, for a caller whose form carries no
+// return_to field and always lands on one explicit target: it keeps
+// RedirectWithNotice's own "always this target" behavior and only adds
+// the route scope (J6 F15 residue, wave E).
+func RedirectWithScopedNotice(ctx *action.Context, route, target, message string) {
+	if ctx == nil {
+		return
+	}
+	message = strings.TrimSpace(message)
+	managed := action.WantsJSON(ctx.Request)
+	if message != "" && !managed {
+		session.AddFlash(ctx.Request, noticeFlashKey(route), message)
+	}
+	if managed {
+		target = stripFragment(target)
+	}
+	ctx.RedirectWithMessage(target, message)
+}
+
+// RedirectWithScopedNoticeToRow is RedirectWithNoticeToRow, scoped the
+// same way RedirectWithScopedNotice scopes RedirectWithNotice: the row
+// fragment a managed save keeps (J3 F8) is untouched; only the flash key
+// gains the route scope so another page's own read never sees it (J6
+// F15 residue, wave E).
+func RedirectWithScopedNoticeToRow(ctx *action.Context, route, target, message string) {
+	if ctx == nil {
+		return
+	}
+	message = strings.TrimSpace(message)
+	if message != "" && !action.WantsJSON(ctx.Request) {
+		session.AddFlash(ctx.Request, noticeFlashKey(route), message)
+	}
+	ctx.RedirectWithMessage(target, message)
+}
+
 // ScopedNotice reads back the one flash RedirectBackWithScopedNotice (or a
 // future scoped writer) stored for route, and only for route: a flash
 // written for a different page is left alone here, exactly as if this

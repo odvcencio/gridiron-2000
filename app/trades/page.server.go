@@ -12,7 +12,6 @@ import (
 	"m31labs.dev/gosx/action"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
-	"m31labs.dev/gosx/session"
 )
 
 // tradeErrorFields lists every action name whose validation error should
@@ -121,9 +120,17 @@ func tradeRedirectTarget(counterparty string) string {
 // reload. Routing every mutation through one 303-with-redirect shape matches
 // the already-working team-rename and notification-set actions.
 func tradeMutationSuccess(ctx *action.Context, message string) error {
-	actionui.RedirectWithNotice(ctx, tradeRedirectTarget(ctx.FormData["counterparty"]), message)
+	actionui.RedirectWithScopedNotice(ctx, NoticeRoute, tradeRedirectTarget(ctx.FormData["counterparty"]), message)
 	return nil
 }
+
+// NoticeRoute is /trades' own confirmation scope (J6 F15 residue, wave
+// E): every page used to read the same untagged session flash every
+// other page's own action wrote, so a manager who sent or settled an
+// offer here and opened another page before following the redirect saw
+// that other page's confirmation instead. See
+// internal/actionui.RedirectWithScopedNotice and ScopedNotice.
+const NoticeRoute = "/trades"
 
 // tradesReviewAndOpenCounts (F12, J4 console gap-audit) replaces the old
 // tradesAttentionCount, which read the league-wide attention item list
@@ -244,11 +251,9 @@ func init() {
 			data["empty_inbox_message"] = emptyInboxMessage(tradesReviewAndOpenCounts(data))
 			data["has_notice"] = false
 			data["notice"] = ""
-			if store := session.Current(ctx.Request); store != nil {
-				if flashes := store.Flashes("notice"); len(flashes) > 0 {
-					data["has_notice"] = true
-					data["notice"] = fmt.Sprint(flashes[0])
-				}
+			if notice, ok := actionui.ScopedNotice(ctx.Request, NoticeRoute); ok {
+				data["has_notice"] = true
+				data["notice"] = notice
 			}
 			data["has_trades_error"] = false
 			data["trades_error"] = ""
