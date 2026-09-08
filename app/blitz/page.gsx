@@ -255,8 +255,26 @@ func Page() Node {
 				</p>
 			</div>
 			<div class="draft-clock-panel">
-				<span>Entries this slate</span>
-				<strong class="mono">{data.entry_count}</strong>
+				{/* comb — hazel (2026-09-08 wave C), J6 F11: this card
+				    read "Entries this slate / 0" — an open invitation —
+				    at the same time a notice below read "SLATE CLOSED".
+				    It now carries one state, driven by the same
+				    data.slate_closed the SLATE CLOSED notice already
+				    uses, and answers "what is my standing" once the
+				    slate closes instead of leaving it unanswered. */}
+				<If cond={data.slate_closed == false}>
+					<span>Entries this slate</span>
+					<strong class="mono">{data.entry_count}</strong>
+				</If>
+				<If cond={data.slate_closed}>
+					<span>Blitz finished</span>
+					<If cond={data.has_entry == false}>
+						<strong class="mono">You did not enter</strong>
+					</If>
+					<If cond={data.has_entry}>
+						<strong class="mono">Your result: {data.my_entry_total}</strong>
+					</If>
+				</If>
 				<div class="draft-clock-meta">
 					<a href={"/blitz?slate=" + data.other_slate} data-gosx-link>
 						{data.other_slate_label}
@@ -453,10 +471,19 @@ func Page() Node {
 					<h2>{data.slate_label}</h2>
 				</div>
 			</div>
-			<If cond={data.leaderboard_empty}>
+			{/* comb — hazel (2026-09-08 wave C), J6 F11: "NO ENTRIES
+			    YET" reads as an open invitation even after the slate
+			    has closed and the leaderboard is frozen. */}
+			<If cond={data.leaderboard_empty && data.slate_closed == false}>
 				<div class="empty-tape">
 					<strong>NO ENTRIES YET</strong>
 					<p>The leaderboard fills in as members build their five.</p>
+				</div>
+			</If>
+			<If cond={data.leaderboard_empty && data.slate_closed}>
+				<div class="empty-tape">
+					<strong>NOBODY ENTERED THIS SLATE</strong>
+					<p>The slate is over and no member built an entry.</p>
 				</div>
 			</If>
 			<div class="pool-list">

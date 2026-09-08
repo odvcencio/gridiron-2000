@@ -13,11 +13,18 @@ import (
 )
 
 // TestTeamNameResetButtonRendersOnlyForACustomName pins wave-6 glue item
-// 5: /team's secondary "Reset to configured name" button (posting to the
+// 5: /team's secondary "Reset to configured name" control (posting to the
 // team-name-reset action, league.Service.ResetTeamName's explicit
 // counterpart to the now-blank-rejecting team-rename) must render only
 // for a seat carrying a custom name override (team.has_custom_name) — a
 // team still on its configured default name has nothing to reset.
+//
+// J5 F27 (wave C — birch): the control used to post immediately with no
+// confirmation and named no value. It is now a closed-by-default
+// action-confirmation disclosure whose summary names the exact value it
+// restores ("Reset to \"<configured name>\""), so this test checks for
+// that dynamic phrase and the disclosure/confirm shape instead of the
+// old static "Reset to configured name" string.
 func TestTeamNameResetButtonRendersOnlyForACustomName(t *testing.T) {
 	// TestMain (testmain_test.go) sets DEMO_MODE=true once, before this
 	// process-wide league.Default() singleton is ever initialized: the
@@ -52,8 +59,15 @@ func TestTeamNameResetButtonRendersOnlyForACustomName(t *testing.T) {
 	// Demo mode's viewer acts as this team already carrying its configured
 	// default name (TestMain's fresh, per-package DATA_FILE fixture never
 	// renames it before this test runs): the Reset control must stay off.
+	configuredName := configuredTeamName(teamID)
+	if configuredName == "" {
+		t.Fatalf("configuredTeamName(%q) is empty; fixture team not found", teamID)
+	}
+	// The rendered HTML entity-escapes the literal quote marks in the
+	// button text (&#34;); a browser still shows a plain " to the manager.
+	resetPhrase := "Reset to &#34;" + configuredName + "&#34;"
 	before := get()
-	if strings.Contains(before, "Reset to configured name") {
+	if strings.Contains(before, resetPhrase) {
 		t.Fatalf("configured-default team name still renders the Reset control: %s", before)
 	}
 
@@ -67,8 +81,11 @@ func TestTeamNameResetButtonRendersOnlyForACustomName(t *testing.T) {
 	})
 
 	after := get()
-	if !strings.Contains(after, "Reset to configured name") {
-		t.Fatalf("custom team name did not render the Reset control: %s", after)
+	if !strings.Contains(after, resetPhrase) {
+		t.Fatalf("custom team name did not render the Reset control naming %q: %s", configuredName, after)
+	}
+	if !strings.Contains(after, `class="action-confirmation"`) {
+		t.Fatalf("Reset control is missing its action-confirmation disclosure: %s", after)
 	}
 	if !strings.Contains(after, `class="button button--secondary button--compact"`) {
 		t.Fatalf("Reset control is missing its secondary button styling: %s", after)
@@ -78,7 +95,7 @@ func TestTeamNameResetButtonRendersOnlyForACustomName(t *testing.T) {
 		t.Fatalf("ResetTeamName: %v", err)
 	}
 	restored := get()
-	if strings.Contains(restored, "Reset to configured name") {
+	if strings.Contains(restored, resetPhrase) {
 		t.Fatalf("Reset control still rendered after the name was reset: %s", restored)
 	}
 }

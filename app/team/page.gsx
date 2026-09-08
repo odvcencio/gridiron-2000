@@ -29,6 +29,7 @@ type RosterRowProps struct {
 	HasMatchup     bool
 	MatchupTier    string
 	MatchupChip    string
+	MatchupOrdinal string
 	MatchupDetail  string
 	Jersey         string
 	HasBreakdown   bool
@@ -265,7 +266,7 @@ func RosterRow(props RosterRowProps) Node {
 				<If cond={props.HasOpponent}>
 					{props.Opponent}
 					<If cond={props.HasMatchup}>
-						<span class="matchup-chip" data-matchup-tier={props.MatchupTier}>{props.MatchupChip}</span>
+						<span class="matchup-chip" data-matchup-tier={props.MatchupTier} title={props.MatchupDetail}>{props.MatchupOrdinal}</span>
 					</If>
 				</If>
 				<If cond={props.HasOpponent == false}>—</If>
@@ -517,7 +518,10 @@ func Page() Node {
 						<strong>Customize your team</strong>
 						<small>Name · co-manager · image · league badge</small>
 					</span>
-					<span class="team-identity-settings__summary-action mono">OPEN EDITOR</span>
+					<span class="team-identity-settings__summary-action mono">
+						<If cond={data.identity_expanded}>CLOSE EDITOR</If>
+						<If cond={data.identity_expanded == false}>OPEN EDITOR</If>
+					</span>
 				</summary>
 				<div class="team-identity-settings__body">
 					<section class="team-identity-settings__panel" aria-labelledby="team-profile-settings-title">
@@ -561,11 +565,20 @@ func Page() Node {
 							<button class="button button--compact" type="submit">Rename</button>
 						</form>
 						<If cond={data.team.has_custom_name}>
+							{/* J5 F27: the control used to post immediately, name no
+							    value, and confirm nothing — one click discarded the
+							    manager's name. It now names the value it restores and
+							    confirms in place, the same details/summary pattern
+							    /board's own "Clear board" control uses. */}
 							<form method="post" action={actionPath("team-name-reset")} data-gosx-managed="true" class="team-rename-form">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="team_id" value={data.team.id}></input>
 								<input type="hidden" name={data.team_return_target_field} value={data.team_return_target}></input>
-								<button class="button button--secondary button--compact" type="submit">Reset to configured name</button>
+								<details class="action-confirmation">
+									<summary aria-label={"Reset team name to " + data.team_configured_name}>{"Reset to \"" + data.team_configured_name + "\""}</summary>
+									<p>{"This replaces your team name with the configured default, \"" + data.team_configured_name + "\". You can rename it again at any time."}</p>
+									<button class="button button--secondary button--compact" type="submit" aria-label={"Confirm reset team name to " + data.team_configured_name}>Confirm reset</button>
+								</details>
 							</form>
 						</If>
 						<If cond={data.identity_available}>
@@ -1035,7 +1048,7 @@ func TeamLineupRegion() Node {
 											<If cond={slot.has_opponent}>
 												{slot.opponent}
 												<If cond={slot.has_matchup}>
-													<span class="matchup-chip" data-matchup-tier={slot.matchup_tier}>{slot.matchup_chip}</span>
+													<span class="matchup-chip" data-matchup-tier={slot.matchup_tier} title={slot.matchup_detail}>{slot.matchup_ordinal}</span>
 												</If>
 											</If>
 											<If cond={slot.has_opponent == false}>—</If>

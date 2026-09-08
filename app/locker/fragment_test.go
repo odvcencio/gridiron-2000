@@ -211,6 +211,64 @@ func TestLockerBoardRendersPostsRepliesReplyComposerAndTombstones(t *testing.T) 
 	}
 }
 
+// TestLockerBoardRendersCommissionerNoteBadge is J6 F19's own regression
+// test (2026-09-04 audit): a commissioner post used to render identically
+// to trash talk, so a manager could not tell a ruling from a joke.
+func TestLockerBoardRendersCommissionerNoteBadge(t *testing.T) {
+	data := map[string]any{
+		"has_posts": true, "posts_count": 2, "can_post": true, "page": 1, "pages": 1,
+		"has_previous": false, "has_next": false, "previous_href": "/locker", "next_href": "/locker",
+		"csrf_token": "tok-1", "locker_post_action": "/locker/__actions/locker-post", "locker_remove_action": "/locker/__actions/locker-remove",
+		"posts": []league.LockerPostView{
+			{ID: "post-official", AuthorLabel: "Commissioner", TimeLabel: "Sep 1, 12:00 PM UTC", Body: "Week 1 waivers run Tuesday.", CommissionerNote: true},
+			{ID: "post-chat", AuthorLabel: "A Manager", TimeLabel: "Sep 1, 12:05 PM UTC", Body: "gl this week"},
+		},
+	}
+	html, err := lockerFragmentRender(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, `data-commissioner-note="true"`) {
+		t.Errorf("commissioner post did not render its data-commissioner-note marker:\n%s", html)
+	}
+	if !strings.Contains(html, "COMMISSIONER NOTE") {
+		t.Errorf("commissioner post did not render the COMMISSIONER NOTE badge:\n%s", html)
+	}
+	if strings.Contains(html, `id="post-chat" data-commissioner-note="true"`) {
+		t.Error("an ordinary post was marked as a commissioner note")
+	}
+}
+
+// TestLockerBoardAttachesRemoveErrorToItsOwnPost is J6 F26's own
+// regression test (2026-09-04 audit): a failed removal's error used to
+// render as a page-top notice, unattached to the post it was about. It now
+// renders on the exact post the error names, with that post's disclosure
+// held open.
+func TestLockerBoardAttachesRemoveErrorToItsOwnPost(t *testing.T) {
+	data := map[string]any{
+		"has_posts": true, "posts_count": 1, "can_post": true, "page": 1, "pages": 1,
+		"has_previous": false, "has_next": false, "previous_href": "/locker", "next_href": "/locker",
+		"csrf_token": "tok-1", "locker_post_action": "/locker/__actions/locker-post", "locker_remove_action": "/locker/__actions/locker-remove",
+		"posts": []league.LockerPostView{
+			{
+				ID: "post-1", AuthorLabel: "Primary Manager", TimeLabel: "Sep 1, 12:00 PM UTC",
+				Body: "Welcome to the Locker Room.", CanRemove: true,
+				RemoveError: "Check the box first. This confirms you cannot restore the post.", RemoveErrorOpen: true,
+			},
+		},
+	}
+	html, err := lockerFragmentRender(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, "Check the box first. This confirms you cannot restore the post.") {
+		t.Errorf("post-1's remove error did not render:\n%s", html)
+	}
+	if !strings.Contains(html, `<details class="action-confirmation" open`) {
+		t.Errorf("the failed post's disclosure did not stay open:\n%s", html)
+	}
+}
+
 func TestLockerBoardTruthfulEmptyState(t *testing.T) {
 	html, err := lockerFragmentRender(map[string]any{
 		"has_posts": false, "posts": []league.LockerPostView{}, "page": 1, "pages": 1,

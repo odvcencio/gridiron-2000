@@ -19100,6 +19100,305 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
   color: var(--color-text-muted);
 }
 
+/* comb — hazel (2026-09-08 wave C)
+   J6 F19: a commissioner post or reply gets the same left-accent, tinted
+   treatment .commissioner-note already uses for the layout banner's own
+   commissioner voice, plus an uppercase "COMMISSIONER NOTE" chip in the
+   meta line — so a ruling reads differently from trash talk on the board
+   itself, not just in a separate banner. */
+.locker-post[data-commissioner-note="true"],
+.locker-reply[data-commissioner-note="true"] {
+  border-left: 3px solid var(--color-accent-hot);
+  background: var(--color-hot-haze);
+}
+
+.locker-post__commissioner-badge {
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  color: var(--color-accent-hot);
+  background: var(--color-surface);
+  font-size: var(--type-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.locker-commissioner-note-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+  color: var(--color-text-secondary);
+  font-size: var(--type-sm);
+}
+
+/* J6 F26: the removal confirmation's own error used to render in a
+   page-top notice, out of sight of the disclosure and control it
+   described, and by the time a manager saw it the disclosure had
+   re-collapsed. It now renders inside the same <details> the control
+   lives in, right beside "Confirm remove". */
+.action-confirmation .error-message {
+  margin-top: var(--space-xs);
+}
+
+/* J3 F31: the trade composer's checkbox rows named only a player and a
+   position, with nothing to judge the deal by. Each row now also carries
+   NFL team, bye week, this week's projection, and the pool's own points
+   figure; flex-wrap keeps that detail from overflowing the row on a
+   narrow viewport instead of clipping it. */
+.trade-composer__option {
+  flex-wrap: wrap;
+}
+
+.trade-composer__option-detail {
+  flex: 1 0 100%;
+  margin-inline-start: 1.7rem;
+  color: var(--color-text-muted);
+}
+
+/* comb — birch (2026-09-08 wave C) --------------------------------------
+   J0 matchups residue after oak. */
+
+/* Item 1: at true desktop widths (above the 80rem/1280px breakpoint the
+   "comb — oak" block already stacks below) the STARTER cell's full-name
+   <strong> (.starter-cell__name-full's own ancestor — see page.gsx's own
+   StarterCell doc comment on why the full name stays a plain span, not a
+   TextBlock, there) still clamped to one line with a literal CSS
+   ellipsis ("De'Von Ach…") even though the row has room to grow: PROJ,
+   PTS, and every fixed chip column already sit on their own line beside
+   it. A real two-line clamp (the standard line-clamp shape, not a plain
+   nowrap+ellipsis) lets a long name wrap onto the row's own second line
+   instead of losing characters. Later in source order than the base
+   .starter-cell__name strong rule (this file, wins the cascade tie at
+   equal specificity) and scoped to width > 80rem so the oak block's own
+   <= 80rem two-column stack (which already gives the name a full row)
+   is untouched. */
+@media (width > 80rem) {
+  .matchups-page .starter-cell__name strong {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    overflow: hidden;
+    overflow-wrap: break-word;
+  }
+}
+
+/* Item 2: on a phone, before kickoff, the status-line strip (state chip,
+   source phrase, games-final count, and a four-clause freshness
+   sentence) rendered ahead of the featured matchup card — six wrapped
+   lines above any score. The freshness clause (liveStatus/checkedAt/
+   refreshLabel — "Waiting for kickoff · Weekly ledger opens after the
+   first game · Checked … · Push · 60 s fallback") restates the same
+   kickoff fact the masthead's own plain-language state line
+   (.matchups-masthead__state, always rendered above both) already
+   carries; hiding it here compacts the strip to the one line that is
+   NOT already said above (state chip + source) plus the games-final
+   count, matching the existing .matchup-status-line__ledger phone rule
+   right above this file's own equivalent hide. Order (below) then
+   promotes the featured/scorebug card ahead of whatever is left of the
+   strip regardless of source order (matchupsIsGameDay's own DOM-order
+   contract, mobile_score_first_test.go, is untouched — this is a
+   visual reorder only). */
+@media (width <= 38rem) {
+  .matchups-page .matchup-status-line__freshness {
+    display: none;
+  }
+
+  .matchups-page.page {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .matchups-page.page > .matchup-layout {
+    order: 1;
+  }
+
+  .matchups-page.page > .matchup-status-line,
+  .matchups-page.page > .matchup-week-notice,
+  .matchups-page.page > .matchup-week-notice--warning {
+    order: 2;
+  }
+
+  /* Item 3: the featured header's own two-column "mine theirs" stack
+     (comb — oak, <= 80rem, and the earlier Task 11b phone block) still
+     halves the row for a name column at true phone width — plenty for
+     "Los Delfines del Norte" wrapped over two lines, not enough for one
+     long unbroken word ("Placeholder go here" rendered as a fixed team
+     name once broke mid-glyph, "Placeholde" / "r go here"). Stacking
+     mine above theirs, each spanning the full card width, gives the
+     name column back the width the two-up layout took away. */
+  .matchups-page .my-matchup__summary {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "mine"
+      "theirs"
+      "score";
+  }
+
+  .matchups-page .my-matchup__team--opponent {
+    justify-content: flex-start;
+    text-align: left;
+  }
+}
+
+/* J0 team-lineup residue after pine (comb — pine's own 8-column desktop
+   table, @media (width > 899px), above). */
+
+/* Item 2: the per-cell PROJ/PTS <small> label (page.gsx's own
+   ".player-number small") repeats the header row's PROJ/PTS column
+   labels (.lineup-slot-labels) on every single row at desktop, where
+   that header is always visible. Phone hides .lineup-slot-labels and
+   needs the inline label on the row itself (this file's own comment on
+   that rule: "the two-line row layout there carries its own inline
+   PROJ/PTS labels") — so this only hides the redundant copy above the
+   899px desktop threshold, leaving the phone row's own label alone. */
+@media (width > 899px) {
+  .lineup-slot__proj small,
+  .lineup-slot__pts small {
+    display: none;
+  }
+
+  /* Item 3: .pool-player-cell > .stat-tip--news already reserves a fixed
+     2.75rem trailing track for the news icon so the name's own flex: 1 1
+     auto track gets the rest (this file's own .pool-player-cell block) —
+     but .lineup-slot__player .stat-tip__summary::after (this file,
+     the "comb — pine" block above) re-adds a "▾" chevron after EVERY
+     .stat-tip__summary inside a lineup row, including the news
+     summary's own (whose ::after is supposed to stay "content: none",
+     the shared .stat-tip__summary--news::after rule this descendant
+     selector's higher specificity was overriding by accident). That
+     second, unintended chevron ate real width from the fixed icon
+     track it sits inside, squeezing the actual name column below it.
+     One more specific override (three classes, beats the two-class
+     rule it corrects) restores the icon-only trigger the fixed-width
+     group was always meant to be. */
+  .lineup-slot__player .stat-tip--news > .stat-tip__summary::after {
+    content: none;
+  }
+
+  /* The chevron fix above recovers real width but the PLAYER column's
+     own minmax(14rem, 1fr) share (comb — pine's 8-column table) is still
+     the tightest at 1440px — real names like "Ja'Marr Chase" still
+     clamped, even with the icon-only fix, once the surrounding fixed
+     columns (SLOT 3.5rem, OPPONENT 7rem, GAME 6.5rem, STATUS 6rem, PROJ
+     3.5rem, PTS 3.5rem, ACTION 6rem = 36rem before gaps) claim their
+     share of a desktop that also carries the nav rail and the Signal
+     Watch aside beside the roster panel. Two of those tracks are now
+     over-sized for what they actually hold: OPPONENT shows a compact
+     ordinal chip ("19th"), not the old "19th-toughest" phrase (item 1,
+     above), and PROJ/PTS show only their bare number now that the
+     redundant small label is hidden (item 2, above) — both still fit
+     their real content at a narrower width. Reclaiming 1rem from
+     OPPONENT and 0.75rem from each of PROJ/PTS (2.5rem total) hands the
+     PLAYER column that much more of the row's own 1fr share. GAME and
+     ACTION stay at their pine-set widths: GAME's own kickoff strings
+     ("SUN 4:25 PM") and ACTION's own "Start at RB1" bench button both
+     already sit close to their column's edge, and narrowing either
+     risks reintroducing the clamp/wrap this fix is meant to remove,
+     just on a different cell. */
+  .lineup-slot,
+  .roster-row,
+  .lineup-slot-labels {
+    grid-template-columns: 3.5rem minmax(14rem, 1fr) 6rem 6.5rem 6rem 2.75rem 2.75rem 6rem;
+  }
+}
+
+/* J3 F26: the Pick'em row's provenance is now a compact state-and-lock
+   line plus a closed-by-default Details disclosure (page.gsx's own
+   PickemRow) — .pickem-market keeps its existing card padding/border
+   (this file's base .pickem-market rule); these are new descendant
+   classes it never carried before, so nothing here overrides a pinned
+   rule. The pick buttons grow to read as the row's primary control: two
+   large choices, not the smallest thing in the row. */
+.pickem-market__state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--color-text-secondary);
+  font-size: var(--type-2xs);
+}
+
+.pickem-market__provenance summary {
+  cursor: pointer;
+  margin-top: 0.2rem;
+  color: var(--color-accent-cyan);
+  font-size: var(--type-2xs);
+  list-style: none;
+}
+
+.pickem-market__provenance summary::-webkit-details-marker {
+  display: none;
+}
+
+.pickem-market__provenance .pickem-market__line {
+  margin-top: 0.2rem;
+}
+
+.pickem-market__provenance small {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.6rem;
+  margin-top: 0.2rem;
+  color: var(--color-text-muted);
+  font-size: var(--type-2xs);
+}
+
+.pickem-buttons .filter-button {
+  min-height: 2.75rem;
+  padding: 0.55rem 1rem;
+  font-size: var(--type-md);
+  font-weight: 700;
+}
+
+/* J5 F26: every badge tile's state label ("AVAILABLE · <name>", "CURRENT
+   · <name>", "TAKEN · <abbr>") clamped to a one-line ellipsis
+   ("AVAILAB…") inside .badge-picker's own four-column, ~80px-wide tile
+   (this file's base .badge-option/.badge-option small rules) — all
+   sixteen tiles cut off at the same point, so "available" and "taken"
+   read alike at a glance. Wrapping the label onto its own two lines
+   (rather than a TextBlock: the label is decorative small print inside a
+   fixed-aspect-ratio art tile, not a flowed sentence) keeps the whole
+   state word and name legible. */
+.badge-option small {
+  overflow: visible;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: break-word;
+  text-align: center;
+  text-overflow: clip;
+}
+
+/* J5 F36: names the seat and the role beside the avatar on every
+   signed-in page ("Pale moon · Manager" / "· Commissioner" / "· No
+   seat"), app/layout.gsx's own .user-role span. Plain text, not a chip
+   like .user-role-chip's CO-MANAGER badge above (this file): the role
+   word is the common case for every signed-in viewer, so it reads as
+   part of the identity line rather than a special callout. */
+.user-role {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: var(--type-2xs);
+  white-space: nowrap;
+}
+
+/* J5 F37: the home page's first-session arrival strip (app/page.gsx).
+   .score-command already gives the section its card border/padding
+   (this file's base .score-command rule); this only styles the three
+   next-action list the strip adds. */
+.arrival-strip__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-lg);
+  margin: var(--space-sm) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.arrival-strip__list li {
+  font-size: var(--type-sm);
+}
+
 /* comb — willow (2026-09-08 wave C): J6 F4. A Signal Wire filter chip
    with zero items in the current window is no longer a link a manager
    could click into an empty page — it renders as a disabled
@@ -19440,4 +19739,23 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-sm);
+}
+
+/* Coordinator follow-up on the league-status masthead (wave C,
+   2026-09-08): .draft-clock-meta's own shared base rule (public/
+   styles.css, ~4448) is a flex row everywhere it is used — pre-draft's
+   two facts (draft date, ready fraction) fit that shape, but the post-
+   draft week card's own three facts squeezed into narrow columns and
+   wrapped four and five lines deep inside the panel's 330px width.
+   Scoped to this one instance rather than the shared rule, so every
+   other .draft-clock-meta caller (including the pre-draft branch on
+   this same page) is untouched. */
+.admin-masthead-week-meta {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.admin-masthead-week-meta > * {
+  width: 100%;
 }
