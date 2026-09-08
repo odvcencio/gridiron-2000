@@ -419,6 +419,137 @@ func TestPlayerPoolFreshnessStateContract(t *testing.T) {
 	}
 }
 
+// TestDraftDataRosterNeedsListsOpenSlotsFirst is J1 F25 (2026-09-04
+// audit): the room's own ROSTER tab tallied needs with sort.Strings,
+// scattering a superflex league's two most urgent holes (QB and
+// SUPERFLEX) fifth and seventh, alphabetically sandwiched between filled
+// slots ("DST, FLEX, K, P, QB, RB, SUPERFLEX, TE, WR"). roster_needs must
+// now list every open slot first (in slotTable's own fixed engine order —
+// D12's own established fix for TeamColumn, applied here too), the
+// already-filled slots after, plus a plain count of how many starting
+// slots remain empty.
+// TestDraftDataQueueTakenCountGatesTheBulkClearAction is J1 F34
+// (2026-09-04 audit): the room's own Big Board rail offered a Clear
+// button per drafted row and no way to clear them all. queue_taken_count
+// gates DraftMyTeam's own bulk "Clear drafted" action — zero while
+// nothing on the board has been drafted yet, the true count once other
+// teams start taking a manager's queued targets.
+func TestDraftDataQueueTakenCountGatesTheBulkClearAction(t *testing.T) {
+	service := newTestService(t, true)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return testPool(10), 1, "live" })
+	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
+
+	if _, err := service.BoardAdd(request, "pool-001"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.BoardAdd(request, "pool-002"); err != nil {
+		t.Fatal(err)
+	}
+	if got := service.DraftData(request)["queue_taken_count"]; got != 0 {
+		t.Fatalf("queue_taken_count = %v, want 0 before any queued player is drafted", got)
+	}
+
+	if _, err := service.store.MakePick(teamOnClock(nil, 1), "pool-001", "manager", time.Now(), time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := service.DraftData(request)["queue_taken_count"]; got != 1 {
+		t.Fatalf("queue_taken_count = %v, want 1 once one queued player is drafted", got)
+	}
+}
+
+func TestDraftDataRosterNeedsListsOpenSlotsFirst(t *testing.T) {
+	setRosterShape(rosterPresets["gridiron-house"])
+	t.Cleanup(clearRosterShape)
+	service := newTestService(t, true)
+	service.SetPlayerSource(func() ([]Player, int64, string) {
+		return []Player{
+			{ID: "rb-a", Name: "Rusher One", Position: "RB", NFLTeam: "CIN"},
+			{ID: "rb-b", Name: "Rusher Two", Position: "RB", NFLTeam: "CIN"},
+			{ID: "wr-a", Name: "Wideout One", Position: "WR", NFLTeam: "CIN"},
+			{ID: "wr-b", Name: "Wideout Two", Position: "WR", NFLTeam: "CIN"},
+			{ID: "te-a", Name: "Tighty", Position: "TE", NFLTeam: "CIN"},
+			{ID: "p-a", Name: "Kicker's Friend", Position: "P", NFLTeam: "CIN"},
+		}, 1, "live"
+	})
+	now := time.Now()
+	ids := []string{"rb-a", "rb-b", "wr-a", "wr-b", "te-a", "p-a"}
+	service.store.mu.Lock()
+	for index, id := range ids {
+		service.store.state.Picks = append(service.store.state.Picks, DraftPick{
+			Number: index + 1, TeamID: "team-1", PlayerID: id, MadeAt: now,
+		})
+	}
+	service.store.mu.Unlock()
+
+	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
+	data := service.DraftData(request)
+
+	needs, _ := data["roster_needs"].([]map[string]any)
+	order := make([]string, 0, len(needs))
+	for _, need := range needs {
+		order = append(order, need["label"].(string))
+	}
+	want := []string{"QB", "FLEX", "SUPERFLEX", "DST", "K", "RB", "WR", "TE", "P"}
+	if !reflect.DeepEqual(order, want) {
+		t.Fatalf("roster_needs order = %v, want %v (open slots first, slotTable order — never alphabetical)", order, want)
+	}
+	if got := data["roster_open_count"]; got != 5 {
+		t.Errorf("roster_open_count = %v, want 5", got)
+	}
+	summary, _ := data["roster_open_summary"].(string)
+	if !strings.Contains(summary, "5") {
+		t.Errorf("roster_open_summary = %q, want it to name 5 empty starting slots", summary)
+	}
+}
+
+// TestDraftDataMyRosterListsDraftedPlayersBySlotStartersThenBench is J1
+// F25's other half: the ROSTER tab used to list nothing but need counts —
+// never the players the manager actually drafted. my_roster_players must
+// list them by slot, starters (a slot a player still eligible for it
+// fills) before bench (every slot the player was eligible for was
+// already full when their pick landed).
+func TestDraftDataMyRosterListsDraftedPlayersBySlotStartersThenBench(t *testing.T) {
+	setRosterShape(RosterPreset{Name: "tiny-roster", Slots: map[string]int{"RB": 1, "WR": 1}, Bench: 3})
+	t.Cleanup(clearRosterShape)
+	service := newTestService(t, true)
+	service.SetPlayerSource(func() ([]Player, int64, string) {
+		return []Player{
+			{ID: "rb-a", Name: "Rusher One", Position: "RB", NFLTeam: "CIN"},
+			{ID: "wr-a", Name: "Wideout One", Position: "WR", NFLTeam: "CIN"},
+			{ID: "rb-b", Name: "Rusher Two", Position: "RB", NFLTeam: "CIN"},
+		}, 1, "live"
+	})
+	now := time.Now()
+	ids := []string{"rb-a", "wr-a", "rb-b"}
+	service.store.mu.Lock()
+	for index, id := range ids {
+		service.store.state.Picks = append(service.store.state.Picks, DraftPick{
+			Number: index + 1, TeamID: "team-1", PlayerID: id, MadeAt: now,
+		})
+	}
+	service.store.mu.Unlock()
+
+	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
+	data := service.DraftData(request)
+
+	rows, _ := data["my_roster_players"].([]map[string]any)
+	if len(rows) != 3 {
+		t.Fatalf("my_roster_players = %+v, want exactly 3 rows", rows)
+	}
+	if rows[0]["name"] != "Rusher One" || rows[0]["slot"] != "RB" || rows[0]["is_bench"] != false {
+		t.Errorf("row 0 = %+v, want Rusher One in the RB starter slot", rows[0])
+	}
+	if rows[1]["name"] != "Wideout One" || rows[1]["slot"] != "WR" || rows[1]["is_bench"] != false {
+		t.Errorf("row 1 = %+v, want Wideout One in the WR starter slot", rows[1])
+	}
+	if rows[2]["name"] != "Rusher Two" || rows[2]["slot"] != "BENCH" || rows[2]["is_bench"] != true {
+		t.Errorf("row 2 = %+v, want Rusher Two on the bench (the RB slot was already full)", rows[2])
+	}
+	if rows[2]["bench_first"] != true {
+		t.Error("the first bench row must mark bench_first so the template can head the bench section")
+	}
+}
+
 func TestDraftDataSurfacesViewerReadyAndAutopickState(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)

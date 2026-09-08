@@ -863,7 +863,13 @@ type draftQueueView struct {
 	CSRF              string
 	QueueRemoveAction string
 	QueueMoveAction   string
-	Actions           map[string]string
+	// QueueClearDraftedAction is the bulk "Clear drafted" button's post
+	// target (J1 F34, 2026-09-04 audit): the rail's own Big Board panel
+	// offered a Clear button per drafted row and no way to clear them
+	// all, so a board that decayed to mostly-taken entries by round five
+	// stayed cluttered with dead rows.
+	QueueClearDraftedAction string
+	Actions                 map[string]string
 }
 
 func draftBreakdownProps(raw []map[string]any) []draftBreakdownRowView {
@@ -1298,7 +1304,8 @@ func prepareDraftData(data map[string]any, request *http.Request) map[string]any
 	}
 	output["queue"] = draftQueueView{
 		Data: viewData, Queue: typedQueue,
-		QueueRemoveAction: actionPath("queue-remove"), QueueMoveAction: actionPath("queue-move"), Actions: actions,
+		QueueRemoveAction: actionPath("queue-remove"), QueueMoveAction: actionPath("queue-move"),
+		QueueClearDraftedAction: actionPath("queue-clear-drafted"), Actions: actions,
 	}
 	output["preflight"] = draftPreflightView{Data: viewData, Actions: actions}
 	return output
@@ -1559,6 +1566,24 @@ func init() {
 			// answers plain JSON for the runtime's background fetch and
 			// must not redirect, the same split board-move/board-move-to
 			// keeps on /board.
+			// queue-clear-drafted is the rail's own bulk "Clear drafted"
+			// action (J1 F34, 2026-09-04 audit): a board that decays to
+			// mostly-drafted entries by round five used to offer only a
+			// Clear button per taken row. BoardClearDrafted removes every
+			// already-drafted board entry in one write; zero is a normal
+			// result, not an error.
+			"queue-clear-drafted": func(ctx *action.Context) error {
+				removed, err := league.Default().BoardClearDrafted(ctx.Request)
+				if err != nil {
+					return actionui.Validation(ctx, "draft", "player_id", err)
+				}
+				target := draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"])
+				message := "No drafted players to clear."
+				if removed > 0 {
+					message = fmt.Sprintf("Cleared %d drafted %s from your Big Board.", removed, league.Plural(removed, "player"))
+				}
+				return draftActionSuccess(ctx, target, message)
+			},
 			"queue-move": func(ctx *action.Context) error {
 				if err := league.Default().BoardMove(ctx.Request, ctx.FormData["player_id"], ctx.FormData["direction"]); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)

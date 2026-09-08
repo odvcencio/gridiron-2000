@@ -83,8 +83,11 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// lineupMutationSuccess still calls RedirectWithNotice unchanged for
 	// its own no-single-row case (SET BEST LINEUP), so this inventory's
 	// count there is unaffected.
+	// J1 F34 (2026-09-07 UX pass): app/board/page.server.go adds one
+	// direct RedirectBackWithNotice call — board-clear-drafted, the Big
+	// Board's own bulk "Clear drafted players" action (40 -> 41).
 	const wantRedirects = 14
-	const wantRedirectBacks = 40
+	const wantRedirectBacks = 41
 	redirects := 0
 	redirectBacks := 0
 	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, walkErr error) error {

@@ -707,11 +707,16 @@ func TestDraftPostFormsEitherSignalOrAreExplicitlyAllowlisted(t *testing.T) {
 	// navigate the whole document back to the real room (the same
 	// full-navigation rule the sign-out form follows), and Practice again
 	// lands on a freshly built sandbox; neither has a region to signal.
+	// QueueClearDraftedAction (J1 F34, 2026-09-07 UX pass) is the bulk
+	// "Clear drafted" button: it shares draftActionSuccess with the other
+	// queue-* forms above, the same full-refresh managed response, so it
+	// needs no region-scoped signal either.
 	allowlist := []string{
 		`action={props.MakePickAction}`,
 		`action={props.QueueAddAction}`,
 		`action={props.QueueRemoveAction}`,
 		`action={props.QueueMoveAction}`,
+		`action={props.QueueClearDraftedAction}`,
 		`action={props.Actions.toggle_ready}`,
 		`action={props.Actions.toggle_autopick}`,
 		`action={props.Actions.practice_leave}`,

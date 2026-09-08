@@ -125,7 +125,7 @@ func init() {
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
 			request := ctx.Request
-			for _, name := range []string{"board-add", "board-move", "board-remove", "board-clear"} {
+			for _, name := range []string{"board-add", "board-move", "board-remove", "board-clear", "board-clear-drafted"} {
 				if view, ok := ctx.ActionState(name); ok {
 					request = boardRequestWithActionFilters(request, view)
 					break
@@ -150,7 +150,7 @@ func init() {
 			}
 			data["has_board_error"] = false
 			data["board_error"] = ""
-			for _, name := range []string{"board-add", "board-move", "board-remove", "board-clear"} {
+			for _, name := range []string{"board-add", "board-move", "board-remove", "board-clear", "board-clear-drafted"} {
 				if view, ok := ctx.ActionState(name); ok {
 					message := view.Error("player_id")
 					if message == "" {
@@ -215,6 +215,24 @@ func init() {
 					return action.Error(http.StatusUnauthorized, err.Error())
 				}
 				actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), "Your board is cleared.")
+				return nil
+			},
+			// board-clear-drafted is J1 F34's own bulk action (2026-09-04
+			// audit): the board already dims and strikes through a
+			// drafted entry (data-picked), but offered no way to remove
+			// them all at once — only the per-row remove form. Zero
+			// removed is a normal result, not an error, so this never
+			// needs the whole-board-wipe confirmation board-clear gates.
+			"board-clear-drafted": func(ctx *action.Context) error {
+				removed, err := league.Default().BoardClearDrafted(ctx.Request)
+				if err != nil {
+					return action.Error(http.StatusUnauthorized, err.Error())
+				}
+				message := "No drafted players to clear."
+				if removed > 0 {
+					message = fmt.Sprintf("Cleared %d drafted %s from your Big Board.", removed, league.Plural(removed, "player"))
+				}
+				actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil
 			},
 		},

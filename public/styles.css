@@ -18337,3 +18337,18 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
     display: inline;
   }
 }
+
+/* comb — linden (2026-09-07 UX pass): J1 F34. .q-row[data-taken="true"]
+   used to strike through only the player's own name (.q-row__name) — the
+   handle, rank, and news icon stayed full brightness, so a taken row on
+   the Big Board rail barely read as different from an available one by
+   round five, when most of the panel had decayed to dead rows. Dims the
+   whole row the same way .avail-row[data-taken="true"] already does
+   (public/styles.css, above), except .q-row__actions — the Clear button
+   there must stay fully legible and tappable. */
+.q-row[data-taken="true"] > .board-row__handle,
+.q-row[data-taken="true"] .q-row__rank,
+.q-row[data-taken="true"] .q-row__player,
+.q-row[data-taken="true"] .q-row__info {
+  opacity: 0.45;
+}

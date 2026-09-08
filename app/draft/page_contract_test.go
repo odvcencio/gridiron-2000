@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -165,6 +166,132 @@ func TestCompletedDraftReplacesMutationControlsWithNextActions(t *testing.T) {
 	} {
 		if !strings.Contains(source, truth) {
 			t.Errorf("completed-draft contract missing %q", truth)
+		}
+	}
+}
+
+// TestDraftHistoryLedgerNamesNextSteps is J1 F20 (2026-09-04 audit): the
+// finished room's own Pick history/Teams/Draft grid pane — the pane a
+// manager who stayed in the room actually lands on — used to end at
+// "FINAL LEDGER · Export CSV" with no link to the results page, the
+// lineup, or free agents. DraftHistoryBoardTeamsLedger's own Complete
+// branch must now carry all three next steps, gated the same way the
+// pool pane's own DRAFT CLOSED callout already is (props.Complete).
+func TestDraftHistoryLedgerNamesNextSteps(t *testing.T) {
+	sourceBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	ledgerStart := strings.Index(source, "func DraftHistoryBoardTeamsLedger")
+	if ledgerStart < 0 {
+		t.Fatal("DraftHistoryBoardTeamsLedger not found in page.gsx")
+	}
+	ledgerBody := source[ledgerStart:]
+	if end := strings.Index(ledgerBody, "\n}\n"); end > 0 {
+		ledgerBody = ledgerBody[:end]
+	}
+	for _, truth := range []string{
+		"props.Complete",
+		`href="/draft/results"`, "See the draft results",
+		`href="/team"`, "Set your Week 1 lineup",
+		`href="/players"`, "Browse free agents",
+	} {
+		if !strings.Contains(ledgerBody, truth) {
+			t.Errorf("DraftHistoryBoardTeamsLedger's completed-draft branch is missing %q", truth)
+		}
+	}
+}
+
+// TestDraftMyTeamQueueOffersClearDraftedBulkAction is J1 F34 (2026-09-04
+// audit): the rail's own Big Board panel offered a Clear button per
+// drafted row and no way to clear them all — by round five, every entry
+// on a manager's own board could already be taken. The queue view now
+// carries one bulk "Clear drafted" action, gated on
+// props.Data.queue_taken_count (internal/league.draftData), posting the
+// new queue-clear-drafted mutation.
+func TestDraftMyTeamQueueOffersClearDraftedBulkAction(t *testing.T) {
+	sourceBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	for _, truth := range []string{
+		"props.Data.queue_taken_count",
+		"Clear drafted",
+		"QueueClearDraftedAction",
+	} {
+		if !strings.Contains(source, truth) {
+			t.Errorf("page.gsx is missing %q (J1 F34 bulk clear)", truth)
+		}
+	}
+
+	serverBytes, err := os.ReadFile("page.server.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverSource := string(serverBytes)
+	for _, truth := range []string{
+		"queue-clear-drafted",
+		"BoardClearDrafted",
+		"QueueClearDraftedAction",
+	} {
+		if !strings.Contains(serverSource, truth) {
+			t.Errorf("page.server.go is missing %q (J1 F34 bulk clear)", truth)
+		}
+	}
+}
+
+// TestDraftQueueRowDimsTheWholeDraftedRow is J1 F34's visual half: before
+// this fix .q-row[data-taken="true"] struck through only the player's own
+// name — the rank, position chip, and projection stayed full brightness,
+// so a taken row barely read as different from an available one. It now
+// dims the whole row the same way .avail-row[data-taken="true"] already
+// does, except the action column (the Clear button must stay legible and
+// tappable).
+func TestDraftQueueRowDimsTheWholeDraftedRow(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(raw)
+	if !strings.Contains(css, `.q-row[data-taken="true"] > .q-row__player`) &&
+		!strings.Contains(css, `.q-row[data-taken="true"] .q-row__player`) {
+		t.Error(`stylesheet is missing a whole-row dim for .q-row[data-taken="true"] .q-row__player — only the name strikes through today`)
+	}
+	if !strings.Contains(css, `.q-row[data-taken="true"] .q-row__rank`) &&
+		!strings.Contains(css, `.q-row[data-taken="true"] > .q-row__rank`) {
+		t.Error(`stylesheet is missing a whole-row dim for .q-row[data-taken="true"]'s own rank — only the name strikes through today`)
+	}
+}
+
+// TestDraftMyTeamRosterTabListsDraftedPlayersBySlot is J1 F25 (2026-09-04
+// audit): the room's own ROSTER tab used to render nothing but the needs
+// tally — never the players the manager actually drafted. DraftMyTeam's
+// own roster view must now also list them by slot, starters (a real
+// position) before bench, plus the open-slot count line
+// (internal/league.draftData's own roster_open_summary).
+func TestDraftMyTeamRosterTabListsDraftedPlayersBySlot(t *testing.T) {
+	sourceBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	rosterStart := strings.Index(source, `class="draft-mine__view draft-mine__view--roster"`)
+	if rosterStart < 0 {
+		t.Fatal("draft-mine__view--roster not found in page.gsx")
+	}
+	rosterBody := source[rosterStart:]
+	if end := strings.Index(rosterBody, "draft-mine__view draft-mine__view--room"); end > 0 {
+		rosterBody = rosterBody[:end]
+	}
+	for _, truth := range []string{
+		"props.Data.roster_open_summary",
+		"props.Data.my_roster_players",
+		"pick.slot", "pick.name", "pick.is_bench", "pick.bench_first",
+	} {
+		if !strings.Contains(rosterBody, truth) {
+			t.Errorf("draft-mine__view--roster is missing %q", truth)
 		}
 	}
 }
