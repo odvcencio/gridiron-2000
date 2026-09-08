@@ -5,7 +5,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Added
+- The commissioner can now correct a named team's roster on that team's own behalf from the admin console's Roster shape section: choose the team, choose a player to drop and a free agent to add (either side is optional), and give a required reason. The change is immediate, with a review step that restates the team and both players before a second, explicit confirm. The correction shows in the transaction feed, in the commissioner's own audit trail with the reason, and as a one-time notice on the affected team's next visit to their Team page.
 
 ## [release-2026.09.08-8b73e06-textflow] — 2026-09-07
 

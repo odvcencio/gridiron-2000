@@ -205,36 +205,37 @@ func NewStoreWithIdentity(filePath string, resolver identity.Resolver) *Store {
 		filePath: strings.TrimSpace(filePath),
 		shadow:   shadowIndex{},
 		state: PersistedState{
-			SchemaVersion:      currentSchemaVersion,
-			Ready:              map[string]bool{},
-			Picks:              []DraftPick{},
-			Members:            map[string]Member{},
-			Invites:            []string{},
-			Boards:             map[string][]string{},
-			TeamNames:          map[string]string{},
-			DraftOrder:         []string{},
-			Scoring:            map[string]float64{},
-			Pickems:            map[string]map[string]string{},
-			PickemEnteredAt:    map[string]time.Time{},
-			PickemMarkets:      map[string]PickemMarket{},
-			BlitzEntries:       map[string]map[string]BlitzEntry{},
-			Autopick:           map[string]bool{},
-			SentLog:            map[string]time.Time{},
-			NotifyPrefs:        map[string]map[string]bool{},
-			BadgeClaims:        map[string]string{},
-			AvatarRefs:         map[string]string{},
-			Announcements:      []Announcement{},
-			Lineups:            map[string]map[int]map[string]string{},
-			Transactions:       []Transaction{},
-			WaiverClaims:       []WaiverClaim{},
-			WaiverReceipts:     []WaiverReceipt{},
-			TradeOffers:        []TradeOffer{},
-			RosterZones:        map[string]map[string]ZoneAssignment{},
-			CoInvites:          map[string]string{},
-			SeatRevisions:      map[string]uint64{},
-			TrimmedTeamIDs:     []string{},
-			LockerPosts:        []LockerPost{},
-			CommissionerEvents: []CommissionerEvent{},
+			SchemaVersion:           currentSchemaVersion,
+			Ready:                   map[string]bool{},
+			Picks:                   []DraftPick{},
+			Members:                 map[string]Member{},
+			Invites:                 []string{},
+			Boards:                  map[string][]string{},
+			TeamNames:               map[string]string{},
+			DraftOrder:              []string{},
+			Scoring:                 map[string]float64{},
+			Pickems:                 map[string]map[string]string{},
+			PickemEnteredAt:         map[string]time.Time{},
+			PickemMarkets:           map[string]PickemMarket{},
+			BlitzEntries:            map[string]map[string]BlitzEntry{},
+			Autopick:                map[string]bool{},
+			SentLog:                 map[string]time.Time{},
+			NotifyPrefs:             map[string]map[string]bool{},
+			BadgeClaims:             map[string]string{},
+			AvatarRefs:              map[string]string{},
+			Announcements:           []Announcement{},
+			Lineups:                 map[string]map[int]map[string]string{},
+			Transactions:            []Transaction{},
+			WaiverClaims:            []WaiverClaim{},
+			WaiverReceipts:          []WaiverReceipt{},
+			TradeOffers:             []TradeOffer{},
+			RosterZones:             map[string]map[string]ZoneAssignment{},
+			CoInvites:               map[string]string{},
+			SeatRevisions:           map[string]uint64{},
+			TrimmedTeamIDs:          []string{},
+			LockerPosts:             []LockerPost{},
+			CommissionerEvents:      []CommissionerEvent{},
+			RosterCorrectionNotices: map[string]RosterCorrectionNotice{},
 		},
 	}
 	// An empty path is the explicit in-memory/test mode: the state this
@@ -4356,6 +4357,7 @@ func cloneState(in PersistedState) PersistedState {
 		TrimmedTeamIDs:          append([]string(nil), in.TrimmedTeamIDs...),
 		LockerPosts:             append([]LockerPost(nil), in.LockerPosts...),
 		CommissionerEvents:      append([]CommissionerEvent(nil), in.CommissionerEvents...),
+		RosterCorrectionNotices: make(map[string]RosterCorrectionNotice, len(in.RosterCorrectionNotices)),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
@@ -4483,6 +4485,9 @@ func cloneState(in PersistedState) PersistedState {
 	}
 	for teamID, revision := range in.SeatRevisions {
 		out.SeatRevisions[teamID] = revision
+	}
+	for teamID, notice := range in.RosterCorrectionNotices {
+		out.RosterCorrectionNotices[teamID] = notice
 	}
 	sort.Slice(out.Picks, func(i, j int) bool { return out.Picks[i].Number < out.Picks[j].Number })
 	return out

@@ -154,6 +154,9 @@ func expectedStorePersistMutators() map[persistCallerID]struct{} {
 		expected[persistCallerID{file: "postseason.go", receiver: "(*Store)", function: name}] = struct{}{}
 	}
 	expected[persistCallerID{file: "commissioner_event.go", receiver: "(*Store)", function: "RecordCommissionerEvent"}] = struct{}{}
+	for _, name := range []string{"SetRosterCorrectionNotice", "ConsumeRosterCorrectionNotice"} {
+		expected[persistCallerID{file: "admin_roster_correction.go", receiver: "(*Store)", function: name}] = struct{}{}
+	}
 	return expected
 }
 

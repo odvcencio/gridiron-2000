@@ -201,6 +201,7 @@ Do not rehearse start, pick, undo, or reset actions against either live producti
 - A claim on a player who leaves the pool during a run stays open and deferred. It resolves once the player returns to the pool, or the manager cancels it. The manager sees one notice on the first deferred run. A claim deferred across 3 consecutive runs, spanning at least 48 hours, expires automatically, with a final notice naming the reason.
 - A beaten FAAB claim reports only that another team won the player, never the winning bid amount. A manager sees their own bid at all times.
 - The commissioner sees every team's waiver receipts, not only their own team's. The commissioner may also force an out-of-cycle run from `/admin` when a run is stuck or overdue.
+- The commissioner can correct a named team's roster on that team's own behalf from `/admin` (for example, undoing a bad autopick right after the draft): drop a rostered player, add a free agent, or both, with a required reason. It applies immediately, with no waiver period, after a review step that restates the change; the affected team sees a one-time notice on their next visit to `/team`.
 
 ### Punter rankings
 

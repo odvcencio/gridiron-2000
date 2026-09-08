@@ -1,6 +1,7 @@
 package team
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -209,4 +210,111 @@ func TestTeamChecklistPlaceholderFixtureProcess(t *testing.T) {
 	}
 	renamed := renderTeamPageOnce(t)
 	os.Stdout.WriteString(renamed)
+}
+
+// teamFixturePool is a small, deterministic player pool for the roster-
+// correction notice fixture below: enough real players (by projection, so
+// AdminRosterCorrectionData's own free-agent ranking is exercised) to
+// complete a full draft quickly.
+func teamFixturePool(size int) []league.Player {
+	players := make([]league.Player, 0, size)
+	positions := []string{"QB", "RB", "WR", "TE", "K", "DST"}
+	for index := 0; index < size; index++ {
+		players = append(players, league.Player{
+			ID:         fmt.Sprintf("team-fixture-pool-%03d", index+1),
+			Name:       fmt.Sprintf("Team Fixture Player %03d", index+1),
+			Position:   positions[index%len(positions)],
+			NFLTeam:    "CIN",
+			ADP:        float64(index + 1),
+			ADPRank:    index + 1,
+			ByeWeek:    10,
+			Projection: 20 - float64(index)*0.1,
+		})
+	}
+	return players
+}
+
+// TestTeamPageShowsRosterCorrectionNoticeOnceThenNeverAgain drives the
+// build brief's own /team flash contract end to end: after the
+// commissioner corrects team-1's roster, team-1's own next /team load
+// shows "The commissioner corrected your roster: ..."; a second load
+// shows nothing. Forked into a subprocess for the same reason the
+// checklist fixture above is: league.Default() is a process-wide
+// singleton, and this fixture needs its own fully drafted league.
+func TestTeamPageShowsRosterCorrectionNoticeOnceThenNeverAgain(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestTeamRosterCorrectionNoticeFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"TEAM_ROSTER_CORRECTION_NOTICE_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("team roster-correction notice fixture: %v\n%s", err, output)
+	}
+	sections := strings.Split(string(output), "===SECTION===")
+	if len(sections) != 2 {
+		t.Fatalf("fixture did not emit both renders: %s", output)
+	}
+	first, second := sections[0], sections[1]
+	if !strings.Contains(first, "The commissioner corrected your roster:") {
+		t.Errorf("first /team load after a correction is missing the one-time flash: %s", first)
+	}
+	if !strings.Contains(first, "flash-message") {
+		t.Errorf("roster-correction notice did not render inside the notice stack: %s", first)
+	}
+	if strings.Contains(second, "The commissioner corrected your roster:") {
+		t.Errorf("second /team load still shows the notice; it must be consumed after one showing: %s", second)
+	}
+}
+
+// TestTeamRosterCorrectionNoticeFixtureProcess is
+// TestTeamPageShowsRosterCorrectionNoticeOnceThenNeverAgain's own
+// subprocess body.
+func TestTeamRosterCorrectionNoticeFixtureProcess(t *testing.T) {
+	if os.Getenv("TEAM_ROSTER_CORRECTION_NOTICE_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	service := league.Default()
+	pool := teamFixturePool(200)
+	service.SetPlayerSource(func() ([]league.Player, int64, string) { return pool, 1, "demo" })
+	setupRequest := httptest.NewRequest(http.MethodPost, "/admin", nil)
+	if started, err := service.AdminStartDraft(setupRequest); err != nil || !started {
+		t.Fatalf("start draft: started=%v err=%v", started, err)
+	}
+	data := service.AdminData(setupRequest)
+	required, _ := data["draft_required_players"].(int)
+	if required < 1 {
+		t.Fatalf("draft_required_players = %#v", data["draft_required_players"])
+	}
+	for pick := 1; pick <= required; pick++ {
+		data = service.AdminData(setupRequest)
+		token, _ := data["current_pick_token"].(string)
+		if _, _, _, err := service.AdminForceAutopick(setupRequest, league.ForceCurrentPickConfirmation, token); err != nil {
+			t.Fatalf("complete fixture pick %d/%d: %v", pick, required, err)
+		}
+	}
+
+	correctionData := service.AdminRosterCorrectionData(httptest.NewRequest(http.MethodGet, "/admin?correction_team=team-1", nil))
+	dropOptions, _ := correctionData["drop_options"].([]map[string]any)
+	addOptions, _ := correctionData["add_options"].([]map[string]any)
+	if len(dropOptions) == 0 || len(addOptions) == 0 {
+		t.Fatalf("fixture draft did not produce a rosterable drop/add pair: drop=%d add=%d", len(dropOptions), len(addOptions))
+	}
+	dropID, _ := dropOptions[0]["id"].(string)
+	addID, _ := addOptions[0]["id"].(string)
+
+	if _, err := service.AdminRosterCorrection(setupRequest, "team-1", dropID, addID, "fixing a bad autopick"); err != nil {
+		t.Fatalf("AdminRosterCorrection: %v", err)
+	}
+
+	first := renderTeamPageOnce(t)
+	os.Stdout.WriteString(first)
+	os.Stdout.WriteString("===SECTION===")
+
+	second := renderTeamPageOnce(t)
+	os.Stdout.WriteString(second)
 }

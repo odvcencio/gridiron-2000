@@ -1429,6 +1429,109 @@ func Page() Node {
 							</form>
 						</If>
 					</If>
+					<div class="pool-toolbar" id="roster-correction">
+						<div>
+							<span class="section-index">06B // ROSTER CORRECTION</span>
+							<h2 id="admin-roster-correction-heading">Correct a team's roster</h2>
+							<p class="scoring-note">
+								Corrects one named team's roster on its own behalf — for example, undoing a bad autopick right after the draft. This applies immediately, with no waiver period. Review the change, then confirm; the reason is recorded in the audit trail and activity feed, and the team's manager sees a one-time notice on their next visit to Team.
+							</p>
+						</div>
+					</div>
+					<form method="get" action="/admin" class="clock-controls">
+						<input type="hidden" name="section" value="roster"></input>
+						<label class="mono" for="admin-roster-correction-team">TEAM //</label>
+						<select id="admin-roster-correction-team" name="correction_team">
+							<option value="">Choose a team</option>
+							<Each of={data.roster_correction.team_options} as="opt">
+								<option value={opt.id} selected={opt.selected}>{opt.label}</option>
+							</Each>
+						</select>
+						<button class="button button--ghost" type="submit">Choose team</button>
+					</form>
+					<If cond={data.roster_correction.has_team == false}>
+						<div class="empty-tape">
+							<strong>CHOOSE A TEAM</strong>
+							<p>Choose the team whose roster needs a correction.</p>
+						</div>
+					</If>
+					<If cond={data.roster_correction.has_team && data.roster_correction.draft_complete == false}>
+						<div class="empty-tape">
+							<strong>DRAFT NOT COMPLETE</strong>
+							<p>Roster corrections are available once the draft is complete and real rosters exist.</p>
+						</div>
+					</If>
+					<If cond={data.roster_correction.has_team && data.roster_correction.draft_complete}>
+						<p class="scoring-note">
+							Correcting
+							<strong>{data.roster_correction.selected_team_name}</strong>
+							.
+						</p>
+						<form method="get" action="/admin" class="clock-controls">
+							<input type="hidden" name="section" value="roster"></input>
+							<input type="hidden" name="correction_team" value={data.roster_correction.selected_team_id}></input>
+							<label class="mono" for="admin-roster-correction-pos">FILTER ADD BY POSITION //</label>
+							<select id="admin-roster-correction-pos" name="correction_pos">
+								<Each of={data.roster_correction.pos_tabs} as="tab">
+									<option value={tab.value} selected={tab.selected}>{tab.label}</option>
+								</Each>
+							</select>
+							<button class="button button--ghost" type="submit">Filter free agents</button>
+						</form>
+						<form method="post" action={actionPath("roster-correction")} data-gosx-managed="true" class="season-control-form">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="team_id" value={data.roster_correction.selected_team_id}></input>
+							<div class="roster-shape-form-grid">
+								<label class="roster-shape-field" for="admin-roster-correction-drop">
+									<span class="mono">DROP (OPTIONAL)</span>
+									<select id="admin-roster-correction-drop" name="drop_id">
+										<option value="">No drop</option>
+										<Each of={data.roster_correction.drop_options} as="opt">
+											<option value={opt.id} disabled={opt.disabled}>{opt.label}</option>
+										</Each>
+									</select>
+								</label>
+								<label class="roster-shape-field" for="admin-roster-correction-add">
+									<span class="mono">ADD (OPTIONAL)</span>
+									<select id="admin-roster-correction-add" name="add_id">
+										<option value="">No add</option>
+										<Each of={data.roster_correction.add_options} as="opt">
+											<option value={opt.id}>{opt.label}</option>
+										</Each>
+									</select>
+								</label>
+							</div>
+							<If cond={data.roster_correction.drop_options_empty}>
+								<p class="scoring-note">This team's roster is empty, or every player is locked by a kicked-off game this week; only an add is possible right now.</p>
+							</If>
+							<If cond={data.roster_correction.add_options_empty}>
+								<p class="scoring-note">No free agent matches this position filter.</p>
+							</If>
+							<label class="roster-shape-field" for="admin-roster-correction-reason">
+								<span class="mono">REASON (REQUIRED)</span>
+								<input id="admin-roster-correction-reason" class="scoring-input" name="reason" maxlength={data.roster_correction.reason_max_length} value={data.roster_correction_form.reason} required="required"></input>
+							</label>
+							<button class="button button--primary" type="submit">Review correction</button>
+						</form>
+					</If>
+					<If cond={data.roster_correction_review_pending}>
+						<div class="demo-message">
+							<p>
+								<strong>REVIEW:</strong>
+								{data.roster_correction_review_summary}
+								. Confirming applies this now; it cannot be undone from this screen.
+							</p>
+							<form method="post" action={actionPath("roster-correction")} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input type="hidden" name="team_id" value={data.roster_correction_form.team_id}></input>
+								<input type="hidden" name="drop_id" value={data.roster_correction_form.drop_id}></input>
+								<input type="hidden" name="add_id" value={data.roster_correction_form.add_id}></input>
+								<input type="hidden" name="reason" value={data.roster_correction_form.reason}></input>
+								<input type="hidden" name="confirmation" value="correct-roster"></input>
+								<button class="button button--primary" type="submit">Confirm correction</button>
+							</form>
+						</div>
+					</If>
 				</section>
 				<section id="admin-announcements" aria-labelledby="admin-announcements-heading" tabindex="-1" data-admin-section="announcements" class={"player-pool" + data.section_class_announcements}>
 					<div class="pool-toolbar">
