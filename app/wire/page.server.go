@@ -459,21 +459,33 @@ func init() {
 }
 
 // wireModeLabels turns signalwire.Service's runtime mode constants into
-// plain football labels for the wire masthead. The default case is a safe
-// neutral word, never the raw mode token, so an unmapped future mode still
-// reads as English instead of leaking a machine state name.
+// the SAME six state words the Manager Guide documents for every data-
+// freshness surface (app/guide/page.gsx#data-states: LIVE, CACHED, STALE,
+// DEGRADED, OFFLINE, UNAVAILABLE) — not a seventh, wire-only vocabulary
+// (F30, gap-audit J6). The worst offender: ModeSourceError used to read
+// "QUIET", which sounds like "no news right now" rather than "a source
+// failed"; DEGRADED ("the latest refresh failed but last-good data
+// remains") is the guide's own word for exactly that. The default case
+// stays a safe, already-documented word, never the raw mode token, so an
+// unmapped future mode still reads as English.
 var wireModeLabels = map[string]string{
-	signalwire.ModeDisabled:         "OFF",
-	signalwire.ModeAwaitingSources:  "OFF",
-	signalwire.ModeReady:            "READY",
-	signalwire.ModeSyndicationReady: "READY",
+	signalwire.ModeDisabled:         "UNAVAILABLE",
+	signalwire.ModeAwaitingSources:  "UNAVAILABLE",
+	// Ready/SyndicationReady are connected with fresh data on hand but not
+	// actively streaming this instant — CACHED ("a fresh saved snapshot")
+	// fits that better than LIVE, and keeps LIVE (and the pulsing live
+	// lamp, wireLiveIndicator) reserved for the two modes that are
+	// genuinely streaming right now, matching this label's behavior
+	// before F30.
+	signalwire.ModeReady:            "CACHED",
+	signalwire.ModeSyndicationReady: "CACHED",
 	signalwire.ModeSyndicating:      "LIVE",
-	signalwire.ModeResolvingSources: "STARTING",
-	signalwire.ModeConnecting:       "STARTING",
+	signalwire.ModeResolvingSources: "CACHED",
+	signalwire.ModeConnecting:       "CACHED",
 	signalwire.ModeStreaming:        "LIVE",
-	signalwire.ModeReconnecting:     "CATCHING UP",
-	signalwire.ModeSourceError:      "QUIET",
-	signalwire.ModeStopped:          "OFF",
+	signalwire.ModeReconnecting:     "STALE",
+	signalwire.ModeSourceError:      "DEGRADED",
+	signalwire.ModeStopped:          "UNAVAILABLE",
 }
 
 func wireModeLabel(mode string) string {
@@ -513,9 +525,17 @@ func wireFeedStaleThreshold(status signalwire.Status) time.Duration {
 	return signalwire.DeriveFeedStaleAfter(0)
 }
 
+// wireFeedHealthLabelAt names one source's own row state. "Failed" (F31,
+// gap-audit J6) replaces the old bare "ERROR": page.gsx pairs it with the
+// source's own failure reason and last-success time inline, rather than
+// a single opaque word. "LIVE"/"STALE"/"UNAVAILABLE" match the Manager
+// Guide's own six-word vocabulary (see wireModeLabels); "NEVER CHECKED"
+// has no real doc equivalent (none of the six describe "has not run
+// yet") and stays plain English rather than borrowing a word that would
+// misstate what actually happened.
 func wireFeedHealthLabelAt(feed signalwire.FeedStatus, staleAfter time.Duration, now time.Time) string {
 	if feed.LastError != "" || feed.State == "error" {
-		return "ERROR"
+		return "Failed"
 	}
 	if feed.LastChecked.IsZero() {
 		return "NEVER CHECKED"
@@ -526,7 +546,7 @@ func wireFeedHealthLabelAt(feed signalwire.FeedStatus, staleAfter time.Duration,
 	if feed.State != "ready" {
 		return "UNAVAILABLE"
 	}
-	return "READY"
+	return "LIVE"
 }
 
 // wireFeedHealthLabel is deliberately derived from the timestamps and error
@@ -538,6 +558,23 @@ func wireFeedHealthLabel(feed signalwire.FeedStatus, now time.Time) string {
 
 func wireFeedHealthLabelForStatus(feed signalwire.FeedStatus, status signalwire.Status, now time.Time) string {
 	return wireFeedHealthLabelAt(feed, wireFeedStaleThreshold(status), now)
+}
+
+// wireKeptLabel names what a source row's raw "accepted" count actually
+// is (F31, gap-audit J6): "READY · 0 kept" read like a broken source with
+// no explanation of what "kept" counted. "N stories kept after
+// filtering" says plainly that this is a count of items that passed the
+// wire's own relevance filter, not everything the source published.
+func wireKeptLabel(accepted int64) string {
+	n := int(accepted)
+	// "story" pluralizes irregularly ("stories"), which league.Plural's
+	// suffix-only rule does not handle, so this spells both forms out
+	// rather than producing "storys".
+	noun := "stories"
+	if n == 1 {
+		noun = "story"
+	}
+	return fmt.Sprintf("%d %s kept after filtering", n, noun)
 }
 
 func wireFeedCheckedLabel(feed signalwire.FeedStatus) string {
@@ -559,7 +596,7 @@ func wireHasDegradedFeed(status signalwire.Status, now time.Time) bool {
 		return false
 	}
 	for _, feed := range status.Feeds {
-		if wireFeedHealthLabelForStatus(feed, status, now) != "READY" {
+		if wireFeedHealthLabelForStatus(feed, status, now) != "LIVE" {
 			return true
 		}
 	}
@@ -593,20 +630,23 @@ func wirePresentationLabel(status signalwire.Status, now time.Time) string {
 	return base
 }
 
+// wireHealthLabel is the feed-sync region's own status word (the small
+// "sync-state" line beside the feed heading). It used to add two more
+// synonyms on top of wirePresentationLabel's already-documented word
+// ("HEALTHY" for a fine LIVE/READY wire, "PARTIAL" for a partial outage)
+// — F30 (gap-audit J6) retires both: this region now states the exact
+// same six-word vocabulary the masthead does, because a manager reading
+// two different words 200px apart has no reason to believe they mean the
+// same thing.
 func wireHealthLabel(status signalwire.Status, now time.Time) string {
 	base := wireModeLabel(status.Mode)
 	if base == "UNAVAILABLE" {
 		return base
 	}
 	if wireHasPartialOutage(status, now) {
-		return "PARTIAL"
+		return "DEGRADED"
 	}
-	switch base {
-	case "LIVE", "READY":
-		return "HEALTHY"
-	default:
-		return base
-	}
+	return base
 }
 
 // wireLiveIndicator is the only wire status allowed to render the glowing live
@@ -682,7 +722,7 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 	feedIgnored := int64(0)
 	for _, feed := range wireStatus.Feeds {
 		feedState := wireFeedHealthLabelForStatus(feed, wireStatus, now)
-		if feedState == "READY" {
+		if feedState == "LIVE" {
 			readyFeeds++
 		}
 		feedIgnored += feed.Ignored
@@ -695,14 +735,20 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 			"state":          feedState,
 			"accepted":       feed.Accepted,
 			"ignored":        feed.Ignored,
+			"kept_label":     wireKeptLabel(feed.Accepted),
 			"checked":        checked,
 			"last_checked":   checked,
 			"published":      published,
 			"last_published": published,
-			"has_checked":    !feed.LastChecked.IsZero(),
-			"has_published":  !feed.LastPublished.IsZero(),
-			"has_error":      feed.LastError != "",
-			"last_error":     feed.LastError,
+			// last_success (F31, gap-audit J6): the failed-source line
+			// ("Failed · <reason> · last success <time>") reuses the same
+			// last-published instant, named for what it means to a reader
+			// in that sentence rather than the neutral "published".
+			"last_success":  published,
+			"has_checked":   !feed.LastChecked.IsZero(),
+			"has_published": !feed.LastPublished.IsZero(),
+			"has_error":     feed.LastError != "",
+			"last_error":    feed.LastError,
 		})
 	}
 	lastID := ""
@@ -993,7 +1039,7 @@ func signalRetained(signal signalwire.Signal, status signalwire.Status, now time
 	case signalwire.SourceFeed:
 		for _, feed := range status.Feeds {
 			if feed.Name == signal.SourceName {
-				return wireFeedHealthLabelForStatus(feed, status, now) != "READY"
+				return wireFeedHealthLabelForStatus(feed, status, now) != "LIVE"
 			}
 		}
 	case signalwire.SourceBluesky:

@@ -152,19 +152,31 @@ func TestWirePageRendersSignalCardsWithRealDataFixtureProcess(t *testing.T) {
 	_, _ = os.Stdout.WriteString(body)
 }
 
+// TestWireModeLabelsCoverServiceVocabulary is F30's pinned vocabulary
+// contract (gap-audit J6): every runtime mode maps to one of the six
+// words the Manager Guide documents (LIVE, CACHED, STALE, DEGRADED,
+// OFFLINE, UNAVAILABLE), not a wire-only seventh word. ModeSourceError
+// -> DEGRADED (not the old, misleading "QUIET") is the finding's own
+// headline example: a failed source used to read like a quiet news day.
 func TestWireModeLabelsCoverServiceVocabulary(t *testing.T) {
 	cases := map[string]string{
-		signalwire.ModeDisabled:         "OFF",
-		signalwire.ModeAwaitingSources:  "OFF",
-		signalwire.ModeReady:            "READY",
-		signalwire.ModeSyndicationReady: "READY",
+		signalwire.ModeDisabled:         "UNAVAILABLE",
+		signalwire.ModeAwaitingSources:  "UNAVAILABLE",
+		signalwire.ModeReady:            "CACHED",
+		signalwire.ModeSyndicationReady: "CACHED",
 		signalwire.ModeSyndicating:      "LIVE",
-		signalwire.ModeResolvingSources: "STARTING",
-		signalwire.ModeConnecting:       "STARTING",
+		signalwire.ModeResolvingSources: "CACHED",
+		signalwire.ModeConnecting:       "CACHED",
 		signalwire.ModeStreaming:        "LIVE",
-		signalwire.ModeReconnecting:     "CATCHING UP",
-		signalwire.ModeSourceError:      "QUIET",
-		signalwire.ModeStopped:          "OFF",
+		signalwire.ModeReconnecting:     "STALE",
+		signalwire.ModeSourceError:      "DEGRADED",
+		signalwire.ModeStopped:          "UNAVAILABLE",
+	}
+	documented := map[string]bool{"LIVE": true, "CACHED": true, "STALE": true, "DEGRADED": true, "OFFLINE": true, "UNAVAILABLE": true}
+	for mode, want := range cases {
+		if !documented[want] {
+			t.Fatalf("test itself expects %q for %q, which is not one of the Manager Guide's six documented state words", want, mode)
+		}
 	}
 	for mode, want := range cases {
 		if got := wireModeLabel(mode); got != want {
@@ -216,8 +228,12 @@ func TestWirePresentationMarksPartialFeedOutageAndRetainsSignals(t *testing.T) {
 	if got := wirePresentationLabel(status, now); got != "DEGRADED" {
 		t.Fatalf("partial presentation = %q, want DEGRADED", got)
 	}
-	if got := wireHealthLabel(status, now); got != "PARTIAL" {
-		t.Fatalf("partial health = %q, want PARTIAL", got)
+	// F30 (gap-audit J6): wireHealthLabel no longer grows its own second
+	// vocabulary ("PARTIAL") alongside wirePresentationLabel's — both read
+	// DEGRADED, the Manager Guide's own word for "the latest refresh
+	// failed but last-good data remains".
+	if got := wireHealthLabel(status, now); got != "DEGRADED" {
+		t.Fatalf("partial health = %q, want DEGRADED", got)
 	}
 	sourceFailure := status
 	sourceFailure.Mode = signalwire.ModeSourceError
@@ -233,8 +249,8 @@ func TestWirePresentationMarksPartialFeedOutageAndRetainsSignals(t *testing.T) {
 	if got := wirePresentationLabel(partialSources, now); got != "DEGRADED" {
 		t.Fatalf("partial Bluesky resolution presentation = %q, want DEGRADED", got)
 	}
-	if got := wireHealthLabel(partialSources, now); got != "PARTIAL" {
-		t.Fatalf("partial Bluesky resolution health = %q, want PARTIAL", got)
+	if got := wireHealthLabel(partialSources, now); got != "DEGRADED" {
+		t.Fatalf("partial Bluesky resolution health = %q, want DEGRADED", got)
 	}
 	retained := wireSignalCard(signalwire.Signal{
 		ID: "retained", Source: signalwire.SourceFeed, SourceName: "Broken Publisher", OccurredAt: now.Add(-time.Hour),
@@ -267,8 +283,8 @@ func TestWireFeedHealthFollowsConfiguredCadence(t *testing.T) {
 	status := service.Status()
 	t0 := time.Date(2026, 8, 23, 20, 0, 0, 0, time.UTC)
 	feed := signalwire.FeedStatus{Name: "Hourly Publisher", State: "ready", LastChecked: t0}
-	if got := wireFeedHealthLabelForStatus(feed, status, t0.Add(15*time.Minute+time.Second)); got != "READY" {
-		t.Fatalf("hourly feed at 15m+1s = %q, want READY", got)
+	if got := wireFeedHealthLabelForStatus(feed, status, t0.Add(15*time.Minute+time.Second)); got != "LIVE" {
+		t.Fatalf("hourly feed at 15m+1s = %q, want LIVE", got)
 	}
 	if got := wireFeedHealthLabelForStatus(feed, status, t0.Add(status.FeedStaleAfter+time.Second)); got != "STALE" {
 		t.Fatalf("hourly feed after derived threshold = %q, want STALE (threshold %v)", got, status.FeedStaleAfter)
@@ -284,8 +300,8 @@ func TestWireFeedHealthDistinguishesNeverCheckedStaleAndError(t *testing.T) {
 	}{
 		{name: "never checked", feed: signalwire.FeedStatus{Name: "New", State: "waiting"}, state: "NEVER CHECKED"},
 		{name: "stale", feed: signalwire.FeedStatus{Name: "Old", State: "ready", LastChecked: now.Add(-signalwire.DeriveFeedStaleAfter(0) - time.Second)}, state: "STALE"},
-		{name: "error", feed: signalwire.FeedStatus{Name: "Broken", State: "error", LastChecked: now, LastError: "timeout"}, state: "ERROR"},
-		{name: "ready", feed: signalwire.FeedStatus{Name: "Current", State: "ready", LastChecked: now}, state: "READY"},
+		{name: "error", feed: signalwire.FeedStatus{Name: "Broken", State: "error", LastChecked: now, LastError: "timeout"}, state: "Failed"},
+		{name: "ready", feed: signalwire.FeedStatus{Name: "Current", State: "ready", LastChecked: now}, state: "LIVE"},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -781,5 +797,53 @@ func TestWireCardDropsTheUnexplainedPercentage(t *testing.T) {
 	}
 	if strings.Contains(html, "65%") || strings.Contains(html, "PUBLISHER · ") {
 		t.Fatalf("SignalCard still renders an unexplained percentage: %s", html)
+	}
+}
+
+// TestWireKeptLabelNamesWhatItCounts is F31's failing-test-first
+// reproduction (gap-audit J6): "READY · 0 kept" read like a broken
+// source with no explanation. wireKeptLabel now spells out what the
+// count is — items that passed the wire's own relevance filter.
+func TestWireKeptLabelNamesWhatItCounts(t *testing.T) {
+	tests := []struct {
+		n    int64
+		want string
+	}{
+		{n: 0, want: "0 stories kept after filtering"},
+		{n: 1, want: "1 story kept after filtering"},
+		{n: 5, want: "5 stories kept after filtering"},
+	}
+	for _, test := range tests {
+		if got := wireKeptLabel(test.n); got != test.want {
+			t.Fatalf("wireKeptLabel(%d) = %q, want %q", test.n, got, test.want)
+		}
+	}
+}
+
+// TestWireFeedRowNamesAFailureWithReasonAndLastSuccess is F31's render
+// contract: a failed source used to show a bare "ERROR" state plus a
+// separate, disconnected "ERROR · <reason>" line below two other lines.
+// It now reads one line: "Failed · <reason> · last success <time>".
+func TestWireFeedRowNamesAFailureWithReasonAndLastSuccess(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(source)
+	for _, want := range []string{
+		"Failed · {feed.last_error} · last success {feed.last_success}",
+		"{feed.evidence} · {feed.state} · {feed.kept_label}",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page.gsx missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		"ERROR · {feed.last_error}",
+		"{feed.accepted} kept",
+	} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("page.gsx still carries retired copy %q", unwanted)
+		}
 	}
 }

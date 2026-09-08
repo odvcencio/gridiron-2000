@@ -311,10 +311,12 @@ func Page() Node {
 						<Each of={data.feeds_visible} as="feed">
 							<div>
 								<a href={feed.url} target="_blank" rel="noreferrer"><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis">{feed.name} ↗</TextBlock></a>
-								<small class="mono">{feed.evidence} · {feed.state} · {feed.accepted} kept</small>
-								<small class="mono">LAST CHECK · {feed.checked} · LAST PUBLISHED · {feed.published}</small>
 								<If cond={feed.has_error}>
-									<small class="mono">ERROR · {feed.last_error}</small>
+									<small class="mono">Failed · {feed.last_error} · last success {feed.last_success}</small>
+								</If>
+								<If cond={feed.has_error == false}>
+									<small class="mono">{feed.evidence} · {feed.state} · {feed.kept_label}</small>
+									<small class="mono">LAST CHECK · {feed.checked} · LAST PUBLISHED · {feed.published}</small>
 								</If>
 							</div>
 						</Each>
@@ -324,10 +326,12 @@ func Page() Node {
 								<Each of={data.feeds_overflow} as="feed">
 									<div>
 										<a href={feed.url} target="_blank" rel="noreferrer"><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis">{feed.name} ↗</TextBlock></a>
-										<small class="mono">{feed.evidence} · {feed.state} · {feed.accepted} kept</small>
-										<small class="mono">LAST CHECK · {feed.checked} · LAST PUBLISHED · {feed.published}</small>
 										<If cond={feed.has_error}>
-											<small class="mono">ERROR · {feed.last_error}</small>
+											<small class="mono">Failed · {feed.last_error} · last success {feed.last_success}</small>
+										</If>
+										<If cond={feed.has_error == false}>
+											<small class="mono">{feed.evidence} · {feed.state} · {feed.kept_label}</small>
+											<small class="mono">LAST CHECK · {feed.checked} · LAST PUBLISHED · {feed.published}</small>
 										</If>
 									</div>
 								</Each>
