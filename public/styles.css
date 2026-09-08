@@ -19716,6 +19716,31 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
   margin-block: 0;
 }
 
+/* comb — willow (2026-09-08 wave C, coordinator follow-up): /activity's
+   hero card fed .draft-clock-meta three flex children (the league-time
+   span, "Player pool →", "Team terminal →") under
+   justify-content: space-between. At phone width, two of the three fit
+   on the first wrapped line (pushed to its opposite ends by
+   space-between) and the third dropped alone to a second line — "Team
+   terminal →" sat far from "Player pool →" with the wrapped flex
+   container's own extra row-height between them, instead of reading as
+   one link row under the time line. The two links now share one
+   wrapper (page.gsx), so .draft-clock-meta only ever distributes two
+   items (the time line, the links row) and the links wrap together —
+   never split from each other — only when they truly do not fit.
+   align-content: flex-start on the outer compact panel stops its own
+   wrapped rows from stretching apart to fill any leftover height, so
+   the card's height tracks its content instead of growing past it. */
+.draft-clock-panel--compact {
+  align-content: flex-start;
+}
+
+.activity-clock-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
 /* Coordinator follow-up on the league-status masthead (wave C,
    2026-09-08): .draft-clock-meta's own shared base rule (public/
    styles.css, ~4448) is a flex row everywhere it is used — pre-draft's
