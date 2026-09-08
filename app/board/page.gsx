@@ -39,6 +39,17 @@ func BoardRow(props BoardRowProps) Node {
 						</If>
 					</small>
 				</If>
+				{/* comb — rowan (2026-09-08 wave D), owner debrief item 4:
+				    autopick takes this board in order (draftclock.go's own
+				    board-first walk) — a manager rarely opens the row-level
+				    detail to notice a personal favorite sits far below the
+				    house's own value, until autopick spends an early pick
+				    on it. board.go's boardValueWarning computes this per
+				    row, off the SAME margin the autopick guard itself uses
+				    (draftclock.go's autopickBoardValueGuardMargin). */}
+				<If cond={props.Player.value_warning}>
+					<TextBlock as="small" class="board-row__value-warning" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" text={props.Player.value_warning_text} />
+				</If>
 			</span>
 			</summary>
 			<div class="stat-tip__panel">
@@ -222,6 +233,20 @@ func Page() Node {
 				<p class="demo-message">
 					<strong>MATCHUP RANKS:</strong>
 					ranked from the {data.matchup_source_label}. A higher "-toughest" number is a softer matchup; a lower one is tougher.
+				</p>
+			</If>
+			{/* comb — rowan (2026-09-08 wave D), owner debrief item 4: the
+			    board's own row warnings (BoardRow, above) name the far-
+			    off-value entries; this one-line note explains WHY a low
+			    house rank matters at all — autopick takes the board in
+			    the exact order it is ranked in (draftclock.go's
+			    autopickChoiceWith board-first walk), so a row far below
+			    the pick where the manager next selects is a real risk,
+			    not a cosmetic number. */}
+			<If cond={data.board_has_value_warnings}>
+				<p class="demo-message">
+					<strong>VALUE CHECK:</strong>
+					autopick takes this board in the order it is ranked. A row marked below is far below the house's own value for your next pick — autopick would still take it if your board reaches it first.
 				</p>
 			</If>
 		</div>

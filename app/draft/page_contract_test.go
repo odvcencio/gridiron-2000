@@ -92,22 +92,35 @@ func TestResolveDraftPoolSortDelegatesToLeagueResolver(t *testing.T) {
 }
 
 // TestDraftAvailableFragmentURLCarriesActiveSort pins the available pane's
-// live-swapped region URL (page.gsx): the position-chip repoll must carry
-// the page's own resolved sort (data.pool_sort), or a chip click while
-// HOUSE is active would silently refetch under ResolveDraftPoolSort's
-// roster-only default instead.
+// live-swapped region URL (page.gsx): every trigger that refetches it — a
+// poll tick, a "draft:pick"/"draft:undo"/"draft:state" hub event, or the
+// position chip's own plain navigation — must carry the page's own
+// resolved pos/q/sort (data.pool_position/pool_query/pool_sort), baked in
+// server-side by draftAvailableRegionURL, not a client-side shared signal
+// that boots empty on every page load (Wave D, owner debrief 2026-09-06:
+// "filtering via position ... was tough" — a signal-driven "{value}" token
+// silently reverted an active RB/WR/etc filter to ALL on the very first
+// unrelated refresh).
 func TestDraftAvailableFragmentURLCarriesActiveSort(t *testing.T) {
 	sourceBytes, err := os.ReadFile("page.gsx")
 	if err != nil {
 		t.Fatal(err)
 	}
 	source := string(sourceBytes)
-	// fragment_base (practice draft): "/draft/fragment" for the real room,
-	// the practice room's own for a practice; the sort-carrying tail is the
-	// pin.
-	want := `data-gosx-region-url={data.fragment_base + "/available?pos={value}&sort=" + data.pool_sort}`
+	// data.draft_available_region_url (Wave D): one field, built once in
+	// prepareDraftData off pool_position/pool_query/pool_sort, shared by
+	// both the target and fallback live_mode branches so they can never
+	// disagree about what the pool was actually filtered/sorted by.
+	want := `data-gosx-region-url={data.draft_available_region_url}`
 	if count := strings.Count(source, want); count != 2 {
-		t.Fatalf("draft-available-list region URL sort-carrying literal found %d times, want 2 (target and fallback live_mode): %q", count, want)
+		t.Fatalf("draft-available-list region URL literal found %d times, want 2 (target and fallback live_mode): %q", count, want)
+	}
+	// The position chip (DraftAvailableHead) must be a plain, real
+	// navigation now — data-gosx-set's shared signal is what boots empty
+	// and silently drops the filter; chip.href already carries pos/q/sort
+	// (draftPositionChips → service.go's draftPoolPageHref).
+	if strings.Contains(source, `data-gosx-set="$draft.available.pos"`) {
+		t.Fatalf("position chip must not drive the pool region through the $draft.available.pos shared signal (it boots empty on every load/soft-nav and silently drops the filter)")
 	}
 }
 

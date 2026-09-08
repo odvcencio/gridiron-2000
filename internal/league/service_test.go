@@ -370,7 +370,20 @@ func TestCachedPoolIsReportedAsUsableSnapshot(t *testing.T) {
 		if status["last_success"] == "" || status["last_success_relative"] != "45 minutes ago" {
 			t.Errorf("%s last-success evidence = %+v", name, status)
 		}
-		if detail, _ := status["detail"].(string); !strings.Contains(detail, "draft actions remain available") {
+		detail, _ := status["detail"].(string)
+		// DraftData carries its own simplified "cached" copy (J1 F33,
+		// Wave D, 2026-09-08 — draftPoolStatusMap, service.go): the
+		// shared, jargon-carrying sentence every other surface still
+		// reads is real jargon on draft night, where the one fact that
+		// matters is narrower — picks stay live even while the pool is a
+		// saved copy. PlayersData/BoardData keep the shared sentence.
+		if name == "DraftData" {
+			if detail != "Player data is a saved copy. Picks are live." {
+				t.Errorf("%s does not carry the room's own simplified cached detail: %q", name, detail)
+			}
+			continue
+		}
+		if !strings.Contains(detail, "draft actions remain available") {
 			t.Errorf("%s does not explain retained capability: %q", name, detail)
 		}
 	}

@@ -79,6 +79,11 @@ type DraftPlayerCard struct {
 	// entry (draftPlayerProps never sets it there), which never renders
 	// the confirm panel this backs.
 	SpecialistEarly bool
+	// ConfirmPickLabel (comb — rowan, 2026-09-07, Wave D item 2): the
+	// row-level confirm sheet's own pre-formatted "Draft {Name} ({Pos} ·
+	// {Team}) at round R, pick P?" sentence, built server-side
+	// (prepareDraftData) — this file never concatenates a Go int inline.
+	ConfirmPickLabel string
 }
 
 type DraftQueueProps struct {
@@ -1382,7 +1387,20 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 					<If cond={props.Data.viewer_on_clock}><span class="idx idx--hot">You are on the clock</span></If>
 					<If cond={props.Data.viewer_on_clock == false}><span class="idx">On the clock</span></If>
 					<strong class="display" data-gosx-live-bind="onclock.name">{props.Data.on_clock.name}</strong>
-					<small class="muted">Next: {props.Data.next_team.name} · then {props.Data.after_next_team.name}</small>
+					{/* comb — rowan (2026-09-08 wave D), J1 F35: a viewer
+					    who holds the round's own turn-pivot picks twice
+					    in a row used to see their own team name twice in
+					    three stacked lines ("Los Delfines del Norte /
+					    Next: Los Delfines del Norte · then In Shedeur
+					    Time") — a confusing repetition, not the good,
+					    notable fact it actually was. viewer_back_to_back
+					    (service.go) names it plainly instead. */}
+					<If cond={props.Data.viewer_back_to_back}>
+						<small class="muted idx--hot">You pick again next turn. Plan the pair.</small>
+					</If>
+					<If cond={props.Data.viewer_back_to_back == false}>
+						<small class="muted">Next: {props.Data.next_team.name} · then {props.Data.after_next_team.name}</small>
+					</If>
 					{/* comb — larch (2026-09-04), J2 F34 (opportunity): the
 					    room's own header carried only an AGGREGATE count
 					    ("N/8 here"), never the one seat that matters most
@@ -1507,7 +1525,15 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 							</If>
 						</form>
 					</If>
-					<button type="button" class="btn btn-sm draft-command__pill-sound" data-gosx-cue-toggle data-gosx-cue-label-on="Sound on" data-gosx-cue-label-off="Sound off" aria-pressed="true">Sound on</button>
+					{/* comb — rowan (2026-09-08 wave D), J1 F24: "Sound on"
+					    stated a state beside three imperative siblings
+					    (MARK ME READY, TURN AUTOPICK ON) — a manager
+					    could not tell whether pressing it would mute
+					    them. "Mute"/"Unmute" (data-gosx-cue-label-on/
+					    -off, shown while the cue is on/off respectively)
+					    commands the action the tap performs, matching
+					    every sibling control's own imperative. */}
+					<button type="button" class="btn btn-sm draft-command__pill-sound" data-gosx-cue-toggle data-gosx-cue-label-on="Mute" data-gosx-cue-label-off="Unmute" aria-pressed="true">Mute</button>
 					<If cond={props.Data.practice.active == false}>
 						<button type="button" class="btn btn-sm" aria-label="Open league navigation" aria-controls="primary-navigation-dialog" aria-expanded="false" data-gosx-disclosure-target="#primary-navigation-dialog">League</button>
 					</If>
@@ -1527,13 +1553,27 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 			</div>
 		</details>
 		</div>
+		{/* comb — rowan (2026-09-08 wave D), J1 F4: the plain-language
+		    sentence (props.StatusSummary) used to render only inside the
+		    visually-hidden screen-reader paragraph above — a phone only
+		    ever saw the retro pill-status span's own clipped code
+		    ("DRAFT NO…", "ON CLOCK: I…"). This is the SAME sentence,
+		    shown at phone width in place of that span (public/
+		    styles.css); a full-width sibling of the pill row rather than
+		    a child inside it — the pill row's own narrow, rounded-pill
+		    width (sized for the short mono code it used to hold only)
+		    wrapped a whole readable sentence across nine cramped lines.
+		    aria-hidden because the visually-hidden <p role="status">
+		    above already announces this text once — a second live copy
+		    would double-announce on every update. */}
+		<p class="draft-command__pill-sentence" aria-hidden="true">{props.StatusSummary}</p>
 		<div class="draft-command__room">
 			<span class="idx">Room</span>
 			<span class="mono"><span class="live-dot live-dot--bound" aria-hidden="true"><If cond={props.Data.draft.started && props.Data.draft.complete == false}>LIVE</If></span> <span data-gosx-live-bind="room.here">{props.Data.here_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> here · <span data-gosx-live-bind="room.ready">{props.Data.ready_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> ready<span class="draft-command__auto"> · <span data-gosx-live-bind="room.auto">{props.Data.auto_count}</span> auto</span></span>
 			<If cond={props.Data.your_pick_in > 0}>
 				<span class="mono draft-command__yourpick" data-gosx-live-bind={props.Data.yourpick_bind_key}>your pick in {props.Data.your_pick_in}</span>
 			</If>
-			<button type="button" class="btn btn-sm draft-command__sound" data-gosx-cue-toggle data-gosx-cue-label-on="Sound on" data-gosx-cue-label-off="Sound off" aria-pressed="true">Sound on</button>
+			<button type="button" class="btn btn-sm draft-command__sound" data-gosx-cue-toggle data-gosx-cue-label-on="Mute" data-gosx-cue-label-off="Unmute" aria-pressed="true">Mute</button>
 			<If cond={props.Data.viewer.is_commissioner}>
 				<button type="button" class="btn btn-sm" data-gosx-disclosure-target="#draft-commissioner" aria-controls="draft-commissioner" aria-expanded="false">Commissioner</button>
 			</If>
@@ -1939,16 +1979,29 @@ type DraftMobileTabsProps struct {
 // visible tab text (tab-players/tab-queue already get their accessible
 // name from label/for, same as before).
 func DraftMobileTabs(props DraftMobileTabsProps) Node {
+	// comb — rowan (2026-09-08 wave D), J5 F28: tab-picks/tab-board/
+	// tab-teams paired with a plain <a>, not a <label for="...">
+	// (D14's own doc comment, above), each carrying its own aria-label —
+	// a screen reader met FIVE destinations as EIGHT controls (a radio
+	// AND a link for each of these three). aria-hidden plus tabindex=-1
+	// removes the redundant radio from the accessibility tree and the
+	// tab order; the visible, real-navigation <a> beside it is the one
+	// control a keyboard/screen-reader user now reaches, matching
+	// tab-players/tab-queue above (one control each, via label/for). The
+	// radio element itself stays in the DOM, still server-checked to the
+	// current view (its :checked sibling selector still drives the
+	// tab's own visual highlight, public/styles.css) — only its own
+	// stop in the accessibility tree and tab order is removed.
 	return <nav class="draft-tabbar" aria-label="Draft room panels">
 		<input type="radio" name="draft-tab" id="tab-players" class="visually-hidden" checked={props.ShowTeams == false && props.ShowBoard == false && props.Complete == false && props.TapeExplicit == false}></input>
 		<label class="draft-tabbar__tab" for="tab-players">Pool</label>
 		<input type="radio" name="draft-tab" id="tab-queue" class="visually-hidden"></input>
 		<label class="draft-tabbar__tab" for="tab-queue">Big Board</label>
-		<input type="radio" name="draft-tab" id="tab-picks" class="visually-hidden" checked={props.ShowTeams == false && props.ShowBoard == false && (props.Complete || props.TapeExplicit)} aria-label="Picks"></input>
+		<input type="radio" name="draft-tab" id="tab-picks" class="visually-hidden" checked={props.ShowTeams == false && props.ShowBoard == false && (props.Complete || props.TapeExplicit)} aria-hidden="true" tabindex="-1"></input>
 		<a class="draft-tabbar__tab" href={props.PicksHref} data-gosx-link>Picks</a>
-		<input type="radio" name="draft-tab" id="tab-board" class="visually-hidden" checked={props.ShowBoard} aria-label="Draft grid"></input>
+		<input type="radio" name="draft-tab" id="tab-board" class="visually-hidden" checked={props.ShowBoard} aria-hidden="true" tabindex="-1"></input>
 		<a class="draft-tabbar__tab" href={props.BoardHref} data-gosx-link>Draft grid</a>
-		<input type="radio" name="draft-tab" id="tab-teams" class="visually-hidden" checked={props.ShowTeams} aria-label="Teams"></input>
+		<input type="radio" name="draft-tab" id="tab-teams" class="visually-hidden" checked={props.ShowTeams} aria-hidden="true" tabindex="-1"></input>
 		<a class="draft-tabbar__tab" href={props.TeamsHref} data-gosx-link>Teams</a>
 	</nav>
 }
@@ -2089,7 +2142,7 @@ func DraftAvailableHead(props DraftAvailableHeadProps) Node {
 		</form>
 		<div class="draft-available-head__chips" role="group" aria-label="Filter the pool by position">
 			<Each of={props.Positions} as="chip">
-				<a href={chip.href} class="chip" data-gosx-set="$draft.available.pos" data-gosx-set-value={chip.value} aria-pressed={chip.active}>{chip.label}</a>
+				<a href={chip.href} class="chip" data-gosx-link aria-pressed={chip.active}>{chip.label}</a>
 			</Each>
 		</div>
 		<div class="draft-available-head__sort" role="group" aria-label="Sort the pool">
@@ -2203,26 +2256,35 @@ func DraftAvailable(props DraftAvailableProps) Node {
 								<input type="hidden" name="pos" value={props.Data.pool_position}></input>
 								<input type="hidden" name="q" value={props.Data.pool_query}></input>
 								<input type="hidden" name="page" value={props.Data.pool_page}></input>
-								<button class="button button--ghost" type="submit" aria-label={"Add " + player.Name + " to your Big Board"}>+ RANK</button>
+								<input type="hidden" name="sort" value={props.Data.pool_sort}></input>
+								{/* Wave D item 2 (owner debrief, 2026-09-06): "RANK"
+								    is a decorative label the button's own aria-label
+								    already covers ("Add {Name} to your Big Board") —
+								    hidden at phone width (public/styles.css) so the
+								    button reads as a compact "+" beside DRAFT, both
+								    44px targets on one row instead of two stacked
+								    ~250px rows. */}
+								<button class="button button--ghost avail-row__rank-button" type="submit" aria-label={"Add " + player.Name + " to your Big Board"}>+<span class="avail-row__rank-button-label"> BOARD</span></button>
 							</form>
 							</If>
-							{/* comb — larch (2026-09-04), J1 F12: one tap used to
-							    post the pick outright — the row's own Draft
-							    button WAS the form's only submit control, so a
-							    mis-tap on a 44px-tall row of fifty identical
-							    buttons drafted whoever it landed on, with no
-							    undo. <details> turns the same button into a
-							    two-tap disclosure, the exact no-JS pattern
-							    /players' own "Confirm drop" (public/styles.css
-							    .action-confirmation, this file's own doc
-							    comment) already ships: the first tap only
-							    opens it (native <summary> behavior, no request
-							    sent); the SECOND tap hits the real submit
-							    button inside, still in this one <form>, so the
-							    pick posts exactly like before once confirmed.
-							    Tapping the summary again (or anywhere outside,
-							    for a mouse) closes it with no server round
-							    trip — the built-in Cancel. */}
+							{/* comb — rowan (2026-09-07), Wave D item 2: the two-tap
+							    row confirm used to be ONE control whose own visible
+							    label swapped from "Draft" to "Confirm {Name}" on
+							    open — the owner's debrief named this the confusing
+							    part ("a button that changes its own label"). The
+							    summary now always reads "Draft"; opening it reveals
+							    a distinct confirm sheet that names the player and
+							    the pick and offers its own Confirm and Cancel
+							    controls. <details> still carries the whole
+							    interaction with no JavaScript required: the first
+							    tap only opens it (native <summary> behavior, no
+							    request sent); Confirm is the form's real submit
+							    button; Cancel (data-gosx-toggle-close, gosx's own
+							    declarative attribute-toggle) removes this same
+							    <details> element's own "open" attribute — with no
+							    JavaScript, an inert button that costs nothing to
+							    tap (the row already re-renders closed on the next
+							    navigation). */}
 							<form method="post" action={props.MakePickAction} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 								<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
@@ -2230,18 +2292,19 @@ func DraftAvailable(props DraftAvailableProps) Node {
 								<input type="hidden" name="pos" value={props.Data.pool_position}></input>
 								<input type="hidden" name="q" value={props.Data.pool_query}></input>
 								<input type="hidden" name="page" value={props.Data.pool_page}></input>
+								<input type="hidden" name="sort" value={props.Data.pool_sort}></input>
 								<If cond={props.Data.can_pick && player.CanDraft}>
-									<details class="draft-row-confirm">
-										<summary class="btn btn-sm btn-primary" aria-label={"Draft " + player.Name}>
-											<span class="draft-row-confirm__closed-label">Draft</span>
-											<span class="draft-row-confirm__open-label">{"Confirm " + player.Name}</span>
-										</summary>
-										<div class="draft-row-confirm__panel">
+									<details class="draft-row-confirm" id={"draft-confirm-" + player.ID}>
+										<summary class="btn btn-sm btn-primary" aria-label={"Draft " + player.Name}>Draft</summary>
+										<div class="draft-row-confirm__panel" role="group" aria-label={"Confirm the pick: " + player.Name}>
+											<p class="draft-row-confirm__question">{player.ConfirmPickLabel}</p>
 											<If cond={player.SpecialistEarly}>
 												<p class="draft-row-confirm__warning">Specialists usually go late. Draft anyway?</p>
 											</If>
-											<button class="btn btn-sm btn-primary" type="submit">{"Confirm " + player.Name}</button>
-											<p class="draft-row-confirm__cancel-hint muted">Tap Draft again to cancel.</p>
+											<div class="draft-row-confirm__buttons">
+												<button class="btn btn-sm btn-primary" type="submit">Confirm</button>
+												<button class="btn btn-sm btn-ghost" type="button" data-gosx-toggle-close={"#draft-confirm-" + player.ID} data-gosx-toggle-attribute="open" aria-label={"Cancel drafting " + player.Name}>Cancel</button>
+											</div>
 										</div>
 									</details>
 								</If>
@@ -2323,6 +2386,7 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 						<input type="hidden" name="pos" value={props.Data.pool_position}></input>
 						<input type="hidden" name="q" value={props.Data.pool_query}></input>
 						<input type="hidden" name="page" value={props.Data.pool_page}></input>
+						<input type="hidden" name="sort" value={props.Data.pool_sort}></input>
 						<button class="btn btn-sm btn-ghost" type="submit">Clear drafted ({props.Data.queue_taken_count})</button>
 					</form>
 				</If>
@@ -2348,6 +2412,7 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 								<input type="hidden" name="pos" value={props.Data.pool_position}></input>
 								<input type="hidden" name="q" value={props.Data.pool_query}></input>
 								<input type="hidden" name="page" value={props.Data.pool_page}></input>
+								<input type="hidden" name="sort" value={props.Data.pool_sort}></input>
 								<If cond={player.CanMoveUp}>
 									<button class="board-button board-button--move" type="submit" aria-label={"Move " + player.Name + " up"}>↑ <span class="visually-hidden">Move up</span></button>
 								</If>
@@ -2362,6 +2427,7 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 								<input type="hidden" name="pos" value={props.Data.pool_position}></input>
 								<input type="hidden" name="q" value={props.Data.pool_query}></input>
 								<input type="hidden" name="page" value={props.Data.pool_page}></input>
+								<input type="hidden" name="sort" value={props.Data.pool_sort}></input>
 								<If cond={player.CanMoveDown}>
 									<button class="board-button board-button--move" type="submit" aria-label={"Move " + player.Name + " down"}>↓ <span class="visually-hidden">Move down</span></button>
 								</If>
@@ -2376,6 +2442,7 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 									<input type="hidden" name="pos" value={props.Data.pool_position}></input>
 									<input type="hidden" name="q" value={props.Data.pool_query}></input>
 									<input type="hidden" name="page" value={props.Data.pool_page}></input>
+									<input type="hidden" name="sort" value={props.Data.pool_sort}></input>
 									<button class="btn btn-sm btn-ghost" type="submit">Clear</button>
 								</form>
 							</If>
@@ -3236,6 +3303,17 @@ func DraftPreflight(props DraftPreflightProps) Node {
 
 func Page() Node {
 	return <main class={"draft-shell" + data.shell_modifier} id="main-content" data-draft-live-mode={data.live_mode}>
+		{/* comb — rowan (2026-09-08 wave D), J1 F11: the layout's own skip
+		    link (app/layout.gsx) lands a keyboard user on this <main>,
+		    still 45+ tab stops from the pool (SOUND ON, RAIL, the details
+		    toggle, four panel links, the tape filter, every tape row, the
+		    search box, position chips, sort chips, and the legend all sit
+		    ahead of the first row). This second skip link is the first
+		    focusable element inside main, so it costs exactly one extra
+		    tab stop after the layout's own — and jumps straight past the
+		    whole history pane to the search box, the pool's own first
+		    control. */}
+		<a class="skip-link" href="#draft-search">Skip to the player pool</a>
 		<div class="draft-notice" aria-live="polite">
 			<If cond={data.has_notice}><TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.notice} /></If>
 			<If cond={data.has_pick_error}><TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.pick_error} /></If>
@@ -3284,13 +3362,13 @@ func Page() Node {
 				<DraftAvailableHead RoomPath={data.room_path} SearchPlaceholder={data.available_search_placeholder} Query={data.pool_query} Position={data.pool_position} Sort={data.pool_sort} Positions={data.pool_position_chips} SortOptions={data.pool_sort_options}></DraftAvailableHead>
 				<If cond={data.live_mode == "target"}>
 				<div class="draft-pane__body" data-gosx-live-mode="event" data-gosx-live-src={data.live_src} data-gosx-live-hub={data.live_hub} data-gosx-live-on="draft:pick draft:undo draft:state">
-					<div id="draft-available-list" data-gosx-region data-gosx-region-url={data.fragment_base + "/available?pos={value}&sort=" + data.pool_sort} data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty>
+					<div id="draft-available-list" data-gosx-region data-gosx-region-url={data.draft_available_region_url}>
 						<DraftAvailable {...data.available}></DraftAvailable>
 					</div>
 				</div>
 				</If>
 				<If cond={data.live_mode != "target"}>
-				<div id="draft-available-list" class="draft-pane__body" data-gosx-region data-gosx-region-url={data.fragment_base + "/available?pos={value}&sort=" + data.pool_sort} data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty data-gosx-region-on="draft:pick draft:undo draft:state" data-gosx-region-interval={data.region_interval}>
+				<div id="draft-available-list" class="draft-pane__body" data-gosx-region data-gosx-region-url={data.draft_available_region_url} data-gosx-region-on="draft:pick draft:undo draft:state" data-gosx-region-interval={data.region_interval}>
 					<DraftAvailable {...data.available}></DraftAvailable>
 				</div>
 				</If>

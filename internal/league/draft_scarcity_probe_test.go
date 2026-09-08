@@ -294,6 +294,21 @@ func TestAutopickDefersSpecialistsUntilRosterMathRequiresThem(t *testing.T) {
 		}
 		player := poolSnapshot.byID[playerID]
 		if probeSpecialistPositions[player.Position] {
+			// ownPlayers/currentRound (Wave D, owner debrief 2026-09-06):
+			// the position cap (autopickPositionCapBlocksCandidate) now
+			// also governs "still viable" here — once teamID already
+			// holds its own cap's worth of a non-specialist position, a
+			// same-position bench candidate is no longer a legal
+			// alternative for THIS seat's own next pick, even while the
+			// broader pool still carries supply for other seats. Without
+			// this, the probe's oracle disagrees with production the
+			// moment the cap (not roster-viability) is what moved a seat
+			// on to a specialist — exactly the six-quarterback shape the
+			// cap exists to prevent, mirrored for every capped position.
+			ownPlayers, _ := teamDraftedPlayers(state, poolSnapshot.byID, teamID)
+			currentRound := pickRound(probeTeamCount, number)
+			totalRounds := CurrentDraftRounds()
+			preset := CurrentRoster()
 			for _, candidate := range poolSnapshot.players {
 				if probeSpecialistPositions[candidate.Position] {
 					continue
@@ -306,6 +321,9 @@ func TestAutopickDefersSpecialistsUntilRosterMathRequiresThem(t *testing.T) {
 					}
 				}
 				if alreadyPicked {
+					continue
+				}
+				if autopickPositionCapBlocksCandidate(ownPlayers, preset, candidate.Position, currentRound, totalRounds) {
 					continue
 				}
 				if draftCandidateKeepsRosterViable(state, poolSnapshot.byID, teamID, candidate.ID) {
