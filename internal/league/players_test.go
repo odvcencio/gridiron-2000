@@ -318,7 +318,10 @@ func TestPlayersDataPreDraftRendersRosterMutationsDisabled(t *testing.T) {
 // owning team's abbreviation and free-agent rows are addable.
 func TestPlayersDataPostDraftAvailability(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
-	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
+	// avail=all: this test inspects a rostered row's own fields, not the
+	// F23 availability filter (players_test.go's own dedicated tests cover
+	// that), so it opts out of the post-draft "free agents only" default.
+	request, _ := http.NewRequest(http.MethodGet, "/players?avail=all", nil)
 	data := svc.PlayersData(request)
 	if canEdit, _ := data["can_edit"].(bool); !canEdit {
 		t.Fatal("the demo viewer owns a seat and must be allowed to manage players")
@@ -360,9 +363,86 @@ func TestPlayersDataPostDraftAvailability(t *testing.T) {
 // the /players owner chip — the same playerMap keys draftedByPlayerID
 // feeds. other-team-player is drafted too, onto team-2, so this also
 // checks the label is not accidentally pinned to team-1's own picks.
-func TestPlayersDataOwnerChipCarriesDraftedRoundAndPick(t *testing.T) {
+// playersDataRowIDs collects a PlayersData result's own row ids, for the
+// availability-filter tests below.
+func playersDataRowIDs(data map[string]any) map[string]bool {
+	rows, _ := data["players"].([]map[string]any)
+	ids := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		id, _ := row["id"].(string)
+		ids[id] = true
+	}
+	return ids
+}
+
+// TestPlayersDataAvailableFilterDefaultsOnAfterDraft is J1 F23 (2026-09-04
+// audit): the pool used to list every rostered player first, so a manager
+// asking "who can I add" paged through three screens of rostered names
+// before the first free agent appeared. Once the draft is complete, the
+// unfiltered pool must default to "free agents only" — the question the
+// pool answers once a season is under way — while staying one link away
+// from the full roster.
+func TestPlayersDataAvailableFilterDefaultsOnAfterDraft(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
 	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
+	data := svc.PlayersData(request)
+	if got := data["avail"]; got != "free" {
+		t.Fatalf("avail = %v, want %q once the draft is complete", got, "free")
+	}
+	ids := playersDataRowIDs(data)
+	for _, rostered := range []string{"rb-open", "wr-open", "rb-locked", "other-team-player"} {
+		if ids[rostered] {
+			t.Errorf("default post-draft pool still lists rostered player %s", rostered)
+		}
+	}
+	for _, free := range []string{"fa-open", "fa-two"} {
+		if !ids[free] {
+			t.Errorf("default post-draft pool is missing free agent %s", free)
+		}
+	}
+
+	// "?avail=all" opts back into the full pool, rostered players included
+	// — the filter must never trap a manager who wants to browse everyone.
+	allRequest, _ := http.NewRequest(http.MethodGet, "/players?avail=all", nil)
+	allIDs := playersDataRowIDs(svc.PlayersData(allRequest))
+	for _, id := range []string{"rb-open", "wr-open", "rb-locked", "other-team-player", "fa-open", "fa-two"} {
+		if !allIDs[id] {
+			t.Errorf("?avail=all is missing %s", id)
+		}
+	}
+
+	// The toggle itself must be reachable off the returned data — page.gsx
+	// renders these as the "Free agents"/"All players" filter beside the
+	// position chips.
+	for _, key := range []string{"avail_free_href", "avail_all_href"} {
+		if s, ok := data[key].(string); !ok || s == "" {
+			t.Errorf("data[%q] = %v, want a non-empty href", key, data[key])
+		}
+	}
+}
+
+// TestPlayersDataAvailableFilterNotDefaultBeforeDraft covers the other
+// half of F23's own rule: before the draft completes, every pool player is
+// already effectively "available" (nobody is rostered under free agency
+// yet), so defaulting to a filter would just hide the very rows a manager
+// preparing a Big Board needs to browse.
+func TestPlayersDataAvailableFilterNotDefaultBeforeDraft(t *testing.T) {
+	svc := newInProgressPlayersTestService(t)
+	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
+	data := svc.PlayersData(request)
+	if got := data["avail"]; got != "" {
+		t.Fatalf("avail = %v, want \"\" before the draft completes", got)
+	}
+	ids := playersDataRowIDs(data)
+	if !ids["rb-open"] {
+		t.Error("pre-draft default view must still list every pool player, rostered or not")
+	}
+}
+
+func TestPlayersDataOwnerChipCarriesDraftedRoundAndPick(t *testing.T) {
+	svc, _ := newPlayersTestService(t)
+	// avail=all: rostered rows (F23's default filter would otherwise hide them).
+	request, _ := http.NewRequest(http.MethodGet, "/players?avail=all", nil)
 	data := svc.PlayersData(request)
 	rows, _ := data["players"].([]map[string]any)
 	byID := map[string]map[string]any{}
@@ -402,7 +482,8 @@ func TestPlayersDataOwnerChipCarriesDraftedRoundAndPick(t *testing.T) {
 // matchup, and availability decisions already carried by PlayersData.
 func TestPlayersDataPlayerDetailContextKeepsDecisionFields(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
-	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
+	// avail=all: this test checks a rostered row's own fields too.
+	request, _ := http.NewRequest(http.MethodGet, "/players?avail=all", nil)
 	data := svc.PlayersData(request)
 	rows, _ := data["players"].([]map[string]any)
 	byID := map[string]map[string]any{}
@@ -628,7 +709,7 @@ func TestPlayersDataPositionFilterAndSearch(t *testing.T) {
 		}
 	}
 
-	request, _ = http.NewRequest(http.MethodGet, "/players?q=locked", nil)
+	request, _ = http.NewRequest(http.MethodGet, "/players?q=locked&avail=all", nil)
 	data = svc.PlayersData(request)
 	rows, _ = data["players"].([]map[string]any)
 	if len(rows) != 1 || rows[0]["name"] != "Locked Rusher" {
@@ -764,7 +845,8 @@ func TestPlayersDataPaginatesFilteredRowsAndKeepsNavigationState(t *testing.T) {
 // "rostered row offers neither" half of the assertion meaningful.
 func TestPlayersDataOnWaiversRowRendersClaimNotAdd(t *testing.T) {
 	svc, _ := newWaiversTestService(t)
-	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
+	// avail=all: the control case below is a rostered row.
+	request, _ := http.NewRequest(http.MethodGet, "/players?avail=all", nil)
 	data := svc.PlayersData(request)
 	rows, _ := data["players"].([]map[string]any)
 	byID := map[string]map[string]any{}
@@ -1121,7 +1203,8 @@ func TestPlayersDataFaabModePanelFields(t *testing.T) {
 }
 func TestPlayersDataLockedDropExplainsAvailability(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
-	data := svc.PlayersData(deadlineTestGET("/players"))
+	// avail=all: rb-locked is rostered.
+	data := svc.PlayersData(deadlineTestGET("/players?avail=all"))
 	rows, _ := data["players"].([]map[string]any)
 	for _, row := range rows {
 		if row["id"] != "rb-locked" {
@@ -1154,7 +1237,8 @@ func TestPlayersDataLockedDropNamesHistoricalWeek(t *testing.T) {
 			{ID: "w2-tb", Week: 2, Kickoff: now.Add(2 * time.Hour), Away: "TB", Home: "CIN"},
 		}
 	})
-	data := svc.PlayersData(deadlineTestGET("/players"))
+	// avail=all: rb-locked is rostered.
+	data := svc.PlayersData(deadlineTestGET("/players?avail=all"))
 	rows, _ := data["players"].([]map[string]any)
 	for _, row := range rows {
 		if row["id"] != "rb-locked" {

@@ -18308,3 +18308,32 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
     display: grid;
   }
 }
+
+/* comb — linden (2026-09-07 UX pass): J1 F23. The rostered-owner chip
+   (app/players/page.gsx, .owner-chip) showed only the division-style
+   abbreviation ("OR2") with the full team name reachable only via
+   title/aria-label — hover- or screen-reader-only, never in front of a
+   sighted phone user's own eyes. At the phone breakpoint the chip
+   already sits on its own full-width grid row (.pool-row--status's own
+   nth-child rule above), so there is room to show the real name; above
+   that width many rows must stay glanceable side by side, so the
+   abbreviation stays the default there. */
+.owner-chip__name {
+  display: none;
+}
+
+@media (width <= 54rem) {
+  .owner-chip {
+    width: auto;
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .owner-chip__abbr {
+    display: none;
+  }
+
+  .owner-chip__name {
+    display: inline;
+  }
+}

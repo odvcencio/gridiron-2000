@@ -260,6 +260,18 @@ func PlayerPoolRegion() Node {
 			</If>
 			<button class="filter-button" type="submit">Search</button>
 		</form>
+		{/* comb — linden (2026-09-07), J1 F23: "who has this player" and
+		    "who can I add" are two different questions, and the pool
+		    used to answer only the first by default — a manager hunting
+		    for a free agent paged through screens of rostered names
+		    first. This toggle is always visible (never hidden behind
+		    the Filters disclosure below), and PlayersData
+		    (internal/league/players.go) already defaults it to "Free
+		    agents" once the draft is complete. */}
+		<div class="position-filters pool-availability-filter" aria-label="Filter by availability">
+			<a href={data.avail_free_href} data-gosx-link class="filter-button" aria-current={data.avail == "free"}>Free agents</a>
+			<a href={data.avail_all_href} data-gosx-link class="filter-button" aria-current={data.avail != "free"}>All players</a>
+		</div>
 		<details class="pool-filter-disclosure">
 			<summary>
 				<span>Filters</span>
@@ -420,7 +432,7 @@ func PlayerPoolRegion() Node {
 					<span class="position-chip">{player.position}</span>
 					<b class="mono">{player.projection}</b>
 					<If cond={player.rostered}>
-						<span class="position-chip position-chip--locked" title={player.owner_name} aria-label={"Rostered by " + player.owner_name}>{player.owner_abbr}</span>
+						<span class="position-chip position-chip--locked owner-chip" title={player.owner_name} aria-label={"Rostered by " + player.owner_name}><span class="owner-chip__abbr">{player.owner_abbr}</span><span class="owner-chip__name">{player.owner_name}</span></span>
 					</If>
 					<If cond={player.on_waivers}>
 						<span class="position-chip">ON WAIVERS · {player.waiver_resolves}</span>

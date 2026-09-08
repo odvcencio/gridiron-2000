@@ -3,6 +3,7 @@ package league
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -108,6 +109,29 @@ var playerPoolPositions = []string{"QB", "RB", "WR", "TE", "DST", "K", "P"}
 // server-side GET links (?pos=RB) — no client-side filtering (the hard
 // constraint: search/filter here is a managed GET form; the declarative
 // client filter primitive is a future gosx addition).
+// playersPoolPageHref is poolPageHref's own /players-scoped sibling
+// (J1 F23), carrying "avail" alongside "pos"/"q"/"page" without widening
+// poolPageHref's own shared signature (board.go and the draft pool
+// fragment also call it, and neither carries an availability filter).
+func playersPoolPageHref(pos, query, avail string, page int) string {
+	href := poolPageHref("/players", pos, query, page)
+	if avail == "" {
+		return href
+	}
+	values := url.Values{"avail": {avail}}
+	if strings.Contains(href, "?") {
+		return href + "&" + values.Encode()
+	}
+	return href + "?" + values.Encode()
+}
+
+// playersAvailHref is the "Free agents"/"All players" toggle's own link
+// target: always page 1 (a filter change starts the list over, the same
+// rule positionFilterTabs' own hrefs already follow).
+func playersAvailHref(pos, query, avail string) string {
+	return playersPoolPageHref(pos, query, avail, 1)
+}
+
 func positionFilterTabs(active, query string) []map[string]any {
 	tabs := make([]map[string]any, 0, len(playerPoolPositions)+1)
 	tabs = append(tabs, map[string]any{"label": "ALL", "href": poolPageHref("/players", "", query, 1), "active": active == ""})
@@ -242,6 +266,23 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	pos := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("pos")))
 	rawQuery := truncateSearchQuery(r.URL.Query().Get("q"))
 	query := strings.ToLower(rawQuery)
+	// avail (J1 F23, 2026-09-04 audit): "who has Jahmyr Gibbs" and "who
+	// can I add" are two different questions, and the pool used to answer
+	// only the first by default — a manager paged through three screens
+	// of rostered names before the first free agent appeared. Once the
+	// draft is complete (open, below), the unfiltered pool now defaults
+	// to free agents only; "?avail=all" always opts back into the full
+	// roster, and an explicit "?avail=free" holds pre-draft too (every
+	// player is already unrostered then, so it is a no-op, not a trap).
+	availRaw := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("avail")))
+	avail := availRaw
+	if avail != "all" && avail != "free" {
+		avail = ""
+		if open {
+			avail = "free"
+		}
+	}
+	availFree := avail == "free"
 
 	myRoster := currentRosters(state)[teamID]
 	preset := CurrentRoster()
@@ -267,6 +308,9 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		}
 		ownerID := owner[player.ID]
 		rostered := ownerID != ""
+		if availFree && rostered {
+			continue
+		}
 		row := playerMap(player, scoringValues, matchup, drafted)
 		row["rostered"] = rostered
 
@@ -470,6 +514,9 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		"pos":                pos,
 		"positions":          positionFilterTabs(pos, rawQuery),
 		"query":              rawQuery,
+		"avail":              avail,
+		"avail_free_href":    playersAvailHref(pos, rawQuery, "free"),
+		"avail_all_href":     playersAvailHref(pos, rawQuery, "all"),
 		"players":            rows,
 		"players_empty":      pagination.Total == 0,
 		"pool_total":         pagination.Total,
@@ -481,8 +528,8 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		"pool_page_end":      pagination.End,
 		"pool_has_previous":  pagination.HasPrevious,
 		"pool_has_next":      pagination.HasNext,
-		"pool_previous_href": poolPageHref("/players", pos, rawQuery, pagination.Page-1),
-		"pool_next_href":     poolPageHref("/players", pos, rawQuery, pagination.Page+1),
+		"pool_previous_href": playersPoolPageHref(pos, rawQuery, availRaw, pagination.Page-1),
+		"pool_next_href":     playersPoolPageHref(pos, rawQuery, availRaw, pagination.Page+1),
 		"pool_status":        s.poolFreshnessMap(pool),
 		"at_cap":             atCap,
 		// roster_size is the effective draftable count (general + reserve),
