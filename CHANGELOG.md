@@ -5,7 +5,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- The Signal Wire's filter chips now show a real count for every category. A chip with nothing behind it reads disabled with a plain reason instead of a link into an empty page, and the empty state names the category, how far back the wire's window reaches, and the nearest chip that does have something on it.
+- The Wire no longer tags an unrelated story "INJURY WATCH". A story with no real classification carries no label.
+- The Wire now uses one vocabulary — "sources" for every upstream provider, "signals" for every item, "tip" for the one submission flow — instead of seven overlapping words for the same two ideas.
+- The Wire's two refresh intervals (the page itself, and how often sources are checked) each carry their own clear label, and the source interval reads the real configured value instead of a hard-coded number.
+- Every Wire item no longer carries an unexplained percentage next to its source type; the plain source-trust word stays on its own.
+- The Wire's state words (LIVE, CACHED, STALE, DEGRADED, UNAVAILABLE) now match the words the Manager Guide documents. A failed source no longer reads as a quiet news day; it reads "Failed" with its reason and when it last succeeded. A source's "kept" count now says plainly that it is stories kept after filtering.
+- A confirmation banner from the Signal Wire's own tip form no longer appears on an unrelated page a manager happens to open next.
+- The transaction feed leads every roster-move line with the team's name; the division code now reads as a small secondary chip instead of repeating on every line. The feed's own refresh note states the cadence plainly and names the last real update instead of warning about failure.
+- The transaction feed's playoff-bracket panel now reads as one quiet line until the postseason is actually the live phase, instead of outweighing the week's own moves in developer language every time.
+- The Signal Wire and the transaction feed now use one league-local time format everywhere, with the zone and a relative phrase; a stray double space before the relative phrase on the transaction feed is gone.
 
 ## [release-2026.09.08-88f7149-season2] — 2026-09-07
 
