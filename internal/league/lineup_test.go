@@ -757,6 +757,45 @@ func TestSetLineupLockBoundary(t *testing.T) {
 	}
 }
 
+// TestLineupSlotOptionsKeepsLockedPlayersDisabledWithReason pins J3 F29:
+// a locked player used to vanish from a slot's <select> outright, with
+// no explanation — the pool row for the same player does say why it is
+// locked, so the absence read as a bug. rb-locked (TB, already kicked
+// off in this fixture) fits RB2 by position but must now stay in RB2's
+// option list, disabled, with its label naming the reason.
+func TestLineupSlotOptionsKeepsLockedPlayersDisabledWithReason(t *testing.T) {
+	svc, _, _ := newLineupTestService(t)
+	data := svc.TeamData(httptestNewGET("/team"))
+	starters, ok := data["starters"].([]map[string]any)
+	if !ok {
+		t.Fatalf("starters = %#v, want []map[string]any", data["starters"])
+	}
+	for _, row := range starters {
+		if row["slot_id"] != "RB2" {
+			continue
+		}
+		options, ok := row["options"].([]map[string]any)
+		if !ok {
+			t.Fatalf("RB2 options = %#v, want []map[string]any", row["options"])
+		}
+		for _, opt := range options {
+			if opt["id"] != "rb-locked" {
+				continue
+			}
+			if opt["disabled"] != true {
+				t.Fatalf("rb-locked option = %#v, want disabled", opt)
+			}
+			label, _ := opt["label"].(string)
+			if !strings.Contains(label, "— locked, game started") {
+				t.Fatalf("rb-locked label = %q, want it to name the lock reason", label)
+			}
+			return
+		}
+		t.Fatal("RB2 options do not carry rb-locked at all, want it present and disabled")
+	}
+	t.Fatal("no RB2 row in starters")
+}
+
 // TestSetLineupDisplacesPlayerFromPriorExplicitSlot pins section 4.4's
 // "a player occupies at most one slot" rule: assigning a player already
 // explicitly holding another slot clears that slot in the same write.

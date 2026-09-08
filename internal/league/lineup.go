@@ -1087,13 +1087,15 @@ func (s *Service) effectiveLineupForTeam(state PersistedState, teamID string, we
 // slot and is not locked for week, highest projection first (ties by
 // name). currentID is the slot's currently resolved player ID, if any —
 // its option is marked selected; an empty currentID selects the clear
-// option instead. A locked player never appears: L6 forbids moving a
-// locked player into any slot, so offering one in the list would only
-// invite a rejected submit.
+// option instead. J3 F29: a locked player used to vanish from this list
+// outright — a manager who came looking for a specific teammate read the
+// absence as a bug, not a rule. A locked player now stays in the list,
+// disabled (L6 would refuse the submit if a form somehow bypassed the
+// disabled attribute anyway), with its label naming the reason.
 func lineupSlotOptions(roster []Player, slot SlotInstance, week int, games []GameInfo, now time.Time, currentID string) []map[string]any {
 	eligible := make([]Player, 0, len(roster))
 	for _, p := range roster {
-		if !slot.Def.Fits(p.Position) || playerLocked(games, week, p.NFLTeam, now) {
+		if !slot.Def.Fits(p.Position) {
 			continue
 		}
 		eligible = append(eligible, p)
@@ -1105,12 +1107,18 @@ func lineupSlotOptions(roster []Player, slot SlotInstance, week int, games []Gam
 		return eligible[i].Name < eligible[j].Name
 	})
 	out := make([]map[string]any, 0, len(eligible)+1)
-	out = append(out, map[string]any{"id": "", "label": "— EMPTY —", "selected": currentID == ""})
+	out = append(out, map[string]any{"id": "", "label": "— EMPTY —", "selected": currentID == "", "disabled": false})
 	for _, p := range eligible {
+		locked := playerLocked(games, week, p.NFLTeam, now)
+		label := fmt.Sprintf("%s · %s · %s", p.Name, p.Position, p.NFLTeam)
+		if locked {
+			label += " — locked, game started"
+		}
 		out = append(out, map[string]any{
 			"id":       p.ID,
-			"label":    fmt.Sprintf("%s · %s · %s", p.Name, p.Position, p.NFLTeam),
+			"label":    label,
 			"selected": p.ID == currentID,
+			"disabled": locked,
 		})
 	}
 	return out

@@ -870,7 +870,7 @@ func TeamLineupRegion() Node {
 											<input type="hidden" name="slot" value={slot.slot_id}></input>
 											<select name="player_id" aria-label={"Assign a player to " + slot.slot_id}>
 												<Each of={slot.options} as="opt">
-													<option value={opt.id} selected={opt.selected}>{opt.label}</option>
+													<option value={opt.id} selected={opt.selected} disabled={opt.disabled}>{opt.label}</option>
 												</Each>
 											</select>
 											<button class="board-button" type="submit">Set</button>
