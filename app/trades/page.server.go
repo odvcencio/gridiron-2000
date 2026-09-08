@@ -125,51 +125,59 @@ func tradeMutationSuccess(ctx *action.Context, message string) error {
 	return nil
 }
 
-// tradesAttentionCount reads data["league"]["attention"]["items"] — the
-// league-wide urgent facts internal/league/service.go's leagueMap/
-// attentionMap already nests into every route's data map — and counts the
-// entries whose route names /trades: an accepted trade awaiting review
-// (attentionMap's "/trades#trade-<id>" item). Kept defensive: leagueMap's
-// "attention" key is a plain map[string]any, not a typed struct, so a
-// missing or reshaped key degrades to zero instead of panicking.
-func tradesAttentionCount(data map[string]any) int {
-	leagueMap, ok := data["league"].(map[string]any)
-	if !ok {
-		return 0
+// tradesReviewAndOpenCounts (F12, J4 console gap-audit) replaces the old
+// tradesAttentionCount, which read the league-wide attention item list
+// and counted any /trades-routed entry regardless of status — so two OPEN
+// offers a manager sent were counted the same as a genuinely accepted
+// trade awaiting review, and the empty-inbox message called them
+// "accepted trades in review" while the review panel itself said there
+// was nothing to review. This instead reads the exact rows the page
+// renders below the message: reviewCount is the viewer's own
+// pending-review rows (an offer the other side already accepted, waiting
+// on this viewer or the commissioner) plus any outbox row that has
+// itself been accepted by its recipient; openSentCount is the viewer's
+// own outbox rows still open. Kept defensive: pending_review/outbox are
+// plain map[string]any values, not typed structs, so a missing or
+// reshaped key degrades to zero instead of panicking.
+func tradesReviewAndOpenCounts(data map[string]any) (reviewCount, openSentCount int) {
+	if rows, ok := data["pending_review"].([]league.TradeOfferRow); ok {
+		reviewCount += len(rows)
 	}
-	attention, ok := leagueMap["attention"].(map[string]any)
-	if !ok {
-		return 0
-	}
-	items, ok := attention["items"].([]map[string]any)
-	if !ok {
-		return 0
-	}
-	count := 0
-	for _, item := range items {
-		if route, ok := item["route"].(string); ok && strings.HasPrefix(route, "/trades") {
-			count++
+	if rows, ok := data["outbox"].([]league.TradeOfferRow); ok {
+		for _, row := range rows {
+			switch row.Status {
+			case league.TradeStatusAccepted:
+				reviewCount++
+			case league.TradeStatusOpen:
+				openSentCount++
+			}
 		}
 	}
-	return count
+	return reviewCount, openSentCount
 }
 
 // emptyInboxMessage is the /trades empty-inbox copy (leftover build item
-// 3): when the league has an accepted trade awaiting review and this
-// viewer's own inbox has no incoming offers, name the accepted trade
-// instead of the generic "nothing waiting" line — so a manager whose own
-// inbox is empty still learns that a review-window trade sits in the
-// Pending Review section below, rather than reading a blank "all clear"
-// that quietly hides league-wide activity.
-func emptyInboxMessage(reviewCount int) string {
-	if reviewCount == 0 {
-		return "Nothing waiting on your response right now."
+// 3, extended by F12): when the viewer's own inbox has no incoming
+// offers, name whatever is actually true below it instead of the generic
+// "nothing waiting" line — an accepted trade in review (it needs a
+// decision) leads; failing that, an open offer the viewer sent reads as
+// open, never "accepted".
+func emptyInboxMessage(reviewCount, openSentCount int) string {
+	if reviewCount > 0 {
+		verb := "is"
+		if reviewCount != 1 {
+			verb = "are"
+		}
+		return fmt.Sprintf("No new offers — %d accepted %s %s in review below.", reviewCount, league.Plural(reviewCount, "trade"), verb)
 	}
-	verb := "is"
-	if reviewCount != 1 {
-		verb = "are"
+	if openSentCount > 0 {
+		verb := "is"
+		if openSentCount != 1 {
+			verb = "are"
+		}
+		return fmt.Sprintf("No new offers — %d %s you sent %s still open.", openSentCount, league.Plural(openSentCount, "offer"), verb)
 	}
-	return fmt.Sprintf("No new offers — %d accepted %s %s in review below.", reviewCount, league.Plural(reviewCount, "trade"), verb)
+	return "Nothing waiting on your response right now."
 }
 
 func tradeSelectOptions(options []league.TradeRosterOption, raw string) []league.TradeRosterOption {
@@ -233,7 +241,7 @@ func init() {
 			data := league.Default().TradesData(request)
 			data["trades_fragment_url"] = tradeFragmentURL(request)
 			data["trades_fragment_interval"] = tradesRegionInterval
-			data["empty_inbox_message"] = emptyInboxMessage(tradesAttentionCount(data))
+			data["empty_inbox_message"] = emptyInboxMessage(tradesReviewAndOpenCounts(data))
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {

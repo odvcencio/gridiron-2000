@@ -32,7 +32,7 @@ func TradeDeskFragmentHandler(service *league.Service) http.Handler {
 			// the same empty_inbox_message key page.server.go's Load sets
 			// (build item 3), or a refresh would silently drop the
 			// accepted-trade-in-review nudge on the next poll.
-			data["empty_inbox_message"] = emptyInboxMessage(tradesAttentionCount(data))
+			data["empty_inbox_message"] = emptyInboxMessage(tradesReviewAndOpenCounts(data))
 			return data
 		},
 		tradesFragmentRender,
