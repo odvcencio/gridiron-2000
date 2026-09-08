@@ -5,7 +5,24 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Changed
+- The team page shows a current-matchup card at the top: the opponent, the projected score, the win chance, and the first kickoff, with a link to the full matchup. It replaces the plain "View matchup" button.
+- The team page's lock panel now sits inside the stat strip as a "Locks" line, with the exact time, the time zone, and a Details line for the locked-slot count. The panel no longer sits above the lineup.
+- The starting lineup now shows a column header and a projected score and a live score on every row, next to a "Swap" control that opens in place instead of a form that is always open.
+- Bench rows now offer a "Start" button that fills the best open slot, a "Swap with…" choice when no slot is open, and a "Drop" button with a confirm step, matching the player pool's own drop control.
+- An injured player's status (Questionable, Doubtful, Out, IR) now shows on the row itself, with the source in a tip, instead of only inside the news panel.
+- The team hero shows one row of facts (name, division, record, badge) once the season has started; the co-manager line and the customize link show only before the season starts.
+- The draft-class callout on the team page disappears once the season has started.
+- The Signal Watch panel on the team page is closed by default; open it to see scouting notes.
+- The starting lineup and bench now share one explicit 8-column table on a wide screen: SLOT, PLAYER, OPPONENT, GAME, STATUS, PROJ, PTS, and ACTION each get their own column, so a name no longer clamps and the opponent and kickoff time no longer crowd into the name line. Details and the drafted round move into the row's own Details panel.
+- On a phone, each starting and bench row now shows as a two-line block: slot, name, projection, and points on the first line; opponent, game, and status on the second, with Swap, Start, or Drop at the right.
+- The league roster-shape legend and the "What does Set best lineup do?" note now collapse behind a closed summary line, so a manager sees a short line first and opens the detail only when they want it.
+- The "Your draft class" callout now collapses behind a closed summary line instead of showing the full pick list.
+
+### Fixed
+- A drafted round and pick no longer show as a chip on every starting-lineup row; the detail moved into the row's own Details panel.
+- A closed Swap, Drop, roster-shape, or draft-class disclosure no longer showed its full form or list underneath its own summary line. An older rule on one of its child elements set a fixed display value that beat the browser's own closed-panel hiding; every closed panel now hides its content the way a closed panel should.
+- The team page's "Locks" tile no longer shows "PLAYER LOCK TIMING UNAVAILABLE" at the same large size as a short number, wrapping across five lines. That message now reads at a smaller size, on one or two lines.
 
 ## [release-2026.09.08-cc0f473-season1] — 2026-09-07
 

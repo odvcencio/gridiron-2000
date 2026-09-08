@@ -523,6 +523,94 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 	}
 }
 
+// lineupHasProjectableStarter reports whether lineup carries at least one
+// filled starting slot — the minimum TeamStartersProjectedTotal needs to
+// mean anything (mirrors hasProjectableStarters' own gate for a
+// []StarterLedgerRow, just against an EffectiveLineup instead).
+func lineupHasProjectableStarter(lineup EffectiveLineup) bool {
+	for _, slot := range lineup.Slots {
+		if slot.HasPlayer {
+			return true
+		}
+	}
+	return false
+}
+
+// teamCurrentMatchupCard is /team's own scorebug summary (section-B item
+// 1), replacing the lone "View matchup" button: opponent identity, both
+// sides' starters-only projected total (TeamStartersProjectedTotal, the
+// one canonical helper the stat strip, this card, and /matchups all
+// agree on for the same team and week — projection.go), A6's win
+// probability, and the week's next player lock — reusing deadline, the
+// exact same LineupDeadlineView the stat strip's own "Locks ..." line
+// renders, so the two facts never drift. A week with no published
+// schedule, a bye, or an unpaired team returns has_matchup=false with a
+// plain-language schedule_fact instead of a projection nobody can back
+// yet.
+func (s *Service) teamCurrentMatchupCard(state PersistedState, teamID string, week int, deadline LineupDeadlineView) map[string]any {
+	out := map[string]any{
+		"has_matchup":      false,
+		"is_bye":           false,
+		"opponent":         map[string]any{},
+		"proj_mine":        "",
+		"proj_theirs":      "",
+		"win_prob":         "",
+		"has_kickoff":      false,
+		"kickoff_exact":    "",
+		"kickoff_relative": "",
+		"kickoff_timezone": "",
+		"href":             matchupWeekHref(week),
+		"schedule_fact":    "The schedule has not been published yet.",
+	}
+	if state.Schedule == nil || len(state.Schedule.Weeks) == 0 {
+		return out
+	}
+	wk, ok := scheduleWeekByNumber(*state.Schedule, week)
+	if !ok {
+		out["schedule_fact"] = fmt.Sprintf("Week %d is not on the published schedule.", week)
+		return out
+	}
+	if wk.ByeTeamID == teamID {
+		out["is_bye"] = true
+		out["schedule_fact"] = fmt.Sprintf("Week %d is a bye — no matchup this week.", week)
+		return out
+	}
+	for _, m := range wk.Matchups {
+		var opponentID string
+		switch {
+		case m.HomeTeamID == teamID:
+			opponentID = m.AwayTeamID
+		case m.AwayTeamID == teamID:
+			opponentID = m.HomeTeamID
+		default:
+			continue
+		}
+		opponent := s.teamView(state, opponentID)
+		mineLineup, _ := s.matchupLineup(state, teamID, week)
+		theirsLineup, _ := s.matchupLineup(state, opponentID, week)
+		mineProjected := TeamStartersProjectedTotal(mineLineup)
+		theirsProjected := TeamStartersProjectedTotal(theirsLineup)
+		mineHasProjection := lineupHasProjectableStarter(mineLineup)
+		theirsHasProjection := lineupHasProjectableStarter(theirsLineup)
+		out["has_matchup"] = true
+		out["opponent"] = s.teamMap(opponent)
+		out["proj_mine"] = projectedText(mineProjected, mineHasProjection)
+		out["proj_theirs"] = projectedText(theirsProjected, theirsHasProjection)
+		winProbText := winProbabilityText(mineProjected, theirsProjected, mineHasProjection, theirsHasProjection)
+		out["win_prob"] = winProbText
+		out["has_win_prob"] = winProbText != winProbabilityDashText
+		if deadline.HasDeadline {
+			out["has_kickoff"] = true
+			out["kickoff_exact"] = deadline.Exact
+			out["kickoff_relative"] = deadline.Relative
+			out["kickoff_timezone"] = FriendlyTimezoneLabel(deadline.Timezone)
+		}
+		return out
+	}
+	out["schedule_fact"] = fmt.Sprintf("No matchup is published for week %d.", week)
+	return out
+}
+
 func scoreTeamFromLedger(team Team, ledger TeamWeekLedger) ScoreTeam {
 	return ScoreTeam{
 		ID:              team.ID,

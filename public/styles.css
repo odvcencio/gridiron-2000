@@ -13315,6 +13315,18 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   color: var(--color-text-secondary);
 }
 
+/* Section-B item 6 (page-height budget): .score-command's own shared
+   padding (var(--space-xl), up to 48px per side at 1440) is sized for a
+   full feature card with a header, status chip, and detail paragraph —
+   this variant is one flexed status line by design (above). The full
+   padding around one line cost 96px of vertical space on its own; a
+   tighter, scoped value keeps the same card chrome (border/background/
+   the top accent bar) around content that no longer needs card-sized
+   breathing room. */
+.playoff-truth-card--compact {
+  padding: var(--space-sm) var(--space-md);
+}
+
 /* Item 1: the matchup-rank glossary, now a collapsed <details> beside the
    lineup slot list it explains (app/team/page.gsx) instead of a standing
    banner in the top notice-stack. */
@@ -13636,7 +13648,8 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
    .lineup-slot specifically — not a change to the shared rule other
    pages rely on — so the identity text is the flexible element in this
    row, the fixed-size avatar and "DETAILS +" affordance are not. */
-.lineup-slot .player-identity__text {
+.lineup-slot .player-identity__text,
+.roster-row .player-identity__text {
   flex: 1 1 0%;
 }
 
@@ -13759,6 +13772,45 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 .draft-class-callout__list li > small {
   margin-left: auto;
   color: var(--color-text-muted);
+}
+
+/* .draft-class-callout is now a closed-by-default <details>, not a
+   <section> (section-B item 6, page-height budget) — the same landmine
+   as .roster-shape and .lineup-slot__action above: .draft-class-
+   callout__list's own unconditional display:grid (this file) would
+   otherwise leak through the closed <details> the same way. */
+.draft-class-callout > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.draft-class-callout > summary::-webkit-details-marker {
+  display: none;
+}
+
+.draft-class-callout:not([open]) > :not(summary) {
+  display: none;
+}
+
+/* Closed, this card is one summary line — .draft-class-callout's own
+   pinned padding (var(--space-md), ~21px per side at 1440) is sized for
+   the OPEN state's header-plus-list content; trimming it for the
+   closed state only (open keeps the full breathing room) recovers a
+   further slice of the page-height budget this wave is chasing. */
+.draft-class-callout:not([open]) {
+  padding: var(--space-sm);
+}
+
+/* The "What does Set best lineup do?" disclosure (section-B item 6)
+   reuses .lineup-action-note's own flex placement in .lineup-toolbar,
+   but that class's pinned flex-basis: 100% (this file, above) forces
+   its own full-width row — on top of the week-select form and the "Set
+   best lineup" button's own row, that cost a second 44px-tall row
+   every visit. Its closed <summary> is one short line; letting it sit
+   beside the other two controls, wrapping only if it must, keeps every
+   control on one row at the widths this page actually ships at. */
+.lineup-toolbar > .action-disclosure.lineup-action-note {
+  flex: 0 1 auto;
 }
 
 /* Item 8: phone-width card treatment for /team, target viewport 390px.
@@ -17948,6 +18000,579 @@ a.skip-link {
   text-overflow: clip;
 }
 
+/* comb — pine (2026-09-07 team lineup and bench redesign) */
+
+/* Current-matchup card (section-B item 1): replaces the lone VIEW
+   MATCHUP button that used to sit right after .team-command-strip.
+   A plain three-part row on desktop (opponent | proj/win% | kickoff +
+   link); stacks on phone widths. */
+.current-matchup-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-white-faint);
+}
+
+.current-matchup-card__opponent {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.current-matchup-card__badge {
+  display: grid;
+  flex: 0 0 auto;
+  width: 2.6rem;
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent-cyan);
+  background: var(--color-cyan-haze);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+.current-matchup-card__badge-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.current-matchup-card__stats {
+  display: grid;
+  gap: 0.2rem;
+  text-align: center;
+}
+
+.current-matchup-card__kickoff {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+@media (width <= 899px) {
+  .current-matchup-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .current-matchup-card__stats {
+    text-align: left;
+  }
+
+  .current-matchup-card__kickoff {
+    justify-content: flex-start;
+    width: 100%;
+  }
+}
+
+/* .team-command-strip's own pinned bottom margin (var(--space-xl), up
+   to 48px at 1440 — this file, the base rule) separated the strip from
+   whatever followed it before the current-matchup card existed; that
+   much clearance below a compact stat strip is most of a row's own
+   height, on a page fighting for every pixel of its budget. /team is
+   the only page that renders this class, so trimming its own bottom
+   margin cannot affect another surface. */
+.team-command-strip {
+  margin-top: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+/* Stat strip's own Locks tile (section-B item 2): the big standalone
+   "NEXT PLAYER LOCK" panel that used to sit above the roster shape is
+   now this one tile plus a closed-by-default Details line — the exact
+   same time/zone/relative text and locked-slots sentence, just
+   collapsed. */
+.team-command-strip__lock {
+  display: grid;
+  gap: 0.2rem;
+}
+
+/* Every other stat-strip tile's own <strong> (this file, the base
+   .team-command-strip rule) holds a short value — "6-2", "142.6" — that
+   never wraps at the shared var(--type-lg) size. This tile's own value
+   is a full sentence when no schedule exists yet ("PLAYER LOCK TIMING
+   UNAVAILABLE", cherry re-audit follow-up): at --type-lg (25px at
+   1440) in a ~13rem tile it wrapped five lines, 116px tall on its own —
+   the single largest contributor to the page's own height budget
+   overrun found this wave. A smaller, scoped size for this one tile's
+   sentence-length value fixes the overrun without touching the shared
+   rule every short numeral tile still uses. */
+.team-command-strip__lock strong {
+  font-size: var(--type-xs);
+  line-height: 1.4;
+}
+
+.lineup-deadline-details summary {
+  cursor: pointer;
+  color: var(--color-accent-cyan);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  list-style: none;
+}
+
+.lineup-deadline-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.lineup-deadline-details p {
+  margin: var(--space-xs) 0 0;
+}
+
+/* Lineup grid — starter (.lineup-slot) and bench (.roster-row) rows
+   (section-B item 3/4, cherry re-audit follow-up): both row types now
+   share one explicit 8-column table at desktop — SLOT 3.5rem · PLAYER
+   minmax(14rem, 1fr) · OPPONENT 7rem · GAME 6.5rem · STATUS 6rem · PROJ
+   3.5rem · PTS 3.5rem · ACTION 6rem — instead of the pinned 4/5-track
+   grids (.lineup-slot's own 3.3rem/minmax(14rem,2fr)/auto/auto,
+   .roster-row's own 3.3rem/minmax(13rem,1fr)/7rem/4rem/4rem, both left
+   untouched above) squeezing opponent/game/status text into the name
+   cell's own meta line, clamping a real name to "Te…" at 1440 and
+   forcing 5-line wraps. PLAYER, OPPONENT, GAME, STATUS, PROJ, PTS, and
+   ACTION are each named, single-purpose cells now — page.gsx's own
+   RosterRow and the starter <Each> emit the identical eight, in the
+   identical order, for both row types.
+   .lineup-slot__stats (PROJ+PTS) and .lineup-slot__meta (OPPONENT, GAME,
+   STATUS, ACTION) are markup-only grouping wrappers: at desktop they go
+   display:contents, promoting their own children straight into the
+   shared grid's explicit column lines below; at phone they become real
+   two-line flex rows (see the mobile block, below). */
+.lineup-slot,
+.roster-row {
+  column-gap: var(--space-sm);
+  row-gap: 0.2rem;
+}
+
+/* grid-row: 2 (not 1) on every cell: sparse auto-placement's cursor
+   only ever moves FORWARD — once any earlier item (DOM order) lands on
+   a row, a later item whose column the cursor has already passed is
+   placed on a NEW row rather than backfilling the first one —
+   .lineup-slot__stats/.lineup-slot__meta's own display:contents
+   promotes their children into DOM order AFTER proj/pts already
+   claimed columns 6-7, so opponent (column 3) landed on its own row
+   with no explicit row to say otherwise (browser-observed: every
+   OPPONENT/GAME/STATUS/ACTION cell 64px below PLAYER in "the same"
+   row). Row 1 stays unoccupied and creates no track, so row 2 is
+   simply the first rendered row.
+   RosterRow's own optional position-group header (RB/WR/TE, once per
+   new group) used to render INSIDE .roster-row and fight these eight
+   cells for the row's own height (browser-observed: 200px+ bench
+   rows); it is a sibling <h4> before the row now (page.gsx), so it
+   never enters this grid at all — see .roster-group-header, below. */
+.lineup-slot__id {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.lineup-slot__player {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+}
+
+.lineup-slot__stats,
+.lineup-slot__meta {
+  display: contents;
+}
+
+.lineup-slot__opponent {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.lineup-slot__game {
+  grid-column: 4;
+  grid-row: 2;
+}
+
+.lineup-slot__status {
+  grid-column: 5;
+  grid-row: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  align-items: center;
+}
+
+.lineup-slot__proj {
+  grid-column: 6;
+  grid-row: 2;
+}
+
+.lineup-slot__pts {
+  grid-column: 7;
+  grid-row: 2;
+}
+
+/* A bench row's ACTION cell can carry two controls at once — Swap with…
+   (or Start) alongside Drop. Side by side (flex-direction: row) inside
+   the coordinator's own 6rem column, flex's default shrink squeezed
+   each <details>/<form> down to a 23px sliver that then wrapped its own
+   text vertically — WORSE than stacking (browser-observed: 148-169px).
+   Stacked (column), each control gets the full 96px column width on its
+   own single line — "Swap ▾"/"Start"/"Drop" (RosterRow's own Drop
+   summary is a plain "Drop" now, the full player name moved to
+   aria-label) each fit one line at that width, two stacked lines
+   totaling well under the 148px this replaced. */
+.lineup-slot__action {
+  grid-column: 8;
+  grid-row: 2;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.3rem;
+}
+
+.lineup-slot__action .action-disclosure,
+.lineup-slot__action .action-confirmation {
+  flex: 0 0 auto;
+}
+
+.lineup-slot__action .roster-row__drop-form {
+  display: contents;
+}
+
+/* .action-confirmation's own pinned margin/padding (margin-top +
+   padding: space-sm space-md, ~14px/21px at 1440) is sized for the
+   player pool's own generously-spaced rows — closed, it alone measured
+   77px tall here, well past this table row's 72px budget even before
+   Swap/Start joins it above. A scoped override (not a change to the
+   shared /players rule) keeps the closed row compact; open, the
+   confirmation still grows to fit its own content exactly as before —
+   this only tightens the CLOSED chrome around the one-line summary. */
+.lineup-slot__action .action-confirmation {
+  margin-top: 0;
+  padding: 0.1rem 0.3rem;
+  border: none;
+}
+
+.lineup-slot__action .action-disclosure > summary,
+.lineup-slot__action .action-confirmation > summary {
+  padding: 0.1rem 0;
+  line-height: 1.4;
+}
+
+/* Swap and Drop side by side (flex-direction: row, above) still wrapped
+   to two lines at the coordinator's own 6rem ACTION column — "Swap ▾"
+   (50px) plus .action-confirmation's own bold, type-sm "Drop" (67px,
+   its pinned /players styling) totalled 118px before the 0.3rem gap,
+   well past the 96px track (browser-observed: two 44px-tall controls
+   stacked, a 101px ACTION cell). page.gsx now renders the disclosure's
+   own trigger as a plain "Swap" (no chevron — the row's cursor/color
+   affordance already reads as expandable); this scoped override matches
+   .action-confirmation's own trigger to the same compact mono/xs voice
+   instead of /players' larger review-confirm styling, so "Swap" (34px)
+   and "Drop" (44px) clear the 96px track on one line with room to
+   spare. */
+.lineup-slot__action .action-confirmation > summary {
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  font-weight: 600;
+}
+
+.lineup-slot__action {
+  gap: 0.15rem;
+}
+
+/* .lineup-slot/.roster-row's own pinned padding (var(--space-sm) on all
+   four sides, ~14px vertical at 1440px) is sized for the player pool's
+   single-line rows; PLAYER's own two lines (name + "pos · team") already
+   fill the row's content height, so the full space-sm top AND bottom
+   pushed a real starter row to 81px, 9px past the 72px budget, before
+   ACTION ever factored in. Trimming to a smaller, fixed vertical value
+   (horizontal spacing untouched) recovers exactly that overage without
+   touching the shared base rule other pages still use unmodified. */
+.lineup-slot,
+.roster-row {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+/* .roster-group-header is a sibling <h4> before its group's first
+   .roster-row now (page.gsx, cherry re-audit follow-up), not a grid
+   child of it — the shared .roster-row:first-child rule (this file,
+   the "wave 7" bench-grouping block) reset ITS OWN top padding when the
+   header sat inside the very first row; that selector can no longer
+   match a sibling, so this replaces it for the new structure: the very
+   first element in the bench list needs no lead-in padding either. */
+.roster-list > .roster-group-header:first-child {
+  padding-top: 0;
+}
+
+.lineup-slot__opponent,
+.lineup-slot__game {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The shared "DETAILS +"/"DETAILS -" affordance (.stat-tip__summary::
+   after, sitewide — pool rows, board rows) is nine bold mono characters,
+   flex: 0 0 auto beside the name's own flex: 1 1 0% (wave 7 — elm,
+   above) — in a 224px PLAYER column that fixed ~80px cost alone clamped
+   a real name to "Justin.." (cherry re-audit follow-up). The row's own
+   <details>/<summary> already carries the disclosure semantics and
+   affordance (cursor, focus ring); this scoped override (matching the
+   "wave 7 — elm" precedent of scoping to .lineup-slot rather than
+   editing the shared rule) shrinks it to a plain chevron so the name
+   gets the width back — the draft round/pick this used to gate access
+   to is in the row's own Details panel regardless of how this affordance
+   reads. */
+.lineup-slot__player .stat-tip__summary::after {
+  content: "▾";
+  flex: 0 0 auto;
+  margin-left: 0.2rem;
+  font-size: var(--type-xs);
+}
+
+.lineup-slot__player .stat-tip[open] > .stat-tip__summary::after {
+  content: "▴";
+}
+
+.lineup-slot__opponent .matchup-chip {
+  margin-left: 0.2rem;
+}
+
+/* Lineup grid header legend (section-B item 3): SLOT/PLAYER/OPPONENT/
+   GAME/STATUS/PROJ/PTS/ACTION, one label per real column now — the
+   header shares the same explicit grid as the rows below it (desktop
+   block, further down), so it reads as a true table head, not a loose
+   caption. Hidden at phone width alongside .roster-labels: the two-line
+   row layout there carries its own inline PROJ/PTS labels. */
+.lineup-slot-labels {
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  padding: 0 var(--space-sm) var(--space-xs);
+}
+
+.action-disclosure {
+  display: inline-block;
+}
+
+.action-disclosure > summary {
+  cursor: pointer;
+  color: var(--color-accent-cyan);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  list-style: none;
+}
+
+.action-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* The single largest remaining row-height contributor this wave found:
+   .lineup-slot__form's own PRE-EXISTING, unconditional "display:
+   inline-flex" (public/styles.css, ~line 4035 — written for the
+   starter row's own always-visible SET form, long before this wave
+   wrapped it in a <details>) outranks the closed <details>'s native
+   hiding by specificity, so a CLOSED Swap/Swap-with disclosure's own
+   <form> stayed fully laid out and visible underneath its summary the
+   whole time (browser-observed: disclosure.open === false, yet
+   getComputedStyle(form).display === "inline-flex", not "none" — a
+   139px-tall closed .lineup-slot__action). This scoped, higher-
+   specificity rule restores the native closed-details behavior without
+   touching the pinned base rule. */
+/* Every non-summary child, not just the form — .lineup-slot__form's own
+   unconditional "display: inline-flex" was only the FIRST leak found;
+   .action-confirmation's own <p>/<label>/.board-button (the review-
+   confirm pattern borrowed from /players) leaked the identical way
+   (browser-observed: a CLOSED .action-confirmation still 77px tall with
+   its button hidden, because the paragraph and label were not). An
+   author stylesheet rule beats the user-agent stylesheet's own closed-
+   <details> hiding at equal importance regardless of selector
+   specificity, so ANY descendant with its own unconditional display
+   value can reopen this exact leak in the future; hiding every
+   non-summary child at once, rather than one class at a time, closes
+   the whole class of bug instead of the one instance found today. */
+.action-disclosure:not([open]) > :not(summary),
+.action-confirmation:not([open]) > :not(summary) {
+  display: none;
+}
+
+.action-disclosure .lineup-slot__form {
+  margin-top: var(--space-xs);
+}
+
+/* .roster-shape (section-B item 6, page-height budget) is now a
+   closed-by-default <details>, not a plain <div> — the same landmine
+   as above applies: .roster-shape__slot-wrap and .roster-shape__depth
+   (this file, the "team page: league roster shape strip" block) each
+   carry their own unconditional display:flex, which would otherwise
+   leak through a closed <details> the same way .lineup-slot__form did.
+   .roster-shape__summary's own pinned flex-basis/margin/font/color
+   rule already fits its new life as the <summary>; this only adds the
+   disclosure affordance and the closed-content hide. */
+.roster-shape > summary {
+  cursor: pointer;
+  list-style: none;
+  /* .roster-shape__summary's own pinned margin-top (var(--space-xs))
+     separated the summary sentence from the chip row ABOVE it in the
+     old always-visible layout; the summary is the first (and, closed,
+     only) rendered line now, so that lead-in margin has nothing above
+     it to separate from. */
+  margin-top: 0;
+}
+
+.roster-shape > summary::-webkit-details-marker {
+  display: none;
+}
+
+.roster-shape:not([open]) > :not(summary) {
+  display: none;
+}
+
+/* Desktop (>899px, the cherry re-audit's own threshold): the shared
+   8-column table. Row height stays under the 72px budget by design —
+   PLAYER carries exactly two lines (the TextBlock name, clamped to one
+   line, and a "pos · team" mono line), and OPPONENT/GAME/STATUS/PROJ/
+   PTS/ACTION are each one line — never by a hard max-height that would
+   clip real content. */
+@media (width > 899px) {
+  .lineup-slot,
+  .roster-row,
+  .lineup-slot-labels {
+    grid-template-columns: 3.5rem minmax(14rem, 1fr) 7rem 6.5rem 6rem 3.5rem 3.5rem 6rem;
+  }
+
+  .lineup-slot,
+  .roster-row {
+    align-items: center;
+  }
+
+  .lineup-slot__player .player-identity__text,
+  .roster-row .player-identity__text {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .lineup-slot__status {
+    justify-content: flex-start;
+  }
+
+  .lineup-slot__proj,
+  .lineup-slot__pts {
+    text-align: right;
+  }
+
+  .lineup-slot__action {
+    text-align: right;
+  }
+}
+
+/* Phone (<=899px, the shell's own breakpoint), AND the 900-1100px rail
+   band: two visual lines per row, the pool row's own pattern — line 1
+   is slot chip · name · PROJ/PTS at the right (a real CSS grid row,
+   explicit columns); line 2 is opponent · game · status chips · the
+   Swap/Start/Drop disclosure at the right edge (one flex line,
+   .lineup-slot__meta no longer display: contents here — it is the
+   row's own second grid row, spanning full width). Neither wrapper's
+   closed-by-default <details> adds height until a manager opens it.
+   The rail band (min-width: 56.25rem / max-width: 68.75rem) needs the
+   same reflow as phone, not the desktop block above: .site-rail claims
+   15.5rem of viewport there (this file's own pre-existing "wave 6 —
+   hickory" rule, which reflows the OLD 4-column .lineup-slot the same
+   way), and the coordinator's own 8-column grid's fixed/floor column
+   widths (54rem, before gaps) do not fit the narrowed content column
+   left over — browser-observed: /team overflowed 24-215px across this
+   band before this query covered it too. */
+@media (width <= 899px), (min-width: 56.25rem) and (max-width: 68.75rem) {
+  .lineup-slot,
+  .roster-row {
+    grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+    column-gap: 0.5rem;
+    row-gap: 0.3rem;
+    padding: 0.5rem 0.75rem;
+    align-items: start;
+  }
+
+  /* Row 2, not row 1 — matching the desktop block's own reasoning
+     above (sparse auto-placement's cursor only moves forward). The
+     bench row's own optional .roster-group-header renders as a sibling
+     before the row now, not inside it, so it never competes with these
+     cells for a row at any width. */
+  .lineup-slot__id {
+    grid-column: 1;
+    grid-row: 2;
+    font-size: var(--type-xs);
+  }
+
+  .lineup-slot__player {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  /* PROJ/PTS are 1-3 digit numbers, not names — a tight, fixed pair of
+     narrow cells here (rather than the desktop wrapper's own generous
+     gap) gives the name column back the width a real phone name needs
+     to clear 14 characters (cherry re-audit follow-up, item 2). */
+  .lineup-slot__stats {
+    grid-column: 3;
+    grid-row: 2;
+    display: flex;
+    gap: 0.4rem;
+  }
+
+  .lineup-slot__stats .player-number {
+    min-width: 2.1rem;
+  }
+
+  .lineup-slot__meta {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem var(--space-sm);
+  }
+
+  .lineup-slot__opponent,
+  .lineup-slot__game {
+    max-width: none;
+    white-space: normal;
+  }
+
+  .lineup-slot__status {
+    display: inline-flex;
+  }
+
+  .lineup-slot__action {
+    margin-left: auto;
+  }
+
+  .lineup-slot-labels {
+    display: none;
+  }
+
+  .lineup-slot__form {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    width: 100%;
+  }
+
+  .lineup-slot__form select,
+  .lineup-week-form select {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+  }
+}
 /* comb — oak (2026-09-07 UX pass): /matchups redesign, Section A —
    the featured table's totals row and Benches disclosure, the featured
    and scorebug cards' shared centre-number swap (PROJ big before

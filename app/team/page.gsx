@@ -7,7 +7,18 @@ type BreakdownRow struct {
 	Points string
 }
 
+// SlotOption is one choice in a bench row's "Swap with…" disclosure
+// (section-B item 4): the starter slot ID and its plain-language label
+// ("RB1 — replaces Jonathan Taylor"), server-computed by
+// league.addBenchActionOptions so the select never offers a slot
+// SetLineup would reject.
+type SlotOption struct {
+	ID    string
+	Label string
+}
+
 type RosterRowProps struct {
+	ID             string
 	Position       string
 	HasHeadshot    bool
 	Headshot       string
@@ -59,6 +70,44 @@ type RosterRowProps struct {
 	Injury       string
 	HasHouseRank bool
 	HouseRank    string
+	// InjuryDesignation/HasInjuryDesignation/InjuryTip (J3 F10) back the
+	// bench row's own STATUS chip, rendered on the row itself rather than
+	// only inside the news disclosure (has_news-gated, HasNews above) —
+	// the F10 bug: 61 of 66 injured players in a real pool carry no news
+	// item, so the designation never rendered anywhere at all for them.
+	HasInjuryDesignation bool
+	InjuryDesignation    string
+	InjuryTip            string
+	// Locked (section-B item 4) mirrors league.playerLocked for this
+	// bench player's own NFL game: once true, Start/Swap/Drop all stop
+	// rendering (AddPlayer/DropPlayer/SetLineup would reject every one of
+	// them once a player's game has kicked off) in favor of a plain
+	// LOCKED status chip.
+	Locked bool
+	// HasOpenSlot/OpenSlotID and HasSwapOptions/SwapOptions (section-B
+	// item 4) are league.addBenchActionOptions' own server-side choice: a
+	// legal open starting slot for this player's position when one
+	// exists, or — when none is open — every slot this player fits whose
+	// current occupant is not locked, so the "Start"/"Swap with…"
+	// controls below never offer a move SetLineup would reject.
+	HasOpenSlot    bool
+	OpenSlotID     string
+	HasSwapOptions bool
+	SwapOptions    []SlotOption
+	// RosterComplete gates Start/Swap/Drop on the same
+	// team_terminal_roster_complete condition the starter slots' own SET
+	// forms use — AddPlayer/DropPlayer both require a finished draft
+	// (free agency has not opened yet otherwise).
+	RosterComplete bool
+	// CSRF/TeamID/Week repeat the page-level csrf.token/data.team.id/
+	// data.week values on every row (the same reason BadgeCard's own
+	// CSRF/TeamID/RedirectTo fields repeat them, page.server.go's
+	// badgeGridProps doc comment): a strict component call accepts
+	// exactly one spread attribute, so anything a row's own form needs
+	// has to travel inside the spread source itself.
+	CSRF   string
+	TeamID string
+	Week   string
 }
 
 // BadgeCellProps is one cell of the team-badge picker grid: a free
@@ -115,18 +164,28 @@ component BadgeCell(props: BadgeCellProps) {
 	</div>
 }
 
+// RosterRow returns a fragment, not a single row div: the group header
+// (RB/WR/TE, once per new position) renders as a true sibling BEFORE the
+// row now, not nested inside it (cherry re-audit follow-up, item 3). It
+// used to live inside .roster-row and count toward that one row's own
+// measured height — the row that happened to open a new group carried
+// an extra heading line no other bench row paid for (browser-observed:
+// 90px+ vs. ~64px for every other row). A sibling heading between rows
+// costs the page the same total height either way, but it no longer
+// inflates any single row past the 72px budget.
 func RosterRow(props RosterRowProps) Node {
-	return <div class="roster-row">
+	return <>
 		<If cond={props.HasGroupHeader}>
 			<h4 class="roster-group-header mono">{props.GroupHeader}</h4>
 		</If>
-		<div class="position-chip">
+		<div class="roster-row" id={"bench-" + props.ID}>
+		<div class="position-chip lineup-slot__id">
 			{props.Position}
 			<If cond={props.HasHouseRank}>
 				<small class="house-rank">{props.HouseRank}</small>
 			</If>
 		</div>
-		<span class="pool-player-cell">
+		<span class="pool-player-cell lineup-slot__player">
 		<details class="player-identity stat-tip">
 			<summary class="stat-tip__summary">
 			<If cond={props.HasHeadshot}>
@@ -137,28 +196,7 @@ func RosterRow(props RosterRowProps) Node {
 			</If>
 			<span class="player-identity__text">
 				<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Name} />
-				<If cond={props.HasDraftedLabel}>
-					<span class="drafted-chip mono">{props.DraftedLabel}</span>
-				</If>
-				<small class="roster-row__schedule mono">
-					{props.NFLTeam}
-					<If cond={props.HasOpponent}>
-						·
-						{props.Opponent}
-					</If>
-					<If cond={props.HasKickoff}>
-						·
-						{props.Kickoff}
-					</If>
-					<If cond={props.HasMatchup}>
-						·
-						<span class="matchup-chip" data-matchup-tier={props.MatchupTier}>{props.MatchupChip}</span>
-					</If>
-					<If cond={props.HasBye}>
-						·
-						{props.Bye}
-					</If>
-				</small>
+				<small class="roster-row__schedule mono">{props.Position} · {props.NFLTeam}</small>
 			</span>
 			</summary>
 			<div class="stat-tip__panel">
@@ -192,6 +230,12 @@ func RosterRow(props RosterRowProps) Node {
 					<p class="stat-tip__hist mono">{props.Hist}</p>
 					<p class="stat-tip__hist-note">{props.HistLabel}</p>
 				</If>
+				<If cond={props.HasBye}>
+					<p class="stat-tip__hist-note">{props.Bye}</p>
+				</If>
+				<If cond={props.HasDraftedLabel}>
+					<p class="stat-tip__hist-note">{"Drafted " + props.DraftedLabel}</p>
+				</If>
 			</div>
 		</details>
 		<If cond={props.HasNews}>
@@ -206,19 +250,89 @@ func RosterRow(props RosterRowProps) Node {
 			</details>
 		</If>
 		</span>
-		<div class="game-state">
-			<span class="signal-mark" aria-hidden="true"></span>
-			{props.Status}
+		<div class="lineup-slot__stats">
+			<div class="lineup-slot__proj player-number mono">
+				<small>PROJ</small>
+				{props.Projection}
+			</div>
+			<div class="lineup-slot__pts player-number mono">
+				<small>PTS</small>
+				{props.Points}
+			</div>
 		</div>
-		<div class="player-number mono">
-			<small>PROJ</small>
-			{props.Projection}
+		<div class="lineup-slot__meta">
+			<div class="lineup-slot__opponent mono">
+				<If cond={props.HasOpponent}>
+					{props.Opponent}
+					<If cond={props.HasMatchup}>
+						<span class="matchup-chip" data-matchup-tier={props.MatchupTier}>{props.MatchupChip}</span>
+					</If>
+				</If>
+				<If cond={props.HasOpponent == false}>—</If>
+			</div>
+			<div class="lineup-slot__game mono">
+				<If cond={props.HasKickoff}>{props.Kickoff}</If>
+				<If cond={props.HasKickoff == false}>—</If>
+			</div>
+			<div class="lineup-slot__status">
+				<If cond={props.Locked}>
+					<span class="position-chip position-chip--locked">LOCKED</span>
+				</If>
+				<If cond={props.HasInjuryDesignation}>
+					<span class="position-chip position-chip--warn" title={props.InjuryTip}>{props.InjuryDesignation}</span>
+				</If>
+			</div>
+			<div class="lineup-slot__action">
+				<If cond={props.RosterComplete && props.Locked == false}>
+					<If cond={props.HasOpenSlot}>
+						<form method="post" action={actionPath("lineup-set")} data-gosx-managed="true" class="lineup-slot__form">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<input type="hidden" name="team_id" value={props.TeamID}></input>
+							<input type="hidden" name="week" value={props.Week}></input>
+							<input type="hidden" name="slot" value={props.OpenSlotID}></input>
+							<input type="hidden" name="player_id" value={props.ID}></input>
+							<button class="board-button" type="submit">{"Start at " + props.OpenSlotID}</button>
+						</form>
+					</If>
+					<If cond={props.HasOpenSlot == false && props.HasSwapOptions}>
+						<details class="action-disclosure">
+							<summary aria-label={"Swap with… " + props.Name}>Swap</summary>
+							<form method="post" action={actionPath("lineup-set")} data-gosx-managed="true" class="lineup-slot__form">
+								<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+								<input type="hidden" name="team_id" value={props.TeamID}></input>
+								<input type="hidden" name="week" value={props.Week}></input>
+								<input type="hidden" name="player_id" value={props.ID}></input>
+								<select name="slot" aria-label={"Choose a starter to replace with " + props.Name}>
+									<Each of={props.SwapOptions} as="opt">
+										<option value={opt.ID}>{opt.Label}</option>
+									</Each>
+								</select>
+								<button class="board-button" type="submit">Set</button>
+							</form>
+						</details>
+					</If>
+					<form method="post" action={actionPath("player-drop")} data-gosx-managed="true" class="roster-row__drop-form">
+						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+						<input type="hidden" name="team_id" value={props.TeamID}></input>
+						<input type="hidden" name="player_id" value={props.ID}></input>
+						<details class="action-confirmation">
+							<summary aria-label={"Drop " + props.Name}>Drop</summary>
+							<p>Dropping this player removes them from your roster and starts the waiver process. This roster change cannot be undone from this screen.</p>
+							<label>
+								<input type="checkbox" name="confirmation" value="drop-player" required="required"></input>
+								I understand this player will leave my roster.
+						</label>
+						<button class="board-button board-button--cut" type="submit" aria-label={"Confirm drop " + props.Name}>Confirm drop</button>
+					</details>
+				</form>
+			</If>
+			<If cond={props.RosterComplete && props.Locked}>
+				<span class="position-chip position-chip--locked" role="status">— locked, game started</span>
+			</If>
+			</div>
 		</div>
-		<div class="player-number mono">
-			<small>PTS</small>
-			{props.Points}
 		</div>
-	</div>
+	</>
 }
 
 // Page's avatar-upload form posts to /avatar/upload as a plain, unmanaged
@@ -246,7 +360,11 @@ func Page() Node {
 		<If cond={data.has_seat}>
 		<div class="notice-stack">
 			<If cond={data.has_notice}>
-				<p class="flash-message">{data.notice}</p>
+				{/* J3 F4: league.SetLineup now reports every cascading change
+				    as its own sentence ("X starts at Y. Z moves to the
+				    bench."), so this one flash line already carries the full
+				    result — no separate per-move list needed here. */}
+				<p class="flash-message" id="lineup-save-result">{data.notice}</p>
 			</If>
 			<If cond={data.has_roster_correction_notice}>
 				<p class="flash-message" role="status">{data.roster_correction_notice}</p>
@@ -297,7 +415,14 @@ func Page() Node {
 						{data.team.division}
 						DIVISION
 					</small>
-					<If cond={data.lineup_intervention == false}>
+					{/* Section-B item 6 (page-height budget): in season, the hero
+					    keeps exactly one band — name, division, record, badge.
+					    The manager line and the Customize franchise link (a
+					    pre-season setup task, not a weekly one) move behind the
+					    Customize franchise details panel further down the page,
+					    which still opens straight to this same identity editor
+					    via #team-identity. */}
+					<If cond={data.lineup_intervention == false && data.in_season == false}>
 					<If cond={data.team.claimed && data.co_manager.has_co}>
 						<p>
 							Operated by
@@ -536,9 +661,62 @@ func TeamLineupRegion() Node {
 					<span>League</span>
 					<strong class="mono">{data.league_mode}</strong>
 				</div>
+				<div class="team-command-strip__lock" aria-label="Lineup lock timing">
+					<span>Locks</span>
+					<strong class="mono">
+						<If cond={data.lineup_deadline.has_deadline}>{data.lineup_deadline.exact + " · " + data.lineup_deadline.relative}</If>
+						<If cond={data.lineup_deadline.has_deadline == false}>{data.lineup_deadline.headline}</If>
+					</strong>
+					<details class="lineup-deadline-details">
+						<summary>Lock window details</summary>
+						<If cond={data.lineup_deadline.has_deadline}>
+							<p class="lineup-deadline__relative mono">{data.lineup_deadline.relative} · {data.lineup_deadline.timezone}</p>
+						</If>
+						<p>{data.lineup_deadline.detail}</p>
+						<If cond={data.lineup_deadline.is_no_schedule}>
+							<p class="mono">Do not treat an unavailable timestamp as an unlocked deadline.</p>
+						</If>
+						<If cond={data.lineup_deadline.is_degraded}>
+							<p class="mono">Schedule refresh required before this lock window is authoritative.</p>
+						</If>
+					</details>
+				</div>
 			</div>
 			<If cond={data.lineup_intervention == false}>
-			<a href="/matchups" data-gosx-link class="team-command-strip__action button button--primary button--compact">View matchup</a>
+			<section class="current-matchup-card" aria-labelledby="current-matchup-title">
+				<If cond={data.current_matchup.has_matchup}>
+					<div class="current-matchup-card__opponent">
+						<span class="current-matchup-card__badge" aria-hidden="true">
+							<If cond={data.current_matchup.opponent.has_avatar_image}>
+								<img class="current-matchup-card__badge-photo" src={data.current_matchup.opponent.avatar_image_url} alt="" loading="lazy" />
+							</If>
+							<If cond={data.current_matchup.opponent.has_avatar_image == false}>
+								{data.current_matchup.opponent.abbreviation}
+							</If>
+						</span>
+						<div>
+							<span class="section-index">{"WEEK " + data.week + " MATCHUP"}</span>
+							<TextBlock as="strong" id="current-matchup-title" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={data.current_matchup.opponent.name} />
+						</div>
+					</div>
+					<div class="current-matchup-card__stats">
+						<b class="mono">{"PROJ " + data.current_matchup.proj_mine + " – " + data.current_matchup.proj_theirs}</b>
+						<If cond={data.current_matchup.has_win_prob}>
+							<small class="mono">{data.current_matchup.win_prob + " to win"}</small>
+						</If>
+					</div>
+					<div class="current-matchup-card__kickoff">
+						<If cond={data.current_matchup.has_kickoff}>
+							<small>{data.current_matchup.kickoff_exact + " (" + data.current_matchup.kickoff_relative + ")"}</small>
+						</If>
+						<a href={data.current_matchup.href} data-gosx-link class="access-link">Full matchup →</a>
+					</div>
+				</If>
+				<If cond={data.current_matchup.has_matchup == false}>
+					<p id="current-matchup-title">{data.current_matchup.schedule_fact}</p>
+					<a href={data.current_matchup.href} data-gosx-link class="access-link">Full matchup →</a>
+				</If>
+			</section>
 			</If>
 			<If cond={data.predraft_visible && data.lineup_intervention == false}>
 				<section class="predraft-progress" aria-labelledby="predraft-progress-title">
@@ -636,27 +814,15 @@ func TeamLineupRegion() Node {
 						<summary>What does H### mean?</summary>
 						<p>H### — house rank: this league's own superflex-aware value order (your scoring and roster rules), shown beside every lineup and bench slot. <a href="/help#glossary" data-gosx-link>More terms in the glossary →</a></p>
 					</details>
-					<section class="lineup-deadline" aria-live="polite" aria-label="Lineup lock timing">
-						<div class="lineup-deadline__heading">
-							<span class="section-index">WEEK {data.lineup_deadline.week} // LOCK WINDOW</span>
-							<strong>{data.lineup_deadline.headline}</strong>
-						</div>
-						<If cond={data.lineup_deadline.has_deadline}>
-							<p class="lineup-deadline__exact">
-								<span class="mono">NEXT PLAYER LOCK</span>
-								<b>{data.lineup_deadline.exact}</b>
-							</p>
-							<p class="lineup-deadline__relative mono">{data.lineup_deadline.relative} · {data.lineup_deadline.timezone}</p>
-						</If>
-						<p>{data.lineup_deadline.detail}</p>
-						<If cond={data.lineup_deadline.is_no_schedule}>
-							<p class="mono">Do not treat an unavailable timestamp as an unlocked deadline.</p>
-						</If>
-						<If cond={data.lineup_deadline.is_degraded}>
-							<p class="mono">Schedule refresh required before this lock window is authoritative.</p>
-						</If>
-					</section>
-					<div class="roster-shape" aria-label="League roster shape">
+					{/* Section-B item 6 (page-height budget): closed by default,
+					    matching the pool-legend disclosure right above it — the
+					    summary line alone (data.shape_summary, already the
+					    league's own roster-shape sentence) tells a manager what
+					    they need most weeks; the full slot-by-slot eligibility
+					    legend and positional-depth chips are one click away, not
+					    132px a manager scrolled past every visit. */}
+					<details class="roster-shape" aria-label="League roster shape">
+						<summary class="roster-shape__summary mono">{data.shape_summary}</summary>
 						<Each of={data.roster_shape} as="slot">
 							<span class="roster-shape__slot-wrap">
 								<If cond={slot.has_eligible}>
@@ -668,19 +834,23 @@ func TeamLineupRegion() Node {
 								</If>
 							</span>
 						</Each>
-						<p class="roster-shape__summary mono">{data.shape_summary}</p>
 						<div class="roster-shape__depth" role="list" aria-label={"Roster positional depth: " + data.positional_depth}>
 							<Each of={data.positional_depth_chips} as="chip">
 								<span class="roster-shape__depth-chip mono" role="listitem">{chip.label}</span>
 							</Each>
 						</div>
-					</div>
-					<If cond={data.team_terminal_roster_complete && data.draft_class_teaser_empty == false}>
-						<section class="draft-class-callout" aria-labelledby="draft-class-callout-title">
-							<div>
+					</details>
+					<If cond={data.team_terminal_roster_complete && data.draft_class_teaser_empty == false && data.in_season == false}>
+						{/* Section-B item 6 (page-height budget): closed by
+						    default — a real 3-pick teaser plus its own card
+						    chrome cost 291px a manager scrolled past every
+						    visit once the season already started; the summary
+						    line alone still names the section. */}
+						<details class="draft-class-callout" aria-labelledby="draft-class-callout-title">
+							<summary>
 								<span class="section-index">DRAFT COMPLETE // YOUR CLASS</span>
 								<strong id="draft-class-callout-title">Your draft class</strong>
-							</div>
+							</summary>
 							<ul class="draft-class-callout__list">
 								<Each of={data.draft_class_teaser} as="pick">
 									<li>
@@ -691,7 +861,7 @@ func TeamLineupRegion() Node {
 								</Each>
 							</ul>
 							<a href={data.draft_class_href} data-gosx-link class="access-link">View your full draft class →</a>
-						</section>
+						</details>
 					</If>
 					<div class="lineup-toolbar">
 						<form method="get" action="/team" class="lineup-week-form">
@@ -712,7 +882,14 @@ func TeamLineupRegion() Node {
 								<input type="hidden" name="week" value={data.week}></input>
 								<button class="button button--compact lineup-auto-form__button" type="submit">Set best lineup</button>
 							</form>
-							<p class="scoring-note lineup-action-note">Set best lineup rewrites every currently unlocked starter slot using your roster, highest projection first. Locked slots stay exactly where they are; run it again any time before those players kick off.</p>
+							{/* Section-B item 6 (page-height budget): the button above
+							    stays a one-click action; only its own explanatory
+							    sentence collapses, the coordinator's own "toolbar
+							    copy" callout. */}
+							<details class="action-disclosure lineup-action-note">
+								<summary>What does Set best lineup do?</summary>
+								<p class="scoring-note">Set best lineup rewrites every currently unlocked starter slot using your roster, highest projection first. Locked slots stay exactly where they are; run it again any time before those players kick off.</p>
+							</details>
 						</If>
 					</div>
 					<If cond={data.team_terminal_pre_draft && data.lineup_intervention == false}>
@@ -751,6 +928,16 @@ func TeamLineupRegion() Node {
 							</p>
 						</details>
 					</If>
+					<div class="lineup-slot-labels" aria-hidden="true">
+						<span>SLOT</span>
+						<span>PLAYER</span>
+						<span>OPPONENT</span>
+						<span>GAME</span>
+						<span>STATUS</span>
+						<span>PROJ</span>
+						<span>PTS</span>
+						<span>ACTION</span>
+					</div>
 					<div class="lineup-slot-list">
 							<Each of={data.starters} as="slot">
 								<div class="lineup-slot" id={"slot-" + slot.slot_id}>
@@ -761,7 +948,7 @@ func TeamLineupRegion() Node {
 										</If>
 									</div>
 									<If cond={slot.has_player}>
-									<span class="pool-player-cell">
+									<span class="pool-player-cell lineup-slot__player">
 										<details class="player-identity stat-tip">
 											<summary class="stat-tip__summary">
 											<If cond={slot.has_headshot}>
@@ -772,30 +959,7 @@ func TeamLineupRegion() Node {
 											</If>
 											<span class="player-identity__text">
 												<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={slot.name} />
-												<If cond={slot.is_drafted}>
-													<span class="drafted-chip mono">{slot.drafted_label}</span>
-												</If>
-												<small class="roster-row__schedule mono">
-													{slot.position}
-													·
-													{slot.nfl_team}
-													<If cond={slot.has_opponent}>
-														·
-														{slot.opponent}
-													</If>
-													<If cond={slot.has_kickoff_label}>
-														·
-														{slot.kickoff_label}
-													</If>
-													<If cond={slot.has_matchup}>
-														·
-														<span class="matchup-chip" data-matchup-tier={slot.matchup_tier}>{slot.matchup_chip}</span>
-													</If>
-													<If cond={slot.has_bye_label}>
-														·
-														{slot.bye_label}
-													</If>
-												</small>
+												<small class="roster-row__schedule mono">{slot.position} · {slot.nfl_team}</small>
 											</span>
 											</summary>
 											<div class="stat-tip__panel">
@@ -825,6 +989,12 @@ func TeamLineupRegion() Node {
 												<If cond={slot.has_matchup}>
 													<p class="stat-tip__hist mono">{slot.matchup_detail}</p>
 												</If>
+												<If cond={slot.has_bye_label}>
+													<p class="stat-tip__hist-note">{slot.bye_label}</p>
+												</If>
+												<If cond={slot.is_drafted}>
+													<p class="stat-tip__hist-note">{"Drafted " + slot.drafted_label}</p>
+												</If>
 											</div>
 										</details>
 										<If cond={slot.has_news}>
@@ -842,43 +1012,75 @@ func TeamLineupRegion() Node {
 									</If>
 									<If cond={slot.has_player == false}>
 										<If cond={data.team_terminal_roster_complete}>
-											<div class="slot-empty mono">EMPTY</div>
+											<div class="slot-empty mono lineup-slot__player">EMPTY</div>
 										</If>
 										<If cond={data.team_terminal_roster_complete == false}>
-											<div class="slot-empty mono">AWAITING DRAFT</div>
+											<div class="slot-empty mono lineup-slot__player">AWAITING DRAFT</div>
 										</If>
 									</If>
-									<div class="lineup-slot__chips">
-										<If cond={slot.has_player}>
-											<span class="position-chip lineup-slot__position">{slot.position}</span>
-										</If>
-										<If cond={slot.auto_filled}>
-											<span class="position-chip" title="Filled automatically by SET BEST LINEUP" aria-label="Filled automatically by SET BEST LINEUP">AUTO</span>
-										</If>
-										<If cond={slot.has_warning}>
-											<span class="position-chip position-chip--warn">{slot.warning_label}</span>
-										</If>
-										<If cond={slot.locked}>
-											<span class="position-chip position-chip--locked">{slot.lock_label}</span>
-										</If>
-										<If cond={slot.has_possession}>
-											<span class="possession-chip">{slot.possession_label}</span>
-										</If>
+									<div class="lineup-slot__stats">
+										<div class="lineup-slot__proj player-number mono">
+											<small>PROJ</small>
+											<If cond={slot.has_player}>{slot.projection}</If>
+											<If cond={slot.has_player == false}>—</If>
+										</div>
+										<div class="lineup-slot__pts player-number mono">
+											<small>PTS</small>
+											<If cond={slot.has_player}>{slot.points}</If>
+											<If cond={slot.has_player == false}>—</If>
+										</div>
 									</div>
-									<If cond={data.team_terminal_roster_complete && slot.locked == false}>
-										<form method="post" action={actionPath("lineup-set")} data-gosx-managed="true" class="lineup-slot__form">
-											<input type="hidden" name="csrf_token" value={csrf.token}></input>
-											<input type="hidden" name="team_id" value={data.team.id}></input>
-											<input type="hidden" name="week" value={data.week}></input>
-											<input type="hidden" name="slot" value={slot.slot_id}></input>
-											<select name="player_id" aria-label={"Assign a player to " + slot.slot_id}>
-												<Each of={slot.options} as="opt">
-													<option value={opt.id} selected={opt.selected} disabled={opt.disabled}>{opt.label}</option>
-												</Each>
-											</select>
-											<button class="board-button" type="submit">Set</button>
-										</form>
-									</If>
+									<div class="lineup-slot__meta">
+										<div class="lineup-slot__opponent mono">
+											<If cond={slot.has_opponent}>
+												{slot.opponent}
+												<If cond={slot.has_matchup}>
+													<span class="matchup-chip" data-matchup-tier={slot.matchup_tier}>{slot.matchup_chip}</span>
+												</If>
+											</If>
+											<If cond={slot.has_opponent == false}>—</If>
+										</div>
+										<div class="lineup-slot__game mono">
+											<If cond={slot.has_kickoff_label}>{slot.kickoff_label}</If>
+											<If cond={slot.has_kickoff_label == false}>—</If>
+										</div>
+										<div class="lineup-slot__status">
+											<If cond={slot.auto_filled}>
+												<span class="position-chip" title="Filled automatically by SET BEST LINEUP" aria-label="Filled automatically by SET BEST LINEUP">AUTO</span>
+											</If>
+											<If cond={slot.has_warning && slot.warning_label != "OUT"}>
+												<span class="position-chip position-chip--warn">{slot.warning_label}</span>
+											</If>
+											<If cond={slot.has_injury_designation}>
+												<span class="position-chip position-chip--warn" title={slot.injury_tip}>{slot.injury_designation}</span>
+											</If>
+											<If cond={slot.locked}>
+												<span class="position-chip position-chip--locked">{slot.lock_label}</span>
+											</If>
+											<If cond={slot.has_possession}>
+												<span class="possession-chip">{slot.possession_label}</span>
+											</If>
+										</div>
+										<div class="lineup-slot__action">
+											<If cond={data.team_terminal_roster_complete && slot.locked == false}>
+												<details class="action-disclosure">
+													<summary>Swap</summary>
+													<form method="post" action={actionPath("lineup-set")} data-gosx-managed="true" class="lineup-slot__form">
+														<input type="hidden" name="csrf_token" value={csrf.token}></input>
+														<input type="hidden" name="team_id" value={data.team.id}></input>
+														<input type="hidden" name="week" value={data.week}></input>
+														<input type="hidden" name="slot" value={slot.slot_id}></input>
+														<select name="player_id" aria-label={"Assign a player to " + slot.slot_id}>
+															<Each of={slot.options} as="opt">
+																<option value={opt.id} selected={opt.selected} disabled={opt.disabled}>{opt.label}</option>
+															</Each>
+														</select>
+														<button class="board-button" type="submit">Set</button>
+													</form>
+												</details>
+											</If>
+										</div>
+									</div>
 								</div>
 							</Each>
 						</div>
@@ -892,12 +1094,15 @@ func TeamLineupRegion() Node {
 							</If>
 						</If>
 						<If cond={data.bench_empty == false}>
-							<div class="roster-labels mono" aria-hidden="true">
-								<span>POS</span>
+							<div class="lineup-slot-labels mono" aria-hidden="true">
+								<span>SLOT</span>
 								<span>PLAYER</span>
+								<span>OPPONENT</span>
 								<span>GAME</span>
+								<span>STATUS</span>
 								<span>PROJ</span>
 								<span>PTS</span>
+								<span>ACTION</span>
 							</div>
 							<p class="mono muted">{data.points_source_line} · {data.points_updated_at}</p>
 							<div class="roster-list">
@@ -1033,40 +1238,54 @@ func TeamLineupRegion() Node {
 						<span class="section-index">{data.radar_kicker}</span>
 						<h2>{data.radar_title}</h2>
 					</header>
-					<If cond={data.scouting_empty}>
-						<div class="empty-tape scout-empty-state">
-							<strong>{data.scouting_empty_title}</strong>
-							<p>{data.scouting_empty_detail}</p>
-						</div>
-					</If>
-					<If cond={data.scouting_empty == false}>
-						<div class="scout-list">
-							<Each of={data.scouting} as="player">
-								<article class="scout-row">
-									<span class="position-chip">{player.position}</span>
-									<div class="scout-row__copy">
-										<strong>{player.name}</strong>
-										<small>{player.team} · {player.signal}</small>
-										<If cond={player.has_resolution}>
-											<small class="mono scout-row__resolution">{player.resolution}</small>
-										</If>
-										<If cond={player.has_link}>
-											<a href={player.href} data-gosx-link class="scout-row__link">{player.link_label} →</a>
-										</If>
-									</div>
-									<b class="mono">{player.status}</b>
-								</article>
-							</Each>
-						</div>
-					</If>
-					<div class="scout-callout">
-						<span>Radar note</span>
-						<p>{data.radar_description}</p>
-						<a href={data.radar_link_href} data-gosx-link>{data.radar_link_label} →</a>
-						<If cond={data.is_commissioner}>
-							<a href="/admin" data-gosx-link>Commissioner console →</a>
+					{/* Closed by default (section-B item 6, page-height budget):
+					    Signal Watch stays under the bench on phones already
+					    (the shell's own single-column reflow, .team-layout),
+					    but its full content — three scouting rows plus the
+					    radar-note callout — added roughly 600px a manager had
+					    to scroll past just to reach the franchise-identity
+					    editor below. The heading stays outside the disclosure
+					    so the section still reads as a real landmark; only the
+					    detail collapses, the same "closed so the page reads
+					    as a lineup, not a form dump" pattern this wave's own
+					    Swap/Swap-with disclosures already use. */}
+					<details class="scout-panel__details">
+						<summary>Show scouting notes</summary>
+						<If cond={data.scouting_empty}>
+							<div class="empty-tape scout-empty-state">
+								<strong>{data.scouting_empty_title}</strong>
+								<p>{data.scouting_empty_detail}</p>
+							</div>
 						</If>
-					</div>
+						<If cond={data.scouting_empty == false}>
+							<div class="scout-list">
+								<Each of={data.scouting} as="player">
+									<article class="scout-row">
+										<span class="position-chip">{player.position}</span>
+										<div class="scout-row__copy">
+											<strong>{player.name}</strong>
+											<small>{player.team} · {player.signal}</small>
+											<If cond={player.has_resolution}>
+												<small class="mono scout-row__resolution">{player.resolution}</small>
+											</If>
+											<If cond={player.has_link}>
+												<a href={player.href} data-gosx-link class="scout-row__link">{player.link_label} →</a>
+											</If>
+										</div>
+										<b class="mono">{player.status}</b>
+									</article>
+								</Each>
+							</div>
+						</If>
+						<div class="scout-callout">
+							<span>Radar note</span>
+							<p>{data.radar_description}</p>
+							<a href={data.radar_link_href} data-gosx-link>{data.radar_link_label} →</a>
+							<If cond={data.is_commissioner}>
+								<a href="/admin" data-gosx-link>Commissioner console →</a>
+							</If>
+						</div>
+					</details>
 				</aside>
 			</div>
 	</div>

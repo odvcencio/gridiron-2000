@@ -86,7 +86,11 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// Commissioner roster correction (2026-09-07): app/admin/page.server.go
 	// adds one RedirectBackWithNotice call for the "roster-correction"
 	// action's own successful commit (40 -> 41).
-	const wantRedirects = 14
+	// Team lineup and bench redesign (2026-09-07, section-B item 4):
+	// app/team/page.server.go's new benchMutationSuccess helper (the
+	// bench row's Drop action, anchored to #bench) adds one more
+	// RedirectWithNotice call (14 -> 15).
+	const wantRedirects = 15
 	const wantRedirectBacks = 41
 	redirects := 0
 	redirectBacks := 0

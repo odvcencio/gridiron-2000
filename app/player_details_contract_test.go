@@ -118,8 +118,8 @@ func TestPlayerDetailsUseNativeDisclosureAcrossSurfaces(t *testing.T) {
 	teamSource := string(team)
 	for _, want := range []string{
 		`<If cond={slot.has_player == false}>`,
-		`<div class="slot-empty mono">EMPTY</div>`,
-		`<div class="slot-empty mono">AWAITING DRAFT</div>`,
+		`<div class="slot-empty mono lineup-slot__player">EMPTY</div>`,
+		`<div class="slot-empty mono lineup-slot__player">AWAITING DRAFT</div>`,
 	} {
 		if !strings.Contains(teamSource, want) {
 			t.Errorf("Team empty roster preview contract missing %q", want)
