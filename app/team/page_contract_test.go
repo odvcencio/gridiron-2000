@@ -688,7 +688,12 @@ func TestBenchRowRendersGroupHeaderDraftedChipAndScheduleLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := string(pageBytes)
-	rowStart := strings.Index(page, "component RosterRow(props: RosterRowProps) {")
+	// RosterRow moved from a strict `component` declaration to a plain
+	// `func ... Node` one (text-flow wave, 2026-09-05): a strict server
+	// component may not call the framework's own TextBlock tag (v0.39
+	// strict-component call rule), and RosterRow's own Name field now
+	// flows through TextBlock.
+	rowStart := strings.Index(page, "func RosterRow(props RosterRowProps) Node {")
 	if rowStart < 0 {
 		t.Fatal("RosterRow component not found")
 	}
@@ -727,7 +732,12 @@ func TestBenchRowRendersNewsTipAndHouseRankChip(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := string(pageBytes)
-	rowStart := strings.Index(page, "component RosterRow(props: RosterRowProps) {")
+	// RosterRow moved from a strict `component` declaration to a plain
+	// `func ... Node` one (text-flow wave, 2026-09-05): a strict server
+	// component may not call the framework's own TextBlock tag (v0.39
+	// strict-component call rule), and RosterRow's own Name field now
+	// flows through TextBlock.
+	rowStart := strings.Index(page, "func RosterRow(props RosterRowProps) Node {")
 	if rowStart < 0 {
 		t.Fatal("RosterRow component not found")
 	}

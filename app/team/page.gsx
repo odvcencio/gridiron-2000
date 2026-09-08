@@ -115,7 +115,7 @@ component BadgeCell(props: BadgeCellProps) {
 	</div>
 }
 
-component RosterRow(props: RosterRowProps) {
+func RosterRow(props RosterRowProps) Node {
 	return <div class="roster-row">
 		<If cond={props.HasGroupHeader}>
 			<h4 class="roster-group-header mono">{props.GroupHeader}</h4>
@@ -136,7 +136,7 @@ component RosterRow(props: RosterRowProps) {
 				<span class="player-avatar" aria-hidden="true">{props.NFLTeam}</span>
 			</If>
 			<span class="player-identity__text">
-				<strong>{props.Name}</strong>
+				<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Name} />
 				<If cond={props.HasDraftedLabel}>
 					<span class="drafted-chip mono">{props.DraftedLabel}</span>
 				</If>
@@ -289,7 +289,7 @@ func Page() Node {
 						MANAGER TERMINAL //
 						{data.viewer.initials}
 					</span>
-					<h1>{data.team.name}</h1>
+					<TextBlock as="h1" font="400 24px Archivo Black" lineHeight={28} maxLines={2} overflow="ellipsis" text={data.team.name} />
 					<small class="mono">
 						{data.team.division}
 						DIVISION
@@ -298,15 +298,15 @@ func Page() Node {
 					<If cond={data.team.claimed && data.co_manager.has_co}>
 						<p>
 							Operated by
-							{data.team.manager}
+							<TextBlock as="span" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.team.manager} />
 							· with
-							{data.co_manager.co_name}
+							<TextBlock as="span" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.co_manager.co_name} />
 						</p>
 					</If>
 					<If cond={data.team.claimed && data.co_manager.has_co == false}>
 						<p>
 							Operated by
-							{data.team.manager}
+							<TextBlock as="span" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.team.manager} />
 						</p>
 					</If>
 						<If cond={data.team.claimed == false}>
@@ -555,12 +555,12 @@ func TeamLineupRegion() Node {
 								<span class="checklist-mark mono" aria-hidden="true">01</span>
 							</If>
 							<div class="checklist-item__text">
-								<strong>Claim and personalize your franchise</strong>
+								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Claim and personalize your franchise" />
 								<If cond={data.team_name_is_seed_placeholder == false}>
-									<small>Your seat is secured. Team name, image, badge, and co-manager controls live in Customize your team.</small>
+									<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Your seat is secured. Team name, image, badge, and co-manager controls live in Customize your team." />
 								</If>
 								<If cond={data.team_name_is_seed_placeholder}>
-									<small>Your seat is secured, but your team is still called "{data.team.name}". Personalize it below.</small>
+									<small>Your seat is secured, but your team is still called "<TextBlock as="span" font="400 13px Plus Jakarta Sans" lineHeight={18} text={data.team.name} />". Personalize it below.</small>
 								</If>
 							</div>
 							<a href="/team?identity=edit#team-identity" data-gosx-link class="board-button">Customize team →</a>
@@ -573,12 +573,12 @@ func TeamLineupRegion() Node {
 								<span class="checklist-mark mono" aria-hidden="true">02</span>
 							</If>
 							<div class="checklist-item__text">
-								<strong>Rank your draft targets</strong>
+								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Rank your draft targets" />
 								<If cond={data.predraft_has_board}>
-									<small>{data.predraft_board_count} players ranked. Keep refining—the board drives your draft-room shortlist and autopick order.</small>
+									<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18}>{data.predraft_board_count} players ranked. Keep refining—the board drives your draft-room shortlist and autopick order.</TextBlock>
 								</If>
 								<If cond={data.predraft_has_board == false}>
-									<small>No players ranked yet. Add targets in the order you would want them drafted.</small>
+									<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="No players ranked yet. Add targets in the order you would want them drafted." />
 								</If>
 							</div>
 							<a href="/board" data-gosx-link class="board-button">Open board →</a>
@@ -591,12 +591,12 @@ func TeamLineupRegion() Node {
 								<span class="checklist-mark mono" aria-hidden="true">03</span>
 							</If>
 							<div class="checklist-item__text">
-								<strong>Confirm your room status</strong>
+								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Confirm your room status" />
 								<If cond={data.predraft_ready}>
-									<small>You are marked ready. You can change that status any time before the commissioner starts.</small>
+									<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="You are marked ready. You can change that status any time before the commissioner starts." />
 								</If>
 								<If cond={data.predraft_ready == false}>
-									<small>You are not marked ready. Check the room details, then tell the commissioner you are present.</small>
+									<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="You are not marked ready. Check the room details, then tell the commissioner you are present." />
 								</If>
 							</div>
 							<a href="/draft#ready-toggle" data-gosx-link class="board-button">Open draft room →</a>
@@ -682,7 +682,7 @@ func TeamLineupRegion() Node {
 								<Each of={data.draft_class_teaser} as="pick">
 									<li>
 										<span class="position-chip">{pick.position}</span>
-										{pick.name}
+										<TextBlock as="span" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={pick.name} />
 										<small class="mono">{pick.label}</small>
 									</li>
 								</Each>
@@ -768,7 +768,7 @@ func TeamLineupRegion() Node {
 												<span class="player-avatar" aria-hidden="true">{slot.nfl_team}</span>
 											</If>
 											<span class="player-identity__text">
-												<strong>{slot.name}</strong>
+												<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={slot.name} />
 												<If cond={slot.is_drafted}>
 													<span class="drafted-chip mono">{slot.drafted_label}</span>
 												</If>
