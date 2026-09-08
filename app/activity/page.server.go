@@ -18,6 +18,13 @@ func activityFragmentURL(request *http.Request) string {
 		if team := query.Get("team"); team != "" {
 			values.Set("team", team)
 		}
+		// type (coordinator follow-up, J4 F33): the action-type filter
+		// preserved through the same query-parameter machinery team and
+		// q already use, so the 4s poll never drops a manager's chosen
+		// action-type back to "All types".
+		if actionType := query.Get("type"); actionType != "" {
+			values.Set("type", actionType)
+		}
 		if search := query.Get("q"); search != "" {
 			values.Set("q", search)
 		}

@@ -99,6 +99,13 @@ func ActivityRegion() Node {
 					<option value={option.value} selected={option.selected}>{option.label}</option>
 				</Each>
 			</select>
+			<label class="mono" for="activity-type">TYPE //</label>
+			<select id="activity-type" name="type">
+				<option value="">All types</option>
+				<Each of={data.type_options} as="option">
+					<option value={option.value} selected={option.selected}>{option.label}</option>
+				</Each>
+			</select>
 			<label class="mono" for="activity-search">SEARCH //</label>
 			<input id="activity-search" type="search" name="q" value={data.query} placeholder="Player, move, or team" inputmode="search" enterkeyhint="search" autocomplete="off"></input>
 			<If cond={data.page > 1}>
@@ -129,9 +136,14 @@ func ActivityRegion() Node {
 		<If cond={data.has_transactions && data.transactions_empty}>
 			<div class="empty-tape">
 				<strong>NO MOVES MATCH</strong>
-				<p>
-					Try another team or query, or clear the filters to return to the full league record.
-				</p>
+				<If cond={data.has_filtered_empty_message}>
+					<p>{data.filtered_empty_message}</p>
+				</If>
+				<If cond={data.has_filtered_empty_message == false}>
+					<p>
+						Try another team or query, or clear the filters to return to the full league record.
+					</p>
+				</If>
 				<a class="filter-button" href="/activity" data-gosx-link>Clear filters</a>
 			</div>
 		</If>
