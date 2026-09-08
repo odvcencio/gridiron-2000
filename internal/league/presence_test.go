@@ -170,6 +170,33 @@ func TestTeamPresenceAggregatesPrimaryAndCoManager(t *testing.T) {
 	}
 }
 
+// TestTeamPresenceAwayDetailUsesDaysNotRawHours pins F24 (J4 console
+// gap-audit): a seat away for 160 hours used to read "Last seen 160h ago
+// · full clock remains." — the console's only relative-time phrase given
+// in raw hours instead of the same minutes/hours/days idiom
+// (relativeTime) every other timestamp on the console uses.
+func TestTeamPresenceAwayDetailUsesDaysNotRawHours(t *testing.T) {
+	start := time.Date(2026, 9, 3, 9, 0, 0, 0, time.UTC)
+	service, _ := newPresenceTestService(t, false, start)
+	member, _, err := service.store.AssignMember("away@example.com", "Away Manager")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.presence.record(member.Email, start)
+	later := start.Add(160 * time.Hour) // 6 days 16 hours
+	state := service.store.Snapshot()
+	label, detail, _ := service.teamPresence(state, member.TeamID, later)
+	if label != "away" {
+		t.Fatalf("label = %q, want away (%s)", label, detail)
+	}
+	if strings.Contains(detail, "160h") {
+		t.Fatalf("presence detail regressed to raw hours: %q", detail)
+	}
+	if !strings.Contains(detail, "6 days ago") {
+		t.Fatalf("presence detail = %q, want the days-based relative phrase", detail)
+	}
+}
+
 // TestFingerprintChangesOnPresenceTransition checks that StateFingerprint
 // changes when a tracked seat's presence bucket transitions (connected ->
 // idle here), holding the persisted state and pool version fixed.

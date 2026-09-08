@@ -594,6 +594,10 @@ func (s *Service) teamCurrentMatchupCard(state PersistedState, teamID string, we
 		theirsHasProjection := lineupHasProjectableStarter(theirsLineup)
 		out["has_matchup"] = true
 		out["opponent"] = s.teamMap(opponent)
+		// record (F27, J4 console gap-audit): teamMap's default "record"
+		// is the static seed placeholder (model.go); currentTeamRecord
+		// reads the same standings the standings table itself computes.
+		out["opponent"].(map[string]any)["record"] = s.currentTeamRecord(state, opponentID)
 		out["proj_mine"] = projectedText(mineProjected, mineHasProjection)
 		out["proj_theirs"] = projectedText(theirsProjected, theirsHasProjection)
 		winProbText := winProbabilityText(mineProjected, theirsProjected, mineHasProjection, theirsHasProjection)

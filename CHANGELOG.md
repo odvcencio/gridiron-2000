@@ -5,7 +5,18 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Help search now finds this league's own house rules: searching superflex, punter, punting, half PPR, or IR returns the right topic instead of "No matching topic."
+- A commissioner posting to the Locker Room can mark a post "Post as commissioner note." That post carries a Commissioner badge and a distinct style, so a ruling reads differently from trash talk.
+- The trade composer now shows each player's NFL team, bye week, this week's projection, and points beside the checkbox, not only a name and a position.
+- The trade desk and the home page now show a notice when a trade you were part of has executed, naming both teams and the date.
+
 ### Changed
+- The Help Center's waivers answer now states this league's own configured claim rule (priority order or FAAB bid) instead of naming FAAB for every league.
+- The Help Center no longer shows its own internal corpus version, schema language, a search-determinism sentence, or a relevance score to managers.
+- Every Help Center checklist link now names its destination (for example "Open the Team terminal") instead of repeating "Open help/action" for every item.
+- The Preseason Blitz masthead now shows one state at a time: entry count while the slate is open, or "Blitz finished" with your result once it closes, instead of showing both at once.
+- The Locker Room's removal-confirmation error now renders beside the control it describes, in sentence case, and keeps that control's disclosure open, instead of appearing as a lowercase fragment at the top of the page.
 - The commissioner console's jump strip now stays on screen at every width: pinned to the top on a desktop, pinned above the bottom tab bar on a phone. The chip for the section in view is marked.
 - Every jump-strip chip now reads the same word as the section it lands on, and every console section carries one number in one reading sequence instead of some sections showing a number and others showing the word "SEASON".
 - The console's job list now includes running waivers, reviewing a trade, changing scoring, and reading the league log. Setting a lineup for a manager now renders as a boxed row like every other job.
@@ -21,6 +32,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The console's own top hero card now leads with the week once the draft is complete: the week number, its close readiness in words, the first kickoff in league-local time, and the seat count, instead of the draft's pick count, date, and ready fraction. Each fact renders as its own full-width row instead of squeezing into narrow columns. The task board's own seats row shows the week's own status in place of the same stale ready fraction.
 
 ### Fixed
+- The Preseason Blitz's leaderboard empty state now reads "Nobody entered this slate" once the slate has closed, instead of the open-invitation "No entries yet."
 - The Signal Wire's filter chips now show a real count for every category. A chip with nothing behind it reads disabled with a plain reason instead of a link into an empty page, and the empty state names the category, how far back the wire's window reaches, and the nearest chip that does have something on it.
 - The Wire no longer tags an unrelated story "INJURY WATCH". A story with no real classification carries no label.
 - The Wire now uses one vocabulary — "sources" for every upstream provider, "signals" for every item, "tip" for the one submission flow — instead of seven overlapping words for the same two ideas.
@@ -35,6 +47,29 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The console's pick-clock card no longer shows a blank "Deadline" cell when no pick is armed, or a blank "Duration source" cell; the Playoff Truth card no longer shows a blank "Source" cell before a bracket exists.
 - The console's job list no longer renders as overlapping, ragged boxes on a phone; every row now measures and aligns correctly.
 - The "This week" card and the league-status card now follow the league's next open week, the same way the console's own top line does: once a week closes they name the next one with its own kickoff, and once every week is closed they say so instead of relabeling a closed week as still current.
+- The matchups page no longer clamps a starter's name at desktop width; a long name now wraps onto the row's own second line.
+- On a phone, the matchups status strip is shorter, and the featured matchup card now leads the page instead of sitting below a long freshness sentence.
+- On a phone, a team header with a long, single-word name no longer breaks mid-word; each side of the matchup now gets the full card width.
+- The team page's OPPONENT cell now shows a compact ordinal chip ("19th") with the full matchup ranking in a tip, instead of clamping the full phrase.
+- The team page's per-row PROJ and PTS labels no longer repeat under the column header at desktop; they still show on a phone.
+- The team page's PLAYER cell no longer loses width to a stray icon chevron; a starter's name now has more room.
+- The Pick'em row now leads with the two pick buttons; the line's source and freeze time collapse behind a "Line details" disclosure.
+- The franchise identity disclosure's summary now reads "Close editor" once open, instead of always "Open editor." Every league badge tile now shows its full state label instead of clamping it.
+- "Reset to configured name" now names the value it restores and asks for a confirming click before it takes effect.
+- Every signed-in page now shows the seat's role beside the avatar ("· Manager", "· Commissioner", or "· No seat").
+- The home page shows a dismissible first-session strip for a manager whose team has no saved lineup yet, linking to the lineup, waivers, and the manager guide.
+- The draft reset and the league reset now confirm with a typed phrase that names the league, and the console states the exact phrase it expects when the typed phrase is wrong. Resetting the draft during the season now warns that it empties every drafted roster and lineup and leaves closed weeks final with a zero score. Resetting scoring on the rules page now has a visible label and requires the typed phrase.
+- After a commissioner releases a seat, the access list now keeps the person's last sign-in and shows the release date beside it, instead of claiming the person never signed in.
+- A lineup-intervention link that uses the short seat code the console prints elsewhere now opens the right team, instead of silently opening the commissioner's own team.
+- The rules and scoring page now reads the same season phase the console's own top line reads, and scoring locks once week one starts.
+- The waiver panel's run state now reads "Idle" when no claims are waiting, instead of "overdue" beside a sentence that says there is nothing to run. The last-processed time now shows a relative phrase alongside the exact time.
+- The force-close confirm box now clears after a successful close, instead of keeping the just-closed week's typed phrase in front of the next week's own gate.
+- Seat rows on the console now lead with the team, the manager, and the ready state. The image-upload rules moved out of the section's lead paragraph into a closed disclosure, board-target counts drop away once the draft is over, the not-seen sign-in message reads in plain words, and the autopick button now names its own state and the action a click takes.
+- The standings table and the matchups page now show the identical record for the same team and week, including the three-part record once a tie exists.
+- The playoff panel hides its Source, Final week, and Revision tiles until a bracket exists, instead of showing an empty tile and two zeros, and its lead sentence uses plain words.
+- The console now links the words "the league log" to the activity page from the week-close panel and the danger zone, and the activity page's team filter carries a "Commissioner actions" option.
+- The week-close panel now names a stale stat feed when its last fetch predates the week's own last kickoff, with the fetch time and what the commissioner can do about it.
+- The console's own top line no longer reads "Preseason" beside a week-close reason like "waiting for 16 of 16 games to go final" once a schedule exists; it now names the week's own start time, progress, or close readiness, with the games-final count included.
 
 ## [release-2026.09.08-88f7149-season2] — 2026-09-07
 

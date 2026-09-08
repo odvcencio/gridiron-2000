@@ -30,8 +30,10 @@ func Page() Node {
 				<span>Recorded moves · <strong class="mono">{data.transactions_count}</strong></span>
 				<div class="draft-clock-meta">
 					<span class="mono">League time · {data.timezone}</span>
-					<a href="/players" data-gosx-link>Player pool →</a>
-					<a href="/team" data-gosx-link>Team terminal →</a>
+					<div class="activity-clock-links">
+						<a href="/players" data-gosx-link>Player pool →</a>
+						<a href="/team" data-gosx-link>Team terminal →</a>
+					</div>
 				</div>
 			</div>
 		</section>

@@ -55,6 +55,17 @@ type PrimaryNavigationProps struct {
 	// group below: truthful state, never shown before the draft is
 	// actually complete.
 	DraftComplete bool
+	// RoleCommissioner/RoleManager/RoleNoSeat (J5 F36) are precomputed,
+	// mutually exclusive booleans — a strict component's <If cond> only
+	// accepts a bare bool field, never a compound expression, so the
+	// three-way "commissioner, else seated manager, else no seat" choice
+	// is resolved once per call site (Commissioner/HasSeat are already
+	// available there) rather than here. A commissioner who also holds a
+	// seat reads as "Commissioner": the chrome names the more powerful of
+	// the two roles, not both.
+	RoleCommissioner bool
+	RoleManager      bool
+	RoleNoSeat       bool
 }
 
 // PrimaryNavigation's sign-out form posts to /auth/logout as a plain,
@@ -250,6 +261,14 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 					<If cond={props.IsCoManager}>
 						<span class="user-role-chip mono">CO-MANAGER</span>
 					</If>
+					{/* J5 F36: name the seat and the role beside the avatar on
+					    every signed-in page — "Pale moon · Manager" (or
+					    "· Commissioner", "· No seat"). */}
+					<span class="user-role mono">
+						<If cond={props.RoleCommissioner}>· Commissioner</If>
+						<If cond={props.RoleManager}>· Manager</If>
+						<If cond={props.RoleNoSeat}>· No seat</If>
+					</span>
 				</div>
 				<Link href="/settings" class="access-link">Notification settings</Link>
 				<form method="post" action="/auth/logout" data-gosx-managed="false">
@@ -423,6 +442,9 @@ func Layout() Node {
 					TradesAttentionText={data.league.attention.trades_attention_text}
 					DraftComplete={data.league.draft_complete}
 					IsCoManager={data.viewer.is_co_manager}
+					RoleCommissioner={data.viewer.is_commissioner}
+					RoleManager={data.viewer.is_commissioner == false && data.viewer.has_seat}
+					RoleNoSeat={data.viewer.is_commissioner == false && data.viewer.has_seat == false}
 				></PrimaryNavigation>
 			</aside>
 			<header class="mobile-navigation-enhanced" data-navigation-surface="mobile-enhanced-bar">
@@ -500,6 +522,9 @@ func Layout() Node {
 					TradesAttentionText={data.league.attention.trades_attention_text}
 					DraftComplete={data.league.draft_complete}
 					IsCoManager={data.viewer.is_co_manager}
+					RoleCommissioner={data.viewer.is_commissioner}
+					RoleManager={data.viewer.is_commissioner == false && data.viewer.has_seat}
+					RoleNoSeat={data.viewer.is_commissioner == false && data.viewer.has_seat == false}
 				></PrimaryNavigation>
 			</aside>
 			<details class="mobile-navigation-static" data-navigation-surface="mobile-static">
@@ -526,6 +551,9 @@ func Layout() Node {
 					TradesAttentionText={data.league.attention.trades_attention_text}
 					DraftComplete={data.league.draft_complete}
 					IsCoManager={data.viewer.is_co_manager}
+					RoleCommissioner={data.viewer.is_commissioner}
+					RoleManager={data.viewer.is_commissioner == false && data.viewer.has_seat}
+					RoleNoSeat={data.viewer.is_commissioner == false && data.viewer.has_seat == false}
 				></PrimaryNavigation>
 			</details>
 			<nav class="app-tabbar" aria-label="Quick navigation" data-navigation-surface="mobile-tabbar">

@@ -75,8 +75,12 @@ func TestAdminPageRendersExactResetContracts(t *testing.T) {
 	draftHeading := "Reset " + leagueName + "&#39;s draft"
 	leagueHeading := "Reset " + leagueName + " to a blank league"
 	for _, want := range []string{
-		"RESET DRAFT</span> to confirm.",
-		"RESET LEAGUE</span> to confirm.",
+		// F16 (2026-09-08 wave C, J4 console gap-audit): the typed reset
+		// phrases now name the league, the same target-specific pattern
+		// seat release already used, so a phrase copied from another
+		// league's danger zone can never authorize a reset here.
+		"RESET " + leagueName + " DRAFT</span> to confirm.",
+		"RESET " + leagueName + "</span> to confirm.",
 		draftHeading,
 		leagueHeading,
 		"the scheduled meeting time",
@@ -120,6 +124,54 @@ func TestAdminPageRendersExactResetContracts(t *testing.T) {
 	if preserved < 0 || strings.Contains(leagueCard[preserved:], "the custom roster shape") ||
 		strings.Contains(leagueCard[preserved:], "the trimmed-seat list") {
 		t.Fatal("full reset card still presents roster shape or seat trim as preserved")
+	}
+}
+
+// TestAdminPagePlayoffTruthTilesHideMeaninglessZeros pins F31 (J4 console
+// gap-audit): before any bracket exists, Source rendered an empty
+// labelled tile, and Final week / Revision both rendered the bare number
+// 0 — the plainest form of a leaked empty value, two zeros that mean
+// nothing to a commissioner who has not previewed a bracket yet. The lead
+// sentence also traded "persisted" and "idempotent" for plain words.
+func TestAdminPagePlayoffTruthTilesHideMeaninglessZeros(t *testing.T) {
+	body := renderAdminPage(t)
+	playoffsStart := strings.Index(body, `id="admin-playoffs"`)
+	if playoffsStart < 0 {
+		t.Fatal("admin-playoffs section missing")
+	}
+	playoffsEnd := strings.Index(body[playoffsStart:], "</section>")
+	if playoffsEnd < 0 {
+		t.Fatal("admin-playoffs section has no closing tag")
+	}
+	section := body[playoffsStart : playoffsStart+playoffsEnd]
+
+	if !strings.Contains(section, "The league shares one bracket. You preview it privately, then publish it. The server computes every score.") {
+		t.Errorf("playoff truth lead sentence still reads engineering language: %s", section)
+	}
+	for _, unwanted := range []string{"persisted", "idempotent"} {
+		if strings.Contains(section, unwanted) {
+			t.Errorf("playoff truth section still contains engineering word %q", unwanted)
+		}
+	}
+	if got := strings.Count(section, "—  none yet"); got != 3 {
+		t.Errorf(`playoff truth section shows %d "—  none yet" placeholders before any bracket exists, want 3 (source, final week, revision): %s`, got, section)
+	}
+	if strings.Contains(section, "<b class=\"mono\">0</b>") {
+		t.Error("playoff truth section still renders a bare 0 tile")
+	}
+}
+
+// TestAdminPageLinksTheLeagueLogFromWeekCloseAndDangerZone pins F33 (J4
+// console gap-audit): the week-close panel and the danger zone both
+// promised their actions land in "the league log", but neither the
+// sidebar link (already present) nor anything in the console body itself
+// linked those exact words to /activity — the record the console
+// promised was unreachable from the two panels most likely to send a
+// commissioner looking for it.
+func TestAdminPageLinksTheLeagueLogFromWeekCloseAndDangerZone(t *testing.T) {
+	body := renderAdminPage(t)
+	if got := strings.Count(body, `<a href="/activity" data-gosx-link>the league log</a>`); got != 2 {
+		t.Fatalf(`"the league log" links to /activity = %d, want 2 (week close and danger zone): %s`, got, body)
 	}
 }
 
@@ -730,7 +782,12 @@ func TestAdminTaskBoardLinksLineupInterventionPerTeam(t *testing.T) {
 	}
 	for i := 1; i <= 8; i++ {
 		teamID := fmt.Sprintf("team-%d", i)
-		want := `href="/team?team=` + teamID + `#lineup"`
+		// F32 (2026-09-08 wave C, J4 console gap-audit): the old #lineup
+		// fragment scrolled the commissioner past the page's own
+		// intervention-safety banner and onto an unrelated card. The plain
+		// link (no fragment) lands on the banner, which sits at the top of
+		// the page in intervention mode.
+		want := `href="/team?team=` + teamID + `"`
 		if !strings.Contains(body, want) {
 			t.Errorf("task board missing a lineup-intervention link for %s (want %q)", teamID, want)
 		}
@@ -1290,6 +1347,97 @@ func TestForceCloseWeekConfirmPlaceholderFixtureProcess(t *testing.T) {
 	}
 	if !strings.Contains(body, `placeholder="CLOSE WEEK 1"`) {
 		t.Fatalf("force-close confirm placeholder must show the selected week (week 1 after a fresh generate): %s", body)
+	}
+}
+
+// TestForceCloseWeekClearsConfirmAfterSuccess pins F23 (J4 console
+// gap-audit): a successful force close of week 1 advances the panel to
+// week 2 (the label and button already read "week 2"), but the confirm
+// box kept echoing the just-submitted "CLOSE WEEK 1" — a phrase that can
+// only fail against week 2's own gate. The box must come back empty once
+// the week it was typed for is no longer the one on screen.
+func TestForceCloseWeekClearsConfirmAfterSuccess(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestForceCloseWeekClearsConfirmAfterSuccessFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_FORCE_CLOSE_CLEAR_CONFIRM_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("force-close clears confirm fixture process: %v\n%s", err, output)
+	}
+}
+
+func TestForceCloseWeekClearsConfirmAfterSuccessFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_FORCE_CLOSE_CLEAR_CONFIRM_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	// A real close computes every matchup's score, which needs a week
+	// stats source wired (scorer.go) or it fails closed with "no week
+	// stats source is configured" instead of committing. An empty weekly
+	// ledger is enough: every rostered slot is empty pre-draft, so every
+	// score is a true 0.0 either way.
+	league.Default().SetWeekStatsSource(func(int) []league.WeekStatLine { return nil })
+	handler := adminTestHandler(t)
+	get := httptest.NewRequest(http.MethodGet, "/", nil)
+	getRes := httptest.NewRecorder()
+	handler.ServeHTTP(getRes, get)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("GET admin = %d: %s", getRes.Code, getRes.Body.String())
+	}
+	cookie := getRes.Result().Cookies()[0]
+	generateForm := url.Values{
+		"csrf_token": {adminCSRFToken(t, getRes.Body.String())},
+		"weeks":      {"2"}, "start_week": {"1"}, "seed": {"11"},
+	}
+	generatePost := httptest.NewRequest(http.MethodPost, "/__actions/schedule-generate", strings.NewReader(generateForm.Encode()))
+	generatePost.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	generatePost.AddCookie(cookie)
+	generateRes := httptest.NewRecorder()
+	handler.ServeHTTP(generateRes, generatePost)
+	if generateRes.Code != http.StatusSeeOther {
+		t.Fatalf("schedule generation POST = %d: %s", generateRes.Code, generateRes.Body.String())
+	}
+
+	reload := httptest.NewRequest(http.MethodGet, "/", nil)
+	reload.AddCookie(generateRes.Result().Cookies()[0])
+	reloadRes := httptest.NewRecorder()
+	handler.ServeHTTP(reloadRes, reload)
+	if reloadRes.Code != http.StatusOK {
+		t.Fatalf("reload admin = %d: %s", reloadRes.Code, reloadRes.Body.String())
+	}
+
+	forceForm := url.Values{
+		"csrf_token": {adminCSRFToken(t, reloadRes.Body.String())},
+		"week":       {"1"},
+		"confirm":    {"CLOSE WEEK 1"},
+	}
+	forcePost := httptest.NewRequest(http.MethodPost, "/__actions/close-week-force", strings.NewReader(forceForm.Encode()))
+	forcePost.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	forcePost.AddCookie(reloadRes.Result().Cookies()[0])
+	forceRes := httptest.NewRecorder()
+	handler.ServeHTTP(forceRes, forcePost)
+	if forceRes.Code != http.StatusSeeOther {
+		t.Fatalf("forced close of week 1 = %d: %s", forceRes.Code, forceRes.Body.String())
+	}
+
+	afterClose := httptest.NewRequest(http.MethodGet, "/", nil)
+	afterClose.AddCookie(forceRes.Result().Cookies()[0])
+	afterCloseRes := httptest.NewRecorder()
+	handler.ServeHTTP(afterCloseRes, afterClose)
+	if afterCloseRes.Code != http.StatusOK {
+		t.Fatalf("reload after force close = %d: %s", afterCloseRes.Code, afterCloseRes.Body.String())
+	}
+	body := afterCloseRes.Body.String()
+	if !strings.Contains(body, `placeholder="CLOSE WEEK 2"`) {
+		t.Fatalf("panel did not advance to week 2's own confirm phrase: %s", body)
+	}
+	if !strings.Contains(body, `id="admin-close-week-confirm" class="scoring-input typed-confirm-input" name="confirm" value="" `) {
+		t.Fatalf("confirm box still echoed the prior week's phrase after a successful close: %s", body)
 	}
 }
 

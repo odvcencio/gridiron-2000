@@ -204,3 +204,27 @@ func TestTradesEmptyInboxReadsOpenOffersAsOpenNotAccepted(t *testing.T) {
 		t.Errorf("fragment = %s, must not call the two open offers accepted", fragment)
 	}
 }
+
+// TestTradesHistoryEmptyStateDropsTerminalJargon is the coordinator's own
+// follow-up (2026-09-08): "NO TERMINAL TRADE HISTORY" used "terminal" as
+// unexplained schema jargon (an offer's terminal status: executed,
+// declined, withdrawn, and so on). The heading now reads "No trade
+// history yet"; the explanatory sentence naming those terminal statuses
+// in plain words stays.
+func TestTradesHistoryEmptyStateDropsTerminalJargon(t *testing.T) {
+	data := honestlyEmptyTradesFixture(nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	fragment, err := tradesFragmentRender(data, req)
+	if err != nil {
+		t.Fatalf("render Trade Desk fragment: %v", err)
+	}
+	if !strings.Contains(fragment, "No trade history yet") {
+		t.Errorf("fragment = %s, want the plain-language history empty heading", fragment)
+	}
+	if strings.Contains(fragment, "TERMINAL") {
+		t.Errorf("fragment = %s, must not use the internal word \"terminal\"", fragment)
+	}
+	if !strings.Contains(fragment, "Executed, declined, withdrawn, countered, vetoed, expired, and failed offers appear here for the participating seats.") {
+		t.Errorf("fragment = %s, missing the existing explanatory sentence", fragment)
+	}
+}

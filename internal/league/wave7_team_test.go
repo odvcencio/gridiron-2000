@@ -275,6 +275,34 @@ func TestTeamDataHasTeamStreakFalseBeforeAnyWeekCloses(t *testing.T) {
 	}
 }
 
+// TestTeamDataHasTeamPointsFalseBeforeAnyWeekCloses covers a coordinator
+// follow-up on the wave-C manager residue: the team hero's season tile
+// printed "0.0 points scored" before any week had posted, the same false
+// claim the wave-8 audit's own PTS-column fix (J3 F12) already rejected
+// for a starter row ("—" until the weekly ledger posts, never an implied
+// zero). has_team_points — mirroring has_team_streak's own guard on this
+// same hero line — must read false until a matchup has actually closed,
+// then true once one has.
+func TestTeamDataHasTeamPointsFalseBeforeAnyWeekCloses(t *testing.T) {
+	svc, _, _ := newLineupTestService(t)
+	request, _ := http.NewRequest(http.MethodGet, "/team", nil)
+	data := svc.TeamData(request)
+	if data["has_team_points"] != false {
+		t.Fatalf("has_team_points = %v, want false before any week has closed", data["has_team_points"])
+	}
+
+	sch := &SeasonSchedule{Weeks: []ScheduleWeek{
+		{Week: 1, Matchups: []LeagueMatchup{{HomeTeamID: "team-1", AwayTeamID: "team-2", Final: true, HomeScore: 88.4}}},
+	}}
+	if err := svc.store.SetSchedule(*sch); err != nil {
+		t.Fatal(err)
+	}
+	after := svc.TeamData(request)
+	if after["has_team_points"] != true {
+		t.Fatalf("has_team_points = %v, want true once a week has closed", after["has_team_points"])
+	}
+}
+
 func TestTeamDataCarriesPrimaryActionMatchingRosterCompleteGate(t *testing.T) {
 	// Before roster completion: no primary action.
 	svc, _, _ := newLineupTestService(t)

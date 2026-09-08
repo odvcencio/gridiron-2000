@@ -93,8 +93,11 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// J1 F34 (2026-09-07 UX pass): app/board/page.server.go adds one
 	// direct RedirectBackWithNotice call — board-clear-drafted, the Big
 	// Board's own bulk "Clear drafted players" action (40 -> 41).
+	// J6 F15 (2026-09-08 wave C): app/wire/page.server.go's tip action
+	// moved from RedirectBackWithNotice to RedirectBackWithScopedNotice
+	// so the Wire's confirmation renders only on the Wire (42 -> 41).
 	const wantRedirects = 15
-	const wantRedirectBacks = 42
+	const wantRedirectBacks = 41
 	redirects := 0
 	redirectBacks := 0
 	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, walkErr error) error {

@@ -10,7 +10,8 @@ import (
 // "Remove" (both for a top-level post and a reply) was a single ungated
 // click with no consequence text. It now uses the same gated
 // <details>/required-checkbox pattern already used for drop, add-drop,
-// and trade accept/decline.
+// and trade accept/decline. The disclosure's own open attribute (J6 F26,
+// 2026-09-08 wave C) keeps it open when the removal it names just failed.
 func TestLockerRemoveExposesNativeConfirmation(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {
@@ -18,7 +19,8 @@ func TestLockerRemoveExposesNativeConfirmation(t *testing.T) {
 	}
 	body := string(source)
 	for _, marker := range []string{
-		`<details class="action-confirmation">`,
+		`<details class="action-confirmation" open={post.RemoveErrorOpen}>`,
+		`<details class="action-confirmation" open={reply.RemoveErrorOpen}>`,
 		"Remove post",
 		"Remove reply",
 		`value="remove-locker-item"`,
@@ -32,6 +34,26 @@ func TestLockerRemoveExposesNativeConfirmation(t *testing.T) {
 	}
 	if count := strings.Count(body, `value="remove-locker-item"`); count != 2 {
 		t.Errorf("locker template has %d remove-locker-item confirmations, want 2 (post and reply)", count)
+	}
+}
+
+// TestLockerRemoveErrorRendersBesideItsOwnControl is J6 F26's own
+// regression test (2026-09-04 audit): the removal confirmation error used
+// to render as a lowercase fragment in a page-top notice, out of sight of
+// the disclosure it described, with the disclosure already re-collapsed.
+func TestLockerRemoveErrorRendersBesideItsOwnControl(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(source)
+	for _, marker := range []string{
+		`<If cond={post.RemoveError}><p class="error-message">{post.RemoveError}</p></If>`,
+		`<If cond={reply.RemoveError}><p class="error-message">{reply.RemoveError}</p></If>`,
+	} {
+		if !strings.Contains(body, marker) {
+			t.Errorf("locker template missing inline remove-error marker %q", marker)
+		}
 	}
 }
 

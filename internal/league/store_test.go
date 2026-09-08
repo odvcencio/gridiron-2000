@@ -1716,6 +1716,50 @@ func TestSetNotifyPref(t *testing.T) {
 	}
 }
 
+// TestSetUIPreferenceRoundTripsThroughTheSameNotifyPrefsMap pins J5 F37's
+// own storage decision: the arrival strip's dismissal flag reuses
+// SetNotifyPref's per-member map (no schema migration, no new table) but
+// through a separate write path with no category whitelist — a
+// SetUIPreference key must never collide with, or be gated by,
+// notificationPreferenceCategoryAllowed.
+func TestSetUIPreferenceRoundTripsThroughTheSameNotifyPrefsMap(t *testing.T) {
+	store := newTestStore(t)
+
+	if err := store.SetUIPreference("", "ui.arrival_strip_dismissed", true); err == nil {
+		t.Error("empty email accepted")
+	}
+	if err := store.SetUIPreference("a@example.com", "", true); err == nil {
+		t.Error("empty key accepted")
+	}
+	if got := store.UIPreference("a@example.com", "ui.arrival_strip_dismissed"); got != false {
+		t.Fatalf("UIPreference before any write = %v, want the honest false zero value", got)
+	}
+
+	if err := store.SetUIPreference("a@example.com", "ui.arrival_strip_dismissed", true); err != nil {
+		t.Fatalf("SetUIPreference: %v", err)
+	}
+	if got := store.UIPreference("a@example.com", "ui.arrival_strip_dismissed"); got != true {
+		t.Fatalf("UIPreference after dismissal = %v, want true", got)
+	}
+	if got := store.UIPreference(" A@Example.com ", "ui.arrival_strip_dismissed"); got != true {
+		t.Fatalf("UIPreference did not canonicalize email casing/whitespace: %v", got)
+	}
+
+	// The same underlying map SetNotifyPref writes, confirming no schema
+	// migration: the key just sits beside the real notification
+	// categories under a "ui." prefix nothing else uses.
+	snapshot := store.Snapshot()
+	if got, ok := snapshot.NotifyPrefs["a@example.com"]["ui.arrival_strip_dismissed"]; !ok || got != true {
+		t.Fatalf("dismissal flag not stored in NotifyPrefs: %+v", snapshot.NotifyPrefs)
+	}
+
+	// A key this deliberately unchecked write path uses must never pass
+	// the real notification catalog's whitelist through SetNotifyPref.
+	if err := store.SetNotifyPref("a@example.com", "ui.arrival_strip_dismissed", true); err == nil {
+		t.Error("SetNotifyPref accepted the UI-preference key; it must stay outside the notification catalog whitelist")
+	}
+}
+
 // TestResetDraftClearsClockAndAutopick checks that both ResetDraft and
 // ResetLeague zero every clock field and the Autopick map.
 func TestResetDraftClearsClockAndAutopick(t *testing.T) {

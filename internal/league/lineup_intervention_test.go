@@ -93,6 +93,77 @@ func TestCommissionerLineupViewTargetIsClaimedAndScoped(t *testing.T) {
 	}
 }
 
+// TestCommissionerLineupViewTargetAcceptsSeatCode pins F10 (J4 console
+// gap-audit): the console prints each team's short seat code (its
+// Abbreviation) in the attention panel, activity feed, draft order, and
+// badge picker — not the internal team-N id. Before this test's fix,
+// pasting that exact code into ?team= missed the ID-only match, fell
+// through to "unknown target", and silently returned the commissioner's
+// own team with no error, so a commissioner following the console's own
+// visible identifier could edit the wrong team without knowing it.
+func TestCommissionerLineupViewTargetAcceptsSeatCode(t *testing.T) {
+	service, _, _, _ := claimedLineupViewService(t)
+	var code string
+	for _, team := range service.Teams() {
+		if team.ID == "team-2" {
+			code = team.Abbreviation
+		}
+	}
+	if code == "" {
+		t.Fatal("team-2 seat code not found in service.Teams()")
+	}
+
+	byCode := authenticatedLineupRequest(t, "commissioner-lineup@example.com", "Commissioner", "/team?team="+code+"&week=2")
+	data := service.TeamData(byCode)
+	if data["lineup_intervention"] != true || data["lineup_target_id"] != "team-2" {
+		t.Fatalf("commissioner target by seat code %q = %#v", code, data)
+	}
+	team, ok := data["team"].(map[string]any)
+	if !ok || team["id"] != "team-2" {
+		t.Fatalf("commissioner target by seat code %q resolved team = %#v", code, data["team"])
+	}
+
+	// A lowercase paste of the same code must resolve identically — a
+	// commissioner retyping a code from memory should not need to match
+	// its case exactly.
+	lower := authenticatedLineupRequest(t, "commissioner-lineup@example.com", "Commissioner", "/team?team="+strings.ToLower(code)+"&week=2")
+	lowerData := service.TeamData(lower)
+	if lowerData["lineup_intervention"] != true || lowerData["lineup_target_id"] != "team-2" {
+		t.Fatalf("commissioner target by lowercased seat code %q = %#v", code, lowerData)
+	}
+
+	if !service.LineupTargetAllowed(byCode, code) {
+		t.Fatalf("LineupTargetAllowed rejected the console's own seat code %q", code)
+	}
+}
+
+// TestCommissionerLineupViewTargetOwnSeatCodeIsNotAnIntervention checks
+// that requesting the commissioner's own seat by its code (not its id)
+// still reads as "my own team", not a cross-seat intervention — the
+// resolved team.ID, not the raw requested string, must drive that
+// comparison (F10 fix).
+func TestCommissionerLineupViewTargetOwnSeatCodeIsNotAnIntervention(t *testing.T) {
+	service := newTestService(t, false)
+	if _, err := service.AssignManager("own-code-commissioner@example.com", "Commissioner"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COMMISSIONER_EMAILS", "own-code-commissioner@example.com")
+	var ownCode string
+	for _, team := range service.Teams() {
+		if team.ID == "team-1" {
+			ownCode = team.Abbreviation
+		}
+	}
+	if ownCode == "" {
+		t.Fatal("team-1 seat code not found in service.Teams()")
+	}
+	request := authenticatedLineupRequest(t, "own-code-commissioner@example.com", "Commissioner", "/team?team="+ownCode+"&week=1")
+	data := service.TeamData(request)
+	if data["lineup_intervention"] == true || data["lineup_target_id"] != "team-1" {
+		t.Fatalf("own seat by its own code read as an intervention: %#v", data)
+	}
+}
+
 func TestSeatlessCommissionerMayEnterClaimedLineupIntervention(t *testing.T) {
 	service := newTestService(t, false)
 	if _, err := service.AssignManager("lineup-primary-seatless@example.com", "Primary"); err != nil {

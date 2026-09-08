@@ -91,6 +91,29 @@ func stringField(m map[string]any, key string) string {
 	return value
 }
 
+// arrivalStripShown resolves J5 F37's own gate: a seated, non-demo member
+// whose team has no explicitly saved lineup for the current week, and who
+// has not already dismissed the strip on an earlier visit. A seatless
+// viewer (no team_id) or a demo request (DismissArrivalStrip always
+// unauthenticated there) never sees it.
+func arrivalStripShown(ctx *route.RouteContext, viewer map[string]any, signedIn, hasSeat bool) bool {
+	if !signedIn || !hasSeat {
+		return false
+	}
+	if boolField(viewer, "demo") {
+		return false
+	}
+	teamID := stringField(viewer, "team_id")
+	if teamID == "" {
+		return false
+	}
+	svc := league.Default()
+	if svc.TeamHasSavedLineupThisWeek(teamID) {
+		return false
+	}
+	return !svc.ArrivalStripDismissed(ctx.Request)
+}
+
 func boolField(m map[string]any, key string) bool {
 	value, _ := m[key].(bool)
 	return value
@@ -224,6 +247,7 @@ func init() {
 			data["co_manager_welcome_shown"] = comgrShown
 			data["co_manager_welcome_team_name"] = comgrTeamName
 			data["co_manager_welcome_primary_first_name"] = comgrPrimaryFirstName
+			data["arrival_strip_shown"] = arrivalStripShown(ctx, viewer, signedIn, hasSeat)
 			if actionCenter, ok := data["action_center"].(map[string]any); ok {
 				card := dashboardActionCenter(actionCenter)
 				isCommissioner, _ := viewer["is_commissioner"].(bool)

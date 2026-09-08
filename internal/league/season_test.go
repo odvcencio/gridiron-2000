@@ -284,6 +284,45 @@ func TestAdminWeekCloseInfoSeparatesReadinessFromOverride(t *testing.T) {
 	}
 }
 
+// TestAdminWeekCloseInfoNamesAStaleFeed pins F21 (J4 console gap-audit): a
+// week-close reason like "waiting for N of M games to go final" reads as
+// "the games have not been played yet". When the real cause is a stat
+// feed that stopped refreshing days before this week's own last kickoff,
+// StaleFeedNotice must name that fetch time (league-local) and what the
+// commissioner can do, regardless of which fact Reason itself reports.
+func TestAdminWeekCloseInfoNamesAStaleFeed(t *testing.T) {
+	svc := schedulerTestService(t)
+	schedule := svc.store.Snapshot().Schedule
+	week := schedule.Weeks[0].Week
+	kickoff := time.Date(2026, 9, 10, 20, 20, 0, 0, time.UTC)
+	staleFetch := time.Date(2026, 9, 4, 9, 15, 0, 0, time.UTC) // days before kickoff
+	now := kickoff.Add(6 * 24 * time.Hour)
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: week, Kickoff: kickoff, Final: false}}
+	})
+	svc.SetStatsUpdatedSource(func() time.Time { return staleFetch })
+
+	info := svc.AdminWeekCloseInfo(week, now)
+	if info.StaleFeedNotice == "" {
+		t.Fatalf("StaleFeedNotice empty for a fetch %s before kickoff %s", staleFetch, kickoff)
+	}
+	if !strings.Contains(info.StaleFeedNotice, "Sep 4") {
+		t.Fatalf("StaleFeedNotice = %q, want the fetch time in league-local terms", info.StaleFeedNotice)
+	}
+	if !strings.Contains(info.StaleFeedNotice, "Force the close") {
+		t.Fatalf("StaleFeedNotice = %q, want to say what the commissioner can do", info.StaleFeedNotice)
+	}
+
+	// A fetch that lands AFTER the last kickoff carries no stale-feed
+	// notice — the feed is current even though the games have not yet
+	// gone final.
+	svc.SetStatsUpdatedSource(func() time.Time { return kickoff.Add(time.Hour) })
+	fresh := svc.AdminWeekCloseInfo(week, now)
+	if fresh.StaleFeedNotice != "" {
+		t.Fatalf("StaleFeedNotice = %q, want empty once the fetch is after kickoff", fresh.StaleFeedNotice)
+	}
+}
+
 func TestAdminWeekCloseInfoFailsClosedWhenKickoffTimingIsUnavailable(t *testing.T) {
 	svc := schedulerTestService(t)
 	schedule := svc.store.Snapshot().Schedule
@@ -357,12 +396,9 @@ func TestConsoleSeasonStateSentenceNamesWeekProgressInWords(t *testing.T) {
 	week := svc.store.Snapshot().Schedule.Weeks[0].Week
 	kickoff := time.Date(2026, 9, 10, 20, 20, 0, 0, time.UTC)
 
-	// regularSeasonState stamps Phase explicitly (rather than relying on
-	// SeasonPhase's own now-vs-seasonStartAt() derivation, which the
-	// neutral test fixture's far-future placeholder start date would
-	// otherwise always resolve to "preseason"): consoleSeasonStateSentence
-	// takes state as a parameter precisely so a caller who already knows
-	// the phase never has to fight that placeholder to prove it.
+	// regularSeasonState stamps Phase explicitly, matching the persisted
+	// shape a schedule takes on once generated (state.Phase itself is set
+	// at other transitions, not by this test's own fixture setup).
 	regularSeasonState := func() PersistedState {
 		state := svc.store.Snapshot()
 		state.Phase = PhaseRegularSeason
@@ -373,26 +409,80 @@ func TestConsoleSeasonStateSentenceNamesWeekProgressInWords(t *testing.T) {
 		return []GameInfo{{Week: week, Kickoff: kickoff, Final: false}}
 	})
 	before := kickoff.Add(-2 * time.Hour)
-	if got := svc.consoleSeasonStateSentence(regularSeasonState(), before); !strings.HasPrefix(got, fmt.Sprintf("Week %d · games ", week)) {
-		t.Errorf("scheduled sentence = %q, want a %q prefix", got, fmt.Sprintf("Week %d · games ", week))
+	if got := svc.consoleSeasonStateSentence(regularSeasonState(), before); !strings.HasPrefix(got, fmt.Sprintf("Week %d starts ", week)) {
+		t.Errorf("scheduled sentence = %q, want a %q prefix", got, fmt.Sprintf("Week %d starts ", week))
 	}
 
 	inProgress := kickoff.Add(30 * time.Minute)
-	if got := svc.consoleSeasonStateSentence(regularSeasonState(), inProgress); got != fmt.Sprintf("Week %d in progress", week) {
-		t.Errorf("in-progress sentence = %q, want %q", got, fmt.Sprintf("Week %d in progress", week))
+	if got := svc.consoleSeasonStateSentence(regularSeasonState(), inProgress); got != fmt.Sprintf("Week %d in progress · 0 of 1 games final", week) {
+		t.Errorf("in-progress sentence = %q, want %q", got, fmt.Sprintf("Week %d in progress · 0 of 1 games final", week))
 	}
 
 	svc.SetScheduleSource(func() []GameInfo {
 		return []GameInfo{{Week: week, Kickoff: kickoff, Final: true}}
 	})
 	after := kickoff.Add(3 * time.Hour)
-	if got := svc.consoleSeasonStateSentence(regularSeasonState(), after); got != fmt.Sprintf("Week %d awaiting close", week) {
-		t.Errorf("awaiting-close sentence = %q, want %q", got, fmt.Sprintf("Week %d awaiting close", week))
+	if got := svc.consoleSeasonStateSentence(regularSeasonState(), after); got != fmt.Sprintf("Week %d awaiting close · 1 of 1 final", week) {
+		t.Errorf("awaiting-close sentence = %q, want %q", got, fmt.Sprintf("Week %d awaiting close · 1 of 1 final", week))
 	}
 
 	for _, notWant := range []string{"regular-season", "COMPLETE", "·COMPLETE"} {
 		if got := svc.consoleSeasonStateSentence(regularSeasonState(), after); strings.Contains(got, notWant) {
 			t.Errorf("sentence = %q must not contain the raw enum %q", got, notWant)
 		}
+	}
+}
+
+// TestConsoleSeasonStateSentenceIgnoresSeasonStartAtOnceScheduleExists is
+// a coordinator follow-up to F1/F21 (2026-09-08 wave C): a post-draft
+// league whose configured SEASON_START_AT still lay ahead of now used to
+// read state.Phase == "" as "preseason" purely from that comparison, even
+// with a real schedule and real games in progress. The attention panel
+// then rendered that bare "Preseason." beside AdminWeekCloseInfo's own
+// Reason ("waiting for N of M games to go final"), producing "Preseason.
+// waiting for 16 of 16 games to go final" — two true facts glued into one
+// false one. The word "Preseason" must name exactly one state now: no
+// schedule exists yet. Once a schedule exists, the sentence always states
+// week progress, regardless of season_start_at.
+func TestConsoleSeasonStateSentenceIgnoresSeasonStartAtOnceScheduleExists(t *testing.T) {
+	svc := schedulerTestService(t)
+	week := svc.store.Snapshot().Schedule.Weeks[0].Week
+	kickoff := time.Date(2026, 9, 10, 20, 20, 0, 0, time.UTC)
+	// A season_start_at safely ahead of every instant this test checks:
+	// the bug reproduces exactly when the configured cutoff has not
+	// passed yet even though the schedule (and its games) already have.
+	t.Setenv("SEASON_START_AT", "2026-12-31T00:00:00Z")
+
+	// unstampedState leaves Phase == "" (its real, persisted shape before
+	// closeWeek or a playoff transition first stamps it) — the exact
+	// shape that used to fall through to now-vs-seasonStartAt().
+	unstampedState := func() PersistedState {
+		state := svc.store.Snapshot()
+		state.Phase = ""
+		return state
+	}
+
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: week, Kickoff: kickoff, Final: false}}
+	})
+	beforeKickoff := kickoff.Add(-2 * time.Hour)
+	if got := svc.consoleSeasonStateSentence(unstampedState(), beforeKickoff); got == "Preseason." {
+		t.Fatalf("sentence before kickoff = %q, want week-progress text even though season_start_at has not passed", got)
+	} else if !strings.HasPrefix(got, fmt.Sprintf("Week %d starts ", week)) {
+		t.Errorf("sentence before kickoff = %q, want a %q prefix", got, fmt.Sprintf("Week %d starts ", week))
+	}
+
+	inProgress := kickoff.Add(30 * time.Minute)
+	if got := svc.consoleSeasonStateSentence(unstampedState(), inProgress); got != fmt.Sprintf("Week %d in progress · 0 of 1 games final", week) {
+		t.Errorf("in-progress sentence = %q, want %q", got, fmt.Sprintf("Week %d in progress · 0 of 1 games final", week))
+	}
+
+	// Only an unscheduled league (no schedule generated at all) still
+	// reads "Preseason.".
+	empty := svc.store.Snapshot()
+	empty.Schedule = nil
+	empty.Phase = ""
+	if got := svc.consoleSeasonStateSentence(empty, beforeKickoff); got != "Preseason." {
+		t.Errorf("no-schedule sentence = %q, want %q", got, "Preseason.")
 	}
 }

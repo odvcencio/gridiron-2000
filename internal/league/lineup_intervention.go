@@ -22,16 +22,25 @@ type lineupViewTarget struct {
 // valid commissioner lineup targets. Demo rehearsal treats every active
 // configured team as a synthetic claimed seat so the local commissioner
 // rehearsal can exercise the same lineup-only surface.
+//
+// requested matches either a team's stable ID (team-3) or its short seat
+// code (its Abbreviation, case-insensitive — AQ3, matching the code the
+// console itself prints in the attention panel, activity feed, draft
+// order, and badge picker). F10 (J4 console gap-audit): before this, only
+// an exact ID matched, so pasting the very code the console showed missed
+// silently and this fell through to the "unknown target" path below,
+// which the caller then read as "use the viewer's own seat instead" —
+// landing a commissioner on their own team with no error.
 func (s *Service) claimedLineupTeam(state PersistedState, requested string) (Team, bool) {
 	requested = strings.TrimSpace(requested)
 	if requested == "" {
 		return Team{}, false
 	}
 	for _, candidate := range s.Teams() {
-		if candidate.ID != requested {
+		if candidate.ID != requested && !strings.EqualFold(candidate.Abbreviation, requested) {
 			continue
 		}
-		team := s.teamView(state, requested)
+		team := s.teamView(state, candidate.ID)
 		if s.demoMode || strings.TrimSpace(team.Manager) != "" {
 			return team, true
 		}
@@ -53,13 +62,18 @@ func (s *Service) lineupViewTargetForRequest(r *http.Request, state PersistedSta
 	if !s.IsCommissioner(r) || requested == "" {
 		return lineupViewTarget{TeamID: ownTeamID}
 	}
-	if _, ok := s.claimedLineupTeam(state, requested); !ok {
+	team, ok := s.claimedLineupTeam(state, requested)
+	if !ok {
 		return lineupViewTarget{TeamID: ownTeamID}
 	}
-	if requested == ownTeamID {
+	// team.ID, not requested: requested may be a seat code (AQ3) that
+	// resolved above, and comparing the raw code against ownTeamID (a
+	// team-N id) would never match, misreading the commissioner's own
+	// franchise as an intervention target.
+	if team.ID == ownTeamID {
 		return lineupViewTarget{TeamID: ownTeamID}
 	}
-	return lineupViewTarget{TeamID: requested, Intervention: true}
+	return lineupViewTarget{TeamID: team.ID, Intervention: true}
 }
 
 // lineupInterventionAudit reports whether a SetLineup/LineupAuto call

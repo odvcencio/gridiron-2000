@@ -204,17 +204,20 @@ func TestAdminTaskBoardListsWaiversTradesScoringAndLog(t *testing.T) {
 	}
 }
 
-// TestAdminClockAndPlayoffEmptyCellsHaveFallbackText pins J2 F17: three
-// console cells rendered as a label with nothing beside it — an unarmed
-// clock's Deadline, and the Playoff Truth card's Source before any
-// bracket exists. Both now print a stated reason instead of nothing.
+// TestAdminClockAndPlayoffEmptyCellsHaveFallbackText pins J2 F17 and its
+// later J4 F31 follow-up: three console cells rendered as a label with
+// nothing beside it — an unarmed clock's Deadline, and the Playoff Truth
+// card's Source, Final week, and Revision before any bracket exists. All
+// now print a stated placeholder instead of nothing (Source) or a bare,
+// meaningless 0 (Final week, Revision) — one consistent phrase across the
+// three playoff-truth cells rather than a phrase unique to Source alone.
 func TestAdminClockAndPlayoffEmptyCellsHaveFallbackText(t *testing.T) {
 	body := renderAdminPage(t)
 	if !strings.Contains(body, "no pick is armed") {
 		t.Error("unarmed Deadline cell has no fallback text")
 	}
-	if !strings.Contains(body, "no bracket yet") {
-		t.Error("empty playoff-truth Source cell has no fallback text")
+	if got := strings.Count(body, "none yet"); got != 3 {
+		t.Errorf("playoff-truth cells show %d \"none yet\" placeholders before any bracket exists, want 3 (source, final week, revision)", got)
 	}
 	if strings.Contains(body, "<span>Deadline</span>\n\t\t\t\t\t\t\t\t<b class=\"mono\"></b>") {
 		t.Error("Deadline cell can still render fully empty")
