@@ -2,6 +2,8 @@
 package actionui
 
 import (
+	"fmt"
+	"net/http"
 	"strings"
 
 	"m31labs.dev/gosx/action"
@@ -68,6 +70,56 @@ func RedirectWithNoticeToRow(ctx *action.Context, target, message string) {
 		session.AddFlash(ctx.Request, "notice", message)
 	}
 	ctx.RedirectWithMessage(target, message)
+}
+
+// noticeFlashKey scopes a flash to the page that owns it (F15, gap-audit
+// J6): every page's action handler used to write the SAME "notice" flash
+// key, and every page's own Load read that same key back — so a manager
+// who submitted a form on one page and opened a different one before
+// following its redirect saw that OTHER page's confirmation instead. A
+// route-scoped key means only the page that wrote it, reading this same
+// scoped key back, will ever see it; another page's own unscoped
+// "notice" read is untouched and cannot accidentally consume it either.
+func noticeFlashKey(route string) string {
+	return "notice:" + route
+}
+
+// RedirectBackWithScopedNotice is RedirectBackWithNotice, but the flash it
+// writes is readable only by ScopedNotice(request, route) for the SAME
+// route — see noticeFlashKey's doc comment. New call sites should prefer
+// this over RedirectBackWithNotice; existing pages migrate as they are
+// touched, not all at once, since each migration is a paired write/read
+// change on one page.
+func RedirectBackWithScopedNotice(ctx *action.Context, route, fallback, message string) {
+	if ctx == nil {
+		return
+	}
+	message = strings.TrimSpace(message)
+	managed := action.WantsJSON(ctx.Request)
+	if message != "" && !managed {
+		session.AddFlash(ctx.Request, noticeFlashKey(route), message)
+	}
+	if managed {
+		ctx.RedirectWithMessage(stripFragment(fallback), message)
+		return
+	}
+	ctx.RedirectBackWithMessage(fallback, message)
+}
+
+// ScopedNotice reads back the one flash RedirectBackWithScopedNotice (or a
+// future scoped writer) stored for route, and only for route: a flash
+// written for a different page is left alone here, exactly as if this
+// page had never called Flashes at all.
+func ScopedNotice(r *http.Request, route string) (string, bool) {
+	store := session.Current(r)
+	if store == nil {
+		return "", false
+	}
+	flashes := store.Flashes(noticeFlashKey(route))
+	if len(flashes) == 0 {
+		return "", false
+	}
+	return strings.TrimSpace(fmt.Sprint(flashes[0])), true
 }
 
 // RedirectBackWithNotice preserves the existing native POST-redirect-GET

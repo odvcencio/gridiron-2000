@@ -18,7 +18,6 @@ import (
 	"m31labs.dev/gosx/ir"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
-	"m31labs.dev/gosx/session"
 )
 
 // wireFilterOption is one entry in the wire page's category filter strip
@@ -449,7 +448,7 @@ func init() {
 				if err != nil {
 					return wireValidationWithRedirect(ctx, wireRedirectTarget(ctx.FormData["category"]), err)
 				}
-				actionui.RedirectBackWithNotice(ctx, wireRedirectTarget(ctx.FormData["category"]), "Your tip is on the wire.")
+				actionui.RedirectBackWithScopedNotice(ctx, wireNoticeRoute, wireRedirectTarget(ctx.FormData["category"]), "Your tip is on the wire.")
 				return nil
 			},
 		},
@@ -1051,14 +1050,20 @@ func signalRetained(signal signalwire.Signal, status signalwire.Status, now time
 	return false
 }
 
+// wireNoticeRoute is the page /wire's own confirmations are scoped to
+// (F15, gap-audit J6): the sighting form's confirmation used to read the
+// same untagged session flash every other page's own action reads, so a
+// manager who submitted a tip and opened /locker before following the
+// redirect saw the Wire's confirmation banner on the Locker Room page
+// instead. See internal/actionui.RedirectBackWithScopedNotice.
+const wireNoticeRoute = "/wire"
+
 func applySubmissionState(ctx *route.RouteContext, data map[string]any) {
 	data["has_notice"] = false
 	data["notice"] = ""
-	if store := session.Current(ctx.Request); store != nil {
-		if flashes := store.Flashes("notice"); len(flashes) > 0 {
-			data["has_notice"] = true
-			data["notice"] = fmt.Sprint(flashes[0])
-		}
+	if notice, ok := actionui.ScopedNotice(ctx.Request, wireNoticeRoute); ok {
+		data["has_notice"] = true
+		data["notice"] = notice
 	}
 	data["has_submit_error"] = false
 	data["submit_error"] = ""
