@@ -3339,24 +3339,30 @@ func Page() Node {
 			</div>
 		</header>
 		</If>
+		{/* comb — yew (2026-09-08 wave E), J1 F11 residue: the on-clock
+		    controls (this pick bar's own Draft button/confirm sheet, and
+		    the pool pane's own per-row Draft controls just below) used to
+		    sit AFTER the whole history/tape pane, and after every one of
+		    the tab bar's own Pool/Big Board/Picks/Draft grid/Teams
+		    stops, in the DOM — a keyboard user tabbing straight through
+		    (not using rowan's skip link) walked every tape row, and
+		    every tab, before reaching either one. The pick bar region
+		    now sits here, right after the command bar and ahead of the
+		    tab bar, and the pool pane (below) leads the panes group,
+		    both ahead of history in DOM order. Visual layout is
+		    unchanged: .draft-pickbar-region/.draft-pane--available/
+		    .draft-pane--history/.draft-pane--mine all carry an explicit
+		    CSS order matching today's rendered position (public/
+		    styles.css), so this is a DOM-order-only, tab-order-only
+		    change. */}
+		<div class="draft-pickbar-region" data-gosx-region data-gosx-region-url={data.fragment_base + "/pickbar"} data-gosx-region-on="draft:pick draft:undo draft:clock draft:seat draft:state">
+			<DraftPickBar {...data.available}></DraftPickBar>
+		</div>
 		<DraftMobileTabs Complete={data.draft.complete} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams} TapeExplicit={data.history_tape_explicit} PicksHref={data.history_tape_href} BoardHref={data.history_board_href} TeamsHref={data.history_teams_href}></DraftMobileTabs>
 		<div class="draft-panes" data-history-board={data.history_view_board}>
 			<If cond={data.draft.started == false}>
 				<DraftPreflight {...data.preflight}></DraftPreflight>
 			</If>
-			<section class="draft-pane draft-pane--history" aria-labelledby="draft-history-title">
-				<DraftHistoryHead Started={data.draft.started} Complete={data.draft.complete} ShowTape={data.history_view_tape} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams} TapeHref={data.history_tape_href} BoardHref={data.history_board_href} TeamsHref={data.history_teams_href}></DraftHistoryHead>
-				<If cond={data.live_mode == "target"}>
-				<div class="draft-pane__body">
-					<DraftHistory {...data.history}></DraftHistory>
-				</div>
-				</If>
-				<If cond={data.live_mode != "target"}>
-				<div class="draft-pane__body" data-gosx-region data-gosx-region-url={data.history_tape_url} data-gosx-region-on="draft:pick draft:undo draft:state" data-gosx-region-interval={data.region_interval}>
-					<DraftHistory {...data.history}></DraftHistory>
-				</div>
-				</If>
-			</section>
 			<section class="draft-pane draft-pane--available" aria-labelledby="draft-available-title">
 				<DraftAvailableHead RoomPath={data.room_path} SearchPlaceholder={data.available_search_placeholder} Query={data.pool_query} Position={data.pool_position} Sort={data.pool_sort} Positions={data.pool_position_chips} SortOptions={data.pool_sort_options}></DraftAvailableHead>
 				<If cond={data.live_mode == "target"}>
@@ -3369,6 +3375,19 @@ func Page() Node {
 				<If cond={data.live_mode != "target"}>
 				<div id="draft-available-list" class="draft-pane__body" data-gosx-region data-gosx-region-url={data.draft_available_region_url} data-gosx-region-on="draft:pick draft:undo draft:state" data-gosx-region-interval={data.region_interval}>
 					<DraftAvailable {...data.available}></DraftAvailable>
+				</div>
+				</If>
+			</section>
+			<section class="draft-pane draft-pane--history" aria-labelledby="draft-history-title">
+				<DraftHistoryHead Started={data.draft.started} Complete={data.draft.complete} ShowTape={data.history_view_tape} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams} TapeHref={data.history_tape_href} BoardHref={data.history_board_href} TeamsHref={data.history_teams_href}></DraftHistoryHead>
+				<If cond={data.live_mode == "target"}>
+				<div class="draft-pane__body">
+					<DraftHistory {...data.history}></DraftHistory>
+				</div>
+				</If>
+				<If cond={data.live_mode != "target"}>
+				<div class="draft-pane__body" data-gosx-region data-gosx-region-url={data.history_tape_url} data-gosx-region-on="draft:pick draft:undo draft:state" data-gosx-region-interval={data.region_interval}>
+					<DraftHistory {...data.history}></DraftHistory>
 				</div>
 				</If>
 			</section>
@@ -3386,9 +3405,6 @@ func Page() Node {
 				</div>
 				</If>
 			</section>
-		</div>
-		<div data-gosx-region data-gosx-region-url={data.fragment_base + "/pickbar"} data-gosx-region-on="draft:pick draft:undo draft:clock draft:seat draft:state">
-			<DraftPickBar {...data.available}></DraftPickBar>
 		</div>
 		<If cond={data.viewer.is_commissioner}><DraftCommissionerDrawer {...data.command}></DraftCommissionerDrawer></If>
 	</main>

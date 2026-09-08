@@ -19971,3 +19971,43 @@ body.is-on-clock .draft-command__pill-sentence {
     overflow-y: visible;
   }
 }
+
+/* J1 F11 residue: the pick bar region and the available (pool) pane
+   moved earlier in app/draft/page.gsx's own DOM order (right after the
+   tab bar, and leading the panes group) so a keyboard user tabbing
+   straight through the room — not using rowan's own skip link — reaches
+   the on-clock Draft control in a handful of stops instead of walking
+   the whole history/tape pane first. Neither move is meant to change
+   what renders where: these order values put both back at their
+   original visual position.
+   Desktop (.draft-panes is a 3-column grid, min-width: 56.25rem — see
+   this file's own .draft-panes block): with no order at all, the new
+   DOM order (available, history, mine) would auto-place into columns
+   in that same sequence — available in the narrow 360px left column,
+   history in the flexible middle. These orders keep the original
+   left-to-right sequence (history, available, mine) regardless of DOM
+   order.
+   Phone (max-width: 56.1875rem, .draft-shell's own 5-row grid, this
+   file's own .draft-tabbar { order: 2; } two rules up): the pick bar's
+   region div used to land in the "pickbar" row (row 4, right before
+   the tab bar's own explicit order: 2) for free, by being the next
+   default-order (0) sibling after .draft-panes in DOM order. Moved
+   ahead of .draft-panes, it needs its own explicit order — 1, between
+   the shell's other default-order (0) siblings (notice, command,
+   panes) and the tab bar's 2 — to land in that same row 4 slot. */
+@media (min-width: 56.25rem) {
+  .draft-panes > .draft-pane--history {
+    order: 1;
+  }
+  .draft-panes > .draft-pane--available {
+    order: 2;
+  }
+  .draft-panes > .draft-pane--mine {
+    order: 3;
+  }
+}
+@media (width <= 899px) {
+  .draft-pickbar-region {
+    order: 1;
+  }
+}

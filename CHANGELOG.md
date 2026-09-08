@@ -10,6 +10,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The activity feed now leads a draft-pick line with the team's name, with its code as a small secondary chip, even for an autopick or a commissioner-forced pick. It no longer repeats the code inside a combined "Autopick for Team (CODE)" sentence.
 - The draft room's player pool no longer shows a stray "DETAILS" label over the projection value when you open a player's news. The news icon stays in its own fixed column, closed or open, on a phone or a desktop.
 - On a phone, the draft room's Big Board queue now scrolls with the pane around it instead of in its own separate scroll box nested inside it.
+- A keyboard manager tabbing through the draft room now reaches the on-clock Draft control in a handful of tab stops instead of walking the whole pick history first. The room looks the same either way.
 
 ## [release-2026.09.08-97027d0-season3] — 2026-09-08
 
