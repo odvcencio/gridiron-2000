@@ -68,6 +68,16 @@ func playersFragmentURL(request *http.Request, kind string) string {
 				values.Set("page", strconv.Itoa(parsed))
 			}
 		}
+		// avail (J1 F23, 2026-09-07 UX pass): this fragment's own region
+		// (data-gosx-region-url, page.gsx) refetches PlayersData with a
+		// FRESH request built from this URL alone — a request that
+		// carries no "avail" here silently re-resolved the server's own
+		// smart default (free agents once the draft is complete),
+		// overwriting an explicit "?avail=all" moments after first
+		// paint. Carried through exactly like pos/q/page above.
+		if avail := query.Get("avail"); avail != "" {
+			values.Set("avail", avail)
+		}
 	}
 	target := "/players/fragment/" + kind
 	if encoded := values.Encode(); encoded != "" {

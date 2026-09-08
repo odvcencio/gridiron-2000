@@ -264,23 +264,27 @@ func PlayerPoolRegion() Node {
 		    "who can I add" are two different questions, and the pool
 		    used to answer only the first by default — a manager hunting
 		    for a free agent paged through screens of rostered names
-		    first. This toggle is always visible (never hidden behind
-		    the Filters disclosure below), and PlayersData
+		    first. The availability toggle lives inside the same Filters
+		    disclosure the position chips already use (a second
+		    always-visible row broke the collapsed-rail contract at
+		    phone width, fern's own mobile-parity fix); PlayersData
 		    (internal/league/players.go) already defaults it to "Free
-		    agents" once the draft is complete. */}
-		<div class="position-filters pool-availability-filter" aria-label="Filter by availability">
-			<a href={data.avail_free_href} data-gosx-link class="filter-button" aria-current={data.avail == "free"}>Free agents</a>
-			<a href={data.avail_all_href} data-gosx-link class="filter-button" aria-current={data.avail != "free"}>All players</a>
-		</div>
+		    agents" once the draft is complete, and the summary below
+		    names it when active. */}
 		<details class="pool-filter-disclosure">
 			<summary>
 				<span>Filters</span>
 				<span class="pool-filter-disclosure__active mono">
+					<If cond={data.avail == "free"}>FREE AGENTS</If>
 					<Each of={data.positions} as="tab">
 						<If cond={tab.active}>{tab.label}</If>
 					</Each>
 				</span>
 			</summary>
+			<div class="position-filters pool-availability-filter" aria-label="Filter by availability">
+				<a href={data.avail_free_href} data-gosx-link class="filter-button" aria-current={data.avail == "free"}>Free agents</a>
+				<a href={data.avail_all_href} data-gosx-link class="filter-button" aria-current={data.avail != "free"}>All players</a>
+			</div>
 			<div class="position-filters" aria-label="Filter the player pool by position">
 				<Each of={data.positions} as="tab">
 					<a href={tab.href} data-gosx-link class="filter-button" aria-current={tab.active}>{tab.label}</a>

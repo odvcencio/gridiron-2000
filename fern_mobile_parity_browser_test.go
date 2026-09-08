@@ -120,6 +120,16 @@ func TestBrowserPlayersFilterDisclosureShowsActiveChipAndOpens(t *testing.T) {
 // once the draft has completed (draft-complete players carry the
 // shortest, most representative row shape — no locked "roster moves
 // open after the draft" reason text crowding the action column).
+// "?avail=all" (J1 F23, 2026-09-07 UX pass): PlayersData now defaults an
+// unfiltered post-draft view to free agents only, and this fully-drafted
+// fixture's own viewer sits at roster cap, so every free-agent row would
+// need its own add-and-drop select and confirmation disclosure — a
+// taller, real row shape, but not the one this test measures. "?avail=all"
+// keeps this check's own original, simplest-row-shape intent (and
+// exercises the fix to playersFragmentURL, page.server.go, which used to
+// drop "avail" from the pool region's own refetch URL, silently
+// overwriting an explicit "?avail=all" moments after first paint with
+// the server's own smart default).
 func TestBrowserPlayersFiveRowsVisibleAtPhoneWidth(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
@@ -129,7 +139,7 @@ func TestBrowserPlayersFiveRowsVisibleAtPhoneWidth(t *testing.T) {
 	chrome := chromePath(t)
 	ctx := newBrowserContext(t, chrome)
 	bot := league.bots[0]
-	navigateSignedInTo(t, ctx, child, bot, "/players", 390, 844)
+	navigateSignedInTo(t, ctx, child, bot, "/players?avail=all", 390, 844)
 
 	if err := chromedp.Run(ctx, chromedp.Evaluate(`(function(){
 		var r = document.querySelector('.pool-filter-rail').getBoundingClientRect();

@@ -18317,7 +18317,11 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
    already sits on its own full-width grid row (.pool-row--status's own
    nth-child rule above), so there is room to show the real name; above
    that width many rows must stay glanceable side by side, so the
-   abbreviation stays the default there. */
+   abbreviation stays the default there. Clamped to one line (fern's own
+   row-height contract, TestBrowserPlayersFiveRowsVisibleAtPhoneWidth):
+   a wrapping team name regressed a fully-drafted pool's own default
+   row height, since every top-ranked row is rostered. A truncated name
+   still reads far better than a bare two-letter code. */
 .owner-chip__name {
   display: none;
 }
@@ -18326,7 +18330,7 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
   .owner-chip {
     width: auto;
     max-width: 100%;
-    white-space: normal;
+    overflow: hidden;
   }
 
   .owner-chip__abbr {
@@ -18334,7 +18338,12 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
   }
 
   .owner-chip__name {
-    display: inline;
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
   }
 }
 
