@@ -764,3 +764,22 @@ func TestWireRefreshIntervalsAreLabeledAndDistinct(t *testing.T) {
 		t.Error("page.gsx still hard-codes the source panel's refresh cadence")
 	}
 }
+
+// TestWireCardDropsTheUnexplainedPercentage is F14's regression guard
+// (gap-audit J6): every card used to carry a blended, unlabeled percentage
+// ("PUBLISHER · 65%") with no legend anywhere on the page. The trust
+// tier word alone (already plain: "PUBLISHER", "COMMUNITY", ...) stays;
+// the bare number is gone.
+func TestWireCardDropsTheUnexplainedPercentage(t *testing.T) {
+	html := renderWireComponent(t, "SignalCard", WireSignalCard{
+		ID: "f14", Category: "news", Label: "SHARED NEWS", HasLabel: true, Text: "A signal",
+		Source: "Publisher", Evidence: "NEWS", Trust: "PUBLISHER", Confidence: "65",
+		Time: "NOW",
+	})
+	if !strings.Contains(html, `<span class="wire-event__trust mono">PUBLISHER</span>`) {
+		t.Fatalf("SignalCard trust span = %q, want the bare trust tier with no percentage", html)
+	}
+	if strings.Contains(html, "65%") || strings.Contains(html, "PUBLISHER · ") {
+		t.Fatalf("SignalCard still renders an unexplained percentage: %s", html)
+	}
+}

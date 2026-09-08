@@ -741,28 +741,28 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 		// never named attributes built from separate map keys (gosx's
 		// legacy-caller rule), so wire_configured/wire_issue are bundled
 		// here as the one struct the template spreads.
-		"wire_empty":       wireEmptyStateView(windowItems, wireStatus, category, now),
-		"source_count":     len(wireStatus.Sources) + len(wireStatus.Feeds),
-		"bluesky_count":    len(wireStatus.Sources),
-		"feed_count":       len(wireStatus.Feeds),
-		"feed_ready":       readyFeeds,
-		"feed_stale_after": wireStatus.FeedStaleAfter,
-		"feeds":            feeds,
-		"sources":          sources,
-		"can_submit":       league.Default().DemoMode() || viewer["signed_in"] == true,
-		"signal_count":     wireStatus.RelevantSignals,
-		"ignored_count":    wireStatus.IgnoredPosts + feedIgnored,
-		"deleted_count":    wireStatus.DeletedSignals,
-		"schedule_state":   dataStateLabel(openStatus.Schedules.State),
-		"schedule_rows":    openStatus.Schedules.Rows,
-		"schedule_updated": displayTime(openStatus.Schedules.LastUpdated),
-		"player_state":     dataStateLabel(openStatus.PlayerStats.State),
-		"player_rows":      openStatus.PlayerStats.Rows,
-		"player_updated":   displayTime(openStatus.PlayerStats.LastUpdated),
-		"injury_state":     dataStateLabel(openStatus.Injuries.State),
-		"injury_rows":      openStatus.Injuries.Rows,
-		"injury_updated":   displayTime(openStatus.Injuries.LastUpdated),
-		"season":           openStatus.Season,
+		"wire_empty":            wireEmptyStateView(windowItems, wireStatus, category, now),
+		"source_count":          len(wireStatus.Sources) + len(wireStatus.Feeds),
+		"bluesky_count":         len(wireStatus.Sources),
+		"feed_count":            len(wireStatus.Feeds),
+		"feed_ready":            readyFeeds,
+		"feed_stale_after":      wireStatus.FeedStaleAfter,
+		"feeds":                 feeds,
+		"sources":               sources,
+		"can_submit":            league.Default().DemoMode() || viewer["signed_in"] == true,
+		"signal_count":          wireStatus.RelevantSignals,
+		"ignored_count":         wireStatus.IgnoredPosts + feedIgnored,
+		"deleted_count":         wireStatus.DeletedSignals,
+		"schedule_state":        dataStateLabel(openStatus.Schedules.State),
+		"schedule_rows":         openStatus.Schedules.Rows,
+		"schedule_updated":      displayTime(openStatus.Schedules.LastUpdated),
+		"player_state":          dataStateLabel(openStatus.PlayerStats.State),
+		"player_rows":           openStatus.PlayerStats.Rows,
+		"player_updated":        displayTime(openStatus.PlayerStats.LastUpdated),
+		"injury_state":          dataStateLabel(openStatus.Injuries.State),
+		"injury_rows":           openStatus.Injuries.Rows,
+		"injury_updated":        displayTime(openStatus.Injuries.LastUpdated),
+		"season":                openStatus.Season,
 		"refresh_seconds":       20,
 		"source_check_interval": wireIntervalLabel(wireStatus.FeedInterval),
 	}
@@ -894,20 +894,29 @@ func pluralSuffix(count int64) string {
 // body spreading a slice entry into a strict component needs each entry
 // to carry its own proven struct type (gosx's field-coverage boundary).
 type WireSignalCard struct {
-	ID                 string
-	Category           string
-	Label              string
-	HasLabel           bool
-	Text               string
-	Source             string
-	ReportedBy         string
-	HasReporter        bool
-	Evidence           string
-	Trust              string
-	Time               string
-	URL                string
-	HasURL             bool
-	Rule               string
+	ID          string
+	Category    string
+	Label       string
+	HasLabel    bool
+	Text        string
+	Source      string
+	ReportedBy  string
+	HasReporter bool
+	Evidence    string
+	Trust       string
+	Time        string
+	URL         string
+	HasURL      bool
+	Rule        string
+	// Confidence is kept on the struct (classification.Confidence × the
+	// source's trust weight — see internal/wire's classifier and trust
+	// policy) for callers that still need the raw figure, but page.gsx no
+	// longer renders it next to Trust (F14, gap-audit J6): it is a
+	// blended, internal-only score with no single plain-language name
+	// ("relevance to your roster" would be false — the wire has no
+	// roster awareness at all), and every card already carries the one
+	// word that IS meaningful, Trust's own tier ("PUBLISHER",
+	// "COMMUNITY", ...).
 	Confidence         string
 	Corroborations     int
 	HasCorroboration   bool

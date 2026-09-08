@@ -46,7 +46,7 @@ component SignalCard(props: SignalCardProps) {
 				</If>
 				<span class="wire-event__evidence">{props.Evidence}</span>
 			</div>
-			<span class="wire-event__trust mono">{props.Trust} · {props.Confidence}%</span>
+			<span class="wire-event__trust mono">{props.Trust}</span>
 		</header>
 		<p>{props.Text}</p>
 		<footer>
