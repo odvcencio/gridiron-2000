@@ -411,6 +411,10 @@ func TestWireCopyContractsMatchFirstRenderAndFeedFragment(t *testing.T) {
 			html := renderWireComponent(t, "WireEmptyState", WireEmptyView{
 				WireConfigured: test.configured,
 				WireIssue:      "Wire is not configured.",
+				// ShowGeneric is the loader's own precomputed "configured,
+				// no category filter" flag (F4, gap-audit J6) — see
+				// WireEmptyStateProps' doc comment in page.gsx.
+				ShowGeneric: test.configured,
 			})
 			if !strings.Contains(html, test.want) {
 				t.Fatalf("feed-fragment WireEmptyState copy = %q, want %q", html, test.want)
@@ -420,6 +424,105 @@ func TestWireCopyContractsMatchFirstRenderAndFeedFragment(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestWireFilterChipsNameEmptyCategoriesAndOfferAnAlternative is F4's
+// failing-test-first reproduction (gap-audit J6): half the Wire's filter
+// chips used to return an empty page with no warning, and the empty state
+// blamed the whole wire instead of naming the chip a manager actually
+// clicked. It seeds exactly one signal (a community tip), so every other
+// chip is genuinely empty, then requests the "News" chip — also empty —
+// and checks the chip strip and the empty state both name what happened.
+func TestWireFilterChipsNameEmptyCategoriesAndOfferAnAlternative(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestWireFilterChipsFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"WIRE_RENDER_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"WIRE_ROOT="+t.TempDir(),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("wire filter-chips fixture process: %v\n%s", err, output)
+	}
+	body := string(output)
+	// The disabled "Practice" chip: zero items, no longer a link, carries
+	// its count and a reason a manager can read without hovering.
+	for _, want := range []string{
+		`class="wire-filter is-disabled control-locked"`,
+		"No practice signals right now",
+		"Practice · 0",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("wire filter chips missing %q: %s", want, body)
+		}
+	}
+	// A chip that still has items must stay a real link, never disabled.
+	if !strings.Contains(body, `class="wire-filter" href="/wire?category=community"`) {
+		t.Fatalf("wire community chip should still be a plain link: %s", body)
+	}
+	// The filtered-empty state names the active category and the window,
+	// not a generic "your wire is quiet" line, and offers the one chip
+	// that does have something on it.
+	for _, want := range []string{
+		"No news stories in the last",
+		`href="/wire?category=community"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("wire filtered-empty state missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "Your wire is quiet—not broken.") {
+		t.Fatalf("filtered-empty state should not fall back to the generic unconfigured/empty-wire copy: %s", body)
+	}
+}
+
+func TestWireFilterChipsFixtureProcess(t *testing.T) {
+	if os.Getenv("WIRE_RENDER_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
+	t.Setenv("DEMO_MODE", "true")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+	t.Setenv("WIRE_ROOT", t.TempDir())
+
+	signals, err := signalwire.Default()
+	if err != nil {
+		t.Fatalf("signalwire.Default: %v", err)
+	}
+	if _, err := signals.SubmitSighting(signalwire.CommunitySubmission{
+		ReporterID:   "demo-commissioner",
+		ReporterName: "Demo commissioner",
+		EvidenceType: "community",
+		SourceName:   "League group chat",
+		Summary:      "Starting RB1 looked limited in pregame warmups.",
+	}); err != nil {
+		t.Fatalf("seed sighting: %v", err)
+	}
+
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
+	})
+	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
+		t.Fatalf("AddDir: %v", err)
+	}
+	handler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/?category=news", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /?category=news = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	_, _ = os.Stdout.WriteString(rec.Body.String())
 }
 
 func renderWireComponent(t *testing.T, component string, props any) string {

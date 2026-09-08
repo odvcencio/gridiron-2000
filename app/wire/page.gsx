@@ -8,6 +8,7 @@ type SignalCardProps struct {
 	ID                 string
 	Category           string
 	Label              string
+	HasLabel           bool
 	Text               string
 	Source             string
 	ReportedBy         string
@@ -40,7 +41,9 @@ component SignalCard(props: SignalCardProps) {
 	return <article class={"wire-event wire-event--" + props.Category} data-wire-event={props.ID} data-wire-category={props.Category}>
 		<header>
 			<div class="wire-event__heading">
-				<span class="wire-event__label">{props.Label}</span>
+				<If cond={props.HasLabel}>
+					<span class="wire-event__label">{props.Label}</span>
+				</If>
 				<span class="wire-event__evidence">{props.Evidence}</span>
 			</div>
 			<span class="wire-event__trust mono">{props.Trust} · {props.Confidence}%</span>
@@ -105,23 +108,49 @@ func WireFeedList(props WireFeedListProps) Node {
 type WireEmptyStateProps struct {
 	WireConfigured bool
 	WireIssue      string
+	CategoryNoun   string
+	WindowLabel    string
+	HasNearest     bool
+	NearestLabel   string
+	NearestHref    string
+	// ShowGeneric/ShowFiltered are precomputed server-side (F4, gap-audit
+	// J6): a strict component's <If cond> can only test a single bool
+	// props field or that field compared with "== false", not a compound
+	// "A && B" expression, so "configured with no category filter" vs
+	// "configured with an empty category filter" have to arrive as their
+	// own already-resolved booleans rather than being computed here.
+	ShowGeneric  bool
+	ShowFiltered bool
 }
 
 // WireEmptyState is the "no signals yet" panel shown inside the wire feed
 // region — both on the page's own first render and inside the
 // data-gosx-region fragment /wire/fragment answers when a later poll finds
 // zero signals, so the two paths render byte-identical markup (see
-// FeedFragment in page.server.go).
+// FeedFragment in page.server.go). A category-filtered empty result (F4,
+// gap-audit J6) names the active filter instead of repeating the generic
+// "your wire is quiet" line that used to show for every chip regardless
+// of how many signals sat behind a different one.
 component WireEmptyState(props: WireEmptyStateProps) {
 	return <div class="wire-empty" data-wire-empty>
 		<span class="mono">NO SIGNALS YET</span>
-		<h3>Your wire is quiet—not broken.</h3>
 		<If cond={props.WireConfigured == false}>
+			<h3>Your wire is quiet—not broken.</h3>
 			<p>{props.WireIssue}</p>
 			<p>Ask the commissioner to add news sources.</p>
 		</If>
-		<If cond={props.WireConfigured}>
+		<If cond={props.ShowGeneric}>
+			<h3>Your wire is quiet—not broken.</h3>
 			<p>Relevant feed items and league sightings appear here, and stay provisional until the official stats catch up.</p>
+		</If>
+		<If cond={props.ShowFiltered}>
+			<h3>No {props.CategoryNoun} stories in the last {props.WindowLabel}.</h3>
+			<If cond={props.HasNearest}>
+				<p>Try <a href={props.NearestHref}>{props.NearestLabel}</a> instead, or <a href="/wire">see every signal</a>.</p>
+			</If>
+			<If cond={props.HasNearest == false}>
+				<p><a href="/wire">See every signal</a>.</p>
+			</If>
 		</If>
 	</div>
 }
@@ -203,8 +232,14 @@ func Page() Node {
 						<If cond={filter.active}>
 							<a class="wire-filter is-active" href={filter.href} aria-current="true">{filter.label}</a>
 						</If>
-						<If cond={filter.active == false}>
+						<If cond={filter.active == false && filter.has_items}>
 							<a class="wire-filter" href={filter.href}>{filter.label}</a>
+						</If>
+						<If cond={filter.active == false && filter.has_items == false}>
+							<span class="wire-filter is-disabled control-locked" aria-disabled="true" title={filter.reason}>
+								{filter.label}
+								<small class="control-locked__reason">{filter.reason}</small>
+							</span>
 						</If>
 					</Each>
 				</div>

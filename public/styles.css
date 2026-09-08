@@ -19099,3 +19099,25 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
 .footer-status__label {
   color: var(--color-text-muted);
 }
+
+/* comb — willow (2026-09-08 wave C): J6 F4. A Signal Wire filter chip
+   with zero items in the current window is no longer a link a manager
+   could click into an empty page — it renders as a disabled
+   .control-locked span (the same "disabled control, adjacent reason"
+   recipe /players already uses) inside the .wire-filter pill shape. */
+.wire-filter.is-disabled {
+  display: inline-flex;
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.wire-filter.is-disabled:hover {
+  transform: none;
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.wire-filter.is-disabled .control-locked__reason {
+  text-transform: none;
+  font-family: var(--font-body);
+}

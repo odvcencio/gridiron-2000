@@ -120,6 +120,123 @@ func wireCategory(category string) string {
 	return ""
 }
 
+// wireCategoryNouns names each filter category in a plain, singular noun
+// for a sentence — "No <noun> stories ..." (F4, gap-audit J6) — reusing
+// the same vocabulary the chip labels already carry, not a second set of
+// words for the same idea.
+var wireCategoryNouns = map[string]string{
+	"touchdown":   "score",
+	"injury":      "injury",
+	"practice":    "practice",
+	"inactive":    "inactive",
+	"transaction": "move",
+	"weather":     "weather",
+	"news":        "news",
+	"market":      "market",
+	"community":   "community",
+}
+
+func wireCategoryNoun(category string) string {
+	if noun, ok := wireCategoryNouns[category]; ok {
+		return noun
+	}
+	return "signal"
+}
+
+// wireCategoryCounts tallies items by category across the current window —
+// the same window the "All" chip already covers — so every filter chip can
+// show a real count instead of a fixed vocabulary that may or may not match
+// what the classifier is actually assigning today (F4 root cause).
+func wireCategoryCounts(items []signalwire.Signal) map[string]int {
+	counts := make(map[string]int, len(items))
+	for _, item := range items {
+		counts[item.Category]++
+	}
+	return counts
+}
+
+// wireWindowLabel names how far back the current window reaches — now
+// minus the oldest item still on it — for the filtered-empty state's "No
+// <category> stories in the last <window>" sentence (F4). "hour" is the
+// honest floor for an empty or brand-new wire, never a divide-by-zero
+// duration.
+func wireWindowLabel(now time.Time, items []signalwire.Signal) string {
+	oldest := now
+	found := false
+	for _, item := range items {
+		at := item.OccurredAt
+		if at.IsZero() {
+			at = item.ObservedAt
+		}
+		if at.IsZero() {
+			continue
+		}
+		if !found || at.Before(oldest) {
+			oldest = at
+			found = true
+		}
+	}
+	if !found {
+		return "hour"
+	}
+	d := now.Sub(oldest)
+	n, unit := 1, "hour"
+	switch {
+	case d < time.Hour:
+		if n = int(d / time.Minute); n < 1 {
+			n = 1
+		}
+		unit = "minute"
+	case d < 24*time.Hour:
+		if n = int(d / time.Hour); n < 1 {
+			n = 1
+		}
+		unit = "hour"
+	default:
+		if n = int(d / (24 * time.Hour)); n < 1 {
+			n = 1
+		}
+		unit = "day"
+	}
+	return fmt.Sprintf("%d %s", n, league.Plural(n, unit))
+}
+
+// wireNearestFilter finds the chip closest, in display order, to category
+// that actually holds an item right now — the filtered-empty state's "try
+// this instead" link (F4). ok is false only when nothing but "All" has
+// items, which the wire-unconfigured branch already covers on its own.
+func wireNearestFilter(filters []map[string]any, category string) (label, href string, ok bool) {
+	activeIndex := -1
+	for i, f := range filters {
+		if slug, _ := f["slug"].(string); slug == category {
+			activeIndex = i
+			break
+		}
+	}
+	bestDistance := -1
+	for i, f := range filters {
+		slug, _ := f["slug"].(string)
+		if slug == "" || slug == category {
+			continue
+		}
+		hasItems, _ := f["has_items"].(bool)
+		if !hasItems {
+			continue
+		}
+		distance := i - activeIndex
+		if distance < 0 {
+			distance = -distance
+		}
+		if bestDistance == -1 || distance < bestDistance {
+			bestDistance = distance
+			label, _ = f["base_label"].(string)
+			href, _ = f["href"].(string)
+			ok = true
+		}
+	}
+	return
+}
+
 // wireRedirectTarget builds the canonical same-origin return target for the
 // community form. url.Values performs query escaping; the path and anchor
 // are constants, so form data cannot steer a redirect outside the Wire page.
@@ -182,21 +299,69 @@ func wireValidationWithRedirect(ctx *action.Context, redirect string, err error)
 // already soft-swaps — no bespoke fetch/classList JS is needed for this
 // either. active marks the filter matching the request's own category, so
 // the freshly-rendered page always shows the correct pill highlighted.
-func wireFilterMaps(category string) []map[string]any {
+//
+// counts/total (F4, gap-audit J6) are the real per-category tallies across
+// the current window: half the chips used to be a dead end that returned
+// zero results with no warning. Every chip now carries its own count, and
+// a chip with nothing behind it (has_items false) renders disabled with a
+// reason instead of a link a manager could still click into an empty page.
+func wireFilterMaps(category string, counts map[string]int, total int) []map[string]any {
 	out := make([]map[string]any, 0, len(WireFilterOptions))
 	for _, opt := range WireFilterOptions {
+		count := total
+		if opt.Slug != "" {
+			count = counts[opt.Slug]
+		}
+		hasItems := count > 0
 		href := "/wire"
 		if opt.Slug != "" {
 			href = "/wire?category=" + neturl.QueryEscape(opt.Slug)
 		}
+		reason := ""
+		if !hasItems {
+			reason = fmt.Sprintf("No %s signals right now", wireCategoryNoun(opt.Slug))
+		}
 		out = append(out, map[string]any{
-			"slug":   opt.Slug,
-			"label":  opt.Label,
-			"href":   href,
-			"active": opt.Slug == category,
+			"slug":       opt.Slug,
+			"base_label": opt.Label,
+			"label":      fmt.Sprintf("%s · %d", opt.Label, count),
+			"href":       href,
+			"active":     opt.Slug == category,
+			"has_items":  hasItems,
+			"reason":     reason,
 		})
 	}
 	return out
+}
+
+// wireEmptyStateView builds the panel that renders when a request's own
+// category filter (or, if unconfigured, the whole wire) turns up nothing.
+// Page()'s first render and FeedFragmentWithError (the /wire/fragment poll
+// target) both call this, so an empty result reads identically either way
+// — WireEmptyState's own doc comment already makes that guarantee for the
+// general case; F4 extends it to a filtered-empty result, which used to
+// read the same "your wire is quiet" copy for every category regardless of
+// how many signals every OTHER chip actually held.
+func wireEmptyStateView(windowItems []signalwire.Signal, wireStatus signalwire.Status, category string, now time.Time) WireEmptyView {
+	view := WireEmptyView{
+		WireConfigured: wireStatus.Configured,
+		WireIssue:      wireStatus.ConfigurationIssue,
+		Category:       category,
+		ShowGeneric:    wireStatus.Configured && category == "",
+		ShowFiltered:   wireStatus.Configured && category != "",
+	}
+	if !wireStatus.Configured || category == "" {
+		return view
+	}
+	view.CategoryNoun = wireCategoryNoun(category)
+	view.WindowLabel = wireWindowLabel(now, windowItems)
+	filters := wireFilterMaps(category, wireCategoryCounts(windowItems), len(windowItems))
+	if label, href, ok := wireNearestFilter(filters, category); ok {
+		view.HasNearest = true
+		view.NearestLabel = label
+		view.NearestHref = href
+	}
+	return view
 }
 
 // wireFragmentURL is the data-gosx-region-url the wire feed polls
@@ -473,6 +638,7 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 	viewer := league.Default().Viewer(request)
 	category := wireCategory(request.URL.Query().Get("category"))
 	recent := signals.Recent(50, category)
+	windowItems := signals.Recent(200, "")
 	items := make([]WireSignalCard, 0, len(recent))
 	for _, signal := range recent {
 		items = append(items, wireSignalCard(signal, wireStatus, now))
@@ -538,7 +704,7 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 		"empty":                  len(items) == 0,
 		"last_event_id":          lastID,
 		"category":               category,
-		"filters":                wireFilterMaps(category),
+		"filters":                wireFilterMaps(category, wireCategoryCounts(windowItems), len(windowItems)),
 		"fragment_url":           wireFragmentURL(category),
 		"wire_mode":              wirePresentationLabel(wireStatus, now),
 		"wire_health":            wireHealthLabel(wireStatus, now),
@@ -552,7 +718,7 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 		// never named attributes built from separate map keys (gosx's
 		// legacy-caller rule), so wire_configured/wire_issue are bundled
 		// here as the one struct the template spreads.
-		"wire_empty":       WireEmptyView{WireConfigured: wireStatus.Configured, WireIssue: wireStatus.ConfigurationIssue},
+		"wire_empty":       wireEmptyStateView(windowItems, wireStatus, category, now),
 		"source_count":     len(wireStatus.Sources) + len(wireStatus.Feeds),
 		"bluesky_count":    len(wireStatus.Sources),
 		"feed_count":       len(wireStatus.Feeds),
@@ -603,16 +769,13 @@ func FeedFragmentWithError(request *http.Request, signals *signalwire.Service) (
 	if err != nil {
 		return gosx.Node{}, fmt.Errorf("load wire page.gsx: %w", err)
 	}
-	category := strings.TrimSpace(request.URL.Query().Get("category"))
+	category := wireCategory(request.URL.Query().Get("category"))
 	wireStatus := signals.Status()
 	now := time.Now().UTC()
 	recent := signals.Recent(50, category)
 	if len(recent) == 0 {
 		return route.RenderProgramComponentNode(program, "WireEmptyState", route.ProgramRenderEnv{
-			Props: WireEmptyView{
-				WireConfigured: wireStatus.Configured,
-				WireIssue:      wireStatus.ConfigurationIssue,
-			},
+			Props: wireEmptyStateView(signals.Recent(200, ""), wireStatus, category, now),
 		})
 	}
 	items := make([]WireSignalCard, 0, len(recent))
@@ -710,6 +873,7 @@ type WireSignalCard struct {
 	ID                 string
 	Category           string
 	Label              string
+	HasLabel           bool
 	Text               string
 	Source             string
 	ReportedBy         string
@@ -728,10 +892,24 @@ type WireSignalCard struct {
 }
 
 // WireEmptyView is WireEmptyState's (page.gsx, a strict component) spread
-// source: whether the wire is configured and, when not, why.
+// source: whether the wire is configured and, when not, why — plus, for a
+// filtered-empty result (F4, gap-audit J6), the active category's plain
+// noun, how far back the current window reaches, and the nearest chip
+// that still has something on it.
 type WireEmptyView struct {
 	WireConfigured bool
 	WireIssue      string
+	Category       string
+	CategoryNoun   string
+	WindowLabel    string
+	HasNearest     bool
+	NearestLabel   string
+	NearestHref    string
+	// ShowGeneric/ShowFiltered: see WireEmptyStateProps' doc comment
+	// (page.gsx) for why these arrive precomputed rather than as a
+	// compound <If> expression.
+	ShowGeneric  bool
+	ShowFiltered bool
 }
 
 func signalMap(signal signalwire.Signal) WireSignalCard {
@@ -753,6 +931,7 @@ func signalMap(signal signalwire.Signal) WireSignalCard {
 		ID:                 signal.ID,
 		Category:           signal.Category,
 		Label:              signal.Label,
+		HasLabel:           signal.Label != "",
 		Text:               signal.Text,
 		Source:             source,
 		ReportedBy:         signal.ReportedBy,
