@@ -34,21 +34,21 @@ type ConsensusBarProps struct {
 // bar plus the exact percentages — server-computed inline widths, no JS.
 // Callers must only mount this once a game is locked (see
 // pickemConsensus's doc comment: no split ships before lock).
-component ConsensusBar(props: ConsensusBarProps) {
+func ConsensusBar(props ConsensusBarProps) Node {
 	return <div class="consensus" aria-label="League pick split">
 		<div class="consensus-bar">
 			<div class="consensus-bar__fill consensus-bar__fill--away" style={props.AwayBarStyle}></div>
 			<div class="consensus-bar__fill consensus-bar__fill--home" style={props.HomeBarStyle}></div>
 		</div>
 		<div class="consensus-legend mono">
-			<span>
+			<TextBlock as="span" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={1} overflow="ellipsis">
 				{props.Away}
 				{props.AwayPct}%
-			</span>
-			<span>
+			</TextBlock>
+			<TextBlock as="span" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={1} overflow="ellipsis">
 				{props.Home}
 				{props.HomePct}%
-			</span>
+			</TextBlock>
 		</div>
 	</div>
 }
@@ -92,10 +92,10 @@ type PickemRowProps struct {
 	CSRF   string
 }
 
-component PickemRow(props: PickemRowProps) {
+func PickemRow(props PickemRowProps) Node {
 	return <article class="pickem-row" data-game-id={props.Game.ID} data-picked={props.Game.Picked}>
 		<small class="mono">{props.Game.KickoffDisplay}</small>
-		<strong>{props.Game.Label}</strong>
+		<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Game.Label} />
 		<div class="pickem-market" data-state={props.Game.SpreadState}>
 			<div class="pickem-market__head mono">
 				<b>{props.Game.SpreadState}</b>
@@ -292,28 +292,28 @@ func PickemLiveRegion() Node {
 
 		<div class="notice-stack">
 			<If cond={data.has_notice}>
-				<p class="flash-message">{data.notice}</p>
+				<TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.notice} />
 			</If>
 			<If cond={data.has_week_notice}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
 					<strong>WEEK ADJUSTED:</strong>
 					{data.week_notice}
-				</p>
+				</TextBlock>
 			</If>
 			<If cond={data.has_pickem_error}>
-				<p class="error-message">{data.pickem_error}</p>
+				<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.pickem_error} />
 			</If>
 			<If cond={data.can_pick == false}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>SIGN IN REQUIRED:</strong>
 					use League access to lock in picks. No fantasy team seat needed.
-				</p>
+				</TextBlock>
 			</If>
 			<If cond={data.viewer.demo}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>REHEARSAL MODE:</strong>
 					the console is open to everyone while demo mode is on.
-				</p>
+				</TextBlock>
 			</If>
 		</div>
 

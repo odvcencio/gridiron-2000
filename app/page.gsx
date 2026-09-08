@@ -299,6 +299,22 @@ func Page() Node {
 					<p class="hero-kicker">
 						{data.league.hero_kicker}
 					</p>
+					{/* Plain markup, not <TextBlock>: the anonymous/demo hero is the
+					    one surface a signed-out visitor must load with ZERO
+					    JavaScript (TestHomepageBootstrapAndHubGateOnSignedInAndSeated,
+					    page_render_test.go — the bootstrap runtime and the scores-live
+					    hub load only once signed_in && has_seat), so bootstrap-mode
+					    <TextBlock> is forbidden here. mode="native" was tried and
+					    reverted: server/textblock.go's textBlockNativeStyle hardcodes
+					    white-space: pre on every native element, and without a
+					    maxWidth (this hero has none — it is a fluid-width column, not
+					    a fixed one) textlayout.LayoutText never inserts a wrap point,
+					    so the browser never wraps it either — a live measurement (a
+					    long league name, textflow-wave verification) showed the
+					    headline running 1388px wide inside a 375px column and
+					    overflowing the whole page. Plain markup's own default
+					    white-space: normal already wraps for free, with nothing to
+					    clip: there was no CSS truncation here to retire. */}
 					<h1 class="display--hero">
 						{data.league.name}
 						{" "}
@@ -321,6 +337,10 @@ func Page() Node {
 						</a>
 						<a href="/guide" data-gosx-link class="button button--ghost">Read the manager guide</a>
 					</div>
+					{/* Plain markup, not <TextBlock>: bootstrap mode is forbidden on
+					    this signed-out surface (see the h1's own doc comment above),
+					    and native mode would flatten <strong> into plain text. No
+					    CSS truncation exists on .demo-message to retire either. */}
 					<If cond={data.viewer.demo}>
 						<p class="demo-message">
 							<strong>REHEARSAL MODE:</strong>

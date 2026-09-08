@@ -216,13 +216,17 @@ func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
 		    ready seats by their manager's own first name, in plain words,
 		    next to a link straight into the room where the toggle lives. */}
 		<If cond={props.HasNotCheckedIn}>
-			<p class="admin-attention-not-checked-in">Not checked in: {props.NotCheckedInSummary} · <a href="/draft" data-gosx-link>Open the draft room</a></p>
+			<TextBlock as="p" class="admin-attention-not-checked-in" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis">
+				Not checked in: {props.NotCheckedInSummary} · <a href="/draft" data-gosx-link>Open the draft room</a>
+			</TextBlock>
 		</If>
 		<div class="commissioner-hq__ledger" aria-label="Seat readiness and presence">
 			<Each of={props.Seats} as="seat">
 				<div class="commissioner-hq__attention" data-presence={seat.Presence}>
 					<div class="commissioner-hq__attention-copy">
-						<span class="section-index">{seat.Abbreviation} · {seat.Name}<If cond={seat.Manager != ""}> · {seat.Manager}</If></span>
+						<TextBlock as="span" class="section-index" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={2} overflow="ellipsis">
+							{seat.Abbreviation} · {seat.Name}<If cond={seat.Manager != ""}> · {seat.Manager}</If>
+						</TextBlock>
 						<strong><If cond={seat.Claimed}>CLAIMED</If><If cond={seat.Claimed == false}>OPEN</If> · <If cond={seat.Ready}>READY</If><If cond={seat.Ready == false}>NOT READY</If></strong>
 						<span class="seat-presence">{seat.PresenceLabel} · {seat.PresenceDetail} · board {seat.BoardCount}</span>
 					</div>
@@ -317,19 +321,19 @@ func Page() Node {
 		</If>
 		<div class="notice-stack" aria-live="polite">
 			<If cond={data.has_notice}>
-				<p class="flash-message">{data.notice}</p>
+				<TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.notice} />
 			</If>
 			<If cond={data.has_admin_error}>
-				<p class="error-message">{data.admin_error}</p>
+				<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.admin_error} />
 			</If>
 			<If cond={data.has_avatar_error}>
-				<p class="error-message">{data.avatar_error}</p>
+				<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.avatar_error} />
 			</If>
 			<If cond={data.demo_mode}>
-				<p class="demo-message">
+				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>REHEARSAL MODE:</strong>
 					the console is open to everyone while demo mode is on.
-				</p>
+				</TextBlock>
 			</If>
 		</div>
 		<If cond={data.is_commissioner}>
@@ -555,11 +559,8 @@ func Page() Node {
 						<div class="checklist-item" data-runbook-state={data.runbook_step_1_state}>
 							<span class="checklist-mark mono">01</span>
 							<div class="checklist-item__text">
-								<strong>About an hour early, drop the seats nobody claimed</strong>
-								<small>
-									Use Drop unclaimed seats in 03 // DRAFT ORDER. Do this before you randomize, or the
-									order still lists the seats you are about to remove.
-								</small>
+								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="About an hour early, drop the seats nobody claimed" />
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Use Drop unclaimed seats in 03 // DRAFT ORDER. Do this before you randomize, or the order still lists the seats you are about to remove." />
 							</div>
 							<If cond={data.runbook_step_1_state == "done"}><span class="position-chip">DONE ✓</span></If>
 							<If cond={data.runbook_step_1_state == "next"}><span class="position-chip">NEXT →</span></If>
@@ -568,10 +569,8 @@ func Page() Node {
 						<div class="checklist-item" data-runbook-state={data.runbook_step_2_state}>
 							<span class="checklist-mark mono">02</span>
 							<div class="checklist-item__text">
-								<strong>Draw the final order and publish the schedule</strong>
-								<small>
-									Use Draw order + schedule in 03 // DRAFT ORDER. It runs six shuffle passes, saves only the final result, publishes the schedule, then reports the reminder queue outcome. Draft order locks when the commissioner starts the draft.
-								</small>
+								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Draw the final order and publish the schedule" />
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Use Draw order + schedule in 03 // DRAFT ORDER. It runs six shuffle passes, saves only the final result, publishes the schedule, then reports the reminder queue outcome. Draft order locks when the commissioner starts the draft." />
 							</div>
 							<If cond={data.runbook_step_2_state == "done"}><span class="position-chip">DONE ✓</span></If>
 							<If cond={data.runbook_step_2_state == "next"}><span class="position-chip">NEXT →</span></If>
@@ -580,8 +579,8 @@ func Page() Node {
 						<div class="checklist-item" data-runbook-state={data.runbook_step_3_state}>
 							<span class="checklist-mark mono">03</span>
 							<div class="checklist-item__text">
-								<strong>Confirm every seat is ready</strong>
-								<small>Check the ready count above and the Ready badges in 01 // SEATS.</small>
+								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Confirm every seat is ready" />
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Check the ready count above and the Ready badges in 01 // SEATS." />
 							</div>
 							<If cond={data.runbook_step_3_state == "done"}><span class="position-chip">DONE ✓</span></If>
 							<If cond={data.runbook_step_3_state == "next"}><span class="position-chip">NEXT →</span></If>
@@ -591,16 +590,16 @@ func Page() Node {
 							<span class="checklist-mark mono">04</span>
 							<div class="checklist-item__text">
 								<If cond={data.draft.time != ""}>
-									<strong>
+									<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
 										At
 										{data.draft.time},
 										confirm everyone is present and start the draft
-									</strong>
+									</TextBlock>
 								</If>
 								<If cond={data.draft.time == ""}>
-									<strong>Confirm everyone is present and start the draft</strong>
+									<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Confirm everyone is present and start the draft" />
 								</If>
-								<small>The scheduled time never opens the room. Type START below when you intentionally begin pick one.</small>
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="The scheduled time never opens the room. Type START below when you intentionally begin pick one." />
 							</div>
 							<If cond={data.runbook_step_4_state == "done"}><span class="position-chip">DONE ✓</span></If>
 							<If cond={data.runbook_step_4_state == "next"}><span class="position-chip">NEXT →</span></If>
@@ -609,8 +608,8 @@ func Page() Node {
 						<div class="checklist-item">
 							<span class="checklist-mark mono">05</span>
 							<div class="checklist-item__text">
-								<strong>Pause or extend for a break</strong>
-								<small>Use Pause clock, Resume clock, or Extend pick in 05 // DRAFT CLOCK.</small>
+								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Pause or extend for a break" />
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Use Pause clock, Resume clock, or Extend pick in 05 // DRAFT CLOCK." />
 							</div>
 						</div>
 						<div class="checklist-item">
@@ -959,8 +958,8 @@ func Page() Node {
 						<Each of={data.invites} as="invite">
 							<article class="invite-row" data-status={invite.status}>
 								<div class="invite-identity">
-									<b class="mono">{invite.email}</b>
-									<small>{invite.status_detail}</small>
+									<TextBlock as="b" class="mono" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={2} overflow="ellipsis" text={invite.email} />
+									<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" text={invite.status_detail} />
 									<span class="position-chip">{invite.source}</span>
 								</div>
 								<b class={"ready-state " + invite.status_class}>{invite.status}</b>
@@ -1013,8 +1012,8 @@ func Page() Node {
 								<Each of={data.seatless_members} as="member">
 									<article class="invite-row">
 										<div class="invite-identity">
-											<b class="mono">{member.email}</b>
-											<small>{member.name}</small>
+											<TextBlock as="b" class="mono" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={2} overflow="ellipsis" text={member.email} />
+											<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" text={member.name} />
 										</div>
 										<small class="mono">Assign a seat in 01 // SEATS, or release a claimed one to make room.</small>
 									</article>
@@ -1059,8 +1058,10 @@ func Page() Node {
 									</If>
 								</span>
 								<div class="seat-identity">
-									<strong><span class="mono">Pick {team.pick_number} ·</span> {team.name}</strong>
-									<small>{team.manager}</small>
+									<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis">
+										<span class="mono">Pick {team.pick_number} ·</span> {team.name}
+									</TextBlock>
+									<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={team.manager} />
 									<span class="position-chip">{team.division}</span>
 									<If cond={team.id == data.viewer.team_id}>
 										<span class="position-chip">YOUR SEAT</span>
@@ -1467,13 +1468,13 @@ func Page() Node {
 					<div class="announcement-list">
 						<Each of={data.announcements} as="note">
 							<article class="announcement-item">
-								<p>{note.body}</p>
+								<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={note.body} />
 								<div class="announcement-item__meta">
-									<small class="mono">
+									<TextBlock as="small" class="mono" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={1} overflow="ellipsis">
 										{note.posted_by}
 										·
 										{note.posted_at}
-									</small>
+									</TextBlock>
 									<details class="announcement-delete-disclosure">
 										<summary class="board-button board-button--cut" aria-label={"Delete announcement posted " + note.posted_at_absolute}>✕</summary>
 										<form method="post" action={actionPath("announcement-delete")} data-gosx-managed="true">
@@ -1523,12 +1524,12 @@ func Page() Node {
 					<div class="danger-grid">
 						<form method="post" action={actionPath("draft-reset")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<strong>Reset {data.league.name}'s draft</strong>
+							<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">Reset {data.league.name}'s draft</TextBlock>
 							<ul class="reset-contract-list">
-								<li><strong>Destroyed:</strong> every draft pick, ready status for every seat, the draft clock and autopick settings, the transaction log, every set lineup, pending waiver claims, the waiver claim history, the waiver processing clock, pending and past trade offers, reserve/IR roster assignments, and draft-related notification history.</li>
-								<li><strong>Preserved:</strong> team seats and managers, pending co-manager invites, draft boards, the invite list, custom team names, the draft order, the regular-season schedule, the playoff bracket, the season phase, the custom roster shape, the trimmed-seat list, the scheduled meeting time, scoring rules, pick'em picks, blitz contest entries, claimed badges, custom avatar images, league announcements, notification preferences, and unrelated sent-notification history.</li>
+								<li><TextBlock as="span" font="400 13px Plus Jakarta Sans" lineHeight={18}><strong>Destroyed:</strong> every draft pick, ready status for every seat, the draft clock and autopick settings, the transaction log, every set lineup, pending waiver claims, the waiver claim history, the waiver processing clock, pending and past trade offers, reserve/IR roster assignments, and draft-related notification history.</TextBlock></li>
+								<li><TextBlock as="span" font="400 13px Plus Jakarta Sans" lineHeight={18}><strong>Preserved:</strong> team seats and managers, pending co-manager invites, draft boards, the invite list, custom team names, the draft order, the regular-season schedule, the playoff bracket, the season phase, the custom roster shape, the trimmed-seat list, the scheduled meeting time, scoring rules, pick'em picks, blitz contest entries, claimed badges, custom avatar images, league announcements, notification preferences, and unrelated sent-notification history.</TextBlock></li>
 							</ul>
-							<p class="scoring-note">This cannot be undone from this screen; only a restored backup can bring {data.league.name}'s destroyed draft data back.</p>
+							<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18}>This cannot be undone from this screen; only a restored backup can bring {data.league.name}'s destroyed draft data back.</TextBlock>
 							<label>Type <span class="mono">RESET DRAFT</span> to confirm.<input type="text" name="confirm" placeholder="RESET DRAFT" autocomplete="off"></input></label>
 							<button class="button button--danger" type="submit">Reset {data.league.name}'s draft</button>
 						</form>
@@ -1536,21 +1537,19 @@ func Page() Node {
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<input type="hidden" name="previous_pick_token" value={data.previous_pick_token}></input>
 							<strong>Undo last pick</strong>
-							<p>
-								Removes the most recent pick and re-arms the clock for that slot. The form is bound to the exact pick shown now; reload if another browser acts first.
-							</p>
+							<TextBlock as="p" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Removes the most recent pick and re-arms the clock for that slot. The form is bound to the exact pick shown now; reload if another browser acts first." />
 							<label for="admin-draft-undo-confirm">Type <span class="mono">UNDO</span> to confirm.</label>
 							<input id="admin-draft-undo-confirm" type="text" name="confirm" placeholder="type UNDO" autocomplete="off"></input>
 							<button class="button button--danger" type="submit">Undo last pick</button>
 						</form>
 						<form method="post" action={actionPath("league-reset")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<strong>Reset {data.league.name} to a blank league</strong>
+							<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">Reset {data.league.name} to a blank league</TextBlock>
 							<ul class="reset-contract-list">
-								<li><strong>Destroyed:</strong> every team seat and manager, pending co-manager invites, every draft pick, ready status for every seat, draft boards, pick'em picks and markets, blitz contest entries, the draft order, the regular-season schedule, the playoff bracket, the season phase, the custom roster shape, the trimmed-seat list, the draft clock and autopick settings, the transaction log, every set lineup, pending waiver claims, the waiver claim history, the waiver processing clock, pending and past trade offers, reserve/IR roster assignments, claimed badges, custom avatar images, the scheduled meeting time, and league notification history.</li>
-								<li><strong>Preserved:</strong> the invite list, custom team names, scoring rules, league announcements, notification preferences, and unrelated sent-notification history.</li>
+								<li><TextBlock as="span" font="400 13px Plus Jakarta Sans" lineHeight={18}><strong>Destroyed:</strong> every team seat and manager, pending co-manager invites, every draft pick, ready status for every seat, draft boards, pick'em picks and markets, blitz contest entries, the draft order, the regular-season schedule, the playoff bracket, the season phase, the custom roster shape, the trimmed-seat list, the draft clock and autopick settings, the transaction log, every set lineup, pending waiver claims, the waiver claim history, the waiver processing clock, pending and past trade offers, reserve/IR roster assignments, claimed badges, custom avatar images, the scheduled meeting time, and league notification history.</TextBlock></li>
+								<li><TextBlock as="span" font="400 13px Plus Jakarta Sans" lineHeight={18}><strong>Preserved:</strong> the invite list, custom team names, scoring rules, league announcements, notification preferences, and unrelated sent-notification history.</TextBlock></li>
 							</ul>
-							<p class="scoring-note">This cannot be undone from this screen; only a restored backup can bring {data.league.name}'s destroyed data back.</p>
+							<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18}>This cannot be undone from this screen; only a restored backup can bring {data.league.name}'s destroyed data back.</TextBlock>
 							<label>Type <span class="mono">RESET LEAGUE</span> to confirm.<input type="text" name="confirm" placeholder="RESET LEAGUE" autocomplete="off"></input></label>
 							<button class="button button--danger" type="submit">Reset {data.league.name} to a blank league</button>
 						</form>

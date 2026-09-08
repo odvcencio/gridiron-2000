@@ -238,8 +238,14 @@ func TestWireManagedValidationKeepsInvalidValuesAndLocalFeedbackContract(t *test
 	markup := string(page)
 	for _, want := range []string{
 		"data-gosx-managed=\"true\"",
-		"class=\"flash-message\" role=\"status\"",
-		"class=\"error-message\" role=\"alert\"",
+		// The textflow wave wraps both notices in <TextBlock>, so
+		// class="flash-message"/role="status" (and the error-message
+		// pair) no longer sit adjacent in source order — each half is
+		// checked independently instead of as one contiguous string.
+		"class=\"flash-message\"",
+		"role=\"status\"",
+		"class=\"error-message\"",
+		"role=\"alert\"",
 		"name={data.wire_return_target_field}",
 	} {
 		if !strings.Contains(markup, want) {

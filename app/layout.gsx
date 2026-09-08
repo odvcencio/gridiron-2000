@@ -569,7 +569,15 @@ func Layout() Node {
 		<If cond={(data.viewer.signed_in || data.viewer.demo) && data.league.latest_announcement.has}>
 			<div class="announcement-banner" role="status">
 				<span class="announcement-banner__label mono">COMMISSIONER NOTE</span>
-				<p>{data.league.latest_announcement.body}</p>
+				<TextBlock
+					as="p"
+					class="announcement-banner__body"
+					font="400 15px Plus Jakarta Sans"
+					lineHeight={22}
+					maxLines={3}
+					overflow="ellipsis"
+					text={data.league.latest_announcement.body}
+				/>
 				<span class="announcement-banner__time mono">
 					{data.league.latest_announcement.posted_at}
 				</span>

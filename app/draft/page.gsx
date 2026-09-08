@@ -1564,13 +1564,13 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 		<If cond={props.Data.pool_status.has_notice}>
 			<div class="demo-message draft-command__banner">
 				<div class="draft-command__banner-row">
-					<p class="draft-command__banner-line">
+					<TextBlock as="p" class="draft-command__banner-line" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis">
 						<strong>{props.Data.pool_status.label}:</strong>
 						{props.Data.pool_status.detail}
-					</p>
+					</TextBlock>
 					<details class="draft-command__banner-details">
 						<summary>Details</summary>
-						<p>{props.Data.pool_status.detail}</p>
+						<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} text={props.Data.pool_status.detail} />
 						<If cond={props.Data.pool_status.has_last_success}>
 							<span class="mono">LAST SUCCESS · {props.Data.pool_status.last_success} · {props.Data.pool_status.last_success_relative}</span>
 						</If>
@@ -1607,11 +1607,30 @@ func DraftPracticeStrip(props DraftCommandBarProps) Node {
 			<p class="draft-practice-strip__alert" role="alert"><strong>The real draft has started.</strong> <a href={props.Data.practice.real_room_href}>Go to the real draft room →</a></p>
 		</If>
 		<span class="draft-practice-strip__tag mono">PRACTICE</span>
-		<p class="draft-practice-strip__text">{props.Data.practice.summary_full}</p>
-		<p class="draft-practice-strip__line mono">{props.Data.practice.summary_short}</p>
+		<TextBlock
+			as="p"
+			class="draft-practice-strip__text"
+			font="400 13px Plus Jakarta Sans"
+			lineHeight={18}
+			text={props.Data.practice.summary_full}
+		/>
+		<TextBlock
+			as="p"
+			class="draft-practice-strip__line mono"
+			font="600 13px IBM Plex Mono"
+			lineHeight={18}
+			maxLines={2}
+			overflow="ellipsis"
+			text={props.Data.practice.summary_short}
+		/>
 		<details class="draft-practice-strip__details">
 			<summary>Details</summary>
-			<p>{props.Data.practice.summary_full}</p>
+			<TextBlock
+				as="p"
+				font="400 13px Plus Jakarta Sans"
+				lineHeight={18}
+				text={props.Data.practice.summary_full}
+			/>
 		</details>
 		<div class="draft-practice-strip__actions">
 			<If cond={props.Data.practice.complete}>
@@ -3041,8 +3060,8 @@ func DraftPreflight(props DraftPreflightProps) Node {
 			<div class="checklist-item">
 				<span class="checklist-mark mono">01</span>
 				<div class="checklist-item__text">
-					<strong>Build your big board</strong>
-					<small>Rank your targets now. Autopick and the pool both read your board first.</small>
+					<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Build your big board" />
+					<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Rank your targets now. Autopick and the pool both read your board first." />
 				</div>
 				<a href="/board" data-gosx-link class="board-button">Open board →</a>
 			</div>
@@ -3050,8 +3069,8 @@ func DraftPreflight(props DraftPreflightProps) Node {
 				<div class="checklist-item checklist-item--practice">
 					<span class="checklist-mark mono">02</span>
 					<div class="checklist-item__text">
-						<strong>Practice the draft room</strong>
-						<small>See what a live draft looks like: take picks on the clock against the other seats, played by bots. Nothing you do there counts, and you can leave whenever you like.</small>
+						<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Practice the draft room" />
+						<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="See what a live draft looks like: take picks on the clock against the other seats, played by bots. Nothing you do there counts, and you can leave whenever you like." />
 					</div>
 					<a href={props.Data.practice.href} data-gosx-link class="board-button">Practice now →</a>
 				</div>
@@ -3060,8 +3079,8 @@ func DraftPreflight(props DraftPreflightProps) Node {
 				<div class="checklist-item">
 					<span class="checklist-mark mono">03</span>
 					<div class="checklist-item__text">
-						<strong>Check in for the draft</strong>
-						<small>Mark yourself checked in after your Big Board is set. Then keep this tab open so the commissioner can also see that you are HERE.</small>
+						<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Check in for the draft" />
+						<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Mark yourself checked in after your Big Board is set. Then keep this tab open so the commissioner can also see that you are HERE." />
 					</div>
 					<form method="post" action={props.Actions.toggle_ready} class="checklist-item__form" data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
@@ -3079,8 +3098,8 @@ func DraftPreflight(props DraftPreflightProps) Node {
 				<div class="checklist-item">
 					<span class="checklist-mark mono">02</span>
 					<div class="checklist-item__text">
-						<strong>Claim a franchise</strong>
-						<small>{props.Data.public_entry.detail}</small>
+						<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Claim a franchise" />
+						<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text={props.Data.public_entry.detail} />
 					</div>
 					<a href={props.Data.public_entry.action_href} data-gosx-link class="board-button">{props.Data.public_entry.action_label}</a>
 				</div>
@@ -3089,12 +3108,12 @@ func DraftPreflight(props DraftPreflightProps) Node {
 				<div class="checklist-item">
 					<span class="checklist-mark mono">02</span>
 					<div class="checklist-item__text">
-						<strong>{props.Data.public_entry.state_label}</strong>
+						<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text={props.Data.public_entry.state_label} />
 						<If cond={props.Data.public_entry.admitted && props.Data.public_entry.league_full}>
-							<small>Ask your commissioner for a seat.</small>
+							<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Ask your commissioner for a seat." />
 						</If>
 						<If cond={(props.Data.public_entry.admitted && props.Data.public_entry.league_full) == false}>
-							<small>{props.Data.public_entry.detail}</small>
+							<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text={props.Data.public_entry.detail} />
 						</If>
 					</div>
 					<a href={props.Data.public_entry.action_href} data-gosx-link class="board-button">{props.Data.public_entry.action_label}</a>
@@ -3110,16 +3129,16 @@ func DraftPreflight(props DraftPreflightProps) Node {
 				<If cond={props.Data.viewer.has_seat}><span class="checklist-mark mono">04</span></If>
 				<If cond={props.Data.viewer.has_seat == false}><span class="checklist-mark mono">03</span></If>
 				<div class="checklist-item__text">
-					<strong>Keep this tab open with sound on</strong>
-					<small>Sound is already on. Click anywhere on the page once so your browser allows the on-clock chime to play.</small>
+					<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Keep this tab open with sound on" />
+					<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Sound is already on. Click anywhere on the page once so your browser allows the on-clock chime to play." />
 				</div>
 			</div>
 			<If cond={props.Data.viewer.has_seat}>
 				<div class="checklist-item">
 					<span class="checklist-mark mono">05</span>
 					<div class="checklist-item__text">
-						<strong>Autopick covers you if you disappear</strong>
-						<small>Turn it on before the draft if you might miss your pick.</small>
+						<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Autopick covers you if you disappear" />
+						<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Turn it on before the draft if you might miss your pick." />
 					</div>
 					<form method="post" action={props.Actions.toggle_autopick} class="checklist-item__form" data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
@@ -3142,8 +3161,8 @@ func DraftPreflight(props DraftPreflightProps) Node {
 				<div class="checklist-item">
 					<span class="checklist-mark mono">06</span>
 					<div class="checklist-item__text">
-						<strong>Run the draft-night runbook</strong>
-						<small>Confirm seat readiness and the start sequence before you open the room.</small>
+						<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Run the draft-night runbook" />
+						<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Confirm seat readiness and the start sequence before you open the room." />
 					</div>
 					<a href="/admin?section=draft-control" data-gosx-link class="board-button">Run the draft-night runbook →</a>
 				</div>
@@ -3155,8 +3174,8 @@ func DraftPreflight(props DraftPreflightProps) Node {
 func Page() Node {
 	return <main class={"draft-shell" + data.shell_modifier} id="main-content" data-draft-live-mode={data.live_mode}>
 		<div class="draft-notice" aria-live="polite">
-			<If cond={data.has_notice}><p class="flash-message">{data.notice}</p></If>
-			<If cond={data.has_pick_error}><p class="error-message">{data.pick_error}</p></If>
+			<If cond={data.has_notice}><TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.notice} /></If>
+			<If cond={data.has_pick_error}><TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.pick_error} /></If>
 		</div>
 		<If cond={data.live_mode == "target"}>
 		<header class="draft-command" data-gosx-live-mode="event" data-gosx-live-src={data.live_src} data-gosx-live-hub={data.live_hub} data-gosx-live-on="draft:pick draft:undo draft:clock draft:seat draft:state">

@@ -17754,3 +17754,64 @@ a.skip-link {
   margin-top: 0.35rem;
   font-size: var(--type-sm);
 }
+
+/* comb — textflow (2026-09-05)
+   GoSX's text-layout substrate (server/textblock.go, bootstrap-feature-
+   textlayout) now owns the clamp for every selector below: each one used
+   to rely on CSS-only single- or multi-line truncation, and its matching
+   .gsx element is now a <TextBlock maxLines=...> that measures the real
+   text and ellipsizes at a line boundary instead of a mid-glyph clip.
+   These overrides retire the old CSS-only clamp; they do not touch a
+   pinned rule's own selector or declaration order above. */
+
+/* app/draft/page.gsx DraftCommandBar's pool-status banner summary line
+   (the "CACHED SNAPSHOT: ..." line) — was white-space: nowrap +
+   text-overflow: ellipsis + overflow: hidden, a single-line clip with no
+   real line-boundary awareness. TextBlock maxLines={1} now owns it. */
+.draft-command__banner-line {
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+/* app/draft/page.gsx DraftPracticeStrip's phone-width short line — was a
+   -webkit-line-clamp: 2 box needing its own -webkit-box display and
+   overflow: hidden to visually truncate. TextBlock maxLines={2} now owns
+   the clamp; overflow: visible turns the old -webkit-line-clamp
+   declaration (still present above, harmless) into a no-op. */
+@media (width <= 56.1875rem) {
+  .draft-practice-strip__line {
+    overflow: visible;
+    white-space: normal;
+  }
+}
+
+/* app/blitz/page.gsx BlitzLeaderRow/BlitzArchiveRow entry names share
+   .pool-player strong with several other surfaces' own name cells
+   (.mini-team, .standing-team, .score-team__name, .player-identity,
+   .leader-row, .scout-row, .pick-row — public/styles.css ~2231); only
+   the Preseason Blitz entry/champion row is converted to TextBlock this
+   wave, so this override is scoped to .blitz-page rather than widening
+   the shared selector and un-clamping every other page's still-CSS-only
+   name cell. */
+.blitz-page .pool-player strong {
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+/* app/layout.gsx's shared toast host (.gosx-toast__message, runtime-
+   rendered — the message text itself is never server-templated, so it
+   cannot carry a <TextBlock>) — hardens the "flow to two lines, never
+   clip" contract: .gosx-toast's own overflow: hidden (above, ~9232) is
+   there only to clip the box's own rounded corners, not to bound a
+   multi-line message, but overflow: visible here removes any doubt for
+   a message tall enough to wrap. */
+.gosx-toast {
+  overflow: visible;
+}
+
+.gosx-toast__message {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
