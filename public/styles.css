@@ -19130,6 +19130,17 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
   .avail-row__rank-button-label {
     display: none;
   }
+
+  /* The coarse-pointer baseline rule (.site-frame button:not(...)) sets
+     min-width: 0 with a specificity no class chain beats, so the "+"
+     control gets an explicit width instead: 2.75rem (44px), the same
+     touch floor every other control in the room meets
+     (TestBrowserDraftRoomTouchTargetsAtPhoneWidth). */
+  .avail-row__actions form .avail-row__rank-button {
+    width: 2.75rem;
+    padding-inline: 0;
+    justify-content: center;
+  }
 }
 
 /* comb — rowan (2026-09-08 wave D): owner debrief item 2 — the row-level
@@ -19374,8 +19385,14 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
    needs the inline label on the row itself (this file's own comment on
    that rule: "the two-line row layout there carries its own inline
    PROJ/PTS labels") — so this only hides the redundant copy above the
-   899px desktop threshold, leaving the phone row's own label alone. */
-@media (width > 899px) {
+   899px desktop threshold, leaving the phone row's own label alone.
+   Season3 integration note: the lower edge is the rail band's upper
+   edge (68.75rem, 1100px), not 899px. Between 900px and 1100px the
+   page runs the two-line phone rows (the "(width <= 899px),
+   (min-width: 56.25rem) and (max-width: 68.75rem)" block above), and a
+   desktop grid-template-columns applied there pushed .lineup-slot to
+   816px inside a narrower column (TestBrowserRailBandNoHorizontalOverflow). */
+@media (width > 68.75rem) {
   .lineup-slot__proj small,
   .lineup-slot__pts small {
     display: none;
