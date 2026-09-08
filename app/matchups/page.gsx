@@ -338,6 +338,16 @@ func MatchupStatusBlock() Node {
 	return <>
 		<p class="matchup-status-line" role="status" aria-live="polite">
 			<span class="state-chip" data-live-state={data.status_line.live_state}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind="liveIndicator">{data.live.live_indicator}</span><b data-gosx-live-bind="liveState">{data.status_line.live_state}</b></span>
+			{/* F3 (J4 console gap-audit): a forced close can finalize a week
+			    while its real NFL games are not final — every score risking
+			    0.0 from a missed player-stat join — and this line used to
+			    read exactly like an honest FINAL. This badge is a plain
+			    static element (no data-gosx-live-bind): the week is final,
+			    so live polling has already stopped, and the badge's truth
+			    must not depend on a poll that will never run again. */}
+			<If cond={data.status_line.closed_early}>
+				<span class="state-chip state-chip--closed-early">CLOSED EARLY</span>
+			</If>
 			<span class="mono matchup-status-line__source" data-gosx-live-bind="sourceLine">{data.status_line.source_line}</span>
 			<If cond={data.status_line.live_state != "LEDGER"}>
 				<span class="mono muted matchup-status-line__ledger">Weekly ledger (nflverse) · <span data-gosx-live-bind="statsUpdatedAt">{data.status_line.stats_updated_at}</span></span>
@@ -345,6 +355,9 @@ func MatchupStatusBlock() Node {
 			<span class="mono muted matchup-status-line__games" data-gosx-live-bind="gamesFinal">{data.status_line.games_final}</span>
 			<span class="mono muted matchup-status-line__freshness">· <span data-gosx-live-bind="liveStatus">{data.live.live_status}</span> · Checked <span data-gosx-live-bind="checkedAt">{data.status_line.checked_at}</span> · <span data-gosx-live-bind="refreshLabel">{data.live.refresh_label}</span></span>
 		</p>
+		<If cond={data.status_line.closed_early}>
+			<p class="matchup-week-notice matchup-week-notice--warning" role="status">Week {data.week} closed early: {data.status_line.games_final} at close. Scores may not reflect the final box score.</p>
+		</If>
 		<If cond={data.has_week_notice}><p class="matchup-week-notice" role="status">{data.week_notice}</p></If>
 	</>
 }

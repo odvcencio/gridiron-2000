@@ -668,6 +668,12 @@ type LiveSnapshot struct {
 	// (LiveStatus.CheckedAt), distinct from CheckedAt (this snapshot's
 	// own render instant) and StatsUpdatedAt (the ledger's freshness).
 	LiveCheckedAt time.Time `json:"liveCheckedAt,omitzero"`
+	// ClosedEarly (F3, J4 console gap-audit) is true when this week's
+	// fantasy matchups are all final (closed) while its real NFL games are
+	// not all final — the forced-close-with-a-data-stall case, where every
+	// score risks being 0.0 from a missed player-stat join. Results pages
+	// use this to show a CLOSED EARLY warning in place of a plain FINAL.
+	ClosedEarly bool `json:"closedEarly,omitempty"`
 }
 
 // activeTeams backs defaultTeams(): the currently active league's team

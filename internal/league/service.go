@@ -5639,6 +5639,11 @@ func (s *Service) matchupStatusLine(live LiveSnapshot) map[string]any {
 		"checked_at":       s.formatMatchupUpdateOrUnavailable(checkedAt),
 		"stats_updated_at": s.formatMatchupUpdateOrUnavailable(live.StatsUpdatedAt),
 		"games_final":      live.GamesFinal,
+		// closed_early (F3, J4 console gap-audit): true when this week's
+		// fantasy matchups are final while its real NFL games are not —
+		// the forced-close-during-a-data-stall shape. The results page
+		// shows a CLOSED EARLY warning in place of a plain FINAL for it.
+		"closed_early": live.ClosedEarly,
 	}
 }
 
