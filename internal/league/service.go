@@ -310,6 +310,15 @@ func (s *Service) clock() time.Time {
 	return time.Now()
 }
 
+// Now is clock's exported form, for route packages outside this one (J4
+// F29, gap-audit): Commissioner HQ used to stamp its own "GENERATED" and
+// "Player list updated" times from a bare time.Now().UTC(), disagreeing
+// with the same league's /admin console, which already reads this
+// harness-adjustable clock through clock(). Every wall-clock stamp a
+// commissioner reads should come from one clock; this is that seam's
+// only exported door.
+func (s *Service) Now() time.Time { return s.clock() }
+
 var (
 	defaultOnce sync.Once
 	// defaultMu guards defaultSvc's assignment below against any read that
@@ -3685,6 +3694,14 @@ func (s *Service) clockView(state PersistedState, now time.Time) map[string]any 
 		"remaining_label":     countdownMMSSLabel(remaining),
 		"duration_seconds":    int(s.pickClock(state).Seconds()),
 		"duration_label":      countdownMMSSLabel(int(s.pickClock(state).Seconds())),
+		// duration_overridden (J2 F17, gap-audit): app/admin/page.gsx's
+		// "Duration source" cell branches on this key, but clockView never
+		// set it, so neither its OVERRIDE nor its DEFAULT branch ever
+		// rendered — a labelled cell with nothing in it. The commissioner's
+		// own persisted override (ClockDurationSec, same test
+		// clockDurationSource already uses for its own "env"/"override"
+		// pair) is the one source of truth for this.
+		"duration_overridden": state.ClockDurationSec > 0,
 		"server_now":          now.UTC().Format(time.RFC3339),
 		// These opaque values are form contracts, not authorization
 		// credentials. current_pick_token covers the on-clock seat and

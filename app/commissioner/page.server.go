@@ -229,7 +229,12 @@ func commissionerETagMatches(header, current string) bool {
 }
 
 // timeNow is a seam for render tests and keeps the view model request-local.
-var timeNow = func() time.Time { return time.Now().UTC() }
+// J4 F29 (gap-audit): this used to read the bare wall clock, so HQ's own
+// "GENERATED"/"Player list updated" stamps disagreed with the same
+// league's /admin console, which already reads the harness-adjustable
+// service clock. league.Default().Now() is that same clock's only
+// exported door (internal/league/service.go).
+var timeNow = func() time.Time { return league.Default().Now().UTC() }
 
 // fleetCard remains the narrow contract used by existing renderer tests. The
 // full page and live fragment both use the richer model behind it.
