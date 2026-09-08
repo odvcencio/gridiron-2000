@@ -968,9 +968,14 @@ func (s *Service) teamPresence(state PersistedState, teamID string, now time.Tim
 		}
 		return best, "At the room now.", bestSeen
 	case "idle":
-		return best, fmt.Sprintf("Last seen %s ago.", presenceAgeLabel(now.Sub(bestSeen))), bestSeen
+		// F24 (J4 console gap-audit): relativeTime already breaks a span
+		// into minutes/hours/days ("6 days ago"), the one relative-time
+		// idiom every other page on the console uses; the former
+		// presenceAgeLabel helper capped at hours ("160h ago"), the
+		// console's only relative phrase in raw hours.
+		return best, fmt.Sprintf("Last seen %s.", relativeTime(now, bestSeen)), bestSeen
 	case "away":
-		return best, fmt.Sprintf("Last seen %s ago · full clock remains.", presenceAgeLabel(now.Sub(bestSeen))), bestSeen
+		return best, fmt.Sprintf("Last seen %s · full clock remains.", relativeTime(now, bestSeen)), bestSeen
 	default:
 		return best, "No room heartbeat since this server started.", bestSeen
 	}
@@ -989,19 +994,6 @@ func FriendlyPresenceDetail(detail string) string {
 		return "No manager has opened the room yet."
 	}
 	return detail
-}
-
-func presenceAgeLabel(age time.Duration) string {
-	if age < 0 {
-		age = 0
-	}
-	if age < time.Minute {
-		return fmt.Sprintf("%ds", int(age/time.Second))
-	}
-	if age < time.Hour {
-		return fmt.Sprintf("%dm", int(age/time.Minute))
-	}
-	return fmt.Sprintf("%dh", int(age/time.Hour))
 }
 
 // presenceDigest renders "team-1=here,team-2=not_seen,..." across every
@@ -2092,6 +2084,9 @@ func (s *Service) fantasyCardData(state PersistedState, viewer map[string]any) m
 	if hasSeat {
 		teamID, _ := viewer["team_id"].(string)
 		team = s.teamMap(s.teamView(state, teamID))
+		// record (F27, J4 console gap-audit): see TeamData's own note —
+		// teamMap's default "record" is the static seed placeholder.
+		team["record"] = s.currentTeamRecord(state, teamID)
 	}
 	return map[string]any{
 		"has_seat":    hasSeat,
@@ -2406,6 +2401,14 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	radar := s.teamTerminalRadar(state, lifecycle.Phase, now, 3)
 	radarCopy := teamTerminalRadarCopy(lifecycle.Phase)
 	teamMap := s.teamMap(team)
+	// record (F27, J4 console gap-audit): teamMap's own "record" key reads
+	// team.Record, the static "0–0" seed placeholder (model.go) every
+	// caller shares by default — the team masthead's own "Season 0–0"
+	// used to freeze at that placeholder regardless of real results, the
+	// third page (with the standings table and the matchups page) this
+	// gap-audit finding named. currentTeamRecord reads the same standings
+	// the standings table itself computes.
+	teamMap["record"] = s.currentTeamRecord(state, teamID)
 	// has_custom_name (wave-6 glue item 5) gates the /team page's own
 	// "Reset to configured name" control (page.gsx): the control has
 	// nothing useful to do, and nothing to reset, for a team still
@@ -5500,6 +5503,24 @@ func matchupScoreText(team ScoreTeam) string {
 	return fmt.Sprintf("%.1f", team.Score)
 }
 
+// currentTeamRecord is the one source of truth for a team's displayed
+// record (F27, J4 console gap-audit): standingRecord already gave the
+// standings table a "W–L" record that upgrades to "W–L–T" once any tie
+// exists, but every other reader of a Team value (matchupMaps below,
+// teamMap) read Team.Record itself — a field only dashboardTeam's own
+// local copy ever set, so it never carried anything but the "0–0" seed
+// placeholder (model.go) everywhere else. This computes the same
+// standings this state would show on the standings table, keyed by team
+// ID, so a manager watching a matchup and a manager reading the
+// standings see the identical record for the identical week.
+func (s *Service) currentTeamRecord(state PersistedState, teamID string) string {
+	standings := s.dashboardStandingState(state)
+	if standing, ok := standings.ByTeam[teamID]; ok {
+		return standingRecord(standing)
+	}
+	return "0–0"
+}
+
 func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []map[string]any {
 	out := make([]map[string]any, 0, len(matchups))
 	for _, matchup := range matchups {
@@ -5512,6 +5533,12 @@ func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []m
 		// pick it up through teamMap.
 		awayHasAvatar, awayHasImage, awayAvatarURL := s.avatarView(away.ID, away.Tone)
 		homeHasAvatar, homeHasImage, homeAvatarURL := s.avatarView(home.ID, home.Tone)
+		// F27 (J4 console gap-audit): away.Record/home.Record (teamView's
+		// own return value) never carry more than the static "0–0" seed
+		// placeholder; currentTeamRecord reads the same standings the
+		// standings table itself computes.
+		awayRecord := s.currentTeamRecord(state, matchup.Away.ID)
+		homeRecord := s.currentTeamRecord(state, matchup.Home.ID)
 		out = append(out, map[string]any{
 			"id":                  matchup.ID,
 			"state":               matchup.State,
@@ -5520,12 +5547,12 @@ func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []m
 			"live_indicator":      liveIndicatorToken(matchup.State),
 			"away": map[string]any{
 				"id": matchup.Away.ID, "name": matchup.Away.Name, "abbreviation": matchup.Away.Abbreviation,
-				"score": matchupScoreText(matchup.Away), "score_known": matchup.Away.ScoreKnown, "ledger_total": matchup.Away.LedgerTotalText, "ledger_known": matchup.Away.LedgerKnown, "score_basis": matchup.Away.ScoreBasis, "score_note": matchup.Away.ScoreNote, "starters": starterLedgerMaps(matchup.Away.StarterLedger), "tone": away.Tone, "manager": away.Manager, "record": away.Record,
+				"score": matchupScoreText(matchup.Away), "score_known": matchup.Away.ScoreKnown, "ledger_total": matchup.Away.LedgerTotalText, "ledger_known": matchup.Away.LedgerKnown, "score_basis": matchup.Away.ScoreBasis, "score_note": matchup.Away.ScoreNote, "starters": starterLedgerMaps(matchup.Away.StarterLedger), "tone": away.Tone, "manager": away.Manager, "record": awayRecord,
 				"has_avatar": awayHasAvatar, "has_avatar_image": awayHasImage, "avatar_image_url": awayAvatarURL,
 			},
 			"home": map[string]any{
 				"id": matchup.Home.ID, "name": matchup.Home.Name, "abbreviation": matchup.Home.Abbreviation,
-				"score": matchupScoreText(matchup.Home), "score_known": matchup.Home.ScoreKnown, "ledger_total": matchup.Home.LedgerTotalText, "ledger_known": matchup.Home.LedgerKnown, "score_basis": matchup.Home.ScoreBasis, "score_note": matchup.Home.ScoreNote, "starters": starterLedgerMaps(matchup.Home.StarterLedger), "tone": home.Tone, "manager": home.Manager, "record": home.Record,
+				"score": matchupScoreText(matchup.Home), "score_known": matchup.Home.ScoreKnown, "ledger_total": matchup.Home.LedgerTotalText, "ledger_known": matchup.Home.LedgerKnown, "score_basis": matchup.Home.ScoreBasis, "score_note": matchup.Home.ScoreNote, "starters": starterLedgerMaps(matchup.Home.StarterLedger), "tone": home.Tone, "manager": home.Manager, "record": homeRecord,
 				"has_avatar": homeHasAvatar, "has_avatar_image": homeHasImage, "avatar_image_url": homeAvatarURL,
 			},
 			"status": matchup.Status,
@@ -5785,7 +5812,13 @@ func (s *Service) featuredTeamMap(state PersistedState, side ScoreTeam, projecte
 	team := s.teamView(state, side.ID)
 	_, hasImage, avatarURL := s.avatarView(team.ID, team.Tone)
 	return map[string]any{
-		"id": side.ID, "name": side.Name, "manager": team.Manager, "record": team.Record,
+		// F27 (J4 console gap-audit): team.Record (teamView's own return
+		// value) never carries more than the static "0–0" seed placeholder
+		// (model.go) — currentTeamRecord reads the same standings the
+		// standings table itself computes, the same fix matchupMaps
+		// already carries for the "other matchups" list; this is the
+		// featured/"my matchup" card's own separate team-shape builder.
+		"id": side.ID, "name": side.Name, "manager": team.Manager, "record": s.currentTeamRecord(state, side.ID),
 		// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2): see
 		// the LiveScoresView call site above.
 		"score": matchupScoreText(side), "projected": projectedText(projected, hasProjectableStarters(side.StarterLedger)),

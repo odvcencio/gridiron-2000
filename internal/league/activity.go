@@ -60,7 +60,7 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 	// live name on the feed rows and rail below it. teams (above) stays
 	// abbreviation-only for backward compatibility with existing
 	// callers/fixtures.
-	teamOptions := make([]map[string]any, 0, len(s.Teams()))
+	teamOptions := make([]map[string]any, 0, len(s.Teams())+1)
 	teamKnown := team == ""
 	for _, candidate := range s.Teams() {
 		teams = append(teams, candidate.Abbreviation)
@@ -78,6 +78,17 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 			"label":    label,
 			"selected": selected,
 		})
+	}
+	// F33 (J4 console gap-audit): a synthetic option after every real
+	// team, sharing the one select the template already renders — see
+	// activityCommissionerFilterValue's own doc comment.
+	teamOptions = append(teamOptions, map[string]any{
+		"value":    activityCommissionerFilterValue,
+		"label":    "Commissioner actions",
+		"selected": team == activityCommissionerFilterValue,
+	})
+	if team == activityCommissionerFilterValue {
+		teamKnown = true
 	}
 	// team_unknown_notice (item 1, 2026-09-02 audit): a "team" query value
 	// coded to no real team (a stale link, a typo, a since-trimmed
@@ -144,7 +155,20 @@ func activityText(value any) string {
 	return text
 }
 
+// activityCommissionerFilterValue is the team-select's synthetic value for
+// "Commissioner actions" (F33, J4 console gap-audit): the filter offered
+// every real team and no way to isolate the handful of commissioner rows
+// (resets, force closes, releases, ...) from the rest of the feed, most of
+// it draft picks. It shares the team select rather than adding a second
+// control, so the existing generic <select> markup (app/activity/page.gsx)
+// renders it with no template change.
+const activityCommissionerFilterValue = "COMMISSIONER"
+
 func activityTeamMatches(entry map[string]any, wanted string) bool {
+	if wanted == activityCommissionerFilterValue {
+		kind, _ := entry["kind"].(string)
+		return kind == activityActorClassCommissioner
+	}
 	for _, key := range []string{"teams", "team_names", "team_ids"} {
 		values, ok := entry[key].([]string)
 		if !ok {

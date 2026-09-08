@@ -122,7 +122,7 @@ func TestAdminRenameTeamRecordsCommissionerEvent(t *testing.T) {
 func TestAdminResetDraftRecordsCommissionerEvent(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
-	if err := service.AdminResetDraft(request, ResetDraftConfirmation); err != nil {
+	if err := service.AdminResetDraft(request, resetDraftConfirmation(service.cfg.Name)); err != nil {
 		t.Fatal(err)
 	}
 	events := service.store.Snapshot().CommissionerEvents
@@ -170,7 +170,7 @@ func TestAdminRescheduleDraftRecordsCommissionerEvent(t *testing.T) {
 func TestAdminResetLeagueRecordsCommissionerEvent(t *testing.T) {
 	service := newTestService(t, true)
 	request := httptest.NewRequest(http.MethodPost, "/admin", nil)
-	if err := service.AdminResetLeague(request, ResetLeagueConfirmation); err != nil {
+	if err := service.AdminResetLeague(request, resetLeagueConfirmation(service.cfg.Name)); err != nil {
 		t.Fatal(err)
 	}
 	events := service.store.Snapshot().CommissionerEvents

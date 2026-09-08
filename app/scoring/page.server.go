@@ -174,8 +174,9 @@ func init() {
 				return nil
 			},
 			"scoring-reset": func(ctx *action.Context) error {
-				if ctx.FormData["confirm"] != "RESET" {
-					message := "type RESET to confirm"
+				expected := league.Default().ResetScoringConfirmationPhrase()
+				if ctx.FormData["confirm"] != expected {
+					message := "type " + expected + " exactly to confirm"
 					return action.Validation(message, map[string]string{"scoring": message}, ctx.FormData)
 				}
 				if err := league.Default().AdminResetScoring(ctx.Request); err != nil {

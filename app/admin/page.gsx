@@ -64,9 +64,15 @@ func SeatRow(props SeatRowProps) Node {
 			</small>
 		</If>
 		<small class="mono">{props.seat.presence_label} · {props.seat.presence_detail}</small>
-		<small class="mono">BOARD: {props.seat.board_count} TARGETS</small>
-		<If cond={props.seat.board_gap}>
-			<b class="ready-state">BOARD GAP</b>
+		{/* F24 (J4 console gap-audit): the board-target count and the "no
+		    board" warning are draft-era facts — once the draft is over,
+		    "BOARD: 22 TARGETS" no longer means anything and only pushed the
+		    row's more current facts further down. */}
+		<If cond={props.seat.draft_complete == false}>
+			<small class="mono">BOARD: {props.seat.board_count} TARGETS</small>
+			<If cond={props.seat.board_gap}>
+				<b class="ready-state">BOARD GAP</b>
+			</If>
 		</If>
 		<span class="position-chip">{props.seat.division}</span>
 		</div>
@@ -119,7 +125,11 @@ func SeatRow(props SeatRowProps) Node {
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 					<input type="hidden" name="team_id" value={props.seat.id}></input>
 					<input type="hidden" name="on" value="false"></input>
-					<button class="board-button autopick-toggle is-on" type="submit">AUTO: ON</button>
+					{/* F24 (J4 console gap-audit): "AUTO: ON" named no subject
+					    and gave no hint the button itself was the toggle. The
+					    label now states the current state and the action the
+					    click takes. */}
+					<button class="board-button autopick-toggle is-on" type="submit">Autopick: on — turn off</button>
 				</form>
 			</If>
 			<If cond={props.seat.autopick == false}>
@@ -127,7 +137,7 @@ func SeatRow(props SeatRowProps) Node {
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 					<input type="hidden" name="team_id" value={props.seat.id}></input>
 					<input type="hidden" name="on" value="true"></input>
-					<button class="board-button autopick-toggle" type="submit">AUTO: OFF</button>
+					<button class="board-button autopick-toggle" type="submit">Autopick: off — turn on</button>
 				</form>
 			</If>
 		</If>
@@ -601,9 +611,14 @@ func Page() Node {
 										<span class="admin-task-nav__status">ANY TEAM</span>
 									</summary>
 									<p class="admin-task-nav__hint">A commissioner can set any team's lineup on a missing manager's behalf; this never locks out the manager's own changes once they return.</p>
+									{/* F32 (J4 console gap-audit): the old #lineup fragment
+									    scrolled past the page's own commissioner-intervention
+									    banner and landed mid-page on an unrelated card. The
+									    banner sits at the top of the page in intervention
+									    mode, so the plain link already lands on it. */}
 									<ul class="admin-task-nav__lineup-list">
 										<Each of={data.seats} as="seat">
-											<li><a href={"/team?team=" + seat.id + "#lineup"} data-gosx-link>{seat.name}</a></li>
+											<li><a href={"/team?team=" + seat.id} data-gosx-link>{seat.name}</a></li>
 										</Each>
 									</ul>
 								</details>
@@ -916,7 +931,10 @@ func Page() Node {
 						<div>
 							<span class="section-index">02 // WEEK CLOSE</span>
 							<h2 id="admin-week-close-heading">Week close</h2>
-							<p class="scoring-note">Readiness is advisory. The normal close waits for every real game and a settled player ledger; the override is explicit and records the override in the league log.</p>
+							{/* F33 (J4 console gap-audit): "the league log" named a
+							    record the console's own body never linked to —
+							    only the sidebar reached /activity. */}
+							<p class="scoring-note">Readiness is advisory. The normal close waits for every real game and a settled player ledger; the override is explicit and records the override in <a href="/activity" data-gosx-link>the league log</a>.</p>
 						</div>
 					</div>
 					<If cond={data.schedule.has_schedule == false}>
@@ -930,6 +948,13 @@ func Page() Node {
 							<div class="pool-stat"><span>Readiness</span><b class="mono">{data.schedule.close.ready_label}</b></div>
 						</div>
 						<p class="scoring-note"><strong>WHY:</strong> {data.schedule.close.reason}</p>
+						{/* F21 (J4 console gap-audit): empty unless the stat feed's
+						    last fetch predates this week's own last kickoff — the
+						    reason line above never named a stale feed as the real
+						    cause of "waiting for games to go final". */}
+						<If cond={data.schedule.close.has_stale_feed_notice}>
+							<p class="scoring-note"><strong>STALE FEED:</strong> {data.schedule.close.stale_feed_notice}</p>
+						</If>
 						<If cond={data.schedule.close.final}>
 							<p class="flash-message"><strong>ALREADY FINAL:</strong> Closing the week again changes nothing.</p>
 						</If>
@@ -1001,23 +1026,23 @@ func Page() Node {
 						<div>
 							<span class="section-index">04 // PLAYOFFS</span>
 							<h2 id="admin-playoffs-heading">Playoffs</h2>
-							<p class="scoring-note">One persisted bracket is shared everywhere. A preview is commissioner-only; publication is explicit and idempotent. Scores are never accepted from this browser.</p>
+							{/* F31 (J4 console gap-audit): "persisted", "idempotent",
+							    and "this browser" are engineering words on a page a
+							    commissioner reads. */}
+							<p class="scoring-note">The league shares one bracket. You preview it privately, then publish it. The server computes every score.</p>
 						</div>
 						<span class="position-chip">{data.playoff_truth.status_label}</span>
 					</div>
+					{/* F31 (J4 console gap-audit): before the playoffs, Source sits
+					    empty and Final week/Revision both read the bare number 0 —
+					    an empty labelled tile and two zeros with no meaning yet.
+					    revision only ever starts at 1 once a bracket exists
+					    (Store.PreviewPlayoffs), so 0 is unambiguously "none yet". */}
 					<div class="pool-stats">
 						<div class="pool-stat"><span>Phase</span><b class="mono">{data.playoff_truth.season_phase_label}</b></div>
-						{/* J2 F17 (gap-audit): "Source" read as a labelled cell with
-						    nothing in it before any bracket is persisted — this states
-						    that plainly instead of leaving the cell blank. */}
-						<If cond={data.playoff_truth.source != ""}>
-							<div class="pool-stat"><span>Source</span><b class="mono">{data.playoff_truth.source}</b></div>
-						</If>
-						<If cond={data.playoff_truth.source == ""}>
-							<div class="pool-stat"><span>Source</span><b class="mono">— no bracket yet</b></div>
-						</If>
-						<div class="pool-stat"><span>Final week</span><b class="mono">{data.playoff_truth.final_week}</b></div>
-						<div class="pool-stat"><span>Revision</span><b class="mono">{data.playoff_truth.revision}</b></div>
+						<div class="pool-stat"><span>Source</span><b class="mono"><If cond={data.playoff_truth.source == ""}>—  none yet</If><If cond={data.playoff_truth.source != ""}>{data.playoff_truth.source}</If></b></div>
+						<div class="pool-stat"><span>Final week</span><b class="mono"><If cond={data.playoff_truth.revision == 0}>—  none yet</If><If cond={data.playoff_truth.revision != 0}>{data.playoff_truth.final_week}</If></b></div>
+						<div class="pool-stat"><span>Revision</span><b class="mono"><If cond={data.playoff_truth.revision == 0}>—  none yet</If><If cond={data.playoff_truth.revision != 0}>{data.playoff_truth.revision}</If></b></div>
 					</div>
 					<p class="scoring-note"><strong>STATUS:</strong> {data.playoff_truth.detail}</p>
 					<If cond={data.playoff_truth.recovery != ""}><p class="demo-message"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
@@ -1071,9 +1096,17 @@ func Page() Node {
 						<div>
 							<span class="section-index">05 // SEATS</span>
 							<h2 id="admin-seats-heading">Seats</h2>
-							<p class="scoring-note" id="admin-avatar-upload-help">PNG or JPEG, 10 MB maximum, from 64×64 through 4096×4096 pixels. Images are center-cropped and resized to a 512×512 PNG with metadata removed. If this seat has a claimed badge, uploading a custom image releases it so another team can use it.</p>
 						</div>
 					</div>
+					{/* F24 (J4 console gap-audit): forty words of image-upload
+					    rules used to be the section's own lead paragraph, ahead
+					    of every seat's team, manager, and ready state. It now
+					    sits behind a closed disclosure, still linked to every
+					    row's own upload control by the same id. */}
+					<details class="admin-seats-upload-help">
+						<summary class="board-button">Image requirements</summary>
+						<p class="scoring-note" id="admin-avatar-upload-help">PNG or JPEG, 10 MB maximum, from 64×64 through 4096×4096 pixels. Images are center-cropped and resized to a 512×512 PNG with metadata removed. If this seat has a claimed badge, uploading a custom image releases it so another team can use it.</p>
+					</details>
 					<If cond={data.identity_available == false}>
 						<p class="error-message" id="admin-identity-status" role="status">{data.identity_error}</p>
 					</If>
@@ -1837,6 +1870,10 @@ func Page() Node {
 							<h2 id="admin-danger-heading">Danger zone</h2>
 						</div>
 					</div>
+					{/* F33 (J4 console gap-audit): every reset here is recorded in
+					    the league log, but nothing on this page — the one most
+					    worth checking after an irreversible action — linked to it. */}
+					<p class="scoring-note">Every action on this page is recorded in <a href="/activity" data-gosx-link>the league log</a>.</p>
 					<div class="danger-grid">
 						<form method="post" action={actionPath("draft-reset")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
@@ -1845,8 +1882,16 @@ func Page() Node {
 								<li><TextBlock as="span" font="400 13px Plus Jakarta Sans" lineHeight={18}><strong>Destroyed:</strong> every draft pick, ready status for every seat, the draft clock and autopick settings, the transaction log, every set lineup, pending waiver claims, the waiver claim history, the waiver processing clock, pending and past trade offers, reserve/IR roster assignments, and draft-related notification history.</TextBlock></li>
 								<li><TextBlock as="span" font="400 13px Plus Jakarta Sans" lineHeight={18}><strong>Preserved:</strong> team seats and managers, pending co-manager invites, draft boards, the invite list, custom team names, the draft order, the regular-season schedule, the playoff bracket, the season phase, the custom roster shape, the trimmed-seat list, the scheduled meeting time, scoring rules, pick'em picks, blitz contest entries, claimed badges, custom avatar images, league announcements, notification preferences, and unrelated sent-notification history.</TextBlock></li>
 							</ul>
+							{/* F4 (J4 console gap-audit): empty before the season starts
+							    (draft_reset_consequence, admin.go); once it renders, it is
+							    the only line on this card that names what a reset does to
+							    a season already under way. */}
+							<If cond={data.draft_reset_consequence != ""}>
+								<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18}>{data.draft_reset_consequence}</TextBlock>
+							</If>
 							<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18}>This cannot be undone from this screen; only a restored backup can bring {data.league.name}'s destroyed draft data back. <a href="#admin-backup" class="board-button">Back up first →</a></TextBlock>
-							<label>Type <span class="mono">RESET DRAFT</span> to confirm.<input type="text" name="confirm" placeholder="RESET DRAFT" autocomplete="off"></input></label>
+							<label for="admin-draft-reset-confirm">Type <span class="mono">{data.draft_reset_confirm}</span> to confirm.</label>
+							<input id="admin-draft-reset-confirm" class="typed-confirm-input" type="text" name="confirm" autocomplete="off" enterkeyhint="done" placeholder={data.draft_reset_confirm} required="required"></input>
 							<button class="button button--danger" type="submit">Reset {data.league.name}'s draft</button>
 						</form>
 						<form method="post" action={actionPath("draft-undo")} data-gosx-managed="true">
@@ -1866,7 +1911,8 @@ func Page() Node {
 								<li><TextBlock as="span" font="400 13px Plus Jakarta Sans" lineHeight={18}><strong>Preserved:</strong> the invite list, custom team names, scoring rules, league announcements, notification preferences, and unrelated sent-notification history.</TextBlock></li>
 							</ul>
 							<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18}>This cannot be undone from this screen; only a restored backup can bring {data.league.name}'s destroyed data back. <a href="#admin-backup" class="board-button">Back up first →</a></TextBlock>
-							<label>Type <span class="mono">RESET LEAGUE</span> to confirm.<input type="text" name="confirm" placeholder="RESET LEAGUE" autocomplete="off"></input></label>
+							<label for="admin-league-reset-confirm">Type <span class="mono">{data.league_reset_confirm}</span> to confirm.</label>
+							<input id="admin-league-reset-confirm" class="typed-confirm-input" type="text" name="confirm" autocomplete="off" enterkeyhint="done" placeholder={data.league_reset_confirm} required="required"></input>
 							<button class="button button--danger" type="submit">Reset {data.league.name} to a blank league</button>
 						</form>
 					</div>

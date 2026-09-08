@@ -120,6 +120,19 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 	if info.GamesKnown && kickoffOK {
 		info.StatsFresh = !info.StatsUpdatedAt.IsZero() && !info.StatsUpdatedAt.Before(lastKickoff.Add(24*time.Hour))
 	}
+	// StaleFeedNotice (F21, J4 console gap-audit): Reason below explains
+	// whichever single fact is currently blocking a normal close — most
+	// often "waiting for N of M games to go final" — but when the games
+	// feed stalls, that fact and the stat ledger's own staleness share one
+	// root cause the reason text never named. If the ledger's last fetch
+	// predates this week's own last kickoff, the feed itself is behind,
+	// regardless of which fact Reason ends up reporting.
+	if info.GamesKnown && kickoffOK && !info.StatsUpdatedAt.IsZero() && info.StatsUpdatedAt.Before(lastKickoff) {
+		info.StaleFeedNotice = fmt.Sprintf(
+			"The stat feed's last fetch was %s, before this week's last kickoff. Force the close only if you accept scores computed from that stale feed.",
+			info.StatsUpdatedAt.In(s.matchupLocation()).Format("Jan 2, 3:04 PM MST"),
+		)
+	}
 	info.Ready = WeekCloseReady(games, week, info.StatsUpdatedAt, now)
 	switch {
 	case !info.GamesKnown:
@@ -172,13 +185,23 @@ func nextOpenScheduleWeek(schedule *SeasonSchedule) int {
 // false. Every branch below states the true week progress instead: not
 // yet kicked off (naming the next kickoff), under way, or waiting on the
 // league to close it.
+//
+// The phase inference below reads Schedule alone, not now-vs-seasonStartAt()
+// (2026-09-08 wave C follow-up, J4 F21's own coordinator note): a
+// post-draft league with a generated schedule but a configured
+// season_start_at still ahead of now used to fall through to the bare
+// "Preseason." branch, which the attention panel then rendered directly
+// beside AdminWeekCloseInfo's own Reason ("waiting for 16 of 16 games to
+// go final") — two true facts that together read as one false one
+// ("Preseason. waiting for 16 of 16 games to go final"). The word
+// "Preseason" now names exactly one state: no schedule exists yet.
 func (s *Service) consoleSeasonStateSentence(state PersistedState, now time.Time) string {
 	phase := state.Phase
 	if phase == "" {
-		if state.Schedule == nil || now.Before(seasonStartAt()) {
-			phase = "preseason"
-		} else {
+		if state.Schedule != nil {
 			phase = PhaseRegularSeason
+		} else {
+			phase = "preseason"
 		}
 	}
 	switch phase {
@@ -201,12 +224,15 @@ func (s *Service) consoleSeasonStateSentence(state PersistedState, now time.Time
 }
 
 // weekProgressSentence names week's own progress in one of three states
-// (F1's exact contract): the week's games have not kicked off yet (naming
-// the next kickoff in league-local time), the week is under way, or every
-// real game has gone final and the league is waiting to close it. Read via
-// AdminWeekCloseInfo, the same readiness computation the week-close panel
-// itself already uses, so the console and the panel can never disagree
-// about which of these three states week is in.
+// (F1's exact contract, extended 2026-09-08 wave C to also name the
+// games-final count the attention panel's own week-close reason repeats
+// beside it): the week's games have not kicked off yet (naming the next
+// kickoff in league-local time), the week is under way (with how many
+// real games have gone final), or every real game has gone final and the
+// league is waiting to close it. Read via AdminWeekCloseInfo, the same
+// readiness computation the week-close panel itself already uses, so the
+// console and the panel can never disagree about which of these three
+// states week is in.
 func (s *Service) weekProgressSentence(week int, now time.Time) string {
 	info := s.AdminWeekCloseInfo(week, now)
 	if !info.GamesKnown {
@@ -215,13 +241,13 @@ func (s *Service) weekProgressSentence(week int, now time.Time) string {
 	if info.GamesFinal == 0 {
 		if first, ok := firstKickoff(gamesInWeek(s.schedule(), week), week); ok && now.Before(first) {
 			location := s.matchupLocation()
-			return fmt.Sprintf("Week %d · games %s", week, first.In(location).Format("Monday 3:04 PM MST"))
+			return fmt.Sprintf("Week %d starts %s", week, first.In(location).Format("Mon Jan 2 · 3:04 PM MST"))
 		}
 	}
 	if info.GamesFinal < info.GamesTotal {
-		return fmt.Sprintf("Week %d in progress", week)
+		return fmt.Sprintf("Week %d in progress · %d of %d games final", week, info.GamesFinal, info.GamesTotal)
 	}
-	return fmt.Sprintf("Week %d awaiting close", week)
+	return fmt.Sprintf("Week %d awaiting close · %d of %d final", week, info.GamesFinal, info.GamesTotal)
 }
 
 // AdminCloseWeek closes one league week: it scores every matchup in the
@@ -421,6 +447,12 @@ type WeekCloseInfo struct {
 	StatsUpdatedAt time.Time
 	StatsFresh     bool
 	Reason         string
+	// StaleFeedNotice (F21, J4 console gap-audit): non-empty when the stat
+	// ledger's last fetch predates this week's own last kickoff — the
+	// commissioner-facing explanation Reason alone never gave for why
+	// games or stats read as not-final when the real cause is a feed that
+	// stopped refreshing days ago.
+	StaleFeedNotice string
 }
 
 // SetStatsUpdatedSource attaches the open-stats freshness seam used by the

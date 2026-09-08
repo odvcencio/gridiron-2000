@@ -374,14 +374,19 @@ func TestActivityDataTeamOptionsCarryTheTeamNameWithTheCodeSecondary(t *testing.
 	request, _ := http.NewRequest(http.MethodGet, "/activity?team=BET", nil)
 	data := svc.ActivityData(request)
 	options, ok := data["team_options"].([]map[string]any)
-	if !ok || len(options) != 2 {
-		t.Fatalf("team_options = %#v, want 2 entries", data["team_options"])
+	// F33 (J4 console gap-audit): a trailing "Commissioner actions" option
+	// now shares this same select — see activityCommissionerFilterValue.
+	if !ok || len(options) != 3 {
+		t.Fatalf("team_options = %#v, want 3 entries", data["team_options"])
 	}
 	if options[0]["value"] != "ALP" || options[0]["label"] != "Alpha Aces (ALP)" || options[0]["selected"] != false {
 		t.Fatalf("team_options[0] = %+v, want value=ALP label=\"Alpha Aces (ALP)\" selected=false", options[0])
 	}
 	if options[1]["value"] != "BET" || options[1]["label"] != "Beta Bears (BET)" || options[1]["selected"] != true {
 		t.Fatalf("team_options[1] = %+v, want value=BET label=\"Beta Bears (BET)\" selected=true", options[1])
+	}
+	if options[2]["value"] != "COMMISSIONER" || options[2]["label"] != "Commissioner actions" || options[2]["selected"] != false {
+		t.Fatalf("team_options[2] = %+v, want value=COMMISSIONER label=\"Commissioner actions\" selected=false", options[2])
 	}
 }
 
@@ -407,8 +412,10 @@ func TestActivityDataTeamOptionsReflectALiveRename(t *testing.T) {
 	request, _ := http.NewRequest(http.MethodGet, "/activity", nil)
 	data := svc.ActivityData(request)
 	options, ok := data["team_options"].([]map[string]any)
-	if !ok || len(options) != 2 {
-		t.Fatalf("team_options = %#v, want 2 entries", data["team_options"])
+	// F33 (J4 console gap-audit): a trailing "Commissioner actions" option
+	// now shares this same select — see activityCommissionerFilterValue.
+	if !ok || len(options) != 3 {
+		t.Fatalf("team_options = %#v, want 3 entries", data["team_options"])
 	}
 	if options[0]["label"] != "In Shedeur Time (AQ1)" {
 		t.Errorf("team_options[0] label = %v, want the live renamed team name, not the config seed", options[0]["label"])
@@ -448,6 +455,63 @@ func TestActivityDataUnknownTeamCodeSurfacesANotice(t *testing.T) {
 	if knownData["team_unknown"] != false || knownData["team_unknown_notice"] != "" {
 		t.Fatalf("team_unknown state for a real code = unknown:%v notice:%q, want false/empty", knownData["team_unknown"], knownData["team_unknown_notice"])
 	}
+}
+
+// TestActivityDataCommissionerFilterIsolatesCommissionerRows pins F33 (J4
+// console gap-audit): the audit trail was complete but unfilterable — a
+// commissioner could not separate their own handful of actions from
+// dozens of ordinary team moves. The team select now carries a trailing
+// "Commissioner actions" option (activityCommissionerFilterValue) that
+// isolates exactly the rows activityMaps already marks
+// activityActorClassCommissioner, with no new control on the page.
+func TestActivityDataCommissionerFilterIsolatesCommissionerRows(t *testing.T) {
+	svc := activityParityService(t)
+	base := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	svc.store.state.Transactions = append(svc.store.state.Transactions, Transaction{
+		ID: "add-parity", Type: "add", TeamID: "team-1",
+		Adds: []TransactionPlayer{{Name: "Alpha Free Agent", Position: "WR"}},
+		At:   base,
+	})
+	svc.store.state.CommissionerEvents = append(svc.store.state.CommissionerEvents, CommissionerEvent{
+		ID: "ce-parity", ActorEmail: "alex@example.com", ActorName: "Alex",
+		Kind: "draft.reset", Summary: "reset the draft", At: base.Add(time.Hour),
+	})
+
+	all := svc.ActivityData(mustGet(t, "/activity"))
+	if got, _ := all["transactions_count"].(int); got != 2 {
+		t.Fatalf("unfiltered transactions_count = %v, want 2", all["transactions_count"])
+	}
+
+	request, _ := http.NewRequest(http.MethodGet, "/activity?team=COMMISSIONER", nil)
+	data := svc.ActivityData(request)
+	if data["team_unknown"] != false {
+		t.Fatalf("team_unknown for the commissioner filter = %v, want false", data["team_unknown"])
+	}
+	rows, ok := data["transactions"].([]map[string]any)
+	if !ok || len(rows) != 1 {
+		t.Fatalf("commissioner-filtered rows = %#v, want exactly the one commissioner row", data["transactions"])
+	}
+	if rows[0]["kind"] != activityActorClassCommissioner || rows[0]["team"] != "Alex" {
+		t.Fatalf("commissioner-filtered row = %+v, want the commissioner event attributed to Alex", rows[0])
+	}
+
+	options, ok := data["team_options"].([]map[string]any)
+	if !ok || len(options) == 0 {
+		t.Fatalf("team_options = %#v, want at least the commissioner option", data["team_options"])
+	}
+	last := options[len(options)-1]
+	if last["value"] != "COMMISSIONER" || last["label"] != "Commissioner actions" || last["selected"] != true {
+		t.Fatalf("commissioner option = %+v, want value=COMMISSIONER label=\"Commissioner actions\" selected=true", last)
+	}
+}
+
+func mustGet(t *testing.T, target string) *http.Request {
+	t.Helper()
+	request, err := http.NewRequest(http.MethodGet, target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return request
 }
 
 func activityParityService(t *testing.T) *Service {
