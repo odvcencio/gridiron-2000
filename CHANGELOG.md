@@ -5,7 +5,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- The commissioner console's top line now states the week's true progress in plain words (for example "Week 1 in progress") instead of gluing the season phase and draft status into one raw line that read as "the season is over" during week 1. The draft deadline line shows only while a draft is still pending.
+- Once the draft is complete, the console leads with the week's own open work — open waiver claims, trades in review, and seat readiness — and moves the draft-night seat and board details into a closed "Draft night (complete)" section.
+- A forced week close now states what it actually closed with, for example "Week 1 closed with 0 of 16 games scored — 88 stat joins missed", instead of a bare success message. The results page shows a CLOSED EARLY warning when a week closed before its games finished. The force-close control now warns of the consequence before the click and uses the same destructive styling as other irreversible controls, instead of looking the same as its disabled neighbors.
+- Invite emails sent after the draft state that the draft is finished and point the new manager to the current week's lineup, instead of telling them to build a draft board for a draft that already happened. The invite preview now addresses a real pending invite, or a plain placeholder, instead of a fake example address.
+- Releasing a seat in season now names the roster, lineup, and matchup the release leaves in place. A manager whose seat was released sees a plain notice naming their released team and the date, instead of a first-time welcome page.
+- The trade desk's empty-inbox message now calls an offer you sent "open," not "accepted," matching what the review sections actually show.
+- The rules and scoring page now states that a rule change applies from the next open week and that closed weeks keep the scores they were closed with.
 
 ## [release-2026.09.08-8b73e06-textflow] — 2026-09-07
 

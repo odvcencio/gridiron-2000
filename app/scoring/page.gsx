@@ -241,6 +241,13 @@ func Page() Node {
 			</p>
 			<a href="/team" data-gosx-link class="button button--compact">Open your team terminal →</a>
 		</details>
+		{/* F14 (J4 console gap-audit): each scoring rule was a bare number
+		    input and a Set button, with nothing anywhere near the controls
+		    stating whether a change reaches a week that has already closed.
+		    A closed week's HomeScore/AwayScore are computed once, at close
+		    time, from the scoring values in effect then (closeWeek,
+		    season.go); a later scoring edit can never reach them. */}
+		<p class="scoring-note"><strong>Changes apply from the next open week.</strong> Closed weeks keep the scores they were closed with.</p>
 		<Each of={data.groups} as="group">
 			<details class="player-pool" id={group.ID} open>
 				<summary class="pool-toolbar">
