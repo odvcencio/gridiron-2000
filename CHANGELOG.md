@@ -5,7 +5,21 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Added
+- Help search now finds this league's own house rules: searching superflex, punter, punting, half PPR, or IR returns the right topic instead of "No matching topic."
+- A commissioner posting to the Locker Room can mark a post "Post as commissioner note." That post carries a Commissioner badge and a distinct style, so a ruling reads differently from trash talk.
+- The trade composer now shows each player's NFL team, bye week, this week's projection, and points beside the checkbox, not only a name and a position.
+- The trade desk and the home page now show a notice when a trade you were part of has executed, naming both teams and the date.
+
+### Changed
+- The Help Center's waivers answer now states this league's own configured claim rule (priority order or FAAB bid) instead of naming FAAB for every league.
+- The Help Center no longer shows its own internal corpus version, schema language, a search-determinism sentence, or a relevance score to managers.
+- Every Help Center checklist link now names its destination (for example "Open the Team terminal") instead of repeating "Open help/action" for every item.
+- The Preseason Blitz masthead now shows one state at a time: entry count while the slate is open, or "Blitz finished" with your result once it closes, instead of showing both at once.
+- The Locker Room's removal-confirmation error now renders beside the control it describes, in sentence case, and keeps that control's disclosure open, instead of appearing as a lowercase fragment at the top of the page.
+
+### Fixed
+- The Preseason Blitz's leaderboard empty state now reads "Nobody entered this slate" once the slate has closed, instead of the open-invitation "No entries yet."
 
 ## [release-2026.09.08-88f7149-season2] — 2026-09-07
 
