@@ -180,6 +180,131 @@ func TestRedirectBackWithScopedNoticeRoundTripsForItsOwnRoute(t *testing.T) {
 	}
 }
 
+// TestRedirectWithScopedNoticeIsInvisibleToAnotherRoutesRead is
+// RedirectWithScopedNotice's own version of
+// TestRedirectBackWithScopedNoticeIsInvisibleToAnotherRoutesRead (J6 F15
+// residue, wave E): a caller whose form always lands on one explicit
+// target (no return_to) still needs the flash scoped to its own route.
+func TestRedirectWithScopedNoticeIsInvisibleToAnotherRoutesRead(t *testing.T) {
+	registry := action.NewRegistry()
+	registry.Register("locker-post", func(ctx *action.Context) error {
+		RedirectWithScopedNotice(ctx, "/locker", "/locker?page=2", "Posted.")
+		return nil
+	})
+	manager := session.MustNew("actionui-scoped-notice-fwd-secret", session.Options{
+		CookieName:    "actionui_scoped_notice_fwd",
+		AllowInsecure: true,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/__actions/locker-post", strings.NewReader(""))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	req.SetPathValue("name", "locker-post")
+	postRes := httptest.NewRecorder()
+	manager.Middleware(registry).ServeHTTP(postRes, req)
+	if postRes.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", postRes.Code, http.StatusSeeOther)
+	}
+	cookies := postRes.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("wrote %d cookies, want 1", len(cookies))
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/blitz", nil)
+	getReq.AddCookie(cookies[0])
+	getRes := httptest.NewRecorder()
+	manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if notice, ok := ScopedNotice(r, "/blitz"); ok {
+			t.Fatalf("a different route's ScopedNotice read the Locker Room's own notice: %q", notice)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(getRes, getReq)
+	if getRes.Code != http.StatusNoContent {
+		t.Fatalf("GET status = %d, want %d", getRes.Code, http.StatusNoContent)
+	}
+}
+
+// TestRedirectWithScopedNoticeRoundTripsForItsOwnRoute is the paired
+// positive case for RedirectWithScopedNotice.
+func TestRedirectWithScopedNoticeRoundTripsForItsOwnRoute(t *testing.T) {
+	registry := action.NewRegistry()
+	registry.Register("locker-post", func(ctx *action.Context) error {
+		RedirectWithScopedNotice(ctx, "/locker", "/locker?page=2", "  Posted.  ")
+		return nil
+	})
+	manager := session.MustNew("actionui-scoped-notice-fwd-own-secret", session.Options{
+		CookieName:    "actionui_scoped_notice_fwd_own",
+		AllowInsecure: true,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/__actions/locker-post", strings.NewReader(""))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	req.SetPathValue("name", "locker-post")
+	postRes := httptest.NewRecorder()
+	manager.Middleware(registry).ServeHTTP(postRes, req)
+	cookies := postRes.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("wrote %d cookies, want 1", len(cookies))
+	}
+	if got := postRes.Header().Get("Location"); got != "/locker?page=2" {
+		t.Fatalf("Location = %q, want the explicit target unchanged", got)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/locker", nil)
+	getReq.AddCookie(cookies[0])
+	getRes := httptest.NewRecorder()
+	manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		notice, ok := ScopedNotice(r, "/locker")
+		if !ok || notice != "Posted." {
+			t.Fatalf("ScopedNotice(/locker) = %q, %v, want the trimmed notice", notice, ok)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(getRes, getReq)
+	if getRes.Code != http.StatusNoContent {
+		t.Fatalf("GET status = %d, want %d", getRes.Code, http.StatusNoContent)
+	}
+}
+
+// TestRedirectWithScopedNoticeToRowKeepsRowFragmentAndScope pins
+// RedirectWithScopedNoticeToRow: the row fragment (J3 F8) is unchanged,
+// and the flash is still scoped to route (J6 F15 residue).
+func TestRedirectWithScopedNoticeToRowKeepsRowFragmentAndScope(t *testing.T) {
+	registry := action.NewRegistry()
+	registry.Register("lineup-set", func(ctx *action.Context) error {
+		RedirectWithScopedNoticeToRow(ctx, "/team", "/team#slot-RB1", "Lineup saved.")
+		return nil
+	})
+	manager := session.MustNew("actionui-scoped-notice-row-secret", session.Options{
+		CookieName:    "actionui_scoped_notice_row",
+		AllowInsecure: true,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/__actions/lineup-set", strings.NewReader(""))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	req.SetPathValue("name", "lineup-set")
+	postRes := httptest.NewRecorder()
+	manager.Middleware(registry).ServeHTTP(postRes, req)
+	if got := postRes.Header().Get("Location"); got != "/team#slot-RB1" {
+		t.Fatalf("Location = %q, want the row fragment kept", got)
+	}
+	cookies := postRes.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("wrote %d cookies, want 1", len(cookies))
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/board", nil)
+	getReq.AddCookie(cookies[0])
+	getRes := httptest.NewRecorder()
+	manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if notice, ok := ScopedNotice(r, "/board"); ok {
+			t.Fatalf("a different route's ScopedNotice read team's own notice: %q", notice)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(getRes, getReq)
+	if getRes.Code != http.StatusNoContent {
+		t.Fatalf("GET status = %d, want %d", getRes.Code, http.StatusNoContent)
+	}
+}
+
 // TestRedirectBackWithNoticeManagedResultUsesFragmentFreeFallbackAndKeepsReservedFieldPrivate
 // pins the wave 8 hotfix (item 2, commissioner: "moving players on my big
 // board doesn't feel interactive, it resets the scroll"). Before the fix,

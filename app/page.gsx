@@ -140,6 +140,13 @@ type ActionCenterPanelProps struct {
 	// this component's own <header> pushed home's h1 217px further down
 	// than every other route.
 	ArrivalStripShown bool
+	// WeekLabel, HasUrgent, UrgentCount, UrgentChipLabel: see the doc
+	// comment on page.server.go's matching ActionCenterCard fields
+	// (Decision 1, J3 F21 / J5 F29, wave E).
+	WeekLabel       string
+	HasUrgent       bool
+	UrgentCount     int
+	UrgentChipLabel string
 }
 
 func ActionCenterTask(props ActionCenterActionCard) Node {
@@ -195,13 +202,39 @@ func ActionCenterNativeTask(props ActionCenterActionCard) Node {
 
 component ActionCenterPanel(props: ActionCenterPanelProps) {
 	return <section class="home-action-center" data-action-center-stage={props.Stage} aria-labelledby="home-action-center-heading">
+		{/* Decision 1 (J3 F21, J5 F29, wave E): the h1 used to be the
+		    stage's own slogan (for example "TURN PICKS INTO A SEASON."),
+		    naming neither the page nor the week — the masthead lead
+		    contract (TestBrowserMastheadLeadContract) pins the h1's own
+		    vertical offset, not its text, so the h1 now reads "Home ·
+		    <week>" and the slogan drops one line to become the lede
+		    sentence ahead of the summary. The eyebrow above it keeps its
+		    one line (Decision 2: no "00 // " section number, and
+		    StageLabel already differs from the new h1's own words, so it
+		    stays the masthead's one eyebrow). The urgent chip is new: it
+		    repeats app/layout.gsx's rail-attention-chip verbatim (same
+		    class, same data.league.attention source) so the desktop
+		    header and the rail can never disagree; --masthead-lead/
+		    --masthead-title-gap sizing lives on the h1 itself
+		    (public/styles.css), so wrapping it changes nothing there. */}
 		<header class="home-action-center__header">
 			<div>
-				<span class="section-index">00 // {props.StageLabel}</span>
-				<h1 id="home-action-center-heading">{props.Heading}</h1>
+				<span class="section-index">{props.StageLabel}</span>
+				<h1 id="home-action-center-heading">Home · {props.WeekLabel}</h1>
+				<p class="home-action-center__lede">{props.Heading}</p>
 				<p>{props.Summary}</p>
 			</div>
 			<span class="home-action-center__status mono">ACTION CENTER</span>
+			<If cond={props.HasUrgent}>
+				<a
+					href="/#home-action-center-heading"
+					data-gosx-link
+					class="rail-attention-chip home-action-center__urgent-chip"
+					aria-label={props.UrgentChipLabel}
+				>
+					<span class="rail-attention-chip__count">{props.UrgentCount}</span> URGENT
+				</a>
+			</If>
 		</header>
 		{/* J5 F37: an arrival strip for a manager's first session — one
 		    dismissible strip for a member whose team has no saved lineup
@@ -491,7 +524,7 @@ func Page() Node {
 		<section class="score-command" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval={data.live_interval} data-gosx-live-on="scores:changed">
 			<header class="section-heading section-heading--split">
 				<div>
-					<span class="section-index">01 // MATCHUP PREVIEW</span>
+					<span class="section-index">MATCHUP PREVIEW</span>
 					<h2>League simulator</h2>
 				</div>
 				<div class="sync-state" role="status" aria-live="polite">
@@ -527,7 +560,7 @@ func Page() Node {
 			<section class="score-command">
 				<header class="section-heading section-heading--split">
 					<div>
-						<span class="section-index">00 // ANNOUNCEMENTS</span>
+						<span class="section-index">ANNOUNCEMENTS</span>
 						<h2>From the commissioner</h2>
 					</div>
 				</header>
@@ -535,10 +568,15 @@ func Page() Node {
 					<Each of={data.announcements} as="note">
 						<article class="announcement-item">
 							<p>{note.body}</p>
+							{/* J6 F20 residue (wave E): posted_at now reads
+							    Service.leagueTimeStamp (internal/league/
+							    service.go), the same converged "absolute ·
+							    relative" helper the Locker Room's own
+							    TimeLabel and layout.gsx's announcement
+							    banner already read — no separate
+							    posted_ago field to join here anymore. */}
 							<small class="mono">
 								{note.posted_by}
-								·
-								{note.posted_ago}
 								·
 								{note.posted_at}
 							</small>
@@ -550,7 +588,7 @@ func Page() Node {
 		<div class="dashboard-split">
 			<section class="standings-panel">
 				<header class="section-heading">
-					<span class="section-index">02 // POWER GRID</span>
+					<span class="section-index">POWER GRID</span>
 					<h2>{data.standings_title}</h2>
 					<p>{data.standings_note}</p>
 				</header>
@@ -582,7 +620,7 @@ func Page() Node {
 			</section>
 			<aside class="activity-panel">
 				<div class="activity-panel__header">
-					<span class="section-index">03 // WIRE LOG</span>
+					<span class="section-index">WIRE LOG</span>
 					<span class="mono">AUTO-SCROLL</span>
 				</div>
 				<h2>Moves after midnight</h2>

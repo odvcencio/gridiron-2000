@@ -5,6 +5,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- The home page's h1 now reads "Home · Week 1" (or "Home · Preseason" before the schedule opens) instead of the stage's own slogan. The slogan now reads as the lede sentence under the h1, and a desktop manager with open items sees an urgent count in the page header, next to the h1, matching the rail's own count.
+- The home masthead's eyebrow no longer carries a "00 //" section number.
+- The player pool and Locker Room mastheads no longer repeat their own heading as the eyebrow above it; both now name the page's job instead ("Roster & waivers", "League message board").
+- Manager pages (home, team, player pool, Pick'em, Locker Room, settings) no longer carry "NN //" numbered section eyebrows; the console keeps its own numbering.
+- The public header's Guide link now reads "Manager guide," matching the same link's name everywhere else in the app.
+- On a phone, the team page's inline "Set best lineup" button is hidden once the fixed action bar already submits the same lineup, so a manager sees one control for that action, not two (the Locker Room's composer already worked this way).
+- The Locker Room's post timestamps and the home page's announcement timestamps now read the same league-local, zone-and-relative format every other timestamp in the app uses, instead of their own formats.
+
 ### Fixed
 - The commissioner console's task board rows now jump to their own section as a same-page link, not a full page reload, matching the jump strip's own fix, so a row click lands without a visible lurch.
 - League HQ's "Attention by league" panel now shows this league's own pending invites and board gaps, the same counts /admin already shows, instead of reading "No open flags" while /admin reports open work.
@@ -13,6 +22,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A co-manager invite no longer binds a shared seat silently on first sign-in. The invited member now sees a confirm question naming the team and who invited them, with a Join button and a Not now link; the seat binds only on Join.
 - The Help Center's hero card now reads "Draft complete" once the draft is done, instead of "Next draft meeting" for a meeting that already happened, and its phase reads the same league clock the console uses. The search panel's lede now reads in plain words instead of corpus/schema jargon.
 - The trade composer's season points now sum a player's posted weekly points across every closed week, instead of showing a single week's score under a season label. It reads "—" before any week has closed.
+- The home page's announcement list no longer computes its "time ago" label separately from its timestamp; both now come from the one converged time helper.
+- The Locker Room, Preseason Blitz, Settings, Rules & Scoring, Team Terminal, Big Board, and Trade Desk each keep their own confirmation banner. Posting on one of these pages no longer shows its confirmation on a different page you open next.
+- The activity feed now leads a draft-pick line with the team's name, with its code as a small secondary chip, even for an autopick or a commissioner-forced pick. It no longer repeats the code inside a combined "Autopick for Team (CODE)" sentence.
+- The draft room's player pool no longer shows a stray "DETAILS" label over the projection value when you open a player's news. The news icon stays in its own fixed column, closed or open, on a phone or a desktop.
+- On a phone, the draft room's Big Board queue now scrolls with the pane around it instead of in its own separate scroll box nested inside it.
+- A keyboard manager tabbing through the draft room now reaches the on-clock Draft control in a handful of tab stops instead of walking the whole pick history first. The room looks the same either way.
+- The draft room's team grid no longer shows every seat's exact Big Board size to every manager. Only a seat's own manager and the commissioner see the real count; other seats see "Board set" or "No board."
 
 ## [release-2026.09.08-97027d0-season3] — 2026-09-08
 

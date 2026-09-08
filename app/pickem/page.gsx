@@ -333,7 +333,7 @@ func PickemLiveRegion() Node {
 			<div class="pool-toolbar">
 				<div>
 					<span class="section-index">
-						01 // WEEK
+						WEEK
 						{data.week}
 						SLATE
 					</span>
@@ -396,7 +396,7 @@ func PickemLiveRegion() Node {
 			<section class="player-pool">
 				<div class="pool-toolbar">
 					<div>
-						<span class="section-index">02 // SEASON LEADERBOARD</span>
+						<span class="section-index">SEASON LEADERBOARD</span>
 						<h2>Season standings</h2>
 					</div>
 				</div>
@@ -419,7 +419,7 @@ func PickemLiveRegion() Node {
 				<div class="pool-toolbar">
 					<div>
 						<span class="section-index">
-							03 // WEEK
+							WEEK
 							{data.week}
 							LEADERBOARD
 						</span>

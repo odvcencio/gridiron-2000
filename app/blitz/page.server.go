@@ -11,13 +11,20 @@ import (
 	"m31labs.dev/gosx/action"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
-	"m31labs.dev/gosx/session"
 )
 
 const (
 	blitzEntryAnchor       = "#blitz-entry"
 	blitzReturnTargetField = action.ReturnTargetField
 )
+
+// NoticeRoute is the Preseason Blitz's own confirmation scope (J6 F15
+// residue, wave E): every page used to read the same untagged session
+// flash every other page's own action wrote, so a manager who saved an
+// entry here and opened another page before following the redirect saw
+// that other page's confirmation instead. See
+// internal/actionui.RedirectBackWithScopedNotice and ScopedNotice.
+const NoticeRoute = "/blitz"
 
 // blitzRedirectTarget keeps the selected preseason slate and the entry
 // builder in view after a native or managed mutation. The slate is the only
@@ -52,11 +59,9 @@ func init() {
 			data["blitz_return_target"] = blitzReturnTargetForData(data)
 			data["has_notice"] = false
 			data["notice"] = ""
-			if store := session.Current(ctx.Request); store != nil {
-				if flashes := store.Flashes("notice"); len(flashes) > 0 {
-					data["has_notice"] = true
-					data["notice"] = fmt.Sprint(flashes[0])
-				}
+			if notice, ok := actionui.ScopedNotice(ctx.Request, NoticeRoute); ok {
+				data["has_notice"] = true
+				data["notice"] = notice
 			}
 			data["has_blitz_error"] = false
 			data["blitz_error"] = ""
@@ -98,7 +103,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "blitz", "blitz", err)
 				}
-				actionui.RedirectBackWithNotice(ctx, blitzRedirectTarget(ctx.FormData["slate"]), "Entry saved.")
+				actionui.RedirectBackWithScopedNotice(ctx, NoticeRoute, blitzRedirectTarget(ctx.FormData["slate"]), "Entry saved.")
 				return nil
 			},
 			"blitz-remove": func(ctx *action.Context) error {
@@ -106,7 +111,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "blitz", "blitz", err)
 				}
-				actionui.RedirectBackWithNotice(ctx, blitzRedirectTarget(ctx.FormData["slate"]), "Entry saved.")
+				actionui.RedirectBackWithScopedNotice(ctx, NoticeRoute, blitzRedirectTarget(ctx.FormData["slate"]), "Entry saved.")
 				return nil
 			},
 		},

@@ -108,9 +108,13 @@ func TestActivityRowsCarryTeamNameAndCode(t *testing.T) {
 // TestActivityRegionLeadsWithTeamNameAndRendersCodeAsAChip is F21's render
 // contract: an ordinary row with a team code renders the name first, then
 // a distinct ".activity-team-code" chip for the code — never the old bare
-// parenthetical repeated inline with the name. A row with no code (a
-// commissioner event, or a draft pick's own provenance label) renders the
-// combined string exactly as before, with no chip at all.
+// parenthetical repeated inline with the name. F21 residue (wave E): a
+// draft pick's own provenance row (auto or commissioner) now renders the
+// SAME split name-plus-chip lead as any other row; provenance moves into
+// the action verb ("auto-drafts", "commissioner drafts") instead of a
+// combined "Autopick for TEAM (CODE)" string. Only a row truly built from
+// no team at all (a commissioner event, attributed to a person) still
+// renders with no chip.
 func TestActivityRegionLeadsWithTeamNameAndRendersCodeAsAChip(t *testing.T) {
 	program, err := route.LoadFileProgram("page.gsx")
 	if err != nil {
@@ -118,7 +122,7 @@ func TestActivityRegionLeadsWithTeamNameAndRendersCodeAsAChip(t *testing.T) {
 	}
 	rows := activityRows([]map[string]any{
 		{"time": "Sep 1, 11:00 AM EDT", "time_iso": "2026-09-01T15:00:00Z", "time_relative": "2 hours ago", "team": "Eastside Elite (E1)", "team_name": "Eastside Elite", "team_code": "E1", "has_team_code": true, "action": "signs", "player": "Tre Harris (WR)", "actor_class": ""},
-		{"time": "Sep 1, 10:00 AM EDT", "time_iso": "2026-09-01T14:00:00Z", "time_relative": "3 hours ago", "team": "Autopick for Eastside Elite (E1)", "team_name": "Autopick for Eastside Elite (E1)", "team_code": "", "has_team_code": false, "action": "selects", "player": "Bucky Irving (RB)", "actor_class": ""},
+		{"time": "Sep 1, 10:00 AM EDT", "time_iso": "2026-09-01T14:00:00Z", "time_relative": "3 hours ago", "team": "Eastside Elite (E1)", "team_name": "Eastside Elite", "team_code": "E1", "has_team_code": true, "action": "auto-drafts", "player": "Bucky Irving (RB) — R1 · P7", "actor_class": ""},
 	})
 	data := map[string]any{
 		"teams": []string{}, "team": "", "query": "", "has_filters": false,
@@ -136,17 +140,17 @@ func TestActivityRegionLeadsWithTeamNameAndRendersCodeAsAChip(t *testing.T) {
 	if !strings.Contains(html, `data-gosx-text-layout-source="Eastside Elite"`) {
 		t.Errorf("team-move row should lead with the plain team name: %s", html)
 	}
-	if !strings.Contains(html, `<span class="activity-team-code mono activity-token-gap">E1</span>`) {
-		t.Errorf("team-move row missing its secondary code chip: %s", html)
-	}
 	if strings.Contains(html, `data-gosx-text-layout-source="Eastside Elite (E1)"`) {
 		t.Errorf("team-move row should not render the old combined name-plus-code string as its own name source: %s", html)
 	}
-	if !strings.Contains(html, "Autopick for Eastside Elite (E1)") {
-		t.Errorf("draft-pick provenance row should keep its combined string unchanged: %s", html)
+	if !strings.Contains(html, "auto-drafts") {
+		t.Errorf("auto pick row should carry its provenance in the verb, not a combined team string: %s", html)
 	}
-	if strings.Count(html, "activity-team-code") != 1 {
-		t.Errorf("only the team-move row should render a code chip: %s", html)
+	if strings.Contains(html, "Autopick for") {
+		t.Errorf("draft-pick provenance row should no longer render the old combined \"Autopick for TEAM (CODE)\" string: %s", html)
+	}
+	if strings.Count(html, "activity-team-code") != 2 {
+		t.Errorf("both the team-move row and the auto-drafted row should render their own code chip: %s", html)
 	}
 }
 

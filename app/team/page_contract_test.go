@@ -225,7 +225,12 @@ func TestLineupContinuityContracts(t *testing.T) {
 		`target = strings.TrimSpace(ctx.FormData["team_id"])`,
 		`url.QueryEscape(target)`,
 		`result.Result.Redirect = teamLineupTarget(ctx)`,
-		`actionui.RedirectWithNoticeToRow(ctx, target, message)`,
+		// J6 F15 residue (wave E): this row-targeted redirect moved from
+		// RedirectWithNoticeToRow to RedirectWithScopedNoticeToRow so a
+		// confirmation posted here never renders on another page. See
+		// TestScopedNoticePostedOnOnePageNeverRendersOnAnother
+		// (app/interaction_feedback_contract_test.go).
+		`actionui.RedirectWithScopedNoticeToRow(ctx, NoticeRoute, target, message)`,
 		`"reserve-place"`,
 		`"reserve-activate"`,
 		`"ir-place"`,
@@ -508,7 +513,9 @@ func TestTeamHouseRankLegendExplainsTheCode(t *testing.T) {
 		t.Error("page.gsx's legend never explains H### as house rank")
 	}
 
-	headingAt := strings.Index(page, `<span class="section-index">01 // STARTING LINEUP</span>`)
+	// Decision 2 (J1 F28, wave E) dropped the "01 // " section number
+	// from this eyebrow; the text this test pins changed with it.
+	headingAt := strings.Index(page, `<span class="section-index">STARTING LINEUP</span>`)
 	legendAt := strings.Index(page, `<details class="pool-legend">`)
 	slotListAt := strings.Index(page, `<div class="lineup-slot-list">`)
 	if headingAt < 0 || legendAt < 0 || slotListAt < 0 || !(headingAt < legendAt && legendAt < slotListAt) {

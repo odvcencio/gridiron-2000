@@ -180,9 +180,14 @@ func TestBoardNativeReorderControlsPreserveContextAndManagedFeedback(t *testing.
 	serverSource := string(server)
 	for _, want := range []string{
 		"return ctx.Success(\"Board order updated.\", nil)",
-		"actionui.RedirectBackWithNotice(ctx, boardRankRedirectTarget(ctx.FormData[\"pos\"], ctx.FormData[\"q\"], ctx.FormData[\"page\"]), \"Board order updated.\")",
-		"actionui.RedirectBackWithNotice(ctx, boardRankRedirectTarget(ctx.FormData[\"pos\"], ctx.FormData[\"q\"], ctx.FormData[\"page\"]), \"Player removed from your board.\")",
-		"actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData[\"pos\"], ctx.FormData[\"q\"], ctx.FormData[\"page\"]), \"Your board is cleared.\")",
+		// J6 F15 residue (wave E): these three redirects moved from
+		// RedirectBackWithNotice to RedirectBackWithScopedNotice so a
+		// confirmation posted here never renders on another page. See
+		// TestScopedNoticePostedOnOnePageNeverRendersOnAnother
+		// (app/interaction_feedback_contract_test.go).
+		"actionui.RedirectBackWithScopedNotice(ctx, NoticeRoute, boardRankRedirectTarget(ctx.FormData[\"pos\"], ctx.FormData[\"q\"], ctx.FormData[\"page\"]), \"Board order updated.\")",
+		"actionui.RedirectBackWithScopedNotice(ctx, NoticeRoute, boardRankRedirectTarget(ctx.FormData[\"pos\"], ctx.FormData[\"q\"], ctx.FormData[\"page\"]), \"Player removed from your board.\")",
+		"actionui.RedirectBackWithScopedNotice(ctx, NoticeRoute, boardRedirectTarget(ctx.FormData[\"pos\"], ctx.FormData[\"q\"], ctx.FormData[\"page\"]), \"Your board is cleared.\")",
 	} {
 		if !strings.Contains(serverSource, want) {
 			t.Fatalf("page.server.go missing Board action continuity contract %q", want)

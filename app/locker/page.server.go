@@ -1,7 +1,6 @@
 package locker
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -45,9 +44,17 @@ func lockerRedirectTarget(rawPage string) string {
 // matches the already-working team-rename and notification-set actions, and
 // the resulting full document re-render clears the composer for free.
 func lockerMutationSuccess(ctx *action.Context, message string) error {
-	actionui.RedirectWithNotice(ctx, lockerRedirectTarget(ctx.FormData["page"]), message)
+	actionui.RedirectWithScopedNotice(ctx, NoticeRoute, lockerRedirectTarget(ctx.FormData["page"]), message)
 	return nil
 }
+
+// NoticeRoute is the Locker Room's own confirmation scope (J6 F15
+// residue, wave E): every page used to read the same untagged session
+// flash every other page's own action wrote, so a manager who posted
+// here and opened another page before following the redirect saw that
+// other page's confirmation instead. See
+// internal/actionui.RedirectWithScopedNotice and ScopedNotice.
+const NoticeRoute = "/locker"
 
 func lockerFragmentURL(request *http.Request) string {
 	if request == nil || request.URL == nil {
@@ -155,11 +162,9 @@ func init() {
 				league.Default().LockerData(ctx.Request), ctx.Request,
 				ctx.ActionPath("locker-post"), ctx.ActionPath("locker-remove"), session.Token(ctx.Request),
 			)
-			if store := session.Current(ctx.Request); store != nil {
-				if flashes := store.Flashes("notice"); len(flashes) > 0 {
-					data["has_notice"] = true
-					data["notice"] = fmt.Sprint(flashes[0])
-				}
+			if notice, ok := actionui.ScopedNotice(ctx.Request, NoticeRoute); ok {
+				data["has_notice"] = true
+				data["notice"] = notice
 			}
 			if view, ok := ctx.ActionState("locker-post"); ok {
 				if message := view.Error("body"); message != "" {

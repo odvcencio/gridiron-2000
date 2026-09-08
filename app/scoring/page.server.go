@@ -1,7 +1,6 @@
 package scoring
 
 import (
-	"fmt"
 	"gridiron-2000/internal/actionui"
 	"log"
 	"net/http"
@@ -12,6 +11,14 @@ import (
 	"m31labs.dev/gosx/server"
 	"m31labs.dev/gosx/session"
 )
+
+// NoticeRoute is /scoring's own confirmation scope (J6 F15 residue, wave
+// E): every page used to read the same untagged session flash every
+// other page's own action wrote, so a commissioner who changed a rule
+// here and opened another page before following the redirect saw that
+// other page's confirmation instead. See
+// internal/actionui.RedirectWithScopedNotice and ScopedNotice.
+const NoticeRoute = "/scoring"
 
 // scoringRuleRowView is one scoring-rule line as ScoringRow (page.gsx, a
 // strict component) reads it: the rule itself plus the per-request fields
@@ -140,11 +147,9 @@ func init() {
 			}
 			data["has_notice"] = false
 			data["notice"] = ""
-			if store := session.Current(ctx.Request); store != nil {
-				if flashes := store.Flashes("notice"); len(flashes) > 0 {
-					data["has_notice"] = true
-					data["notice"] = fmt.Sprint(flashes[0])
-				}
+			if notice, ok := actionui.ScopedNotice(ctx.Request, NoticeRoute); ok {
+				data["has_notice"] = true
+				data["notice"] = notice
 			}
 			data["has_scoring_error"] = false
 			data["scoring_error"] = ""
@@ -170,7 +175,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "scoring", "scoring", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/scoring", rule.Label+" updated.")
+				actionui.RedirectWithScopedNotice(ctx, NoticeRoute, "/scoring", rule.Label+" updated.")
 				return nil
 			},
 			"scoring-reset": func(ctx *action.Context) error {
@@ -182,7 +187,7 @@ func init() {
 				if err := league.Default().AdminResetScoring(ctx.Request); err != nil {
 					return action.Error(http.StatusUnauthorized, err.Error())
 				}
-				actionui.RedirectWithNotice(ctx, "/scoring", "Scoring restored to defaults.")
+				actionui.RedirectWithScopedNotice(ctx, NoticeRoute, "/scoring", "Scoring restored to defaults.")
 				return nil
 			},
 		},
