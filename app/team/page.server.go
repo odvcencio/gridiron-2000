@@ -41,6 +41,9 @@ type RosterCard struct {
 	HasMatchup      bool
 	MatchupTier     string
 	MatchupChip     string
+	// MatchupOrdinal (J5 F26 team lineup residue) is MatchupChip with its
+	// "-toughest" suffix trimmed — see matchupOrdinal's own doc comment.
+	MatchupOrdinal  string
 	MatchupDetail   string
 	Jersey          string
 	HasBreakdown    bool
@@ -189,6 +192,7 @@ func rosterRowProps(raw []map[string]any, csrfToken, teamID, week string, roster
 			HasMatchup:     boolField(player, "has_matchup"),
 			MatchupTier:    stringField(player, "matchup_tier"),
 			MatchupChip:    stringField(player, "matchup_chip"),
+			MatchupOrdinal: matchupOrdinal(stringField(player, "matchup_chip")),
 			MatchupDetail:  stringField(player, "matchup_detail"),
 			Jersey:         stringField(player, "jersey"),
 			HasBreakdown:   boolField(player, "has_breakdown"),
@@ -312,7 +316,41 @@ func teamLineupFragmentURL(data map[string]any, request *http.Request) string {
 // prepareTeamData applies the strict-component conversions shared by the full
 // Team page and the HTML lineup fragment. Keeping one preparation path makes
 // the initial render and a later authoritative swap structurally identical.
+// matchupOrdinal strips matchupChipText's own "-toughest" suffix (J5 F26
+// team lineup residue: "vs ARI 19th-toughest" clamped to "vs ARI 19th…" in
+// the OPPONENT cell's fixed 7rem column). The row now shows the compact
+// ordinal alone ("19th"); the fuller phrase still reads in full through
+// the chip's own title tip (matchup_detail/MatchupDetail already carry
+// it: "19th-toughest of 32 vs ARI (favorable) — ranked from the …").
+func matchupOrdinal(chip string) string {
+	return strings.TrimSuffix(chip, "-toughest")
+}
+
+// configuredTeamName resolves teamID's compiled seed name — league.
+// Service.Teams(), unaffected by any Store.RenameTeam/ResetTeamName
+// override — so the "Reset to configured name" control (J5 F27) can name
+// the exact value it restores. Empty when teamID matches no configured
+// team (a seatless render, or a stale/unknown id); the control itself
+// only ever renders once data.team.has_custom_name is true for a real
+// seated team, so that case is not reachable through the page.
+func configuredTeamName(teamID string) string {
+	if teamID == "" {
+		return ""
+	}
+	for _, configured := range league.Default().Teams() {
+		if configured.ID == teamID {
+			return configured.Name
+		}
+	}
+	return ""
+}
+
 func prepareTeamData(data map[string]any, request *http.Request) map[string]any {
+	if starters, ok := data["starters"].([]map[string]any); ok {
+		for _, slot := range starters {
+			slot["matchup_ordinal"] = matchupOrdinal(stringField(slot, "matchup_chip"))
+		}
+	}
 	if bench, ok := data["bench"].([]map[string]any); ok {
 		teamID := ""
 		if team, ok := data["team"].(map[string]any); ok {
@@ -481,12 +519,18 @@ func benchMutationSuccess(ctx *action.Context, message string) error {
 // possible without pretending that persistence succeeded.
 func applyTeamIdentityActionState(data map[string]any, states map[string]action.View) {
 	teamName := ""
+	teamID := ""
 	if team, ok := data["team"].(map[string]any); ok {
 		teamName = stringField(team, "name")
+		teamID = stringField(team, "id")
 	}
 	data["team_name_value"] = teamName
 	data["has_rename_error"] = false
 	data["rename_error"] = ""
+	// team_configured_name (J5 F27) names the exact value "Reset to
+	// configured name" restores, so the control reads "Reset to 'Pale
+	// moon'" instead of asking the manager to trust a bare verb.
+	data["team_configured_name"] = configuredTeamName(teamID)
 
 	coManager, _ := data["co_manager"].(map[string]any)
 	if coManager != nil {
