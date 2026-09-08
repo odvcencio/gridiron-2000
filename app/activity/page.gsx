@@ -148,16 +148,10 @@ func ActivityRegion() Node {
 			<Each of={data.transactions} as="move">
 				<div class="activity-item" data-actor-class={move.ActorClass}>
 					<If cond={move.TimeISO != ""}>
-						<time class="mono" datetime={move.TimeISO}>
-							{move.Time}
-							<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If>
-						</time>
+						<time class="mono" datetime={move.TimeISO}>{move.Time}<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If></time>
 					</If>
 					<If cond={move.TimeISO == ""}>
-						<time class="mono">
-							{move.Time}
-							<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If>
-						</time>
+						<time class="mono">{move.Time}<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If></time>
 					</If>
 					<If cond={move.ActorClass != ""}>
 						<p>

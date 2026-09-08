@@ -558,6 +558,11 @@ func renderWireComponent(t *testing.T, component string, props any) string {
 // time-sensitive values. The wire previously hard-coded
 // America/Los_Angeles (three hours behind the league) and carried no
 // relative text at all.
+// F20 (gap-audit J6): the wire used to keep its own uppercase, comma-free
+// time shape ("AUG 31 · 5:08 PM EDT") instead of the one league-local
+// format every other stored-instant display already converges on
+// (internal/league's leagueTimeStamp/LeagueTimeStamp: "Aug 31, 5:08 PM
+// EDT"). formatWireTime now produces that identical shape.
 func TestFormatWireTimeUsesLeagueZoneAndRelativeLabel(t *testing.T) {
 	eastern, err := time.LoadLocation("America/New_York")
 	if err != nil {
@@ -566,14 +571,14 @@ func TestFormatWireTimeUsesLeagueZoneAndRelativeLabel(t *testing.T) {
 	occurred := time.Date(2026, 8, 31, 21, 8, 0, 0, time.UTC) // 5:08 PM EDT
 	now := occurred.Add(18 * time.Hour)
 	got := formatWireTime(occurred, now, eastern)
-	want := "AUG 31 · 5:08 PM EDT · 18 hours ago"
+	want := "Aug 31, 5:08 PM EDT · 18 hours ago"
 	if got != want {
 		t.Fatalf("formatWireTime = %q, want %q", got, want)
 	}
 	if got := formatWireTime(time.Time{}, now, eastern); got != "WAITING" {
 		t.Fatalf("zero time = %q, want WAITING", got)
 	}
-	if got := formatWireTime(occurred, occurred.Add(20*time.Second), eastern); got != "AUG 31 · 5:08 PM EDT · just now" {
+	if got := formatWireTime(occurred, occurred.Add(20*time.Second), eastern); got != "Aug 31, 5:08 PM EDT · just now" {
 		t.Fatalf("sub-minute = %q", got)
 	}
 }

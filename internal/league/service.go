@@ -4945,6 +4945,14 @@ func (s *Service) leagueTimeStamp(t time.Time) string {
 	return stamp + " · " + RelativeTime(s.clock(), t)
 }
 
+// LeagueTimeStamp is leagueTimeStamp, exported for route servers outside
+// this package (F20, gap-audit J6): every timestamp a manager reads was
+// meant to converge on this one recipe — leagueTimeStamp's own doc
+// comment already said so — but nothing exported it, so the Signal Wire
+// kept a second, uppercase, comma-free format ("SEP 03 · 8:43 PM EDT")
+// and the Locker Room carried a zone with no relative phrase at all.
+func (s *Service) LeagueTimeStamp(t time.Time) string { return s.leagueTimeStamp(t) }
+
 // leagueAbsoluteTimeStamp is leagueTimeStamp without the trailing relative
 // label — for the rare surface where the relative half would go stale
 // somewhere the accessibility tree caches it (an aria-label is read once

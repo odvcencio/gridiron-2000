@@ -1136,19 +1136,29 @@ func sightingFieldErrors(message string) map[string]string {
 // with a relative label, per the contract's time rule (exact league-local
 // time, timezone, and a useful relative value). It previously hard-coded
 // America/Los_Angeles — three hours behind the league — and carried no
-// relative text.
+// relative text; then, after that fix, it kept its own uppercase,
+// comma-free shape ("SEP 03 · 8:43 PM EDT") instead of the one format
+// every other page's stored-instant display already converges on (F20,
+// gap-audit J6: /locker read "Sep 4, 5:31 AM EDT", /activity read "Sep
+// 4, 5:28 AM EDT" — the wire was the one page with a shape all its own).
 func displayTime(value time.Time) string {
-	return formatWireTime(value, time.Now(), league.Default().LeagueLocation())
+	if value.IsZero() {
+		return "WAITING"
+	}
+	return league.Default().LeagueTimeStamp(value)
 }
 
-// formatWireTime is displayTime's pure core, split out so the format is
-// testable without the league singleton or the wall clock.
+// formatWireTime is displayTime's pure core: the identical "Jan 2, 3:04
+// PM MST · N minutes ago" shape LeagueTimeStamp produces, built from the
+// same two already-exported pieces (a plain time.Format plus
+// league.RelativeTime) so this stays testable with a fixed clock and
+// location instead of the league singleton's own wall-clock-anchored
+// service.
 func formatWireTime(value, now time.Time, location *time.Location) string {
 	if value.IsZero() {
 		return "WAITING"
 	}
-	stamp := strings.ToUpper(value.In(location).Format("Jan 02 · 3:04 PM MST"))
-	return stamp + " · " + league.RelativeTime(now, value)
+	return value.In(location).Format("Jan 2, 3:04 PM MST") + " · " + league.RelativeTime(now, value)
 }
 
 func shortDID(did string) string {
