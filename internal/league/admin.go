@@ -1478,37 +1478,35 @@ func (s *Service) AdminReleaseSeat(r *http.Request, teamID, confirmation, token 
 		return Team{}, err
 	}
 	team := s.teamView(s.store.Snapshot(), teamID)
+	now := s.clock()
+	if err := s.store.SetSeatReleaseNotices(releasedEmails, teamID, now); err != nil {
+		log.Printf("seat release notice: %v", err)
+	}
 	summary := fmt.Sprintf("released seat %s", team.Name)
-	refs := CommissionerEventRefs{TeamID: teamID, ReleasedEmails: releasedEmails}
-	if _, err := s.RecordCommissionerEvent(r, "seat.release", summary, refs); err != nil {
+	if _, err := s.RecordCommissionerEvent(r, "seat.release", summary, CommissionerEventRefs{TeamID: teamID}); err != nil {
 		log.Printf("commissioner event: seat.release: %v", err)
 	}
 	return team, nil
 }
 
-// SeatReleaseNotice reports the most recent seat.release event that named
-// email among its released managers (F8, J4 console gap-audit): a member
-// who held a seat an hour ago and lost it must read what happened, not a
-// first-time-arrival welcome. found is false when email was never named
-// in a release event.
+// SeatReleaseNotice reports the most recent seat release that named email
+// (F8, J4 console gap-audit): a member who held a seat an hour ago and
+// lost it must read what happened, not a first-time-arrival welcome.
+// found is false when email was never named in a release. Backed by
+// PersistedState.SeatReleaseNotices — an additive map, round-tripped
+// through the existing kv-backed scalar columns (SetSeatReleaseNotices,
+// store.go), the same durability shape RosterCorrectionNotices uses, so
+// this needs no SQL migration or schema-version change.
 func (s *Service) SeatReleaseNotice(email string) (teamName string, at time.Time, found bool) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" {
 		return "", time.Time{}, false
 	}
-	state := s.store.Snapshot()
-	for i := len(state.CommissionerEvents) - 1; i >= 0; i-- {
-		event := state.CommissionerEvents[i]
-		if event.Kind != "seat.release" {
-			continue
-		}
-		for _, released := range event.Refs.ReleasedEmails {
-			if strings.EqualFold(strings.TrimSpace(released), email) {
-				return s.TeamLabel(event.Refs.TeamID), event.At, true
-			}
-		}
+	notice, ok := s.store.Snapshot().SeatReleaseNotices[email]
+	if !ok {
+		return "", time.Time{}, false
 	}
-	return "", time.Time{}, false
+	return s.TeamLabel(notice.TeamID), notice.At, true
 }
 
 // AdminResetDraft clears the draft-scoped state after an exact confirmation.

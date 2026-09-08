@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"reflect"
 	"testing"
 	"time"
 
@@ -55,11 +54,8 @@ func TestStoreRecordCommissionerEventPersistsAndSurvivesReload(t *testing.T) {
 		t.Fatalf("reloaded CommissionerEvents = %+v, want 1", reloadedEvents)
 	}
 	got0 := reloadedEvents[0]
-	// Refs carries a slice field (ReleasedEmails, F8), so the struct is no
-	// longer comparable with !=; reflect.DeepEqual covers the same
-	// round-trip contract this comparison always meant to pin.
 	if got0.ID != event.ID || got0.ActorEmail != event.ActorEmail || got0.ActorName != event.ActorName ||
-		got0.Kind != event.Kind || got0.Summary != event.Summary || !reflect.DeepEqual(got0.Refs, event.Refs) ||
+		got0.Kind != event.Kind || got0.Summary != event.Summary || got0.Refs != event.Refs ||
 		!got0.At.Equal(event.At) {
 		t.Fatalf("reloaded event = %+v, want %+v", got0, event)
 	}

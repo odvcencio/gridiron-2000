@@ -156,9 +156,9 @@ func TestPublicEntryAdmittedSeatlessOpenAndFull(t *testing.T) {
 // gap-audit): a manager whose seat was released an hour ago used to see
 // the same first-time-arrival welcome ("CHOOSE YOUR FRANCHISE.") as
 // someone who never had one — denying what happened instead of naming
-// it. A member named in a seat.release event's ReleasedEmails must
-// instead see the release named in the headline and detail, dated from
-// the event's own instant.
+// it. A member named in PersistedState.SeatReleaseNotices must instead
+// see the release named in the headline and detail, dated from the
+// notice's own instant.
 func TestPublicEntrySeatlessOpenNamesAReleasedSeat(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodPost, "/admin", nil)

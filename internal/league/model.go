@@ -449,6 +449,28 @@ type PersistedState struct {
 	// a nil slice decodes safely on an old file, and the store normalizes
 	// it in load/NewStore/cloneState.
 	CommissionerEvents []CommissionerEvent `json:"commissionerEvents,omitempty"`
+
+	// SeatReleaseNotices maps a released member's canonical, lowercased
+	// email to the most recent seat.release event that named them (F8, J4
+	// console gap-audit): a member who held a seat and lost it can be
+	// told what happened — which team, and when — instead of reading a
+	// fresh first-time-arrival welcome. Follows RosterCorrectionNotices'
+	// own precedent (admin_roster_correction.go): a plain map on
+	// PersistedState, round-tripped through the existing kv-backed
+	// scalar columns (colScalars, sqlstore.go), so no SQL migration or
+	// user_version change is needed. Additive under schema version 11 —
+	// a nil map decodes safely on an old file, and the store normalizes
+	// it in load/NewStore/cloneState.
+	SeatReleaseNotices map[string]SeatReleaseNotice `json:"seatReleaseNotices,omitempty"`
+}
+
+// SeatReleaseNotice is one durable record of a seat release, keyed by the
+// released member's email in PersistedState.SeatReleaseNotices: which
+// team was released, and when, so that member's own next visit to / can
+// name the release instead of denying it happened.
+type SeatReleaseNotice struct {
+	TeamID string    `json:"teamId"`
+	At     time.Time `json:"at"`
 }
 
 // CommissionerEventRefs names the entities one commissioner action
@@ -465,13 +487,6 @@ type CommissionerEventRefs struct {
 	// Week is the affected fantasy week, when the action is week-scoped
 	// (a forced week close, a playoff-round action). Zero means unscoped.
 	Week int `json:"week,omitempty"`
-	// ReleasedEmails names every member email a seat.release event
-	// unbound — the primary manager and, if bound, the co-manager (F8, J4
-	// console gap-audit) — captured before the store clears the binding,
-	// so SeatReleaseNotice can later tell that specific person their seat
-	// was released, and by whom and when, instead of a first-time-arrival
-	// welcome that denies what happened.
-	ReleasedEmails []string `json:"releasedEmails,omitempty"`
 }
 
 // CommissionerEvent is one durable, person-attributed commissioner audit
