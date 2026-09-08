@@ -287,7 +287,16 @@ func actionCenterCopy(stage ActionCenterStage, f ActionCenterFacts) (string, str
 		if strings.TrimSpace(f.EntryHeadline) != "" {
 			headline = strings.TrimSpace(f.EntryHeadline)
 		}
-		return stageLabel, headline, "Complete admission or claim a franchise before setting up the season."
+		// summary (F8, J4 console gap-audit): "before setting up the
+		// season" is a draft-era phrase — false once the draft is
+		// complete and the season is already under way, exactly the
+		// state a released manager (or any other post-draft entry
+		// stage viewer) reads it in.
+		summary := "Complete admission or claim a franchise before setting up the season."
+		if f.DraftComplete {
+			summary = "Complete admission or claim a franchise to join the season already under way."
+		}
+		return stageLabel, headline, summary
 	case ActionCenterPreDraft:
 		return "PRE-DRAFT // GET READY", "BUILD YOUR SEASON.", "Finish the manager decisions that make draft night and Week 1 count."
 	case ActionCenterDraftLive:

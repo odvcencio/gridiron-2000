@@ -138,6 +138,92 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 	return info
 }
 
+// nextOpenScheduleWeek names the earliest week in schedule that is not yet
+// final, or the schedule's own first week when every week is final (a
+// season-complete league still needs a week number to report). Returns 0
+// for a nil or empty schedule. Read-only: it changes no state, mirroring
+// adminScheduleMap's own next-open-week selection (admin.go) rather than
+// sharing it directly, so this UX-only surface never becomes a second
+// caller of scoring-adjacent code.
+func nextOpenScheduleWeek(schedule *SeasonSchedule) int {
+	if schedule == nil || len(schedule.Weeks) == 0 {
+		return 0
+	}
+	next := 0
+	for _, week := range schedule.Weeks {
+		if scheduleWeekIsFinal(week) {
+			continue
+		}
+		if next == 0 || week.Week < next {
+			next = week.Week
+		}
+	}
+	if next == 0 {
+		next = schedule.Weeks[0].Week
+	}
+	return next
+}
+
+// consoleSeasonStateSentence renders the commissioner console's top-line
+// season summary in plain words (F1, J4 console gap-audit): the phase and
+// draft-status enums used to render glued together into one raw string
+// ("regular-season · COMPLETE"), which a commissioner read as "the season
+// is over" during week 1 — the very first fact the console states, and
+// false. Every branch below states the true week progress instead: not
+// yet kicked off (naming the next kickoff), under way, or waiting on the
+// league to close it.
+func (s *Service) consoleSeasonStateSentence(state PersistedState, now time.Time) string {
+	phase := state.Phase
+	if phase == "" {
+		if state.Schedule == nil || now.Before(seasonStartAt()) {
+			phase = "preseason"
+		} else {
+			phase = PhaseRegularSeason
+		}
+	}
+	switch phase {
+	case PhaseRegularSeason:
+		if state.Schedule == nil {
+			return "Preseason. The regular-season schedule is not generated yet."
+		}
+		week := nextOpenScheduleWeek(state.Schedule)
+		if week <= 0 {
+			return "Every regular-season week is closed."
+		}
+		return s.weekProgressSentence(week, now)
+	case PhasePlayoffs:
+		return "Playoffs."
+	case PhaseSeasonComplete:
+		return "The season is complete."
+	default:
+		return "Preseason."
+	}
+}
+
+// weekProgressSentence names week's own progress in one of three states
+// (F1's exact contract): the week's games have not kicked off yet (naming
+// the next kickoff in league-local time), the week is under way, or every
+// real game has gone final and the league is waiting to close it. Read via
+// AdminWeekCloseInfo, the same readiness computation the week-close panel
+// itself already uses, so the console and the panel can never disagree
+// about which of these three states week is in.
+func (s *Service) weekProgressSentence(week int, now time.Time) string {
+	info := s.AdminWeekCloseInfo(week, now)
+	if !info.GamesKnown {
+		return fmt.Sprintf("Week %d.", week)
+	}
+	if info.GamesFinal == 0 {
+		if first, ok := firstKickoff(gamesInWeek(s.schedule(), week), week); ok && now.Before(first) {
+			location := s.matchupLocation()
+			return fmt.Sprintf("Week %d · games %s", week, first.In(location).Format("Monday 3:04 PM MST"))
+		}
+	}
+	if info.GamesFinal < info.GamesTotal {
+		return fmt.Sprintf("Week %d in progress", week)
+	}
+	return fmt.Sprintf("Week %d awaiting close", week)
+}
+
 // AdminCloseWeek closes one league week: it scores every matchup in the
 // week via the wired MatchupScorer and marks it final. It is the manual
 // override for a data stall (section 2.5) and does not itself check

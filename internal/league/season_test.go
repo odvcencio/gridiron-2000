@@ -1,6 +1,7 @@
 package league
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -341,5 +342,57 @@ func TestAdminWeekCloseInfoReportsFinalAsIdempotent(t *testing.T) {
 	info := svc.AdminWeekCloseInfo(week, svc.clock())
 	if !info.Final || info.Ready || !strings.Contains(info.Reason, "already final") {
 		t.Fatalf("final info = %+v", info)
+	}
+}
+
+// TestConsoleSeasonStateSentenceNamesWeekProgressInWords is F1's failing
+// test (J4 console gap-audit): the console's top line used to glue the raw
+// phase and draft enums together ("regular-season · COMPLETE"), which read
+// as "the season is over" during week 1. consoleSeasonStateSentence must
+// instead state the true week progress in words: not yet kicked off
+// (naming the kickoff), under way, or waiting on the league to close it —
+// never the bare enum pair.
+func TestConsoleSeasonStateSentenceNamesWeekProgressInWords(t *testing.T) {
+	svc := schedulerTestService(t)
+	week := svc.store.Snapshot().Schedule.Weeks[0].Week
+	kickoff := time.Date(2026, 9, 10, 20, 20, 0, 0, time.UTC)
+
+	// regularSeasonState stamps Phase explicitly (rather than relying on
+	// SeasonPhase's own now-vs-seasonStartAt() derivation, which the
+	// neutral test fixture's far-future placeholder start date would
+	// otherwise always resolve to "preseason"): consoleSeasonStateSentence
+	// takes state as a parameter precisely so a caller who already knows
+	// the phase never has to fight that placeholder to prove it.
+	regularSeasonState := func() PersistedState {
+		state := svc.store.Snapshot()
+		state.Phase = PhaseRegularSeason
+		return state
+	}
+
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: week, Kickoff: kickoff, Final: false}}
+	})
+	before := kickoff.Add(-2 * time.Hour)
+	if got := svc.consoleSeasonStateSentence(regularSeasonState(), before); !strings.HasPrefix(got, fmt.Sprintf("Week %d · games ", week)) {
+		t.Errorf("scheduled sentence = %q, want a %q prefix", got, fmt.Sprintf("Week %d · games ", week))
+	}
+
+	inProgress := kickoff.Add(30 * time.Minute)
+	if got := svc.consoleSeasonStateSentence(regularSeasonState(), inProgress); got != fmt.Sprintf("Week %d in progress", week) {
+		t.Errorf("in-progress sentence = %q, want %q", got, fmt.Sprintf("Week %d in progress", week))
+	}
+
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: week, Kickoff: kickoff, Final: true}}
+	})
+	after := kickoff.Add(3 * time.Hour)
+	if got := svc.consoleSeasonStateSentence(regularSeasonState(), after); got != fmt.Sprintf("Week %d awaiting close", week) {
+		t.Errorf("awaiting-close sentence = %q, want %q", got, fmt.Sprintf("Week %d awaiting close", week))
+	}
+
+	for _, notWant := range []string{"regular-season", "COMPLETE", "·COMPLETE"} {
+		if got := svc.consoleSeasonStateSentence(regularSeasonState(), after); strings.Contains(got, notWant) {
+			t.Errorf("sentence = %q must not contain the raw enum %q", got, notWant)
+		}
 	}
 }

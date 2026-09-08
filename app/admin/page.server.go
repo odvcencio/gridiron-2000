@@ -350,7 +350,7 @@ func init() {
 					message := fmt.Sprintf("week %d is not ready: %s; use the forced close and type CLOSE WEEK %d", week, info.Reason, week)
 					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
 				}
-				return adminCloseWeek(ctx, week, info.Final)
+				return adminCloseWeek(ctx, week, info)
 			},
 			"close-week-force": func(ctx *action.Context) error {
 				week, err := adminPositiveInt(ctx.FormData["week"], "week")
@@ -366,7 +366,7 @@ func init() {
 				if !info.Exists {
 					return action.Validation(info.Reason, map[string]string{"admin": info.Reason}, ctx.FormData)
 				}
-				return adminCloseWeek(ctx, week, info.Final)
+				return adminCloseWeek(ctx, week, info)
 			},
 			// run-waivers wires F5's commissioner force-run (2026-08-30
 			// review, finding 3): AdminRunWaivers itself already existed
@@ -534,11 +534,13 @@ func init() {
 				return nil
 			},
 			"seat-release": func(ctx *action.Context) error {
-				team, err := league.Default().AdminReleaseSeat(ctx.Request, ctx.FormData["team_id"], ctx.FormData["confirm"], ctx.FormData["seat_token"])
+				teamID := ctx.FormData["team_id"]
+				consequence := league.Default().SeasonSeatReleaseConsequence(teamID)
+				team, err := league.Default().AdminReleaseSeat(ctx.Request, teamID, ctx.FormData["confirm"], ctx.FormData["seat_token"])
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("seats"), team.Name+" is unclaimed again.")
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("seats"), seatReleaseSuccessNotice(team.Name, consequence))
 				return nil
 			},
 			// co-detach lets the commissioner remove a seat's co-manager,
@@ -869,37 +871,67 @@ func adminPlayoffScores(homeRaw, awayRaw string) (float64, float64, bool, error)
 	return home, away, true, nil
 }
 
-func adminCloseWeek(ctx *action.Context, week int, alreadyFinal bool) error {
+func adminCloseWeek(ctx *action.Context, week int, info league.WeekCloseInfo) error {
 	_, misses, err := league.Default().AdminCloseWeek(ctx.Request, week)
 	if err != nil {
 		return actionui.Validation(ctx, "admin", "admin", err)
 	}
-	if alreadyFinal {
+	if info.Final {
 		actionui.RedirectBackWithNotice(ctx, adminSectionTarget("week-close"), fmt.Sprintf("Week %d was already final; no scoring or lineup changes were made.", week))
 		return nil
 	}
-	notice := fmt.Sprintf("Week %d closed and scored.", week)
-	if len(misses) == 0 {
-		notice += " Every starter matched a stat line."
-	} else {
-		notice += fmt.Sprintf(" %d player-stat join miss", len(misses))
-		if len(misses) != 1 {
-			notice += "es"
-		}
-		notice += ": "
-		for i, miss := range misses {
-			if i >= 5 {
-				notice += fmt.Sprintf(" +%d more", len(misses)-i)
-				break
-			}
-			if i > 0 {
-				notice += ", "
-			}
-			notice += miss.PlayerName + " (" + league.Default().TeamLabel(miss.TeamID) + ")"
-		}
-	}
-	actionui.RedirectBackWithNotice(ctx, adminSectionTarget("week-close"), notice)
+	actionui.RedirectBackWithNotice(ctx, adminSectionTarget("week-close"), weekCloseNotice(week, info, misses))
 	return nil
+}
+
+// weekCloseNotice composes the force/normal-close result notice (F3, J4
+// console gap-audit): the notice used to open with bare success ("Week 1
+// closed and scored.") and bury the real outcome — 88 of 88 starters
+// missing their stat join, every score 0.0 — in a diagnostic list after
+// it. It now always names what the close actually produced (how many of
+// the week's real NFL games were final at close time), and leads with
+// that fact — not a claim of success — whenever any starter missed its
+// stat join, so a commissioner reading only the first sentence still
+// learns the truth.
+func weekCloseNotice(week int, info league.WeekCloseInfo, misses []league.JoinMiss) string {
+	gamesClause := fmt.Sprintf("Week %d closed with %d of %d games scored", week, info.GamesFinal, info.GamesTotal)
+	if !info.GamesKnown {
+		gamesClause = fmt.Sprintf("Week %d closed", week)
+	}
+	if len(misses) == 0 {
+		return gamesClause + ". Every starter matched a stat line."
+	}
+	notice := gamesClause + fmt.Sprintf(" — %d stat join", len(misses))
+	if len(misses) != 1 {
+		notice += "s"
+	}
+	notice += " missed: "
+	for i, miss := range misses {
+		if i >= 5 {
+			notice += fmt.Sprintf(" +%d more", len(misses)-i)
+			break
+		}
+		if i > 0 {
+			notice += ", "
+		}
+		notice += miss.PlayerName + " (" + league.Default().TeamLabel(miss.TeamID) + ")"
+	}
+	return notice
+}
+
+// seatReleaseSuccessNotice composes the seat-release success notice (F7,
+// J4 console gap-audit): "Romeo & the End Zone is unclaimed again."
+// named no consequence and offered no next step, so the commissioner
+// could not judge what the release actually did or what to do about it.
+// consequence is SeasonSeatReleaseConsequence's own sentence, empty
+// before the draft completes — in that case the notice stays exactly as
+// short as it always was.
+func seatReleaseSuccessNotice(teamName, consequence string) string {
+	notice := teamName + " is unclaimed again."
+	if consequence == "" {
+		return notice
+	}
+	return notice + " " + consequence + " Invite a replacement from Invites →"
 }
 
 // rosterShapeSlotKeys names every roster-shape editor form field in engine

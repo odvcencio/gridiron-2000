@@ -141,7 +141,7 @@ func TestEveryAdminActionReturnsToItsSection(t *testing.T) {
 	// The two indirection points themselves must carry the real target, or
 	// the check above would accept a helper that silently fell back to
 	// "/admin".
-	if !strings.Contains(text, `func adminCloseWeek(ctx *action.Context, week int, alreadyFinal bool) error {`) {
+	if !strings.Contains(text, `func adminCloseWeek(ctx *action.Context, week int, info league.WeekCloseInfo) error {`) {
 		t.Fatal("adminCloseWeek helper signature moved; update this test's indirection check")
 	}
 	closeWeekBody := text[strings.Index(text, "func adminCloseWeek("):]

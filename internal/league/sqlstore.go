@@ -73,6 +73,7 @@ var dbMigrations = []func(*sql.Tx) error{
 	migrate010SetupState,
 	migrate011SetupDraftAndInviteLinks,
 	migrate012CommissionerEvents,
+	migrate013CommissionerEventReleasedEmails,
 }
 
 // sqlitePersistVerify turns on the read-back check inside persistLocked:
@@ -429,6 +430,25 @@ func migrate012CommissionerEvents(tx *sql.Tx) error {
 	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '11')`); err != nil {
 		return fmt.Errorf("stamp schema_version 11: %w", err)
+	}
+	return nil
+}
+
+// migrate013CommissionerEventReleasedEmails adds the released-manager
+// roster a seat.release event unbound (F8, J4 console gap-audit): a
+// member whose seat was released used to see a first-time-arrival
+// welcome page with no memory of what happened, because nothing durable
+// recorded WHICH email addresses a given release unbound. Stored as a
+// comma-joined list (email addresses never contain a comma), following
+// waiver_claims' own additive-column precedent (migrate007/008): every
+// existing row defaults to empty, the same safe reading a release
+// recorded before this column existed gets.
+func migrate013CommissionerEventReleasedEmails(tx *sql.Tx) error {
+	if _, err := tx.Exec(`ALTER TABLE commissioner_events ADD COLUMN released_emails TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("ALTER TABLE commissioner_events ADD COLUMN released_emails: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '12')`); err != nil {
+		return fmt.Errorf("stamp schema_version 12: %w", err)
 	}
 	return nil
 }
@@ -1012,13 +1032,16 @@ var collectionSpecs = [collectionCount]collectionSpec{
 			name:    "commissioner_events",
 			keyCols: []string{"ord"},
 			valCols: []string{"id", "actor_email", "actor_name", "kind", "summary",
-				"team_id", "player_id", "week", "at"},
+				"team_id", "player_id", "week", "at", "released_emails"},
 		}},
 		emit: func(st *PersistedState, sink *rowSink) {
 			for i, e := range st.CommissionerEvents {
 				sink.add("commissioner_events", []any{i},
 					e.ID, e.ActorEmail, e.ActorName, e.Kind, e.Summary,
-					e.Refs.TeamID, e.Refs.PlayerID, e.Refs.Week, encodeTime(e.At))
+					e.Refs.TeamID, e.Refs.PlayerID, e.Refs.Week, encodeTime(e.At),
+					// ReleasedEmails (F8): comma-joined, since an email
+					// address never contains a comma.
+					strings.Join(e.Refs.ReleasedEmails, ","))
 			}
 		},
 	},
@@ -1994,17 +2017,23 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 	}
 
 	if err := queryRows(db, `SELECT "id", "actor_email", "actor_name", "kind", "summary",
-		"team_id", "player_id", "week", "at" FROM commissioner_events ORDER BY "ord"`,
+		"team_id", "player_id", "week", "at", "released_emails" FROM commissioner_events ORDER BY "ord"`,
 		func(rows *sql.Rows) error {
 			var e CommissionerEvent
-			var at string
+			var at, releasedEmails string
 			if err := rows.Scan(&e.ID, &e.ActorEmail, &e.ActorName, &e.Kind, &e.Summary,
-				&e.Refs.TeamID, &e.Refs.PlayerID, &e.Refs.Week, &at); err != nil {
+				&e.Refs.TeamID, &e.Refs.PlayerID, &e.Refs.Week, &at, &releasedEmails); err != nil {
 				return err
 			}
 			var err error
 			if e.At, err = decodeTime(at); err != nil {
 				return err
+			}
+			// ReleasedEmails (F8): the inverse of the emit side's
+			// strings.Join(..., ","); an empty column reads back as nil,
+			// not a one-element slice holding "".
+			if releasedEmails != "" {
+				e.Refs.ReleasedEmails = strings.Split(releasedEmails, ",")
 			}
 			state.CommissionerEvents = append(state.CommissionerEvents, e)
 			return nil

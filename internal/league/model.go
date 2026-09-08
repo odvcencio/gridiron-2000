@@ -465,6 +465,13 @@ type CommissionerEventRefs struct {
 	// Week is the affected fantasy week, when the action is week-scoped
 	// (a forced week close, a playoff-round action). Zero means unscoped.
 	Week int `json:"week,omitempty"`
+	// ReleasedEmails names every member email a seat.release event
+	// unbound — the primary manager and, if bound, the co-manager (F8, J4
+	// console gap-audit) — captured before the store clears the binding,
+	// so SeatReleaseNotice can later tell that specific person their seat
+	// was released, and by whom and when, instead of a first-time-arrival
+	// welcome that denies what happened.
+	ReleasedEmails []string `json:"releasedEmails,omitempty"`
 }
 
 // CommissionerEvent is one durable, person-attributed commissioner audit

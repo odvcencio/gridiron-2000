@@ -149,12 +149,15 @@ func TestForceCurrentPickDisclosureRowsClaimFullWidth(t *testing.T) {
 }
 
 // TestWeekCloseForceButtonIsMutedWithinItsShareGhostStyle pins gap-audit
-// item 9's ghost-style ask: FORCE CLOSE and force-run-waivers keep the
-// shared .button--ghost class (so /draft, /help, /login, /settings, and
-// /team's own ghost buttons are untouched), but the admin week-close
-// section further mutes it — a dashed border and muted text, one step
-// short of disabled — since it is the only clickable control once
-// readiness disables the normal close.
+// item 9's ghost-style ask, now scoped to force-run-waivers only: F11 (J4
+// console gap-audit) moved FORCE CLOSE off .button--ghost entirely (see
+// TestWeekCloseForceCloseButtonUsesDangerStyle below) because the muted,
+// dashed "one step short of disabled" look this rule applies made the
+// panel's one live, irreversible control read the same as its two
+// disabled neighbors. force-run-waivers — a smaller, resumable action —
+// keeps the original muted-ghost treatment and this shared .button--ghost
+// class (so /draft, /help, /login, /settings, and /team's own ghost
+// buttons are untouched).
 func TestWeekCloseForceButtonIsMutedWithinItsShareGhostStyle(t *testing.T) {
 	css, err := os.ReadFile("../../public/styles.css")
 	if err != nil {
@@ -171,10 +174,52 @@ func TestWeekCloseForceButtonIsMutedWithinItsShareGhostStyle(t *testing.T) {
 	}
 }
 
+// TestWeekCloseForceCloseButtonUsesDangerStyle pins F11 (J4 console
+// gap-audit): the week-close panel's one live, irreversible control
+// (FORCE CLOSE) shared class="button button--ghost" with its two disabled
+// neighbors (NORMAL CLOSE, NO OPEN CLAIMS), and the panel's own scoped
+// muting rule (border-style: dashed, muted text) made all three read as
+// unavailable. FORCE CLOSE now carries the same destructive classification
+// RELEASE SEAT and the Danger Zone resets already use, so the enabled,
+// irreversible control finally looks distinct from a disabled one.
+func TestWeekCloseForceCloseButtonUsesDangerStyle(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(source)
+	if !strings.Contains(markup, `<button class="button button--danger" type="submit">Force close week {data.close_form.week}</button>`) {
+		t.Error("force-close button must carry class=\"button button--danger\", matching RELEASE SEAT's destructive treatment")
+	}
+	if strings.Contains(markup, `<button class="button button--ghost" type="submit">Force close week {data.close_form.week}</button>`) {
+		t.Error("force-close button must no longer share the muted ghost style with its disabled neighbors")
+	}
+}
+
 // TestPreviouslyUnlabeledControlsNowHaveAccessibleNames pins gap-audit item
 // 6: twelve controls had no accessible name — the 8 per-team rename
 // inputs, the invite email field, the clock-extend and set-duration
 // seconds fields, the announcement textarea, and the "type UNDO" field.
+// TestSeatReleaseDisclosureRendersSeasonConsequence pins F7 (J4 console
+// gap-audit): the release disclosure's own consequence sentence never
+// named the roster, lineup, or matchup a release leaves behind. The
+// disclosure now renders a second, conditional sentence from the seat's
+// own season_release_consequence field (admin.go), gated so it disappears
+// cleanly before the draft completes (an empty string renders nothing).
+func TestSeatReleaseDisclosureRendersSeasonConsequence(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(source)
+	if !strings.Contains(markup, `<If cond={props.seat.season_release_consequence != ""}>`) {
+		t.Error("seat-release disclosure must gate the season consequence sentence on season_release_consequence")
+	}
+	if !strings.Contains(markup, `<p class="scoring-note">{props.seat.season_release_consequence}</p>`) {
+		t.Error("seat-release disclosure missing the season_release_consequence sentence")
+	}
+}
+
 func TestPreviouslyUnlabeledControlsNowHaveAccessibleNames(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {

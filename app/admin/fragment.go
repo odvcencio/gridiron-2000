@@ -11,6 +11,15 @@ import (
 )
 
 type adminAttentionReadoutProps struct {
+	// SeasonStateSentence (F1, J4 console gap-audit) is the console's
+	// top-line season summary in plain words, replacing the raw
+	// "{Phase} · {DraftStatus}" concatenation that used to read as "the
+	// season is over" during week 1.
+	SeasonStateSentence string
+	// DraftComplete (F1) gates the "Draft deadline" line below: a
+	// completed draft's deadline is no longer news, so it renders only
+	// while a draft is still pending.
+	DraftComplete       bool
 	Phase               string
 	DraftStatus         string
 	DraftDate           string
@@ -25,6 +34,12 @@ type adminAttentionReadoutProps struct {
 	ReadyCount          int
 	InviteCount         int
 	BoardGapCount       int
+	// OpenClaimCount/TradesInReviewCount (F2, J4 console gap-audit) back
+	// the post-draft week summary: once the draft is complete, the week's
+	// own open work leads the panel instead of draft-night seat/board
+	// telemetry.
+	OpenClaimCount      int
+	TradesInReviewCount int
 	PresenceHere        int
 	PresenceIdle        int
 	PresenceAway        int
@@ -75,12 +90,15 @@ func emptyAdminAttentionReadout() adminAttentionReadoutProps {
 
 func adminAttentionReadoutFromData(data map[string]any) adminAttentionReadoutProps {
 	view := emptyAdminAttentionReadout()
+	view.SeasonStateSentence = stringValue(data, "season_state_sentence", "")
 	view.Phase = stringValue(data, "phase", "unavailable")
 	view.SeatCount = intValue(data, "seat_count")
 	view.ClaimedCount = intValue(data, "claimed_count")
 	view.ReadyCount = intValue(data, "ready_count")
 	view.InviteCount = intValue(data, "invite_count")
 	view.BoardGapCount = intValue(data, "board_gap_count")
+	view.OpenClaimCount = intValue(data, "open_claim_count")
+	view.TradesInReviewCount = intValue(data, "trades_in_review_count")
 	view.PresenceHere = intValue(data, "presence_here")
 	view.PresenceIdle = intValue(data, "presence_idle")
 	view.PresenceAway = intValue(data, "presence_away")
@@ -98,6 +116,7 @@ func adminAttentionReadoutFromData(data map[string]any) adminAttentionReadoutPro
 		view.DraftDate = stringValue(draft, "date", "TBD")
 		view.DraftTime = stringValue(draft, "time", "")
 		view.DraftPublished = boolValue(draft, "published")
+		view.DraftComplete = boolValue(draft, "complete")
 	}
 	if schedule, ok := data["schedule"].(map[string]any); ok {
 		view.ScheduleStatus = stringValue(schedule, "status", "UNKNOWN")

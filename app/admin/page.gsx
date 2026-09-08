@@ -86,6 +86,15 @@ func SeatRow(props SeatRowProps) Node {
 					<label for={"seat-release-confirm-" + props.seat.id}>Type <span class="mono">{props.seat.release_confirmation}</span> to confirm.</label>
 					<input id={"seat-release-confirm-" + props.seat.id} class="typed-confirm-input" type="text" name="confirm" autocomplete="off" enterkeyhint="done" placeholder={props.seat.release_confirmation} required="required"></input>
 					<p class="scoring-note">This releases the primary manager, co-manager, pending co-invite, and ready state for this seat.</p>
+					{/* F7 (J4 console gap-audit): the consequence sentence above
+					    never named the roster, the lineup, or the matchup the
+					    team keeps playing with once nobody holds the seat. Empty
+					    before the draft completes (season_release_consequence,
+					    admin.go), so this line renders only once there is a
+					    season to name. */}
+					<If cond={props.seat.season_release_consequence != ""}>
+						<p class="scoring-note">{props.seat.season_release_consequence}</p>
+					</If>
 					<button class="board-button board-button--cut" type="submit">Release {props.seat.name}</button>
 				</form>
 			</details>
@@ -189,11 +198,46 @@ func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
 			<button type="button" class="board-button" data-gosx-set="$admin.attention.refresh" data-gosx-set-value="manual">Refresh status</button>
 		</div>
 		<div class="admin-task-nav__readout" aria-live="polite">
-			<strong class="mono">{props.Phase} · {props.DraftStatus}</strong>
-			<span>Draft deadline <span class="mono">{props.DraftDate}<If cond={props.DraftPublished}> · {props.DraftTime}</If></span> · schedule {props.ScheduleStatus}</span>
+			<strong class="mono">{props.SeasonStateSentence}</strong>
+			<If cond={props.DraftComplete == false}>
+				<span>Draft deadline <span class="mono">{props.DraftDate}<If cond={props.DraftPublished}> · {props.DraftTime}</If></span> · schedule {props.ScheduleStatus}</span>
+			</If>
 			<If cond={props.ScheduleReady}><span>Week {props.ScheduleWeek} is ready to close.</span></If>
 			<If cond={props.ScheduleReady == false}><span>{props.ScheduleReason}</span></If>
 		</div>
+		{/* F2 (J4 console gap-audit): the first two screens of the console
+		    used to be draft-night telemetry (eight seat rows, board
+		    counts) in week 1, with nothing naming the week's own open
+		    work. Once the draft is complete, the week's readiness leads;
+		    the seat/board readiness that mattered on draft night moves
+		    into a closed disclosure below it, exactly as the season-
+		    operations runbook already reprioritizes above this panel. */}
+		<If cond={props.DraftComplete}>
+			<div class="commissioner-hq__provenance">
+				<span><strong>OPEN CLAIMS</strong><span class="mono">{props.OpenClaimCount}</span></span>
+				<span><strong>TRADES IN REVIEW</strong><span class="mono">{props.TradesInReviewCount}</span></span>
+				<span><strong>READY</strong><span class="mono">{props.ReadyCount} / {props.SeatCount}</span></span>
+				<span><strong>INVITES</strong><span class="mono">{props.InviteCount} PENDING</span></span>
+			</div>
+			<details class="commissioner-hq__draft-night">
+				<summary class="board-button">Draft night (complete)</summary>
+				<AdminAttentionProvenance {...props}></AdminAttentionProvenance>
+			</details>
+		</If>
+		<If cond={props.DraftComplete == false}>
+			<AdminAttentionProvenance {...props}></AdminAttentionProvenance>
+		</If>
+	</section>
+}
+
+// AdminAttentionProvenance is the seat/board readiness block F2 (J4
+// console gap-audit) moved out of AdminAttentionReadout's own body: it
+// renders unwrapped before the draft completes (the only relevant work
+// that phase has) and inside a closed "Draft night (complete)" disclosure
+// once the draft is done, so the same markup and the same props serve
+// both phases without duplication.
+func AdminAttentionProvenance(props adminAttentionReadoutProps) Node {
+	return <>
 		<div class="commissioner-hq__provenance">
 			<span><strong>SEATS</strong><span class="mono">{props.ClaimedCount} / {props.SeatCount} CLAIMED</span></span>
 			<span><strong>READY</strong><span class="mono">{props.ReadyCount} / {props.SeatCount}</span></span>
@@ -234,7 +278,7 @@ func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
 				</div>
 			</Each>
 		</div>
-	</section>
+	</>
 }
 
 // Page's 00 // DRAFT NIGHT heading: draftSummaryForState (service.go)
@@ -403,11 +447,20 @@ func Page() Node {
 							<If cond={data.pool.error == ""}>
 								<AdminTaskLink Label="Verify player pool" Href="/admin?section=data#admin-data" Current={data.admin_section == "data"} Status="AVAILABLE" />
 							</If>
-							<If cond={data.clock.armed}>
-								<AdminTaskLink Label="Run pick clock" Href="/admin?section=clock#admin-clock" Current={data.admin_section == "clock"} Status="ARMED" />
+							{/* F2/F27 (J2 draft-night audit): the pick-clock job kept
+							    reading ARMED/WAITING after the draft ended, sitting
+							    beside "Start and monitor draft · COMPLETE" as the one
+							    job in its group that never caught up to the phase. */}
+							<If cond={data.draft.complete}>
+								<AdminTaskLink Label="Run pick clock" Href="/admin?section=clock#admin-clock" Current={data.admin_section == "clock"} Status="DONE" />
 							</If>
-							<If cond={data.clock.armed == false}>
-								<AdminTaskLink Label="Run pick clock" Href="/admin?section=clock#admin-clock" Current={data.admin_section == "clock"} Status="WAITING" />
+							<If cond={data.draft.complete == false}>
+								<If cond={data.clock.armed}>
+									<AdminTaskLink Label="Run pick clock" Href="/admin?section=clock#admin-clock" Current={data.admin_section == "clock"} Status="ARMED" />
+								</If>
+								<If cond={data.clock.armed == false}>
+									<AdminTaskLink Label="Run pick clock" Href="/admin?section=clock#admin-clock" Current={data.admin_section == "clock"} Status="WAITING" />
+								</If>
 							</If>
 						</ul>
 					</div>
@@ -772,13 +825,25 @@ func Page() Node {
 									<button class="button" type="submit" disabled="disabled">Normal close waits for readiness</button>
 								</If>
 							</form>
+							{/* F3 (J4 console gap-audit): a forced close used to report bare
+							    success with no warning beforehand — the commissioner learned
+							    the week scored 0.0 for every starter only after the click.
+							    This states the consequence before the confirm field, in the
+							    same place the typed-confirm phrase already asks for intent. */}
+							<p class="scoring-note"><strong>BEFORE YOU FORCE THIS:</strong> Force close scores week {data.close_form.week} with whatever stats exist right now. A game or a player-stat join that has not settled yet scores 0.0, and this cannot be undone from this screen.</p>
 							<form method="post" action={actionPath("close-week-force")} data-gosx-managed="true" class="clock-controls">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<label class="mono" for="admin-close-force-week">WEEK //</label>
 								<input id="admin-close-force-week" class="scoring-input" type="number" name="week" value={data.close_form.week} min="1" max="18" required="required"></input>
 								<label class="mono" for="admin-close-week-confirm">TYPE CLOSE WEEK {data.close_form.week} //</label>
 								<input id="admin-close-week-confirm" class="scoring-input typed-confirm-input" name="confirm" value={data.close_form.confirm} autocomplete="off" enterkeyhint="done" placeholder={"CLOSE WEEK " + data.close_form.week}></input>
-								<button class="button button--ghost" type="submit">Force close week {data.close_form.week}</button>
+								{/* F11 (J4 console gap-audit): this was the panel's one live,
+								    irreversible control, sharing class="button button--ghost"
+								    with its two disabled neighbors above — the panel's own
+								    scoped muting rule made all three read as unavailable. It
+								    now carries the same destructive treatment RELEASE SEAT and
+								    the Danger Zone resets already use. */}
+								<button class="button button--danger" type="submit">Force close week {data.close_form.week}</button>
 							</form>
 						</If>
 					</If>

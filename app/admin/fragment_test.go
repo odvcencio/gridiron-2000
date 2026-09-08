@@ -64,7 +64,8 @@ func TestAdminAttentionReadAtRendersValidDateTimeWithRelativeText(t *testing.T) 
 
 func sampleAdminAttention() adminAttentionReadoutProps {
 	return adminAttentionReadoutProps{
-		Phase: "preseason", DraftStatus: "AWAITING COMMISSIONER", DraftDate: "SAT · AUG 29", DraftTime: "1:00 PM EDT", DraftPublished: true,
+		SeasonStateSentence: "Preseason. The regular-season schedule is not generated yet.",
+		Phase:               "preseason", DraftStatus: "AWAITING COMMISSIONER", DraftDate: "SAT · AUG 29", DraftTime: "1:00 PM EDT", DraftPublished: true,
 		ScheduleStatus: "GENERATED", ScheduleWeek: 1, ScheduleReady: false, ScheduleReason: "waiting for final games",
 		SeatCount: 8, ClaimedCount: 7, ReadyCount: 6, InviteCount: 2, BoardGapCount: 1,
 		PresenceHere: 2, PresenceIdle: 1, PresenceAway: 2, PresenceNotSeen: 2, PresenceUnclaimed: 1,
@@ -94,6 +95,87 @@ func TestAdminAttentionReadoutRendersFriendlyDraftDateAndPresenceWords(t *testin
 		if strings.Contains(rendered, notWant) {
 			t.Errorf("attention readout must not print the raw %q: %s", notWant, rendered)
 		}
+	}
+}
+
+// TestAdminAttentionReadoutRendersSeasonStateSentenceAndHidesDraftDeadline
+// pins F1 (J4 console gap-audit): the top line used to glue the raw phase
+// and draft-status enums together ("regular-season · COMPLETE"), read as
+// "the season is over" during week 1. The readout now renders one plain
+// sentence in their place, and the "Draft deadline" line renders only
+// while the draft is not complete.
+func TestAdminAttentionReadoutRendersSeasonStateSentenceAndHidesDraftDeadline(t *testing.T) {
+	props := sampleAdminAttention()
+	props.SeasonStateSentence = "Week 1 in progress"
+	props.Phase = "regular-season"
+	props.DraftStatus = "COMPLETE"
+	props.DraftComplete = true
+	rendered, err := adminAttentionFragmentRender(props)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered, "Week 1 in progress") {
+		t.Errorf("attention readout missing the season-state sentence: %s", rendered)
+	}
+	if strings.Contains(rendered, "regular-season · COMPLETE") {
+		t.Errorf("attention readout still glues the raw phase/draft enums together: %s", rendered)
+	}
+	if strings.Contains(rendered, "Draft deadline") {
+		t.Errorf("attention readout must hide Draft deadline once the draft is complete: %s", rendered)
+	}
+
+	props.DraftComplete = false
+	rendered, err = adminAttentionFragmentRender(props)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered, "Draft deadline") {
+		t.Errorf("attention readout must show Draft deadline while the draft is pending: %s", rendered)
+	}
+}
+
+// TestAdminAttentionReadoutReprioritizesByDraftPhase pins F2 (J4 console
+// gap-audit): the first two screens of the console used to be draft-night
+// telemetry (seat rows, board counts) in week 1, with nothing naming the
+// week's own open work. Once the draft is complete, the week summary
+// (open claims, trades in review) leads, and the seat/board readiness
+// collapses into a closed "Draft night (complete)" disclosure. Before the
+// draft completes, the seat/board readiness still renders directly (it is
+// the only relevant work, exactly as C1's correct pre-draft panel does).
+func TestAdminAttentionReadoutReprioritizesByDraftPhase(t *testing.T) {
+	props := sampleAdminAttention()
+	props.DraftComplete = true
+	props.OpenClaimCount = 3
+	props.TradesInReviewCount = 2
+	rendered, err := adminAttentionFragmentRender(props)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered, `<details class="commissioner-hq__draft-night">`) {
+		t.Errorf("post-draft readout must collapse seat/board readiness into a disclosure: %s", rendered)
+	}
+	if !strings.Contains(rendered, "Draft night (complete)") {
+		t.Errorf("post-draft disclosure missing its summary label: %s", rendered)
+	}
+	if !strings.Contains(rendered, "OPEN CLAIMS") || !strings.Contains(rendered, "TRADES IN REVIEW") {
+		t.Errorf("post-draft readout missing the week's own open-work summary: %s", rendered)
+	}
+	summaryAt := strings.Index(rendered, "OPEN CLAIMS")
+	disclosureAt := strings.Index(rendered, `<details class="commissioner-hq__draft-night">`)
+	if summaryAt < 0 || disclosureAt < 0 || summaryAt > disclosureAt {
+		t.Errorf("week summary must lead the disclosure, not follow it: %s", rendered)
+	}
+
+	props.DraftComplete = false
+	rendered, err = adminAttentionFragmentRender(props)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(rendered, `<details class="commissioner-hq__draft-night">`) {
+		t.Errorf("pre-draft readout must not collapse seat/board readiness: %s", rendered)
+	}
+	if !strings.Contains(rendered, "commissioner-hq__provenance") {
+		t.Errorf("pre-draft readout must still show seat/board readiness directly: %s", rendered)
 	}
 }
 
