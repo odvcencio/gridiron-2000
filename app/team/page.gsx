@@ -451,8 +451,13 @@ func Page() Node {
 				<span>Season</span>
 				<strong class="mono">{data.team.record}</strong>
 				<small>
-					{data.team.points_for}
-					points scored
+					<If cond={data.has_team_points}>
+						{data.team.points_for}
+						points scored
+					</If>
+					<If cond={data.has_team_points == false}>
+						No points scored yet
+					</If>
 					<If cond={data.has_team_streak}>
 						·
 						{data.team.streak}

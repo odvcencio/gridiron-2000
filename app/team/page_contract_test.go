@@ -886,6 +886,28 @@ func TestTeamHeroRecordGuardsStreakSeparator(t *testing.T) {
 	}
 }
 
+// TestTeamHeroPointsScoredGuardsAgainstAnUnpostedWeek is a coordinator
+// follow-up on the wave-C manager residue: the season tile printed
+// "0.0 points scored" before any week had posted, the same false zero
+// J3 F12 already rejected for a starter's own PTS cell ("—" until the
+// weekly ledger posts). has_team_points, mirroring has_team_streak's own
+// guard on the same hero line, must gate the points-scored figure.
+func TestTeamHeroPointsScoredGuardsAgainstAnUnpostedWeek(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	for _, want := range []string{
+		"<If cond={data.has_team_points}>",
+		"<If cond={data.has_team_points == false}>",
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("hero record line missing %q", want)
+		}
+	}
+}
+
 // TestRosterShapeRendersVisibleEligibilityAndPositionalDepth covers
 // item 3 (FLEX/SUPERFLEX eligible positions as visible text, not only a
 // title="" tooltip) and item 2 (the positional-depth chip row beside

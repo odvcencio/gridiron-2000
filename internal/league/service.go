@@ -2595,6 +2595,16 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		// shared teamMap (every other teamMap caller — standings, matchup
 		// cards — has no equivalent "· {streak}" segment to guard).
 		"has_team_streak": strings.TrimSpace(team.Streak) != "" && team.Streak != "—",
+		// has_team_points (coordinator follow-up on the wave-C manager
+		// residue) guards the same hero line's own points-scored figure:
+		// team.PointsFor (teamView's raw Team.PointsFor) is the season
+		// zero value before any matchup has closed, and printing "0.0
+		// points scored" read as a real, scored zero — the same false
+		// claim J3 F12 already rejected for a starter's own PTS cell.
+		// dashboardStandingState's HasResults is the same "has a week
+		// actually closed" signal the standings panel's own "No matchup
+		// has been finalized yet" copy already uses.
+		"has_team_points": s.dashboardStandingState(state).HasResults,
 		// drafted is retained as a compatibility alias for the old template contract; lifecycle truth lives in team_terminal_phase and its explicit booleans below.
 		"drafted":              lifecycle.DraftComplete,
 		"predraft_visible":     !lineupTarget.Intervention && !state.DraftStarted && (strings.TrimSpace(team.Manager) != "" || s.demoMode),
