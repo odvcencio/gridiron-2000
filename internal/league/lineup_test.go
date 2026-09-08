@@ -819,6 +819,42 @@ func TestSetLineupDisplacesPlayerFromPriorExplicitSlot(t *testing.T) {
 	}
 }
 
+// TestTeamDataProjectedSumsStartersOnly pins item 8 of the 2026-09-07
+// truth pass: the team stat strip's PROJECTED figure used to sum the
+// WHOLE roster, bench included — a manager with a strong bench read a
+// bigger number here than on /matchups' featured card for the exact
+// same team and week. This fixture guarantees one bench player with a
+// known, nonzero projection (rbD, 0.5) that a correct starters-only sum
+// must exclude.
+func TestTeamDataProjectedSumsStartersOnly(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: 1, Kickoff: now.Add(time.Hour), Away: "PIT", Home: "NYJ"}}
+	})
+	players := []Player{
+		{ID: "qb1", Name: "QB One", Position: "QB", NFLTeam: "PIT", Projection: 10},
+		{ID: "rbA", Name: "RB A", Position: "RB", NFLTeam: "PIT", Projection: 20},
+		{ID: "rbB", Name: "RB B", Position: "RB", NFLTeam: "PIT", Projection: 18},
+		{ID: "wrA", Name: "WR A", Position: "WR", NFLTeam: "PIT", Projection: 15},
+		{ID: "wrB", Name: "WR B", Position: "WR", NFLTeam: "PIT", Projection: 12},
+		{ID: "teA", Name: "TE A", Position: "TE", NFLTeam: "PIT", Projection: 9},
+		{ID: "rbC", Name: "RB C", Position: "RB", NFLTeam: "PIT", Projection: 1},
+		{ID: "rbD", Name: "RB D", Position: "RB", NFLTeam: "PIT", Projection: 0.5},
+	}
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return players, 1, "test" })
+	draftFixtureOntoTeam1(t, svc, now, []string{"qb1", "rbA", "rbB", "wrA", "wrB", "teA", "rbC", "rbD"})
+
+	data := svc.TeamData(httptestNewGET("/team"))
+	// QB(10) + RB1(20) + RB2(18) + WR1(15) + WR2(12) + TE(9) + FLEX(rbC,1)
+	// = 85; rbD (0.5, benched) must not add in.
+	want := "85.0"
+	if got := data["projected"]; got != want {
+		t.Fatalf("projected = %#v, want %q (starters only; the whole-roster sum would read 85.5)", got, want)
+	}
+}
+
 // TestSetLineupReportsEveryCascadingChange pins J3 F4: one lineup-set
 // action can cascade through auto-fill into two more slots, and the
 // result message must name every one of them, not just the slot the

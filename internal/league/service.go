@@ -2390,10 +2390,6 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	now := s.clock()
 	radar := s.teamTerminalRadar(state, lifecycle.Phase, now, 3)
 	radarCopy := teamTerminalRadarCopy(lifecycle.Phase)
-	projected := 0.0
-	for _, player := range roster {
-		projected += player.Projection
-	}
 	teamMap := s.teamMap(team)
 	// has_custom_name (wave-6 glue item 5) gates the /team page's own
 	// "Reset to configured name" control (page.gsx): the control has
@@ -2464,6 +2460,13 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	// include zone occupants").
 	general, reserveOccupants, irOccupants := splitRosterZones(state, teamID, roster)
 	lineup := effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
+	// projected (item 8, 2026-09-07 truth pass): starters only, from the
+	// one TeamStartersProjectedTotal helper /matchups' own featured-card
+	// projection agrees with pre-kickoff (TestTeamProjectedTotalHelpersAgreePreKickoff)
+	// — this used to sum the WHOLE roster (bench included), so the strip
+	// showed a bigger number than the matchup card for the same team and
+	// week.
+	projected := TeamStartersProjectedTotal(lineup)
 	scoringValues := s.currentScoringValues()
 	matchupLabel, hasMatchupLabel := s.MatchupSourceLabel()
 	filled := 0

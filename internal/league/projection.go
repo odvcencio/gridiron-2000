@@ -191,6 +191,31 @@ func stillToPlay(rows []StarterLedgerRow, status LiveStatus) int {
 	return count
 }
 
+// TeamStartersProjectedTotal (2026-09-07 truth pass, item 8) is the one
+// canonical "projected total, starters only" figure a team's stat strip
+// (service.go's teamData), its own matchup-preview card, and /matchups'
+// featured card (featuredMatchupMap, via projectedTotal below) must all
+// agree on for the same team and week — before this helper existed, the
+// stat strip summed the WHOLE roster (bench included) and so read a
+// bigger, wrong number than the matchup card for the same lineup.
+//
+// It sums each filled starting slot's own weekly projection; an empty
+// slot contributes nothing. Before kickoff this is mathematically
+// identical to projectedTotal's own starters-only sum: remainingFraction
+// always returns 1 when no live status is known, and no starter has
+// scored yet, so projectedTotal reduces to the same plain sum this
+// function computes directly. TestTeamProjectedTotalHelpersAgreePreKickoff
+// pins that equivalence so the two call sites can never drift back apart.
+func TeamStartersProjectedTotal(lineup EffectiveLineup) float64 {
+	total := 0.0
+	for _, slot := range lineup.Slots {
+		if slot.HasPlayer {
+			total += slot.Player.Projection
+		}
+	}
+	return total
+}
+
 // starterProjections reads each row's player's weekly Tank01 projection
 // from byID, keyed by PlayerID exactly as projectedTotal expects. byID is
 // the caller's own single s.pool().byID read for the whole render — a

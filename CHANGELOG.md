@@ -14,6 +14,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A lineup save now reports every slot it changed, not just the one the manager touched. Setting a player into a full slot names each starter the auto-fill cascade promoted or benched as a result.
 - The team page's week selector now keeps a played (closed) week as a read-only option instead of refusing it with a false "not on the published schedule" reason. Opening one shows the accurate "Week N is closed" notice and that week's own lineup.
 - A locked player now stays in a lineup slot's picker, disabled, with "locked, game started" instead of disappearing from the list with no explanation.
+- The team page's PROJECTED figure now sums starters only, the same total the matchup card shows, instead of the whole roster including the bench.
 
 ## [release-2026.09.05-fee1a4c-practice] — 2026-09-04
 
