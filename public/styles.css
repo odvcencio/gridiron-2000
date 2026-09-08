@@ -18374,3 +18374,23 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
   margin-bottom: var(--space-sm);
   font-size: var(--type-lg);
 }
+
+/* comb — linden (2026-09-07 UX pass): J5 F19. .guide-sources wraps the
+   topic page's own Actor/Supported/Runtime source/Verified source table
+   (.masthead-console.guide-console), moved out of the masthead and
+   below the prose answer, collapsed by default. */
+.guide-sources {
+  margin: 0 0 var(--space-lg);
+}
+
+.guide-sources > summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--type-sm);
+  color: var(--color-text-secondary);
+  padding: var(--space-xs) 0;
+}
+
+.guide-sources > .masthead-console {
+  margin-top: var(--space-sm);
+}

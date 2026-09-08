@@ -558,3 +558,40 @@ func ValidateCorpus() error {
 	}
 	return nil
 }
+
+// actionRouteLabels names every ActionRoute a topic in this corpus
+// carries with a plain destination, matching the exact wording the
+// route's own page/nav already uses (app/layout.gsx's PrimaryNavigation
+// titles) where one exists — one name per route, never a second synonym
+// for the same destination.
+var actionRouteLabels = map[string]string{
+	"/":               "Go to the league home",
+	"/login":          "Open sign-in",
+	"/activity":       "Open Activity",
+	"/admin":          "Open League settings",
+	"/blitz":          "Open Preseason Blitz",
+	"/board":          "Open the Big Board",
+	"/draft":          "Open the Draft room",
+	"/draft/practice": "Open the practice draft",
+	"/help":           "Open the Help center",
+	"/help/roles-primary-co-manager-and-commissioner": "Open the roles topic",
+	"/pickem":  "Open Pick'em",
+	"/players": "Open the Player pool",
+	"/team":    "Open the Team terminal",
+	"/trades":  "Open Trades",
+}
+
+// ActionRouteLabel is J5 F19's own fix (2026-09-04 audit): the topic
+// page's own primary action used to read "Open owning action" for every
+// topic — a schema field name, not a destination, and for the
+// getting-started topic (ActionRoute "/") that button sent an anonymous
+// visitor straight back to the page they arrived from with no warning.
+// A route absent from actionRouteLabels (a corpus entry added later)
+// still names the real path rather than falling back to the generic
+// field name.
+func ActionRouteLabel(route string) string {
+	if label, ok := actionRouteLabels[route]; ok {
+		return label + " →"
+	}
+	return "Open " + route + " →"
+}
