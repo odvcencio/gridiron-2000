@@ -5,6 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+No changes yet.
+
+## [release-2026.09.08-d17cadb-season4] — 2026-09-08
+
+Scope: the fourth in-season batch, the owner's decision list and the residue: the home page names the page and the week with the slogan as its lede; one eyebrow per masthead and no section numbers on manager pages; public link labels from the nav map; the team page's duplicate lineup submit hidden behind the fixed action bar on phones; one league-time format on the locker and home; the console's task board rows jump in place, League HQ's attention reads the console's own data, and the phone console's reading order matches its visual order; the scoring page's phone jump strip is a closed disclosure; a co-manager invite asks for one explicit Join before the seat binds; the help hero reads the draft as complete; the trade composer sums season points across closed weeks; every page scopes its own confirmation notice; the activity feed's provenance rows lead with the team name; the draft room's news icon stays in its column, one scroll container per pane, on-clock controls first in the tab order, board sizes private to their seat and the commissioner, and the board control on one line at desktop. No schema change.
+
 ### Changed
 - The home page's h1 now reads "Home · Week 1" (or "Home · Preseason" before the schedule opens) instead of the stage's own slogan. The slogan now reads as the lede sentence under the h1, and a desktop manager with open items sees an urgent count in the page header, next to the h1, matching the rail's own count.
 - The home masthead's eyebrow no longer carries a "00 //" section number.
