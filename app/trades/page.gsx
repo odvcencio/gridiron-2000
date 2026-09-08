@@ -15,7 +15,7 @@ func Page() Node {
 			</div>
 			<div class="draft-clock-panel draft-clock-panel--sentence">
 				<strong class="mono">{data.veto_policy_label}</strong>
-				<p class="scoring-note">{data.veto_summary_sentence}</p>
+				<TextBlock as="p" class="scoring-note" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.veto_summary_sentence} />
 				<div class="draft-clock-meta">
 					<div class="trades-veto-links">
 						<a href="/activity" data-gosx-link>Transaction feed →</a>
@@ -133,7 +133,7 @@ func TradeDeskRegion() Node {
 							data-gosx-link
 							class="filter-button"
 							aria-current={team.ID == data.compose_counterparty_id}
-						>{team.Name}</a>
+						><TextBlock as="span" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={team.Name} /></a>
 					</Each>
 				</div>
 				<If cond={data.counterparties_empty}>
@@ -180,9 +180,7 @@ func TradeDeskRegion() Node {
 								</Each>
 							</div>
 							<div class="trade-composer__side">
-								<h3>
-									{"You get from " + data.compose_counterparty_name}
-								</h3>
+								<TextBlock as="h3" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">You get from {data.compose_counterparty_name}</TextBlock>
 								<If cond={data.compose_options_empty}>
 									<p class="empty-tape">Their roster is empty.</p>
 								</If>
@@ -228,8 +226,8 @@ func TradeDeskRegion() Node {
 				<Each of={data.inbox} as="offer">
 					<article class="rank-row rank-row--wide">
 						<div class="pool-player__text">
-							<strong>{"From " + offer.FromTeam}</strong>
-							<small>
+							<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={"From " + offer.FromTeam} />
+							<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18}>
 								<Each of={offer.Give} as="p">
 									{p.Name + " (" + p.Position + ") "}
 								</Each>
@@ -237,13 +235,9 @@ func TradeDeskRegion() Node {
 								<Each of={offer.Get} as="p">
 									{" " + p.Name + " (" + p.Position + ")"}
 								</Each>
-							</small>
+							</TextBlock>
 							<If cond={offer.HasNote}>
-								<small>
-									"
-									{offer.Note}
-									"
-								</small>
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" text={"\"" + offer.Note + "\""} />
 							</If>
 							<If cond={offer.HasExpiry}>
 								<If cond={offer.ExpiryState == "upcoming"}>
@@ -285,10 +279,7 @@ func TradeDeskRegion() Node {
 									<input type="hidden" name="offer_id" value={offer.ID}></input>
 									<details class="action-confirmation">
 										<summary>Accept this trade</summary>
-										<p>
-											{data.trade_accept_consequence}
-											The roster change cannot be undone from this screen.
-										</p>
+										<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22}>{data.trade_accept_consequence} The roster change cannot be undone from this screen.</TextBlock>
 										<label>
 											<input type="checkbox" name="confirmation" value="accept-trade" required="required"></input>
 											I understand this commits the offer.
@@ -350,7 +341,7 @@ func TradeDeskRegion() Node {
 											</Each>
 										</div>
 										<div class="trade-composer__side">
-											<h3>{"You get from " + offer.FromTeam}</h3>
+											<TextBlock as="h3" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">You get from {offer.FromTeam}</TextBlock>
 											<If cond={offer.CounterGetOptionsEmpty}>
 												<p class="empty-tape">Their current roster is empty.</p>
 											</If>
@@ -399,10 +390,8 @@ func TradeDeskRegion() Node {
 				<Each of={data.outbox} as="offer">
 					<article class="rank-row rank-row--wide">
 						<div class="pool-player__text">
-							<strong>
-								{"To " + offer.ToTeam + " · " + offer.StatusLabel}
-							</strong>
-							<small>
+							<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={"To " + offer.ToTeam + " · " + offer.StatusLabel} />
+							<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18}>
 								You send
 								<Each of={offer.Give} as="p">
 									{" " + p.Name + " (" + p.Position + ")"}
@@ -411,7 +400,7 @@ func TradeDeskRegion() Node {
 								<Each of={offer.Get} as="p">
 									{" " + p.Name + " (" + p.Position + ")"}
 								</Each>
-							</small>
+							</TextBlock>
 							<If cond={offer.Status == "accepted"}>
 								<If cond={data.veto_mode == "commissioner"}>
 									<small>
@@ -498,10 +487,8 @@ func TradeDeskRegion() Node {
 				<Each of={data.pending_review} as="offer">
 					<article class="rank-row rank-row--wide">
 						<div class="pool-player__text">
-							<strong>
-								{"From " + offer.FromTeam + " · " + offer.StatusLabel}
-							</strong>
-							<small>
+							<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={"From " + offer.FromTeam + " · " + offer.StatusLabel} />
+							<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18}>
 								You get
 								<Each of={offer.Give} as="p">
 									{" " + p.Name + " (" + p.Position + ")"}
@@ -510,7 +497,7 @@ func TradeDeskRegion() Node {
 								<Each of={offer.Get} as="p">
 									{" " + p.Name + " (" + p.Position + ")"}
 								</Each>
-							</small>
+							</TextBlock>
 							<If cond={offer.HasReviewDeadline}>
 								<If cond={data.veto_mode == "commissioner"}>
 									<small>
@@ -557,10 +544,8 @@ func TradeDeskRegion() Node {
 					<Each of={data.review} as="offer">
 						<article class="rank-row rank-row--wide">
 							<div class="pool-player__text">
-								<strong>
-									{offer.FromTeam + " ↔ " + offer.ToTeam}
-								</strong>
-								<small>
+								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={offer.FromTeam + " ↔ " + offer.ToTeam} />
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18}>
 									{offer.FromTeam}
 									sends
 									<Each of={offer.Give} as="p">
@@ -570,7 +555,7 @@ func TradeDeskRegion() Node {
 									<Each of={offer.Get} as="p">
 										{" " + p.Name + " (" + p.Position + ")"}
 									</Each>
-								</small>
+								</TextBlock>
 								<small>
 									Review window ends
 									{offer.ReviewDeadline}
@@ -642,10 +627,8 @@ func TradeDeskRegion() Node {
 					<Each of={data.vote_panel} as="offer">
 						<article class="rank-row rank-row--wide">
 							<div class="pool-player__text">
-								<strong>
-									{offer.FromTeam + " ↔ " + offer.ToTeam}
-								</strong>
-								<small>
+								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={offer.FromTeam + " ↔ " + offer.ToTeam} />
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18}>
 									{offer.FromTeam}
 									sends
 									<Each of={offer.Give} as="p">
@@ -655,7 +638,7 @@ func TradeDeskRegion() Node {
 									<Each of={offer.Get} as="p">
 										{" " + p.Name + " (" + p.Position + ")"}
 									</Each>
-								</small>
+								</TextBlock>
 								<small>
 									{offer.VetoesCount}
 									of
@@ -709,9 +692,7 @@ func TradeDeskRegion() Node {
 						<article class="rank-row rank-row--wide">
 							<div class="pool-player__text">
 								<strong>{offer.StatusLabel}</strong>
-								<small>
-									{offer.FromTeam + " ↔ " + offer.ToTeam}
-								</small>
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={offer.FromTeam + " ↔ " + offer.ToTeam} />
 								<small>
 									Created
 									{offer.CreatedAt}
@@ -722,7 +703,7 @@ func TradeDeskRegion() Node {
 										{offer.ResolvedAt}
 									</small>
 								</If>
-								<small>
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18}>
 									Give:
 									<Each of={offer.Give} as="p">
 										{" " + p.Name + " (" + p.Position + ")"}
@@ -731,13 +712,9 @@ func TradeDeskRegion() Node {
 									<Each of={offer.Get} as="p">
 										{" " + p.Name + " (" + p.Position + ")"}
 									</Each>
-								</small>
+								</TextBlock>
 								<If cond={offer.HasNote}>
-									<small>
-										Note: "
-										{offer.Note}
-										"
-									</small>
+									<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" text={"Note: \"" + offer.Note + "\""} />
 								</If>
 								<If cond={offer.Status == "failed"}>
 									<small>

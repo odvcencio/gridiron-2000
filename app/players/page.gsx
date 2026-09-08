@@ -328,7 +328,7 @@ func PlayerPoolRegion() Node {
 							<img class="player-headshot" src={player.headshot} alt="" loading="lazy" />
 						</If>
 						<span class="pool-player__text">
-							<strong>{player.name}</strong>
+							<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={player.name} />
 							<If cond={player.has_draft_capital}>
 								<span class="badge-rookie">{player.draft_capital}</span>
 							</If>
@@ -341,7 +341,7 @@ func PlayerPoolRegion() Node {
 							    now renders inside the primary tip panel
 							    below (has_injury), reachable with one tap
 							    instead of always inline. */}
-							<small>{player.detail_team_bye}</small>
+							<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={player.detail_team_bye} />
 							<If cond={player.has_opponent}>
 								<small class="mono">
 									{player.opponent}
@@ -452,7 +452,7 @@ func PlayerPoolRegion() Node {
 								<If cond={player.needs_drop}>
 									<details class="action-confirmation">
 										<summary>Add and drop a player</summary>
-										<p>Adding {player.name} will immediately replace the player you select above. The drop is recorded and cannot be undone from this screen.</p>
+										<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22}>Adding {player.name} will immediately replace the player you select above. The drop is recorded and cannot be undone from this screen.</TextBlock>
 										<label>
 											<input type="checkbox" name="confirmation" value="add-drop-player" required="required"></input>
 											I understand this replaces a rostered player.
@@ -488,7 +488,7 @@ func PlayerPoolRegion() Node {
 								<If cond={player.needs_drop}>
 									<details class="action-confirmation">
 										<summary>Claim and drop a player</summary>
-										<p>{"If this claim for " + player.name + " wins, it will replace the player you select above."} That drop is recorded and cannot be undone from this screen.</p>
+										<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22}>{"If this claim for " + player.name + " wins, it will replace the player you select above."} That drop is recorded and cannot be undone from this screen.</TextBlock>
 										<label>
 											<input type="checkbox" name="confirmation" value="claim-drop-player" required="required"></input>
 											I understand a won claim replaces a rostered player.

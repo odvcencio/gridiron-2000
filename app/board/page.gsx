@@ -25,11 +25,11 @@ func BoardRow(props BoardRowProps) Node {
 				<img class="player-headshot" src={props.Player.headshot} alt="" loading="lazy" />
 			</If>
 			<span class="pool-player__text">
-				<strong>{props.Player.name}</strong>
+				<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Player.name} />
 				<If cond={props.Player.has_draft_capital}>
 					<span class="badge-rookie">{props.Player.draft_capital}</span>
 				</If>
-				<small>{props.Player.detail}</small>
+				<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Player.detail} />
 				<If cond={props.Player.has_opponent}>
 					<small class="mono">
 						{props.Player.opponent}
@@ -369,11 +369,11 @@ func Page() Node {
 									<img class="player-headshot" src={player.headshot} alt="" loading="lazy" />
 								</If>
 								<span class="pool-player__text">
-									<strong>{player.name}</strong>
+									<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={player.name} />
 									<If cond={player.has_draft_capital}>
 										<span class="badge-rookie">{player.draft_capital}</span>
 									</If>
-									<small>{player.detail}</small>
+									<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={player.detail} />
 									<If cond={player.has_opponent}>
 										<small class="mono">
 											{player.opponent}

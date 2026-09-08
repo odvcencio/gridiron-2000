@@ -84,7 +84,7 @@ func TestBlitzArchiveChampionCopyGuardsEmptyChampions(t *testing.T) {
 	source := string(sourceBytes)
 	for _, want := range []string{
 		`<If cond={data.archive.overall_champion != ""}>`,
-		`<strong>OVERALL CHAMPION: {data.archive.overall_champion}</strong>`,
+		`OVERALL CHAMPION: {data.archive.overall_champion}</TextBlock>`,
 		`<If cond={data.archive.overall_champion == ""}>`,
 		`<strong>OVERALL CHAMPION: no entries were scored</strong>`,
 		`<If cond={data.archive.pre2_champion != ""}>Preseason Week 2 champion: {data.archive.pre2_champion}. </If>`,
