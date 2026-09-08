@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"gridiron-2000/app/admin"
 	"gridiron-2000/internal/commissionerhq"
 	"gridiron-2000/internal/league"
 )
@@ -148,12 +149,22 @@ type fleetCardView struct {
 // whatever offset the summary's wire JSON happened to carry (2026-09-01
 // audit: displayTime with no location conversion rendered a literal "UTC"
 // abbreviation on every card, not the commissioner's own league zone).
-func buildFleetView(entries []commissionerhq.FleetEntry, generatedAt time.Time, location *time.Location) fleetPageView {
+// buildFleetView's optional localAttention parameter (variadic so every
+// existing call site and test keeps compiling unchanged) is J4 F29's own
+// residue fix: admin.AdminAttentionReadoutFromData's counts for THIS
+// instance, the same function and data /admin's own Load callback reads.
+// Only the local card (index 0) ever receives it — see cardView's own doc
+// comment for why a federation peer's card must not.
+func buildFleetView(entries []commissionerhq.FleetEntry, generatedAt time.Time, location *time.Location, localAttention ...admin.AdminAttentionReadoutProps) fleetPageView {
 	if generatedAt.IsZero() {
 		generatedAt = time.Now().UTC()
 	}
 	if location == nil {
 		location = time.UTC
+	}
+	local := admin.EmptyAdminAttentionReadout()
+	if len(localAttention) > 0 {
+		local = localAttention[0]
 	}
 	view := fleetPageView{GeneratedAt: generatedAt, Location: location, Cards: make([]fleetCardView, 0, len(entries))}
 	for index, entry := range entries {
@@ -162,7 +173,7 @@ func buildFleetView(entries []commissionerhq.FleetEntry, generatedAt time.Time, 
 		// configured peer after it — the same invariant AdminDestinations
 		// relies on. cardView uses this to link the local card with
 		// root-relative paths instead of PublicURL (see setLinks).
-		card := cardView(entry, generatedAt, location, index == 0)
+		card := cardView(entry, generatedAt, location, index == 0, local)
 		view.Cards = append(view.Cards, card)
 		view.LeagueCount++
 		if !card.Available {
@@ -230,7 +241,18 @@ func severityRank(value string) int {
 // ("http://localhost:8080", config.go) on any deployment that never set
 // league.json's url field, which made every local HQ link a dead
 // localhost bounce (2026-09-01 audit).
-func cardView(entry commissionerhq.FleetEntry, now time.Time, location *time.Location, local bool) fleetCardView {
+//
+// localAttention (J4 F29 residue, wave E) is admin.AdminAttentionReadoutFromData's
+// own counts for THIS running instance — applied only when local is true.
+// A federation peer's card never receives it: CommissionerSummary's own
+// doc comment states the wire payload is deliberately PII-free ("It
+// intentionally does not reuse AdminData, whose seat and invite rows
+// carry manager identities that do not belong in a cross-instance
+// protocol"), and this stays true for every OTHER instance's card on this
+// page too — only the viewing commissioner's own local card may show
+// their own invite/board-gap counts, the same ones /admin already shows
+// them.
+func cardView(entry commissionerhq.FleetEntry, now time.Time, location *time.Location, local bool, localAttention ...admin.AdminAttentionReadoutProps) fleetCardView {
 	if !entry.Available() {
 		publicURL := strings.TrimRight(entry.PublicURL, "/")
 		card := fleetCardView{
@@ -316,7 +338,11 @@ func cardView(entry commissionerhq.FleetEntry, now time.Time, location *time.Loc
 		})
 	}
 	card.OpenData = openDataRows(summary.OpenData, now, location)
-	for _, item := range summary.Attention {
+	items := summary.Attention
+	if local && len(localAttention) > 0 {
+		items = append(append([]commissionerhq.Attention{}, items...), localAdminAttentionItems(localAttention[0])...)
+	}
+	for _, item := range items {
 		section := attentionSection(item)
 		attention := attentionView{
 			League: card.NameOrPeer(), PeerID: card.PeerID, Code: item.Code,
@@ -489,6 +515,31 @@ func openDataRows(data commissionerhq.OpenData, now time.Time, location *time.Lo
 		})
 	}
 	return out
+}
+
+// localAdminAttentionItems turns admin.AdminAttentionReadoutFromData's own
+// counts into commissionerhq.Attention items so cardView can fold them
+// into the local card through the exact same rendering path as every
+// other attention item (J4 F29 residue, wave E): one list, one severity
+// vocabulary, one "Open <section>" link builder, instead of a second,
+// parallel readout that can read a different number for the same fact.
+func localAdminAttentionItems(props admin.AdminAttentionReadoutProps) []commissionerhq.Attention {
+	items := make([]commissionerhq.Attention, 0, 2)
+	if props.InviteCount > 0 {
+		items = append(items, commissionerhq.Attention{
+			Code: "invite_pending", Severity: commissionerhq.AttentionSeverityWarning,
+			Count: props.InviteCount, Area: commissionerhq.AttentionAreaMembership,
+			Message: fmt.Sprintf("%d invite(s) are pending.", props.InviteCount),
+		})
+	}
+	if props.BoardGapCount > 0 {
+		items = append(items, commissionerhq.Attention{
+			Code: "board_gap", Severity: commissionerhq.AttentionSeverityWarning,
+			Count: props.BoardGapCount, Area: commissionerhq.AttentionAreaDraft,
+			Message: fmt.Sprintf("%d claimed seat(s) have no draft board yet.", props.BoardGapCount),
+		})
+	}
+	return items
 }
 
 func attentionSection(item commissionerhq.Attention) string {

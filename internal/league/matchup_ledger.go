@@ -397,6 +397,47 @@ func weeklyPlayerPointsText(player Player, snapshot matchupStatsSnapshot, values
 	return "0.0"
 }
 
+// SeasonPointsText sums player's posted weekly ledger points across every
+// closed week (J3 F31 residue, wave E). weeklyPlayerPointsText, above,
+// reads one week's live/posted score — the trade composer's own
+// SeasonPoints field used to read that single-week value under a season-
+// shaped name, accurate for judging a multi-week trade only by
+// accident. This walks every week the schedule already marks closed
+// (scheduleWeekIsFinal — the same "this week is closed" truth
+// AdminCloseWeek and the console both read) and sums each one's posted
+// score with the exact same per-week reader weeklyPlayerPointsText uses
+// (weekStatLinesByKey, scorePlayerStats) — never live or in-progress
+// data from a week still open. Returns "—" before any week has closed,
+// never a claimed "0.0" for a season with nothing posted yet; once at
+// least one week has closed, an unposted player sums as a real "0.0".
+func (s *Service) SeasonPointsText(state PersistedState, player Player) string {
+	if state.Schedule == nil {
+		return "—"
+	}
+	source := s.weekStatsSource()
+	values := s.currentScoringValues()
+	key := normalizePlayerKey(player.Name, player.Position)
+	total := 0.0
+	closedWeeks := 0
+	for _, wk := range state.Schedule.Weeks {
+		if !scheduleWeekIsFinal(wk) {
+			continue
+		}
+		closedWeeks++
+		if source == nil {
+			continue
+		}
+		byKey := weekStatLinesByKey(source(wk.Week))
+		if line, joined := byKey[key]; joined {
+			total += scorePlayerStats(line.Stats, values)
+		}
+	}
+	if closedWeeks == 0 {
+		return "—"
+	}
+	return fmt.Sprintf("%.1f", total)
+}
+
 // applyWeeklyPointsText overwrites each row's playerMap-sourced "points"
 // field (see weeklyPlayerPointsText's own doc comment) in place. rows is
 // starterRowMaps' or playerMapsWithScoring's own []map[string]any output

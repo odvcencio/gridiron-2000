@@ -91,3 +91,12 @@ func rosterOwner(rosters map[string][]string) map[string]string {
 func draftComplete(state PersistedState) bool {
 	return len(state.Picks) >= len(defaultTeams())*CurrentDraftRounds()
 }
+
+// DraftComplete is draftComplete's own exported door: a caller outside
+// this package (Help Center hero card residue, app/help/page.server.go)
+// needs the same true/false the console and home page already read,
+// rather than re-deriving it from a picks-vs-capacity comparison of its
+// own.
+func (s *Service) DraftComplete() bool {
+	return draftComplete(s.store.Snapshot())
+}

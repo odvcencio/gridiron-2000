@@ -62,15 +62,15 @@ func TestAdminAttentionReadAtRendersValidDateTimeWithRelativeText(t *testing.T) 
 	}
 }
 
-func sampleAdminAttention() adminAttentionReadoutProps {
-	return adminAttentionReadoutProps{
+func sampleAdminAttention() AdminAttentionReadoutProps {
+	return AdminAttentionReadoutProps{
 		SeasonStateSentence: "Preseason. The regular-season schedule is not generated yet.",
 		Phase:               "preseason", DraftStatus: "AWAITING COMMISSIONER", DraftDate: "SAT · AUG 29", DraftTime: "1:00 PM EDT", DraftPublished: true,
 		ScheduleStatus: "GENERATED", ScheduleWeek: 1, ScheduleReady: false, ScheduleReason: "waiting for final games",
 		SeatCount: 8, ClaimedCount: 7, ReadyCount: 6, InviteCount: 2, BoardGapCount: 1,
 		PresenceHere: 2, PresenceIdle: 1, PresenceAway: 2, PresenceNotSeen: 2, PresenceUnclaimed: 1,
 		GeneratedAt: "2026-08-25T15:00:00Z",
-		Seats:       []adminAttentionSeatView{{Name: "Alpha", Abbreviation: "ALP", Claimed: true, Ready: false, Presence: "here", PresenceLabel: "In the room", PresenceDetail: "At the room now.", BoardCount: 0, BoardGap: true}},
+		Seats:       []AdminAttentionSeatView{{Name: "Alpha", Abbreviation: "ALP", Claimed: true, Ready: false, Presence: "here", PresenceLabel: "In the room", PresenceDetail: "At the room now.", BoardCount: 0, BoardGap: true}},
 	}
 }
 
@@ -225,7 +225,7 @@ func TestAdminAttentionReadoutReprioritizesByDraftPhase(t *testing.T) {
 // TestAdminAttentionReadoutFromDataNamesManagersAndSummarizesNotCheckedIn
 // pins F6 + F19 (gap-audit J2): a not-ready row named only its seat code
 // and team name, and the console reported "READY 4 / 8" with nowhere to
-// see who that meant or act on it. adminAttentionReadoutFromData now
+// see who that meant or act on it. AdminAttentionReadoutFromData now
 // carries each seat's own manager name (plain, not a code) and a
 // precomputed "Not checked in: <first name> (<team>), ..." summary of
 // every claimed-but-not-ready seat.
@@ -237,7 +237,7 @@ func TestAdminAttentionReadoutFromDataNamesManagersAndSummarizesNotCheckedIn(t *
 			{"name": "Placeholder go here", "abbreviation": "AQ4", "manager": "", "claimed": false, "ready": false, "presence": "unclaimed"},
 		},
 	}
-	view := adminAttentionReadoutFromData(data)
+	view := AdminAttentionReadoutFromData(data)
 	if len(view.Seats) != 3 {
 		t.Fatalf("len(Seats) = %d, want 3", len(view.Seats))
 	}
@@ -276,7 +276,7 @@ func TestAdminAttentionReadoutFromDataHasNoNotCheckedInSummaryWhenEveryoneIsRead
 			{"name": "In Shedeur Time", "abbreviation": "AQ1", "manager": "Alex Rivera", "claimed": true, "ready": true},
 		},
 	}
-	view := adminAttentionReadoutFromData(data)
+	view := AdminAttentionReadoutFromData(data)
 	if view.HasNotCheckedIn {
 		t.Fatalf("HasNotCheckedIn = true, want false (every claimed seat is ready); summary = %q", view.NotCheckedInSummary)
 	}
@@ -318,11 +318,11 @@ func TestAdminAttentionFragmentETagPrivacyAndMethodBoundary(t *testing.T) {
 	loaded := 0
 	handler := adminAttentionFragmentHandler(
 		func(*http.Request) (int, bool) { return 0, true },
-		func(*http.Request) adminAttentionReadoutProps {
+		func(*http.Request) AdminAttentionReadoutProps {
 			loaded++
 			return sampleAdminAttention()
 		},
-		func(props adminAttentionReadoutProps) (string, error) {
+		func(props AdminAttentionReadoutProps) (string, error) {
 			return "<section data-phase=\"" + props.Phase + "\">attention</section>", nil
 		},
 	)
@@ -353,8 +353,8 @@ func TestAdminAttentionFragmentRejectsUnauthorizedBeforeRead(t *testing.T) {
 	loaded := 0
 	handler := adminAttentionFragmentHandler(
 		func(*http.Request) (int, bool) { return http.StatusForbidden, false },
-		func(*http.Request) adminAttentionReadoutProps { loaded++; return sampleAdminAttention() },
-		func(adminAttentionReadoutProps) (string, error) { return "unreachable", nil },
+		func(*http.Request) AdminAttentionReadoutProps { loaded++; return sampleAdminAttention() },
+		func(AdminAttentionReadoutProps) (string, error) { return "unreachable", nil },
 	)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/admin/fragment", nil))
@@ -366,8 +366,8 @@ func TestAdminAttentionFragmentRejectsUnauthorizedBeforeRead(t *testing.T) {
 func TestAdminAttentionFragmentConcurrentReads(t *testing.T) {
 	handler := adminAttentionFragmentHandler(
 		func(*http.Request) (int, bool) { return 0, true },
-		func(*http.Request) adminAttentionReadoutProps { return sampleAdminAttention() },
-		func(props adminAttentionReadoutProps) (string, error) { return props.Phase, nil },
+		func(*http.Request) AdminAttentionReadoutProps { return sampleAdminAttention() },
+		func(props AdminAttentionReadoutProps) (string, error) { return props.Phase, nil },
 	)
 	const readers = 20
 	var wait sync.WaitGroup

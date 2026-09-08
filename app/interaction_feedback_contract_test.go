@@ -129,7 +129,13 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	//   app/trades/page.server.go: 1 RedirectWithNotice -> RedirectWithScopedNotice
 	// RedirectWithNotice: 15 - 1 - 2 - 2 - 2 - 1 = 7.
 	// RedirectBackWithNotice: 41 - 2 - 4 - 5 = 30.
-	const wantRedirects = 7
+	// Decision 3 (J5 F11, wave E): app/login/page.server.go's new
+	// "co-manager-join" action calls actionui.RedirectWithNotice twice —
+	// once on failure (back to /login), once on success (to /, where the
+	// arrival panel reads the co_manager_bound flash it also sets)
+	// (7 -> 9). It is not one of the seven pages the scoped-notice
+	// migration above touched.
+	const wantRedirects = 9
 	const wantRedirectBacks = 30
 	redirects := 0
 	redirectBacks := 0

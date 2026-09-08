@@ -1251,11 +1251,12 @@ type TradeRosterOption struct {
 	// decimal (Player.Projection, the same field /team and /players
 	// already label PROJ).
 	Projection string
-	// SeasonPoints reads the same weekly-ledger truth /team has used
-	// since rev 108 (weeklyPlayerPointsText, matchup_ledger.go): a real
-	// scored number once the weekly ledger has posted for this player,
-	// else the honest "—" — never a claimed "0.0" for a week that has
-	// not been played yet.
+	// SeasonPoints (J3 F31 residue, wave E) sums the player's posted
+	// weekly ledger points across every closed week (SeasonPointsText,
+	// matchup_ledger.go) — a true season total, not a single week's live
+	// score under a season-shaped name (this field's own earlier bug).
+	// "—" before any week has closed; a real number, including a real
+	// "0.0", once at least one week has.
 	SeasonPoints string
 	// Detail is Position/NFLTeam/ByeLabel/Projection/SeasonPoints
 	// pre-joined into one line with correct separators (never a stray
@@ -1412,18 +1413,14 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 	rosters := currentRosters(state)
 	threshold := tradeVetoThreshold(len(defaultTeamIDs()))
 
-	// SeasonPoints reads the same weekly-ledger truth /team has used
-	// since rev 108 (weeklyPlayerPointsText, matchup_ledger.go): an
-	// honest "—" before the week's ledger has posted for that player,
-	// never a claimed "0.0" — the composer used to print player.Points
-	// directly, a field nothing in this codebase ever populates from a
-	// real source, so every row read the same false zero regardless of
-	// whether a game had even kicked off.
-	scoringValues := s.currentScoringValues()
-	week := s.pickemWeek(s.schedule(), now)
-	weeklyStats := s.matchupStatsSnapshot(week)
-	weeklyLineByKey := weekStatLinesByKey(weeklyStats.lines)
-
+	// SeasonPoints (J3 F31 residue, wave E) sums the player's posted
+	// weekly ledger points across every closed week (SeasonPointsText,
+	// matchup_ledger.go) — a real season total for judging a multi-week
+	// trade, not one week's live score under a season-shaped name. "—"
+	// before any week has closed; the composer used to print player.Points
+	// directly before that, a field nothing in this codebase ever
+	// populates from a real source, so every row read the same false zero
+	// regardless of whether a game had even kicked off.
 	rosterOptions := func(id string) []TradeRosterOption {
 		out := make([]TradeRosterOption, 0, len(rosters[id]))
 		for _, playerID := range rosters[id] {
@@ -1435,8 +1432,8 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 					detailParts = append(detailParts, byeLabel)
 				}
 				projection := fmt.Sprintf("%.1f", p.Projection)
-				seasonPoints := weeklyPlayerPointsText(p, weeklyStats, scoringValues, weeklyLineByKey, now)
-				detailParts = append(detailParts, "PROJ "+projection, "PTS "+seasonPoints)
+				seasonPoints := s.SeasonPointsText(state, p)
+				detailParts = append(detailParts, "PROJ "+projection, "SEASON PTS "+seasonPoints)
 				out = append(out, TradeRosterOption{
 					ID: p.ID, Label: fmt.Sprintf("%s (%s)", p.Name, p.Position),
 					Position: p.Position, NFLTeam: p.NFLTeam, ByeLabel: byeLabel,

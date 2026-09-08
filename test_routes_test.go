@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -209,12 +210,14 @@ func TestTestSigninSetsCookieAndRejectsProtocolRelativeRedirect(t *testing.T) {
 	}
 }
 
-// TestTestSigninBindsPendingCoManagerInvite mirrors main.go's Google
-// callback membership sequencing: a co-manager invite pending for this
-// email must bind on the harness sign-in that follows, exactly as it would
-// bind on that identity's first real Google sign-in, instead of leaving
-// the invitee seatless.
-func TestTestSigninBindsPendingCoManagerInvite(t *testing.T) {
+// TestTestSigninLeavesCoManagerInviteForExplicitJoin mirrors main.go's
+// completeSignIn membership sequencing (Decision 3, J5 F11): a co-manager
+// invite pending for this email must stay pending through the harness
+// sign-in, exactly as a real Google sign-in now leaves it — the seat
+// binds only through the invitee's own explicit "Join" action on /login
+// (league.Service.ConfirmCoManagerJoin), never as a side effect of
+// signing in.
+func TestTestSigninLeavesCoManagerInviteForExplicitJoin(t *testing.T) {
 	hermeticEnv(t)
 	t.Setenv("GRIDIRON_TEST_AUTH", "1")
 	cfg, err := AppConfigFromEnv()
@@ -240,38 +243,82 @@ func TestTestSigninBindsPendingCoManagerInvite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The bind itself is a plain GET; no cookie jar is needed to observe
-	// its effect — the store mutation, not session propagation, is what
-	// this test checks. CheckRedirect stops before the client follows the
-	// redirect, since a plain http.Get would otherwise report the final
-	// landing page's own 200.
-	noFollow := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
-	res, err := noFollow.Get(srv.URL + "/test/signin?user=" + url.QueryEscape("co-invitee@sim.test|Co Invitee"))
+	jar, err := cookiejar.New(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
-	if res.StatusCode != http.StatusSeeOther {
-		t.Fatalf("signin (co-invitee) = %d, want 303", res.StatusCode)
-	}
+	client := &http.Client{Jar: jar}
 
+	signinRes, err := client.Get(srv.URL + "/test/signin?user=" + url.QueryEscape("co-invitee@sim.test|Co Invitee") + "&to=" + url.QueryEscape("/login"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	signinRes.Body.Close()
+
+	// Sign-in alone must not bind the seat: reading state through the
+	// harness's own X-Test-User header (independent of the session
+	// cookie above) must still show no team.
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/test/draft", nil)
 	req.Header.Set("X-Test-User", "co-invitee@sim.test|Co Invitee")
-	res, err = http.DefaultClient.Do(req)
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
 	var state struct {
 		ViewerTeamID string `json:"viewer_team_id"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&state); err != nil {
 		t.Fatal(err)
 	}
-	if state.ViewerTeamID != primary.TeamID {
-		t.Fatalf("co-invitee viewer_team_id = %q, want %q (the bind must land the invite on sign-in)", state.ViewerTeamID, primary.TeamID)
+	res.Body.Close()
+	if state.ViewerTeamID != "" {
+		t.Fatalf("co-invitee viewer_team_id = %q after sign-in alone, want \"\" (the seat must not bind until Join)", state.ViewerTeamID)
+	}
+
+	// /login (the same session the harness sign-in just established)
+	// must render the pending confirm state with a real Join form.
+	loginRes, err := client.Get(srv.URL + "/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginBody, err := io.ReadAll(loginRes.Body)
+	loginRes.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loginRes.StatusCode != http.StatusOK {
+		t.Fatalf("GET /login = %d, want 200: %s", loginRes.StatusCode, loginBody)
+	}
+	csrf := extractCSRFToken(t, string(loginBody))
+
+	joinRes, err := client.PostForm(srv.URL+"/login/__actions/co-manager-join", url.Values{"csrf_token": {csrf}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joinBody, err := io.ReadAll(joinRes.Body)
+	joinRes.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if joinRes.StatusCode != http.StatusOK {
+		t.Fatalf("POST /login/__actions/co-manager-join = %d, want 200: %s", joinRes.StatusCode, joinBody)
+	}
+
+	req2, _ := http.NewRequest(http.MethodGet, srv.URL+"/test/draft", nil)
+	req2.Header.Set("X-Test-User", "co-invitee@sim.test|Co Invitee")
+	res2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res2.Body.Close()
+	var afterJoin struct {
+		ViewerTeamID string `json:"viewer_team_id"`
+	}
+	if err := json.NewDecoder(res2.Body).Decode(&afterJoin); err != nil {
+		t.Fatal(err)
+	}
+	if afterJoin.ViewerTeamID != primary.TeamID {
+		t.Fatalf("co-invitee viewer_team_id = %q after Join, want %q", afterJoin.ViewerTeamID, primary.TeamID)
 	}
 }
 

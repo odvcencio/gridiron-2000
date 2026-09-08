@@ -454,8 +454,11 @@ func TestPublicEntryPendingCoManagerInviteTransitionsWithoutClaimingASeat(t *tes
 	if view.TeamName != service.TeamLabel(primary.TeamID) || !strings.Contains(view.Detail, view.TeamName) {
 		t.Fatalf("pending entry did not name invited team: %+v", view)
 	}
-	if view.ActionHref != "/guide#identity" || !strings.Contains(strings.ToLower(view.ActionLabel), "complete") {
-		t.Fatalf("pending entry omitted completion action: %+v", view)
+	if view.ActionHref != "/guide#identity" || !strings.Contains(strings.ToLower(view.ActionLabel), "join") {
+		t.Fatalf("pending entry omitted a join action: %+v", view)
+	}
+	if !strings.Contains(view.Detail, "Primary Manager") {
+		t.Fatalf("pending entry did not name who invited this identity: %+v", view)
 	}
 
 	var loginEntry, dashboardEntry map[string]any

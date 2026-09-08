@@ -214,12 +214,12 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 			http.Error(w, "user=email|name is required", http.StatusBadRequest)
 			return
 		}
-		// Mirror main.go's googleCallbackHandlerWithMembership (~763-816)
-		// exactly, minus its EmailAllowed admission gate: canonicalize the
-		// identity, sign the session in, then bind a pending co-manager
-		// invite if this email has one — falling back to the ordinary
-		// seatless EnsureMember only when it does not, exactly as the
-		// callback's own BindCoManagerOnSignIn/EnsureMember branch does.
+		// Mirror main.go's completeSignIn exactly, minus its EmailAllowed
+		// admission gate: canonicalize the identity, sign the session in,
+		// then EnsureMember — never BindCoManagerOnSignIn (Decision 3, J5
+		// F11: a co-manager invite no longer binds silently at sign-in; it
+		// stays pending until the invitee's own explicit Join action on
+		// /login, exactly as a real Google sign-in now leaves it).
 		// EmailAllowed is deliberately NOT checked here: GRIDIRON_TEST_AUTH
 		// (BuildApp's gate on ever mounting this route) and
 		// testRoutesLoopbackOnly above are this route's admission control,
@@ -232,14 +232,9 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 			http.Error(w, "sign-in failed", http.StatusInternalServerError)
 			return
 		}
-		if _, bound, err := service.BindCoManagerOnSignIn(user.Email, user.Name); err != nil {
+		if _, err := service.EnsureMember(user.Email, user.Name); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
-		} else if !bound {
-			if _, err := service.EnsureMember(user.Email, user.Name); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
 		}
 		to := r.URL.Query().Get("to")
 		// Reject anything that is not a same-origin absolute path: an empty

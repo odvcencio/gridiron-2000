@@ -143,20 +143,25 @@ func TestAdminSectionEyebrowsShareOneNumberingScheme(t *testing.T) {
 	if strings.Contains(source, "SEASON //") {
 		t.Error("page.gsx still carries a \"SEASON //\" eyebrow; F19 requires one numbered scheme")
 	}
+	// J4 F34 residue (wave E): Announcements moved from 11th to 4th, right
+	// after Week close, when its <section> moved in the template to match
+	// the DOM order fix (TestAdminGridSectionDOMOrderMatchesVisualOrder);
+	// every eyebrow after it renumbers by one to keep one number in one
+	// reading sequence (F19).
 	want := []string{
 		`<span class="section-index">00 // SEASON OPERATIONS</span>`,
 		`<span class="section-index">00 // DRAFT NIGHT</span>`,
 		`<span class="section-index">01 // SCHEDULE</span>`,
 		`<span class="section-index">02 // WEEK CLOSE</span>`,
 		`<span class="section-index">03 // WAIVER RUN</span>`,
-		`<span class="section-index">04 // PLAYOFFS</span>`,
-		`<span class="section-index">05 // SEATS</span>`,
-		`<span class="section-index">06 // INVITES</span>`,
-		`<span class="section-index">07 // DRAFT ORDER</span>`,
-		`<span class="section-index">08 // PLAYER DATA</span>`,
-		`<span class="section-index">09 // DRAFT CLOCK</span>`,
-		`<span class="section-index">10 // ROSTER SHAPE</span>`,
-		`<span class="section-index">11 // ANNOUNCEMENTS</span>`,
+		`<span class="section-index">04 // ANNOUNCEMENTS</span>`,
+		`<span class="section-index">05 // PLAYOFFS</span>`,
+		`<span class="section-index">06 // SEATS</span>`,
+		`<span class="section-index">07 // INVITES</span>`,
+		`<span class="section-index">08 // DRAFT ORDER</span>`,
+		`<span class="section-index">09 // PLAYER DATA</span>`,
+		`<span class="section-index">10 // DRAFT CLOCK</span>`,
+		`<span class="section-index">11 // ROSTER SHAPE</span>`,
 		`<span class="section-index">12 // BACKUP</span>`,
 		`<span class="section-index">99 // DANGER ZONE</span>`,
 	}
@@ -578,7 +583,7 @@ func TestAdminMastheadLeadsWithWeekOnceDraftIsComplete(t *testing.T) {
 // season.go): after week 1 closes they read Week 2, and when every week
 // is closed they name the last one instead of stopping at week 1.
 //
-// Root cause: adminAttentionReadoutFromData (fragment.go) set ScheduleWeek
+// Root cause: AdminAttentionReadoutFromData (fragment.go) set ScheduleWeek
 // from the schedule map's own "week" key, which adminScheduleMap
 // (admin.go) stamps with the SCHEDULE'S START WEEK, not the next open
 // one — the next open week lives one level down, at schedule.close.week
@@ -723,6 +728,72 @@ func TestAdminNextOpenWeekFixtureProcess(t *testing.T) {
 	for _, unwanted := range []string{"waiting for", "Ready to close"} {
 		if strings.Contains(masthead, unwanted) {
 			t.Errorf("league-status masthead still reads the week-close readiness reason (%q), not weekProgressSentence: %s", unwanted, masthead)
+		}
+	}
+}
+
+// TestAdminGridSectionDOMOrderMatchesVisualOrder pins J4 F34's own
+// residue (wave E): the phone console used to promote Announcements and
+// Week close ahead of the rest with CSS `order` alone — a purely visual
+// reorder a keyboard or screen-reader user never sees, since both follow
+// DOM order, not flex/grid order. The .admin-grid's own <section> markup
+// now sits in the template in the same sequence the console wants read
+// and seen, on every viewport, so no CSS order is left to fix.
+func TestAdminGridSectionDOMOrderMatchesVisualOrder(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(page)
+	gridStart := strings.Index(source, `<div class="admin-grid">`)
+	if gridStart < 0 {
+		t.Fatal("page.gsx is missing .admin-grid")
+	}
+	grid := source[gridStart:]
+	want := []string{
+		`<section id="admin-draft-control"`,
+		`<section id="admin-schedule"`,
+		`<section id="admin-week-close"`,
+		`<section id="admin-announcements"`,
+		`<section id="admin-playoffs"`,
+		`<section id="admin-seats"`,
+		`<section id="admin-invites"`,
+		`<section id="admin-draft-order"`,
+		`<section id="admin-data"`,
+		`<section id="admin-clock"`,
+		`<section id="admin-roster"`,
+		`<section id="admin-backup"`,
+		`<section id="admin-danger"`,
+	}
+	positions := make([]int, len(want))
+	for i, marker := range want {
+		positions[i] = strings.Index(grid, marker)
+		if positions[i] < 0 {
+			t.Fatalf(".admin-grid is missing %q", marker)
+		}
+	}
+	for i := 1; i < len(positions); i++ {
+		if positions[i] <= positions[i-1] {
+			t.Errorf(".admin-grid DOM order is wrong: %q must follow %q, so keyboard and screen-reader order match the visual order", want[i], want[i-1])
+		}
+	}
+
+	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(styles)
+	for _, selector := range []string{
+		"#admin-draft-control {\n    order:", "#admin-schedule {\n    order:",
+		"#admin-week-close {\n    order:", "#admin-announcements {\n    order:",
+		"#admin-playoffs {\n    order:", "#admin-seats {\n    order:",
+		"#admin-invites {\n    order:", "#admin-draft-order {\n    order:",
+		"#admin-data {\n    order:", "#admin-clock {\n    order:",
+		"#admin-roster {\n    order:", "#admin-backup {\n    order:",
+		"#admin-danger {\n    order:",
+	} {
+		if strings.Contains(css, selector) {
+			t.Errorf("styles.css still visually reorders %q away from its DOM position; the template order must be the only order now", selector)
 		}
 	}
 }

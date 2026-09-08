@@ -255,19 +255,32 @@ func TestTradesDataRosterOptionsCarryJudgingDetail(t *testing.T) {
 	}
 }
 
-// TestTradesDataRosterOptionPointsMatchesPostedWeeklyLedger is the
-// coordinator's own follow-up regression test (2026-09-08): once the
-// weekly ledger actually posts a stat line for a player, the composer
-// must show the real scored number, matching /team's own ledger-truth
-// rule, not stay stuck on the honest-but-now-stale "—".
+// TestTradesDataRosterOptionPointsMatchesPostedWeeklyLedger is J3 F31
+// residue (wave E): once a real week has closed and posted a stat line
+// for a player, the composer must show the summed season total, matching
+// league.Service.SeasonPointsText — never the stale honest "—" a week
+// that never closed would leave behind, and never a single week's live
+// score under this field's own season-shaped name.
 func TestTradesDataRosterOptionPointsMatchesPostedWeeklyLedger(t *testing.T) {
-	svc, _ := newTradesTestService(t, "")
+	svc, now := newTradesTestService(t, "")
 	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
 		if week != 1 {
 			return nil
 		}
 		return []WeekStatLine{{Key: normalizePlayerKey("Team1 A", "RB"), Stats: map[string]float64{"rushTD": 1}}}
 	})
+	sched, err := GenerateSchedule(ScheduleParams{
+		Season: 2026, TeamIDs: teamIDList(svc.teams), Divisions: teamDivisionMap(svc.teams), StartWeek: 1, Weeks: 1, Seed: 5,
+	})
+	if err != nil {
+		t.Fatalf("GenerateSchedule: %v", err)
+	}
+	if err := svc.store.SetSchedule(sched); err != nil {
+		t.Fatalf("SetSchedule: %v", err)
+	}
+	if _, _, err := svc.closeWeek(1, now); err != nil {
+		t.Fatalf("closeWeek(1): %v", err)
+	}
 
 	var options []TradeRosterOption
 	var optionsOK bool
@@ -291,10 +304,44 @@ func TestTradesDataRosterOptionPointsMatchesPostedWeeklyLedger(t *testing.T) {
 		t.Fatalf("t1-a missing from my_options: %#v", options)
 	}
 	if opt.SeasonPoints != "6.0" {
-		t.Errorf("t1-a SeasonPoints = %q, want \"6.0\" (one rushing TD at the default 6 points/TD)", opt.SeasonPoints)
+		t.Errorf("t1-a SeasonPoints = %q, want \"6.0\" (one rushing TD at the default 6 points/TD, closed week 1)", opt.SeasonPoints)
 	}
-	if !strings.Contains(opt.Detail, "PTS 6.0") {
-		t.Errorf("t1-a Detail = %q, missing %q", opt.Detail, "PTS 6.0")
+	if !strings.Contains(opt.Detail, "SEASON PTS 6.0") {
+		t.Errorf("t1-a Detail = %q, missing %q", opt.Detail, "SEASON PTS 6.0")
+	}
+}
+
+// TestTradesDataRosterOptionPointsReadsHonestDashBeforeAnyWeekCloses is
+// J3 F31's own negative case: with a schedule generated but no week
+// closed yet, the composer must show "—", never a claimed "0.0" or a
+// stale single-week score.
+func TestTradesDataRosterOptionPointsReadsHonestDashBeforeAnyWeekCloses(t *testing.T) {
+	svc, _ := newTradesTestService(t, "")
+	sched, err := GenerateSchedule(ScheduleParams{
+		Season: 2026, TeamIDs: teamIDList(svc.teams), Divisions: teamDivisionMap(svc.teams), StartWeek: 1, Weeks: 1, Seed: 5,
+	})
+	if err != nil {
+		t.Fatalf("GenerateSchedule: %v", err)
+	}
+	if err := svc.store.SetSchedule(sched); err != nil {
+		t.Fatalf("SetSchedule: %v", err)
+	}
+
+	var options []TradeRosterOption
+	var optionsOK bool
+	if err := tradeActionAs(t, "team-1@example.com", func(r *http.Request) error {
+		options, optionsOK = svc.TradesData(r)["my_options"].([]TradeRosterOption)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !optionsOK {
+		t.Fatal("my_options is not a []TradeRosterOption")
+	}
+	for _, o := range options {
+		if o.ID == "t1-a" && o.SeasonPoints != "—" {
+			t.Errorf("t1-a SeasonPoints = %q, want %q before any week closes", o.SeasonPoints, "—")
+		}
 	}
 }
 
@@ -510,8 +557,8 @@ func TestTradesDataPublicEntryMatrixAndPrivacy(t *testing.T) {
 					t.Fatal(err)
 				}
 				if tt.wantState == PublicEntryCoManagerPending {
-					if got := entry["action_label"]; got != "Complete co-manager invitation →" {
-						t.Fatalf("pending co-manager action label = %v, want invitation guidance", got)
+					if got := entry["action_label"]; got != "Join" {
+						t.Fatalf("pending co-manager action label = %v, want the Join confirm action", got)
 					}
 					if strings.Contains(string(encoded), "/auth/google/start?next=%2Fteam") {
 						t.Fatalf("pending co-manager trade entry exposed stale reauthentication: %s", encoded)

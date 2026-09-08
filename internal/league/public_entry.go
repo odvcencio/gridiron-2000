@@ -134,10 +134,27 @@ func (s *Service) publicEntryViewForViewerState(r *http.Request, viewer map[stri
 	if pendingTeamID, pending := state.CoInvites[email]; pending {
 		view.State = PublicEntryCoManagerPending
 		view.StateLabel = "ADMITTED · CO-MANAGER INVITE"
-		view.Headline = "COMPLETE YOUR SHARED SEAT."
 		view.TeamName = s.TeamLabel(pendingTeamID)
-		view.Detail = "You are invited to co-manage " + view.TeamName + ". Finish the pending co-manager invitation for this signed-in identity; if the invite is stale, ask the primary manager or commissioner to resend it."
-		view.ActionLabel = "Complete co-manager invitation →"
+		// PrimaryName (Decision 3, J5 F11): the confirm screen names who
+		// invited this person — the pending record only carries teamID, so
+		// that team's own primary manager stands in for "who invited
+		// them," the same manager every other co-manager surface on this
+		// page already credits (primaryNameForTeam, used below for a
+		// bound co-manager's own "You share ... with ..." sentence).
+		view.PrimaryName = primaryNameForTeam(state.Members, pendingTeamID, email)
+		view.Headline = "JOIN " + strings.ToUpper(view.TeamName) + " AS CO-MANAGER?"
+		view.Detail = view.PrimaryName + " invited you to co-manage " + view.TeamName + ". You'll share the same roster, Big Board, and draft controls; the seat binds only if you choose Join. If the invite is stale, ask " + view.PrimaryName + " or the commissioner to resend it."
+		// ActionLabel/ActionHref used to point a plain link at
+		// "/guide#identity" — a page that could never actually complete
+		// anything, because BindCoManagerOnSignIn (main.go's sign-in
+		// callback) already consumed the invite before this state could
+		// ever render. The invite no longer binds at sign-in
+		// (completeSignIn, main.go), so this state is reachable now, and
+		// app/login/page.gsx renders a real "Join" form
+		// (actionPath("co-manager-join")) plus a "Not now" link beside
+		// it; ActionHref stays as a secondary "read more" pointer for any
+		// other surface projecting this view.
+		view.ActionLabel = "Join"
 		view.ActionHref = "/guide#identity"
 		view.Admitted = true
 		view.RoleLabel = "CO-MANAGER INVITED"
@@ -313,6 +330,19 @@ func primaryNameForTeam(members map[string]Member, teamID, excludeEmail string) 
 // primary; pass "" when no exclusion applies.
 func (s *Service) PrimaryNameForTeam(teamID, excludeEmail string) string {
 	return primaryNameForTeam(s.store.Snapshot().Members, teamID, excludeEmail)
+}
+
+// CoManagerWelcomeFlash builds the welcome sentence for a co-manager
+// invite just bound (F6; Decision 3, J5 F11 moved the call site from
+// main.go's sign-in callback to app/login's explicit "Join" action). It
+// must credit the seat's primary manager, never the invitee who is
+// reading it — the invitee already knows their own name.
+func CoManagerWelcomeFlash(teamLabel, primaryName string) string {
+	primaryName = strings.TrimSpace(primaryName)
+	if primaryName == "" {
+		primaryName = "the primary manager"
+	}
+	return "You're co-managing " + teamLabel + " alongside its primary manager, " + primaryName + "."
 }
 
 // FirstName returns the first space-separated token of name, for copy that

@@ -222,9 +222,9 @@ func init() {
 			}
 			isCommissioner, _ := data["is_commissioner"].(bool)
 			if isCommissioner {
-				data["admin_attention"] = adminAttentionReadoutFromData(league.Default().CommissionerAttentionDataReadOnly(ctx.Request))
+				data["admin_attention"] = AdminAttentionReadoutFromData(league.Default().CommissionerAttentionDataReadOnly(ctx.Request))
 			} else {
-				data["admin_attention"] = emptyAdminAttentionReadout()
+				data["admin_attention"] = EmptyAdminAttentionReadout()
 			}
 			leagueOptions, hasLeagueSwitcher := adminLeagueSwitcherData(commissionerhq.Default(), isCommissioner)
 			data["league_options"] = leagueOptions

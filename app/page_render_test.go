@@ -398,11 +398,16 @@ func TestHomepageMatchupPreviewOnlyShowsLiveIndicatorsInProgress(t *testing.T) {
 
 func TestHomepagePendingCoManagerInviteRendersTruthfully(t *testing.T) {
 	body := runHomepageStandingsFixture(t, "pending-co-manager")
+	// Decision 3 (J5 F11): the pending state's own copy now names who
+	// invited this identity and asks a real confirm question (the seat
+	// binds only through /login's own explicit "Join", not here) —
+	// updated from the old "COMPLETE YOUR SHARED SEAT." headline and its
+	// unreachable "Complete co-manager invitation" link.
 	for _, want := range []string{
 		"ADMITTED · CO-MANAGER INVITE",
-		"COMPLETE YOUR SHARED SEAT.",
-		"You are invited to co-manage East 1.",
-		"Complete co-manager invitation",
+		"JOIN EAST 1 AS CO-MANAGER?",
+		"Primary Fixture invited you to co-manage East 1.",
+		"Join",
 		"/guide#identity",
 	} {
 		if !strings.Contains(body, want) {

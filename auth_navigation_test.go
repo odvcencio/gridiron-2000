@@ -327,8 +327,13 @@ type fakeGoogleMembership struct {
 	allowed      bool
 	member       league.Member
 	emailAllowed []string
-	bindCalls    []string
 	ensureCalls  []string
+	// pendingCoManager (Decision 3, J5 F11) makes HasPendingCoManagerInvite
+	// report true for every email — completeSignIn (main.go) reads this to
+	// decide whether to route a freshly signed-in identity to /login's own
+	// confirm step instead of wherever the sign-in flow was headed.
+	pendingCoManager bool
+	pendingCalls     []string
 }
 
 func (f *fakeGoogleMembership) EmailAllowed(email string) bool {
@@ -340,9 +345,9 @@ func (f *fakeGoogleMembership) CanonicalUser(user auth.User) auth.User {
 	return user
 }
 
-func (f *fakeGoogleMembership) BindCoManagerOnSignIn(email, name string) (league.Member, bool, error) {
-	f.bindCalls = append(f.bindCalls, email+"/"+name)
-	return league.Member{}, false, nil
+func (f *fakeGoogleMembership) HasPendingCoManagerInvite(email string) bool {
+	f.pendingCalls = append(f.pendingCalls, email)
+	return f.pendingCoManager
 }
 
 func (f *fakeGoogleMembership) EnsureMember(email, name string) (league.Member, error) {
@@ -504,8 +509,13 @@ func TestGoogleOAuthWrappersPersistAndRecheckSafeTargets(t *testing.T) {
 	if len(fixture.membership.emailAllowed) == 0 || fixture.membership.emailAllowed[0] != "wrapper-manager@example.com" {
 		t.Fatalf("membership EmailAllowed calls = %v, want wrapper-manager@example.com", fixture.membership.emailAllowed)
 	}
-	if len(fixture.membership.bindCalls) == 0 || len(fixture.membership.ensureCalls) == 0 {
-		t.Fatalf("membership calls = bind %v ensure %v, want both bind and EnsureMember", fixture.membership.bindCalls, fixture.membership.ensureCalls)
+	// Decision 3 (J5 F11): completeSignIn no longer binds a co-manager
+	// invite itself — it only checks whether one is pending
+	// (HasPendingCoManagerInvite) and always calls EnsureMember; binding
+	// happens only through the invitee's own explicit Join
+	// (ConfirmCoManagerJoin, internal/league/service.go).
+	if len(fixture.membership.pendingCalls) == 0 || len(fixture.membership.ensureCalls) == 0 {
+		t.Fatalf("membership calls = pending-check %v ensure %v, want both a pending-invite check and EnsureMember", fixture.membership.pendingCalls, fixture.membership.ensureCalls)
 	}
 	if _, err := os.Stat(dataFile); !os.IsNotExist(err) {
 		t.Fatalf("OAuth fixture touched default league store %q: stat error = %v", dataFile, err)
@@ -641,8 +651,8 @@ func TestGoogleCallbackWrapperRejectsDeniedInvite(t *testing.T) {
 	if len(membership.emailAllowed) != 1 || membership.emailAllowed[0] != "outsider@example.com" {
 		t.Fatalf("membership EmailAllowed calls = %v, want outsider@example.com", membership.emailAllowed)
 	}
-	if len(membership.bindCalls) != 0 || len(membership.ensureCalls) != 0 {
-		t.Fatalf("denied invite membership calls = bind %v ensure %v, want no membership writes", membership.bindCalls, membership.ensureCalls)
+	if len(membership.pendingCalls) != 0 || len(membership.ensureCalls) != 0 {
+		t.Fatalf("denied invite membership calls = pending-check %v ensure %v, want no membership writes", membership.pendingCalls, membership.ensureCalls)
 	}
 }
 func TestGoogleOAuthWrappersRejectAuthenticationTargets(t *testing.T) {
@@ -789,5 +799,50 @@ func TestNativeDocumentShellPreservesLanguageHeartbeatAndCSPNonce(t *testing.T) 
 	nonce := csp[nonceStart : nonceStart+nonceEnd]
 	if nonce == "" || !strings.Contains(body, `nonce="`+nonce+`"`) {
 		t.Fatalf("document scripts did not carry the CSP nonce %q: %s", nonce, body)
+	}
+}
+
+// TestGoogleCallbackRoutesPendingCoManagerToLoginConfirmStep is Decision 3
+// (J5 F11): a co-manager invite used to bind silently at sign-in
+// (BindCoManagerOnSignIn), so the pending-invite confirm state on
+// /login could never render — the bind had already happened by the
+// time any page loaded. completeSignIn now only checks whether a
+// co-manager invite is pending; when one is, it sends this identity to
+// /login (where the pending state renders a real "Join" confirm step)
+// instead of the sign-in flow's own original destination, and it never
+// calls anything that would bind the seat.
+func TestGoogleCallbackRoutesPendingCoManagerToLoginConfirmStep(t *testing.T) {
+	dataFile := filepath.Join(t.TempDir(), "oauth-fixture-pending-co.db")
+	t.Setenv("DATA_FILE", dataFile)
+	membership := &fakeGoogleMembership{allowed: true, pendingCoManager: true}
+	fixture := newGoogleOAuthFixtureWithMembership(t, "invitee@example.com", membership)
+
+	_, state, cookie := startGoogleOAuth(t, fixture.start, "/draft?week=1")
+	res := callbackGoogleOAuth(t, fixture.callback, state, cookie, "")
+	if got := res.Header().Get("Location"); got != "/login" {
+		t.Fatalf("pending co-manager callback location = %q, want /login (not the sign-in flow's own /draft?week=1 target)", got)
+	}
+	if len(membership.pendingCalls) == 0 || membership.pendingCalls[0] != "invitee@example.com" {
+		t.Fatalf("membership.pendingCalls = %v, want a HasPendingCoManagerInvite check for invitee@example.com", membership.pendingCalls)
+	}
+	if len(membership.ensureCalls) == 0 {
+		t.Fatal("EnsureMember was never called for the pending co-manager identity")
+	}
+}
+
+// TestGoogleCallbackWithoutPendingInviteKeepsOriginalTarget is the
+// companion negative case: an identity with no pending co-manager
+// invite reaches its own original sign-in destination unchanged, exactly
+// as before this fix.
+func TestGoogleCallbackWithoutPendingInviteKeepsOriginalTarget(t *testing.T) {
+	dataFile := filepath.Join(t.TempDir(), "oauth-fixture-no-pending-co.db")
+	t.Setenv("DATA_FILE", dataFile)
+	membership := &fakeGoogleMembership{allowed: true, pendingCoManager: false}
+	fixture := newGoogleOAuthFixtureWithMembership(t, "ordinary@example.com", membership)
+
+	_, state, cookie := startGoogleOAuth(t, fixture.start, "/draft?week=1")
+	res := callbackGoogleOAuth(t, fixture.callback, state, cookie, "")
+	if got := res.Header().Get("Location"); got != "/draft?week=1" {
+		t.Fatalf("ordinary sign-in callback location = %q, want the original /draft?week=1 target", got)
 	}
 }

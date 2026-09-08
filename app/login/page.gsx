@@ -147,8 +147,20 @@ func Page() Node {
 							<strong>{data.public_entry.state_label}</strong>
 						</div>
 						<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.public_entry.detail} />
+						{/* Decision 3 (J5 F11): the pending co-manager invite used to
+						    link to /guide#identity, a page that could never
+						    actually complete anything, because the invite was
+						    already consumed at sign-in by the time this state could
+						    render. It no longer binds at sign-in (main.go's
+						    completeSignIn) — this real "Join" form binds it, and
+						    "Not now" leaves it pending for next visit with no write
+						    at all. */}
 						<If cond={data.public_entry.is_co_manager_pending}>
-							<a href={data.public_entry.action_href} class="button button--ghost">{data.public_entry.action_label}</a>
+							<form method="post" action={actionPath("co-manager-join")} data-gosx-managed="true" class="co-manager-join-form">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<button type="submit" class="button button--primary">{data.public_entry.action_label}</button>
+							</form>
+							<a href="/" data-gosx-link class="button button--ghost">Not now</a>
 						</If>
 						<If cond={data.public_entry.admitted == false}>
 							<a href={data.public_entry.action_href} data-gosx-link class="button button--ghost">{data.public_entry.action_label}</a>

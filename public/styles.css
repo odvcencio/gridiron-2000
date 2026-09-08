@@ -19672,64 +19672,16 @@ body.is-on-clock .draft-command__pill-sentence {
   .admin-page > .admin-grid {
     order: 6;
   }
-
-  /* J4 F34: "reorder the chips so week close, notes and seats come
-     first in season" — announcements (League notes) moves up beside
-     Week close, the two most common Sunday jobs, instead of sitting
-     eleventh of thirteen sections down a single-column phone page.
-     Danger Zone keeps the highest order, mirroring its own 99 eyebrow. */
-  #admin-draft-control {
-    order: 1;
-  }
-
-  #admin-schedule {
-    order: 2;
-  }
-
-  #admin-week-close {
-    order: 3;
-  }
-
-  #admin-announcements {
-    order: 4;
-  }
-
-  #admin-playoffs {
-    order: 5;
-  }
-
-  #admin-seats {
-    order: 6;
-  }
-
-  #admin-invites {
-    order: 7;
-  }
-
-  #admin-draft-order {
-    order: 8;
-  }
-
-  #admin-data {
-    order: 9;
-  }
-
-  #admin-clock {
-    order: 10;
-  }
-
-  #admin-roster {
-    order: 11;
-  }
-
-  #admin-backup {
-    order: 12;
-  }
-
-  #admin-danger {
-    order: 99;
-  }
 }
+
+/* J4 F34 residue (wave E): "reorder the chips so week close, notes and
+   seats come first in season" used to be a CSS-only order override on
+   .admin-grid's own <section> children — a purely visual reorder a
+   keyboard or screen-reader user never sees, since both follow DOM
+   order, not grid order. Announcements now sits after Week close in
+   page.gsx itself (same sequence at every viewport, not just phone), so
+   DOM order and visual order are the same order everywhere; no CSS order
+   is left to fix here. See TestAdminGridSectionDOMOrderMatchesVisualOrder. */
 
 /* J4 F20: six status chips overflowed their own rounded-rectangle
    border at both desktop widths — .position-chip sits as a flex item
@@ -19916,6 +19868,67 @@ body.is-on-clock .draft-command__pill-sentence {
 .navigation-account .user-name {
   overflow-wrap: normal;
   word-break: normal;
+}
+
+/* comb — poplar (2026-09-08 wave E) */
+
+/* Decision 5 (J6 F28): .guide-toc.scoring-jump-list's own phone
+   sideways-scroll strip (see the "comb — sage" block above) hid 14 of
+   its 18 chips behind a hidden horizontal scroll with no length cue —
+   the exact hidden-horizontal-scroll pattern the base .guide-toc rule
+   (and a 2026-09-01 UX audit) bans everywhere else on this page. On a
+   phone the sticky strip now gives way to a closed "Jump to a section"
+   disclosure (.scoring-jump-toc-mobile, page.gsx) that opens to the
+   same jump targets wrapped onto as many rows as they need, never a
+   sideways scroll; the sticky strip is unchanged on desktop. */
+.scoring-jump-toc-mobile {
+  display: none;
+}
+
+@media (width <= 899px) {
+  .guide-toc.scoring-jump-list {
+    display: none;
+  }
+
+  .scoring-jump-toc-mobile {
+    display: block;
+    margin: 0 0 var(--space-2xl);
+  }
+
+  .scoring-jump-toc-mobile > summary {
+    width: 100%;
+  }
+
+  .scoring-jump-toc-mobile[open] > summary {
+    margin-bottom: var(--space-xs);
+  }
+
+  .scoring-jump-toc-mobile__list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    padding: var(--space-sm);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-canvas-deep);
+  }
+
+  .scoring-jump-toc-mobile__list a {
+    flex: 0 0 auto;
+    min-height: var(--control-h);
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-xs) var(--space-sm);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    color: var(--color-text-secondary);
+    font-family: var(--font-mono);
+    font-size: var(--type-xs);
+    font-weight: 700;
+    text-decoration: none;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
 }
 
 /* comb — yew (2026-09-08 wave E) */
