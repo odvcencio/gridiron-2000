@@ -1050,3 +1050,42 @@ func TestFooterLineRendersAsDividerTextNotACommentLine(t *testing.T) {
 		t.Errorf("footer line text = %q, want %q", got, want)
 	}
 }
+
+// TestRailNamesSeatAndRoleBesideAvatar pins J5 F36: every signed-in
+// surface (desktop rail, mobile-enhanced dialog, no-JS static disclosure)
+// shows the seat's role beside the avatar — "· Manager", "· Commissioner",
+// or "· No seat" — as a plain, always-present part of the identity line,
+// mutually exclusive with the other two.
+func TestRailNamesSeatAndRoleBesideAvatar(t *testing.T) {
+	tests := []struct {
+		name string
+		commissioner,
+		hasSeat bool
+		want string
+	}{
+		{name: "seated manager", hasSeat: true, want: "· Manager"},
+		{name: "commissioner with a seat", commissioner: true, hasSeat: true, want: "· Commissioner"},
+		{name: "commissioner without a seat", commissioner: true, want: "· Commissioner"},
+		{name: "seatless member", want: "· No seat"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := renderNavigationLayout(t, "/pickem?week=2", navigationViewerFixture{
+				signedIn: true, commissioner: test.commissioner, hasSeat: test.hasSeat,
+			})
+			document := parseNavigationDocument(t, body)
+			roles := findNodes(document, func(node *html.Node) bool {
+				return node.Type == html.ElementNode && hasClass(node, "user-role")
+			})
+			if len(roles) != 3 {
+				t.Fatalf("rendered %d .user-role elements, want desktop/enhanced/static (3)", len(roles))
+			}
+			for index, role := range roles {
+				text := strings.TrimSpace(descendantText(role))
+				if text != test.want {
+					t.Errorf("surface %d .user-role text = %q, want %q", index, text, test.want)
+				}
+			}
+		})
+	}
+}

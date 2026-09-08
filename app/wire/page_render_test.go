@@ -152,19 +152,31 @@ func TestWirePageRendersSignalCardsWithRealDataFixtureProcess(t *testing.T) {
 	_, _ = os.Stdout.WriteString(body)
 }
 
+// TestWireModeLabelsCoverServiceVocabulary is F30's pinned vocabulary
+// contract (gap-audit J6): every runtime mode maps to one of the six
+// words the Manager Guide documents (LIVE, CACHED, STALE, DEGRADED,
+// OFFLINE, UNAVAILABLE), not a wire-only seventh word. ModeSourceError
+// -> DEGRADED (not the old, misleading "QUIET") is the finding's own
+// headline example: a failed source used to read like a quiet news day.
 func TestWireModeLabelsCoverServiceVocabulary(t *testing.T) {
 	cases := map[string]string{
-		signalwire.ModeDisabled:         "OFF",
-		signalwire.ModeAwaitingSources:  "OFF",
-		signalwire.ModeReady:            "READY",
-		signalwire.ModeSyndicationReady: "READY",
+		signalwire.ModeDisabled:         "UNAVAILABLE",
+		signalwire.ModeAwaitingSources:  "UNAVAILABLE",
+		signalwire.ModeReady:            "CACHED",
+		signalwire.ModeSyndicationReady: "CACHED",
 		signalwire.ModeSyndicating:      "LIVE",
-		signalwire.ModeResolvingSources: "STARTING",
-		signalwire.ModeConnecting:       "STARTING",
+		signalwire.ModeResolvingSources: "CACHED",
+		signalwire.ModeConnecting:       "CACHED",
 		signalwire.ModeStreaming:        "LIVE",
-		signalwire.ModeReconnecting:     "CATCHING UP",
-		signalwire.ModeSourceError:      "QUIET",
-		signalwire.ModeStopped:          "OFF",
+		signalwire.ModeReconnecting:     "STALE",
+		signalwire.ModeSourceError:      "DEGRADED",
+		signalwire.ModeStopped:          "UNAVAILABLE",
+	}
+	documented := map[string]bool{"LIVE": true, "CACHED": true, "STALE": true, "DEGRADED": true, "OFFLINE": true, "UNAVAILABLE": true}
+	for mode, want := range cases {
+		if !documented[want] {
+			t.Fatalf("test itself expects %q for %q, which is not one of the Manager Guide's six documented state words", want, mode)
+		}
 	}
 	for mode, want := range cases {
 		if got := wireModeLabel(mode); got != want {
@@ -216,8 +228,12 @@ func TestWirePresentationMarksPartialFeedOutageAndRetainsSignals(t *testing.T) {
 	if got := wirePresentationLabel(status, now); got != "DEGRADED" {
 		t.Fatalf("partial presentation = %q, want DEGRADED", got)
 	}
-	if got := wireHealthLabel(status, now); got != "PARTIAL" {
-		t.Fatalf("partial health = %q, want PARTIAL", got)
+	// F30 (gap-audit J6): wireHealthLabel no longer grows its own second
+	// vocabulary ("PARTIAL") alongside wirePresentationLabel's — both read
+	// DEGRADED, the Manager Guide's own word for "the latest refresh
+	// failed but last-good data remains".
+	if got := wireHealthLabel(status, now); got != "DEGRADED" {
+		t.Fatalf("partial health = %q, want DEGRADED", got)
 	}
 	sourceFailure := status
 	sourceFailure.Mode = signalwire.ModeSourceError
@@ -233,8 +249,8 @@ func TestWirePresentationMarksPartialFeedOutageAndRetainsSignals(t *testing.T) {
 	if got := wirePresentationLabel(partialSources, now); got != "DEGRADED" {
 		t.Fatalf("partial Bluesky resolution presentation = %q, want DEGRADED", got)
 	}
-	if got := wireHealthLabel(partialSources, now); got != "PARTIAL" {
-		t.Fatalf("partial Bluesky resolution health = %q, want PARTIAL", got)
+	if got := wireHealthLabel(partialSources, now); got != "DEGRADED" {
+		t.Fatalf("partial Bluesky resolution health = %q, want DEGRADED", got)
 	}
 	retained := wireSignalCard(signalwire.Signal{
 		ID: "retained", Source: signalwire.SourceFeed, SourceName: "Broken Publisher", OccurredAt: now.Add(-time.Hour),
@@ -267,8 +283,8 @@ func TestWireFeedHealthFollowsConfiguredCadence(t *testing.T) {
 	status := service.Status()
 	t0 := time.Date(2026, 8, 23, 20, 0, 0, 0, time.UTC)
 	feed := signalwire.FeedStatus{Name: "Hourly Publisher", State: "ready", LastChecked: t0}
-	if got := wireFeedHealthLabelForStatus(feed, status, t0.Add(15*time.Minute+time.Second)); got != "READY" {
-		t.Fatalf("hourly feed at 15m+1s = %q, want READY", got)
+	if got := wireFeedHealthLabelForStatus(feed, status, t0.Add(15*time.Minute+time.Second)); got != "LIVE" {
+		t.Fatalf("hourly feed at 15m+1s = %q, want LIVE", got)
 	}
 	if got := wireFeedHealthLabelForStatus(feed, status, t0.Add(status.FeedStaleAfter+time.Second)); got != "STALE" {
 		t.Fatalf("hourly feed after derived threshold = %q, want STALE (threshold %v)", got, status.FeedStaleAfter)
@@ -284,8 +300,8 @@ func TestWireFeedHealthDistinguishesNeverCheckedStaleAndError(t *testing.T) {
 	}{
 		{name: "never checked", feed: signalwire.FeedStatus{Name: "New", State: "waiting"}, state: "NEVER CHECKED"},
 		{name: "stale", feed: signalwire.FeedStatus{Name: "Old", State: "ready", LastChecked: now.Add(-signalwire.DeriveFeedStaleAfter(0) - time.Second)}, state: "STALE"},
-		{name: "error", feed: signalwire.FeedStatus{Name: "Broken", State: "error", LastChecked: now, LastError: "timeout"}, state: "ERROR"},
-		{name: "ready", feed: signalwire.FeedStatus{Name: "Current", State: "ready", LastChecked: now}, state: "READY"},
+		{name: "error", feed: signalwire.FeedStatus{Name: "Broken", State: "error", LastChecked: now, LastError: "timeout"}, state: "Failed"},
+		{name: "ready", feed: signalwire.FeedStatus{Name: "Current", State: "ready", LastChecked: now}, state: "LIVE"},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -411,6 +427,10 @@ func TestWireCopyContractsMatchFirstRenderAndFeedFragment(t *testing.T) {
 			html := renderWireComponent(t, "WireEmptyState", WireEmptyView{
 				WireConfigured: test.configured,
 				WireIssue:      "Wire is not configured.",
+				// ShowGeneric is the loader's own precomputed "configured,
+				// no category filter" flag (F4, gap-audit J6) — see
+				// WireEmptyStateProps' doc comment in page.gsx.
+				ShowGeneric: test.configured,
 			})
 			if !strings.Contains(html, test.want) {
 				t.Fatalf("feed-fragment WireEmptyState copy = %q, want %q", html, test.want)
@@ -420,6 +440,105 @@ func TestWireCopyContractsMatchFirstRenderAndFeedFragment(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestWireFilterChipsNameEmptyCategoriesAndOfferAnAlternative is F4's
+// failing-test-first reproduction (gap-audit J6): half the Wire's filter
+// chips used to return an empty page with no warning, and the empty state
+// blamed the whole wire instead of naming the chip a manager actually
+// clicked. It seeds exactly one signal (a community tip), so every other
+// chip is genuinely empty, then requests the "News" chip — also empty —
+// and checks the chip strip and the empty state both name what happened.
+func TestWireFilterChipsNameEmptyCategoriesAndOfferAnAlternative(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestWireFilterChipsFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"WIRE_RENDER_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"WIRE_ROOT="+t.TempDir(),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("wire filter-chips fixture process: %v\n%s", err, output)
+	}
+	body := string(output)
+	// The disabled "Practice" chip: zero items, no longer a link, carries
+	// its count and a reason a manager can read without hovering.
+	for _, want := range []string{
+		`class="wire-filter is-disabled control-locked"`,
+		"No practice signals right now",
+		"Practice · 0",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("wire filter chips missing %q: %s", want, body)
+		}
+	}
+	// A chip that still has items must stay a real link, never disabled.
+	if !strings.Contains(body, `class="wire-filter" href="/wire?category=community"`) {
+		t.Fatalf("wire community chip should still be a plain link: %s", body)
+	}
+	// The filtered-empty state names the active category and the window,
+	// not a generic "your wire is quiet" line, and offers the one chip
+	// that does have something on it.
+	for _, want := range []string{
+		"No news stories in the last",
+		`href="/wire?category=community"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("wire filtered-empty state missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "Your wire is quiet—not broken.") {
+		t.Fatalf("filtered-empty state should not fall back to the generic unconfigured/empty-wire copy: %s", body)
+	}
+}
+
+func TestWireFilterChipsFixtureProcess(t *testing.T) {
+	if os.Getenv("WIRE_RENDER_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
+	t.Setenv("DEMO_MODE", "true")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+	t.Setenv("WIRE_ROOT", t.TempDir())
+
+	signals, err := signalwire.Default()
+	if err != nil {
+		t.Fatalf("signalwire.Default: %v", err)
+	}
+	if _, err := signals.SubmitSighting(signalwire.CommunitySubmission{
+		ReporterID:   "demo-commissioner",
+		ReporterName: "Demo commissioner",
+		EvidenceType: "community",
+		SourceName:   "League group chat",
+		Summary:      "Starting RB1 looked limited in pregame warmups.",
+	}); err != nil {
+		t.Fatalf("seed sighting: %v", err)
+	}
+
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
+	})
+	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
+		t.Fatalf("AddDir: %v", err)
+	}
+	handler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/?category=news", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /?category=news = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	_, _ = os.Stdout.WriteString(rec.Body.String())
 }
 
 func renderWireComponent(t *testing.T, component string, props any) string {
@@ -439,6 +558,11 @@ func renderWireComponent(t *testing.T, component string, props any) string {
 // time-sensitive values. The wire previously hard-coded
 // America/Los_Angeles (three hours behind the league) and carried no
 // relative text at all.
+// F20 (gap-audit J6): the wire used to keep its own uppercase, comma-free
+// time shape ("AUG 31 · 5:08 PM EDT") instead of the one league-local
+// format every other stored-instant display already converges on
+// (internal/league's leagueTimeStamp/LeagueTimeStamp: "Aug 31, 5:08 PM
+// EDT"). formatWireTime now produces that identical shape.
 func TestFormatWireTimeUsesLeagueZoneAndRelativeLabel(t *testing.T) {
 	eastern, err := time.LoadLocation("America/New_York")
 	if err != nil {
@@ -447,14 +571,14 @@ func TestFormatWireTimeUsesLeagueZoneAndRelativeLabel(t *testing.T) {
 	occurred := time.Date(2026, 8, 31, 21, 8, 0, 0, time.UTC) // 5:08 PM EDT
 	now := occurred.Add(18 * time.Hour)
 	got := formatWireTime(occurred, now, eastern)
-	want := "AUG 31 · 5:08 PM EDT · 18 hours ago"
+	want := "Aug 31, 5:08 PM EDT · 18 hours ago"
 	if got != want {
 		t.Fatalf("formatWireTime = %q, want %q", got, want)
 	}
 	if got := formatWireTime(time.Time{}, now, eastern); got != "WAITING" {
 		t.Fatalf("zero time = %q, want WAITING", got)
 	}
-	if got := formatWireTime(occurred, occurred.Add(20*time.Second), eastern); got != "AUG 31 · 5:08 PM EDT · just now" {
+	if got := formatWireTime(occurred, occurred.Add(20*time.Second), eastern); got != "Aug 31, 5:08 PM EDT · just now" {
 		t.Fatalf("sub-minute = %q", got)
 	}
 }
@@ -550,5 +674,252 @@ func TestWirePageCopyGuardsAndActiveFilterMarker(t *testing.T) {
 	}
 	if strings.Contains(body, "{data.season} player ledger</strong>") {
 		t.Error("page.gsx still carries the bare \"player ledger\" label that reads as a contradiction beside the draft pool")
+	}
+}
+
+// TestWireVocabularyIsConsolidatedToSourcesAndSignals is F12's static
+// regression guard (gap-audit J6): the page used to spread "channels",
+// "feeds", "sources", "signals", "dispatches", "sightings", and "tips"
+// across one screen for what are really two ideas. It now says "sources"
+// for every upstream provider and "signals" for every item, and the one
+// submission flow says "tip" end to end.
+func TestWireVocabularyIsConsolidatedToSourcesAndSignals(t *testing.T) {
+	pageSource, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverSource, err := os.ReadFile("page.server.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageSource)
+	server := string(serverSource)
+	for _, want := range []string{
+		"<span>Sources</span>",
+		`<a href="#wire-feed" class="board-button">Signals</a>`,
+		`<a href="#community-input" class="board-button">Send a tip</a>`,
+		"<h2>Fantasy-relevant signals</h2>",
+		"<strong>News sources</strong>",
+		"<strong>Social sources</strong>",
+		`<span class="section-index">LEAGUE EYES</span>`,
+		"<b>Send a tip</b>",
+		`type="submit">Send a tip</button>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page.gsx missing consolidated vocabulary %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		"Open channels",
+		"Public feeds",
+		"Bluesky event wire",
+		"Fantasy-relevant dispatches",
+		"CHANNEL 08",
+		"Add a sighting",
+		"Transmit sighting",
+		">Sighting</a>",
+	} {
+		if strings.Contains(page, unwanted) {
+			t.Errorf("page.gsx still carries retired vocabulary %q", unwanted)
+		}
+	}
+	if !strings.Contains(server, `"label": "Send a tip",`) {
+		t.Error(`page.server.go primary_action label should read "Send a tip"`)
+	}
+	// F37 (gap-audit J6) replaced the bare literal confirmation with
+	// wireTipConfirmation, which names the recipient and repeats the
+	// submitted text — see TestWireTipConfirmationNamesRecipientAndRepeatsText.
+	if !strings.Contains(server, "wireTipConfirmation(league.Default().Config().Name, signal.Text)") {
+		t.Error(`page.server.go submit-sighting should build its confirmation with wireTipConfirmation`)
+	}
+	if strings.Contains(server, "Transmit sighting") {
+		t.Error("page.server.go still carries the retired \"Transmit sighting\" label")
+	}
+}
+
+// TestWireIntervalLabelReadsTheConfiguredDuration is F13's failing-test-
+// first reproduction (gap-audit J6): the source panel used to print a
+// hard-coded "every 2 min" no matter what WIRE_FEED_INTERVAL actually
+// was. wireIntervalLabel now renders the real configured duration in
+// words, and a zero/unset duration still reads as English (the
+// signalwire default), never "0 minutes".
+func TestWireIntervalLabelReadsTheConfiguredDuration(t *testing.T) {
+	tests := []struct {
+		name string
+		in   time.Duration
+		want string
+	}{
+		{name: "default two minutes", in: 2 * time.Minute, want: "2 minutes"},
+		{name: "configured five minutes", in: 5 * time.Minute, want: "5 minutes"},
+		{name: "sub-minute", in: 45 * time.Second, want: "45 seconds"},
+		{name: "one minute singular", in: time.Minute, want: "1 minute"},
+		{name: "unset falls back to the default", in: 0, want: "2 minutes"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := wireIntervalLabel(test.in); got != test.want {
+				t.Fatalf("wireIntervalLabel(%v) = %q, want %q", test.in, got, test.want)
+			}
+		})
+	}
+}
+
+// TestWireRefreshIntervalsAreLabeledAndDistinct is F13's static
+// regression guard: the page masthead's own poll cadence and the source
+// panel's fetch cadence must each carry a distinct, unambiguous label —
+// neither one bare, neither one the word "Updates" for both — and the
+// source panel's number must come from the page data, not a literal.
+func TestWireRefreshIntervalsAreLabeledAndDistinct(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(source)
+	for _, want := range []string{
+		"<span>Page refresh</span>",
+		"Every {data.refresh_seconds} sec",
+		"Sources are checked every {data.source_check_interval}",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page.gsx missing %q", want)
+		}
+	}
+	if strings.Contains(body, "updates every 2 min") {
+		t.Error("page.gsx still hard-codes the source panel's refresh cadence")
+	}
+}
+
+// TestWireCardDropsTheUnexplainedPercentage is F14's regression guard
+// (gap-audit J6): every card used to carry a blended, unlabeled percentage
+// ("PUBLISHER · 65%") with no legend anywhere on the page. The trust
+// tier word alone (already plain: "PUBLISHER", "COMMUNITY", ...) stays;
+// the bare number is gone.
+func TestWireCardDropsTheUnexplainedPercentage(t *testing.T) {
+	html := renderWireComponent(t, "SignalCard", WireSignalCard{
+		ID: "f14", Category: "news", Label: "SHARED NEWS", HasLabel: true, Text: "A signal",
+		Source: "Publisher", Evidence: "NEWS", Trust: "PUBLISHER", Confidence: "65",
+		Time: "NOW",
+	})
+	if !strings.Contains(html, `<span class="wire-event__trust mono">PUBLISHER</span>`) {
+		t.Fatalf("SignalCard trust span = %q, want the bare trust tier with no percentage", html)
+	}
+	if strings.Contains(html, "65%") || strings.Contains(html, "PUBLISHER · ") {
+		t.Fatalf("SignalCard still renders an unexplained percentage: %s", html)
+	}
+}
+
+// TestWireKeptLabelNamesWhatItCounts is F31's failing-test-first
+// reproduction (gap-audit J6): "READY · 0 kept" read like a broken
+// source with no explanation. wireKeptLabel now spells out what the
+// count is — items that passed the wire's own relevance filter.
+func TestWireKeptLabelNamesWhatItCounts(t *testing.T) {
+	tests := []struct {
+		n    int64
+		want string
+	}{
+		{n: 0, want: "0 stories kept after filtering"},
+		{n: 1, want: "1 story kept after filtering"},
+		{n: 5, want: "5 stories kept after filtering"},
+	}
+	for _, test := range tests {
+		if got := wireKeptLabel(test.n); got != test.want {
+			t.Fatalf("wireKeptLabel(%d) = %q, want %q", test.n, got, test.want)
+		}
+	}
+}
+
+// TestWireFeedRowNamesAFailureWithReasonAndLastSuccess is F31's render
+// contract: a failed source used to show a bare "ERROR" state plus a
+// separate, disconnected "ERROR · <reason>" line below two other lines.
+// It now reads one line: "Failed · <reason> · last success <time>".
+func TestWireFeedRowNamesAFailureWithReasonAndLastSuccess(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(source)
+	for _, want := range []string{
+		"Failed · {feed.last_error} · last success {feed.last_success}",
+		"{feed.evidence} · {feed.state} · {feed.kept_label}",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page.gsx missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		"ERROR · {feed.last_error}",
+		"{feed.accepted} kept",
+	} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("page.gsx still carries retired copy %q", unwanted)
+		}
+	}
+}
+
+// TestWireInventedNounsLinkToTheirHelpTopic is F10's failing-test-first
+// reproduction (gap-audit J6, handed over from the help/locker worker):
+// nothing in the long tail linked to a definition. "Wire state" (the
+// masthead's own state word, e.g. LIVE/CACHED/STALE/DEGRADED/
+// UNAVAILABLE), "provisional", and "trust tier" — the three invented
+// nouns that actually render as static text on /wire — now link to the
+// Manager Guide's "data state and freshness" topic on first use. Every
+// other JS/CSS state word on the page (per-source rows, several of the
+// same word) still shares this one topic; only the first, most visible
+// instance carries the link, matching the finding's own "link the first
+// use" guidance rather than repeating the same link many times in one
+// dense list.
+func TestWireInventedNounsLinkToTheirHelpTopic(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(source)
+	for _, want := range []string{
+		`<a href="/help/data-state-and-freshness" data-gosx-link>Wire state</a>`,
+		`<a href="/help/data-state-and-freshness" data-gosx-link>provisional</a>`,
+		`<a href="/help/data-state-and-freshness" data-gosx-link>trust tier</a>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page.gsx missing help-topic link %q", want)
+		}
+	}
+}
+
+// TestWireTipConfirmationNamesRecipientAndRepeatsText is F37's failing-
+// test-first reproduction (gap-audit J6, handed over from the help/
+// locker worker): the confirmation after sending a tip used to be a
+// bare "Your tip is on the wire.", giving no sign the submission was
+// heard correctly. It now names who sees it (the league) and repeats
+// what was actually sent, truncated to keep the one-line confirmation
+// readable.
+func TestWireTipConfirmationNamesRecipientAndRepeatsText(t *testing.T) {
+	tests := []struct {
+		name       string
+		leagueName string
+		text       string
+		want       string
+	}{
+		{
+			name: "short text renders in full", leagueName: "GRIDIRON 2000",
+			text: "Cowboys sign a new punter.",
+			want: `Your tip is on the wire for GRIDIRON 2000: "Cowboys sign a new punter."`,
+		},
+		{
+			name: "long text truncates on a rune boundary", leagueName: "GRIDIRON 2000",
+			text: strings.Repeat("a", 200),
+			want: `Your tip is on the wire for GRIDIRON 2000: "` + strings.Repeat("a", 120) + `…"`,
+		},
+		{
+			name: "no league name still repeats the text", leagueName: "",
+			text: "Backup RB looked fast in warmups.",
+			want: `Your tip is on the wire: "Backup RB looked fast in warmups."`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := wireTipConfirmation(test.leagueName, test.text); got != test.want {
+				t.Fatalf("wireTipConfirmation(%q, %q) = %q, want %q", test.leagueName, test.text, got, test.want)
+			}
+		})
 	}
 }

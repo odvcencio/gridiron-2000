@@ -211,3 +211,56 @@ func (s *Service) SetNotificationPreference(r *http.Request, category string, en
 	}
 	return s.store.SetNotifyPref(user.Email, category, enabled)
 }
+
+// ArrivalStripDismissed reports whether the signed-in viewer has already
+// dismissed the home page's first-session arrival strip (J5 F37). False
+// for a signed-out or unresolvable viewer — the strip's own page-level
+// gate already requires a seated manager before this is ever consulted.
+func (s *Service) ArrivalStripDismissed(r *http.Request) bool {
+	if s == nil || s.store == nil || r == nil {
+		return false
+	}
+	user, ok := s.CurrentUser(r)
+	if !ok || strings.TrimSpace(user.Email) == "" {
+		return false
+	}
+	return s.store.UIPreference(user.Email, arrivalStripDismissalKey)
+}
+
+// DismissArrivalStrip records the signed-in viewer's dismissal of the
+// arrival strip so it does not return on a later visit.
+func (s *Service) DismissArrivalStrip(r *http.Request) error {
+	if s == nil || s.store == nil {
+		return fmt.Errorf("preferences are unavailable")
+	}
+	if r == nil {
+		return fmt.Errorf("Google sign-in is required")
+	}
+	user, ok := s.CurrentUser(r)
+	if !ok || strings.TrimSpace(user.Email) == "" {
+		return fmt.Errorf("Google sign-in is required")
+	}
+	return s.store.SetUIPreference(user.Email, arrivalStripDismissalKey, true)
+}
+
+// TeamHasSavedLineupThisWeek reports whether teamID has any explicitly
+// saved lineup slot for the current lineup week — the raw Store.Lineups
+// map a manager's own SetLineup/SetLineupWeek writes, not the auto-filled
+// EffectiveLineup a manager who has never touched /team still sees. This
+// is the arrival strip's own gate (J5 F37): a first-session manager whose
+// team has never had a lineup saved reads true here; one who has saved
+// even a single slot reads false. A pre-draft roster (nothing to assign
+// yet) also reads false, which is the honest read — nothing has been
+// saved either way.
+func (s *Service) TeamHasSavedLineupThisWeek(teamID string) bool {
+	if s == nil || s.store == nil || teamID == "" {
+		return false
+	}
+	week := s.NormalizeLineupWeek("")
+	snapshot := s.store.Snapshot()
+	byWeek, ok := snapshot.Lineups[teamID]
+	if !ok {
+		return false
+	}
+	return len(byWeek[week]) > 0
+}

@@ -67,9 +67,29 @@ func checklistView(items []ChecklistItem) []map[string]any {
 		out = append(out, map[string]any{
 			"id": item.ID, "role": item.Role, "title": item.Title, "detail": item.Detail,
 			"predicate": item.Predicate, "action_route": item.ActionRoute, "applicable": item.Applicable,
+			// action_label (J6 F35, 2026-09-04 audit): every checklist
+			// item used to end with the identical link text "Open
+			// help/action ->" — a screen-reader user listing links on
+			// the page heard the same name roughly twenty times. Reuse
+			// ActionRouteLabel, the same destination-naming fix J5 F19
+			// already gave the topic page's own primary action.
+			"action_label": ActionRouteLabel(item.ActionRoute),
 		})
 	}
 	return out
+}
+
+// waiverModeNote states this league's own configured waiver claim rule in
+// plain words (J6 F8, 2026-09-04 audit): the corpus's waivers topic serves
+// every league and cannot hardcode one mode, but the search result a
+// manager actually reads must not name a system — FAAB — this league does
+// not run. Rendered on the search result before "FAAB" can appear.
+func waiverModeNote() string {
+	cfg := league.Default().Config()
+	if strings.EqualFold(strings.TrimSpace(cfg.Waivers.Mode), "faab") {
+		return "This league runs FAAB waivers: each team bids from a shared budget, and the highest bid wins."
+	}
+	return "This league does not use FAAB. Waiver claims are ordered by season and weekly performance rank."
 }
 
 // glossaryView projects GlossaryEntry structs into the lowercase map keys
@@ -118,7 +138,16 @@ func helpIndexData(ctx *route.RouteContext) map[string]any {
 	searchResults := make([]map[string]any, 0, len(results))
 	for _, result := range results {
 		view := TopicView(result.Topic)
-		view["score"] = result.Score
+		// The relevance score used to leak straight into the rendered
+		// result card ("players * score 1000") — an internal ranking
+		// number, not something a manager asked for (J6 F23, 2026-09-04
+		// audit). Kept out of the template data entirely now.
+		view["has_runtime_note"] = false
+		view["runtime_note"] = ""
+		if result.Topic.ID == "players-free-agents-waivers-and-faab" {
+			view["has_runtime_note"] = true
+			view["runtime_note"] = waiverModeNote()
+		}
 		searchResults = append(searchResults, view)
 	}
 	categoryViews := make([]map[string]any, 0, len(categories))

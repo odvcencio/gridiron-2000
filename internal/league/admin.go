@@ -626,7 +626,7 @@ func (s *Service) adminScheduleMap(state PersistedState, now time.Time) map[stri
 	base["playoffs_status"] = truth["status_label"]
 	base["playoffs_recovery"] = truth["recovery"]
 	if state.Schedule == nil {
-		base["close"] = adminWeekCloseMap(s.AdminWeekCloseInfo(1, now), s.matchupLocation())
+		base["close"] = s.adminWeekCloseMapWithKickoff(1, now)
 		return base
 	}
 	schedule := state.Schedule
@@ -688,8 +688,29 @@ func (s *Service) adminScheduleMap(state PersistedState, now time.Time) map[stri
 			nextWeek = schedule.StartWeek
 		}
 	}
-	base["close"] = adminWeekCloseMap(s.AdminWeekCloseInfo(nextWeek, now), s.matchupLocation())
+	base["close"] = s.adminWeekCloseMapWithKickoff(nextWeek, now)
 	return base
+}
+
+// adminWeekCloseMapWithKickoff is adminWeekCloseMap plus the week's own
+// first kickoff (coordinator follow-up, wave C, 2026-09-08): the console
+// masthead needs "the week and its first kickoff" once the draft is
+// complete, and earliestKickoffForWeek (schedule.go) is already the one
+// lookup /matchups' weekly masthead and /scoring's season-start
+// derivation both share — reusing it here keeps the masthead's kickoff
+// fact the same one those pages would show, not a second computation.
+func (s *Service) adminWeekCloseMapWithKickoff(week int, now time.Time) map[string]any {
+	out := adminWeekCloseMap(s.AdminWeekCloseInfo(week, now), s.matchupLocation())
+	if kickoff, ok := s.earliestKickoffForWeek(week); ok {
+		out["has_first_kickoff"] = true
+		out["first_kickoff_display"] = s.leagueAbsoluteTimeStamp(kickoff)
+		out["first_kickoff_iso"] = kickoff.UTC().Format(time.RFC3339)
+	} else {
+		out["has_first_kickoff"] = false
+		out["first_kickoff_display"] = ""
+		out["first_kickoff_iso"] = ""
+	}
+	return out
 }
 
 // adminWeekCloseMap renders the week-close readiness tiles (gap-audit item

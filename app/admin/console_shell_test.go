@@ -2,6 +2,8 @@ package admin
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -445,5 +447,105 @@ func TestAdminAttentionSeatRowsLeadWithTeamNotCode(t *testing.T) {
 	}
 	if !strings.Contains(source, "are each team's short seat code") {
 		t.Error("attention ledger is missing its one legend line for seat codes")
+	}
+}
+
+// TestAdminMastheadLeadsWithWeekOnceDraftIsComplete pins a coordinator
+// follow-up on wave C (2026-09-08): the league-status hero card at the
+// top of /admin kept showing draft-night facts ("8 / 8 SEATS · 136
+// PICKS", "Draft MON · SEP 7 · 4:30 PM EDT", "4 / 8 READY") after the
+// draft finished, the same condition the console already uses to
+// collapse the draft-night readiness panels elsewhere on this page.
+// Once the draft is complete, the card leads with the week: the week
+// number and its close-readiness state in words, the first kickoff in
+// league-local time with zone (when the schedule carries one), and the
+// seat count; the draft-night READY fraction and the draft date drop
+// out of the card (they still live inside the "Draft night (complete)"
+// disclosure below it). The task board's own "Manage seats and
+// managers" row (AdminTaskLink, page.gsx) shows the week's own status
+// in place of the same stale READY fraction.
+func TestAdminMastheadLeadsWithWeekOnceDraftIsComplete(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAdminTaskBoardDraftPhaseFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_TASK_DRAFT_PHASE=complete",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("complete-draft fixture: %v\n%s", err, output)
+	}
+	body := string(output)
+
+	mastheadStart := strings.Index(body, `<div class="draft-clock-panel">`)
+	if mastheadStart < 0 {
+		t.Fatal("rendered page is missing the draft-clock-panel masthead")
+	}
+	mastheadEnd := strings.Index(body[mastheadStart:], "</section>")
+	if mastheadEnd < 0 {
+		t.Fatal("draft-clock-panel masthead never closes ahead of </section>")
+	}
+	masthead := body[mastheadStart : mastheadStart+mastheadEnd]
+
+	if !strings.Contains(masthead, "Week") {
+		t.Errorf("post-draft masthead does not name the week: %s", masthead)
+	}
+	if strings.Contains(masthead, "ready-count-tag") {
+		t.Errorf("post-draft masthead still shows the draft-night READY fraction: %s", masthead)
+	}
+	if strings.Contains(masthead, "PICKS") {
+		t.Errorf("post-draft masthead still shows the draft pick count: %s", masthead)
+	}
+	if strings.Contains(masthead, "Draft") {
+		t.Errorf("post-draft masthead still shows the draft date line: %s", masthead)
+	}
+	if !strings.Contains(masthead, "SEATS") {
+		t.Errorf("post-draft masthead dropped the seat count: %s", masthead)
+	}
+
+	// Coordinator follow-up: the shared .draft-clock-meta rule is a flex
+	// row everywhere else it is used, so this card's own three facts
+	// squeezed into narrow columns and wrapped four and five lines deep.
+	// admin-masthead-week-meta stacks this one instance into full-width
+	// rows; the row ORDER (state sentence, then kickoff, then seats) is
+	// pinned at the template source, since the fixture's own synthetic
+	// league carries no real NFL schedule and never renders the
+	// conditional kickoff row.
+	if !strings.Contains(masthead, "admin-masthead-week-meta") {
+		t.Errorf("post-draft masthead facts are not stacked into full-width rows: %s", masthead)
+	}
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(page)
+	weekMetaStart := strings.Index(source, `class="draft-clock-meta admin-masthead-week-meta"`)
+	if weekMetaStart < 0 {
+		t.Fatal("page.gsx is missing the admin-masthead-week-meta wrapper")
+	}
+	stateRowAt := strings.Index(source[weekMetaStart:], "schedule.close.ready")
+	kickoffRowAt := strings.Index(source[weekMetaStart:], "First kickoff ·")
+	seatsRowAt := strings.Index(source[weekMetaStart:], "SEATS\n")
+	if stateRowAt < 0 || kickoffRowAt < 0 || seatsRowAt < 0 {
+		t.Fatalf("could not locate all three masthead rows: state=%d kickoff=%d seats=%d", stateRowAt, kickoffRowAt, seatsRowAt)
+	}
+	if !(stateRowAt < kickoffRowAt && kickoffRowAt < seatsRowAt) {
+		t.Errorf("masthead rows are out of order: state=%d kickoff=%d seats=%d, want state < kickoff < seats", stateRowAt, kickoffRowAt, seatsRowAt)
+	}
+
+	seatsLinkAt := strings.Index(body, "Manage seats and managers")
+	if seatsLinkAt < 0 {
+		t.Fatal("task board is missing the Manage seats and managers row")
+	}
+	seatsRowEnd := strings.Index(body[seatsLinkAt:], "</a>")
+	if seatsRowEnd < 0 {
+		t.Fatal("Manage seats and managers row never closes")
+	}
+	seatsRow := body[seatsLinkAt : seatsLinkAt+seatsRowEnd]
+	if strings.Contains(seatsRow, "READY</span>") && !strings.Contains(seatsRow, "WEEK") {
+		t.Errorf("post-draft task board still shows the bare seat-ready fraction instead of the week's own status: %s", seatsRow)
 	}
 }

@@ -378,30 +378,69 @@ func Page() Node {
 					</form>
 				</If>
 				<span>League status</span>
-				<strong class="mono">
-					{data.member_count}
-					/
-					{data.seat_count}
-					SEATS ·
-					{data.pick_count}
-					PICKS
-				</strong>
-				<div class="draft-clock-meta">
-					<span>
-						Draft
-						{data.draft.date}
-						<If cond={data.draft.published}>
-							·
-							{data.draft.time}
+				{/* Coordinator follow-up, wave C (2026-09-08): this card kept
+				    showing draft-night facts (seats/picks, the draft date, the
+				    READY fraction) after the draft finished -- the same condition
+				    the console already uses to collapse the draft-night readiness
+				    panels below it. Once the draft is complete it leads with the
+				    week instead: the week number and its close-readiness state in
+				    words, the first kickoff in league-local time (when the
+				    schedule has one; earliestKickoffForWeek, admin.go, is the one
+				    lookup /matchups and /scoring also share), and the seat count.
+				    The READY fraction and the draft date move into the
+				    "Draft night (complete)" disclosure. */}
+				<If cond={data.draft.complete}>
+					<strong class="mono">Week {data.schedule.close.week}</strong>
+					{/* Coordinator follow-up: the shared .draft-clock-meta rule
+					    (public/styles.css) is a flex ROW everywhere else it is
+					    used, so three facts here squeezed into narrow columns
+					    inside the 330px card and wrapped four and five lines
+					    deep. admin-masthead-week-meta stacks this one instance
+					    into full-width rows instead, scoped so every other
+					    .draft-clock-meta caller (the pre-draft branch below
+					    included) keeps its own row layout. */}
+					<div class="draft-clock-meta admin-masthead-week-meta">
+						<TextBlock as="span" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
+							<If cond={data.schedule.close.ready}>Ready to close</If>
+							<If cond={data.schedule.close.ready == false}>{data.schedule.close.reason}</If>
+						</TextBlock>
+						<If cond={data.schedule.close.has_first_kickoff}>
+							<span class="mono">First kickoff · {data.schedule.close.first_kickoff_display}</span>
 						</If>
-					</span>
-					<span class="mono ready-count-tag">
-						{data.ready_count}
+						<span class="mono">
+							{data.member_count}
+							/
+							{data.seat_count}
+							SEATS
+						</span>
+					</div>
+				</If>
+				<If cond={data.draft.complete == false}>
+					<strong class="mono">
+						{data.member_count}
 						/
 						{data.seat_count}
-						READY
-					</span>
-				</div>
+						SEATS ·
+						{data.pick_count}
+						PICKS
+					</strong>
+					<div class="draft-clock-meta">
+						<span>
+							Draft
+							{data.draft.date}
+							<If cond={data.draft.published}>
+								·
+								{data.draft.time}
+							</If>
+						</span>
+						<span class="mono ready-count-tag">
+							{data.ready_count}
+							/
+							{data.seat_count}
+							READY
+						</span>
+					</div>
+				</If>
 			</div>
 		</section>
 		</If>
@@ -555,7 +594,18 @@ func Page() Node {
 					<div class="admin-task-nav__group">
 						<h3>People and access</h3>
 						<ul>
-							<AdminTaskLink Label="Manage seats and managers" Href="/admin?section=seats#admin-seats" Current={data.admin_section == "seats"} Status={data.ready_count + "/" + data.seat_count + " READY"} />
+							{/* Coordinator follow-up, wave C (2026-09-08): once the draft
+							    is complete this row showed the same draft-night READY
+							    fraction the masthead above dropped — the week's own
+							    close-readiness status (data.schedule.close, the one
+							    source both the masthead and the attention readout
+							    already read) replaces it. */}
+							<If cond={data.draft.complete}>
+								<AdminTaskLink Label="Manage seats and managers" Href="/admin?section=seats#admin-seats" Current={data.admin_section == "seats"} Status={"WEEK " + data.schedule.close.week + " · " + data.schedule.close.ready_label} />
+							</If>
+							<If cond={data.draft.complete == false}>
+								<AdminTaskLink Label="Manage seats and managers" Href="/admin?section=seats#admin-seats" Current={data.admin_section == "seats"} Status={data.ready_count + "/" + data.seat_count + " READY"} />
+							</If>
 							<AdminTaskLink Label="Manage invites" Href="/admin?section=invites#admin-invites" Current={data.admin_section == "invites"} Status="ACCESS LIST" />
 							{/* F17 (J4 console gap-audit): this used to sit after the </ul>
 							    as a bare disclosure triangle, the one job on the board not

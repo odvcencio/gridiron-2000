@@ -8,6 +8,7 @@ type SignalCardProps struct {
 	ID                 string
 	Category           string
 	Label              string
+	HasLabel           bool
 	Text               string
 	Source             string
 	ReportedBy         string
@@ -40,10 +41,12 @@ component SignalCard(props: SignalCardProps) {
 	return <article class={"wire-event wire-event--" + props.Category} data-wire-event={props.ID} data-wire-category={props.Category}>
 		<header>
 			<div class="wire-event__heading">
-				<span class="wire-event__label">{props.Label}</span>
+				<If cond={props.HasLabel}>
+					<span class="wire-event__label">{props.Label}</span>
+				</If>
 				<span class="wire-event__evidence">{props.Evidence}</span>
 			</div>
-			<span class="wire-event__trust mono">{props.Trust} · {props.Confidence}%</span>
+			<span class="wire-event__trust mono">{props.Trust}</span>
 		</header>
 		<p>{props.Text}</p>
 		<footer>
@@ -105,23 +108,49 @@ func WireFeedList(props WireFeedListProps) Node {
 type WireEmptyStateProps struct {
 	WireConfigured bool
 	WireIssue      string
+	CategoryNoun   string
+	WindowLabel    string
+	HasNearest     bool
+	NearestLabel   string
+	NearestHref    string
+	// ShowGeneric/ShowFiltered are precomputed server-side (F4, gap-audit
+	// J6): a strict component's <If cond> can only test a single bool
+	// props field or that field compared with "== false", not a compound
+	// "A && B" expression, so "configured with no category filter" vs
+	// "configured with an empty category filter" have to arrive as their
+	// own already-resolved booleans rather than being computed here.
+	ShowGeneric  bool
+	ShowFiltered bool
 }
 
 // WireEmptyState is the "no signals yet" panel shown inside the wire feed
 // region — both on the page's own first render and inside the
 // data-gosx-region fragment /wire/fragment answers when a later poll finds
 // zero signals, so the two paths render byte-identical markup (see
-// FeedFragment in page.server.go).
+// FeedFragment in page.server.go). A category-filtered empty result (F4,
+// gap-audit J6) names the active filter instead of repeating the generic
+// "your wire is quiet" line that used to show for every chip regardless
+// of how many signals sat behind a different one.
 component WireEmptyState(props: WireEmptyStateProps) {
 	return <div class="wire-empty" data-wire-empty>
 		<span class="mono">NO SIGNALS YET</span>
-		<h3>Your wire is quiet—not broken.</h3>
 		<If cond={props.WireConfigured == false}>
+			<h3>Your wire is quiet—not broken.</h3>
 			<p>{props.WireIssue}</p>
 			<p>Ask the commissioner to add news sources.</p>
 		</If>
-		<If cond={props.WireConfigured}>
+		<If cond={props.ShowGeneric}>
+			<h3>Your wire is quiet—not broken.</h3>
 			<p>Relevant feed items and league sightings appear here, and stay provisional until the official stats catch up.</p>
+		</If>
+		<If cond={props.ShowFiltered}>
+			<h3>No {props.CategoryNoun} stories in the last {props.WindowLabel}.</h3>
+			<If cond={props.HasNearest}>
+				<p>Try <a href={props.NearestHref}>{props.NearestLabel}</a> instead, or <a href="/wire">see every signal</a>.</p>
+			</If>
+			<If cond={props.HasNearest == false}>
+				<p><a href="/wire">See every signal</a>.</p>
+			</If>
 		</If>
 	</div>
 }
@@ -139,11 +168,11 @@ func Page() Node {
 			</div>
 			<div class="masthead-console wire-console">
 				<div>
-					<span>Wire state</span>
+					<a href="/help/data-state-and-freshness" data-gosx-link>Wire state</a>
 					<strong data-wire-mode data-gosx-live-bind="mode">{data.wire_mode}</strong>
 				</div>
 				<div>
-					<span>Open channels</span>
+					<span>Sources</span>
 					<strong class="mono">{data.source_count}</strong>
 				</div>
 				<div>
@@ -151,29 +180,29 @@ func Page() Node {
 					<strong class="mono" data-wire-count data-gosx-live-bind="count">{data.signal_count}</strong>
 				</div>
 				<div>
-					<span>Updates</span>
-					<strong class="mono">{data.refresh_seconds} SEC</strong>
+					<span>Page refresh</span>
+					<strong class="mono">Every {data.refresh_seconds} sec</strong>
 				</div>
 			</div>
 		</header>
 
 		<nav class="wire-section-strip" aria-label="Jump to a wire section">
-			<a href="#wire-feed" class="board-button">Feed</a>
+			<a href="#wire-feed" class="board-button">Signals</a>
 			<a href="#wire-sources" class="board-button">Sources</a>
-			<a href="#community-input" class="board-button">Sighting</a>
+			<a href="#community-input" class="board-button">Send a tip</a>
 		</nav>
 
 		<section class="wire-trust-strip" aria-label="Data confidence">
 			<div>
 				<span>01</span>
 				<strong>Crowd + publishers alert us</strong>
-				<small>Fast, mixed-source, provisional</small>
+				<small>Fast, mixed-source, <a href="/help/data-state-and-freshness" data-gosx-link>provisional</a></small>
 			</div>
 			<i aria-hidden="true">→</i>
 			<div>
 				<span>02</span>
 				<strong>League clusters the evidence</strong>
-				<small>Links, trust tier, timestamps</small>
+				<small>Links, <a href="/help/data-state-and-freshness" data-gosx-link>trust tier</a>, timestamps</small>
 			</div>
 			<i aria-hidden="true">→</i>
 			<div>
@@ -188,7 +217,7 @@ func Page() Node {
 				<header class="section-heading section-heading--split">
 					<div>
 						<span class="section-index">NEWS DESK</span>
-						<h2>Fantasy-relevant dispatches</h2>
+						<h2>Fantasy-relevant signals</h2>
 					</div>
 					<div class="sync-state" role="status" aria-live="polite">
 						<span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind="indicator">{data.wire_indicator}</span>
@@ -203,8 +232,14 @@ func Page() Node {
 						<If cond={filter.active}>
 							<a class="wire-filter is-active" href={filter.href} aria-current="true">{filter.label}</a>
 						</If>
-						<If cond={filter.active == false}>
+						<If cond={filter.active == false && filter.has_items}>
 							<a class="wire-filter" href={filter.href}>{filter.label}</a>
+						</If>
+						<If cond={filter.active == false && filter.has_items == false}>
+							<span class="wire-filter is-disabled control-locked" aria-disabled="true" title={filter.reason}>
+								{filter.label}
+								<small class="control-locked__reason">{filter.reason}</small>
+							</span>
 						</If>
 					</Each>
 				</div>
@@ -225,15 +260,15 @@ func Page() Node {
 					<div class="wire-system-row">
 						<span class="signal-mark" aria-hidden="true"></span>
 						<div>
-							<strong>Public feeds</strong>
-							<small>{data.feed_ready}/{data.feed_count} ready · updates every 2 min</small>
+							<strong>News sources</strong>
+							<small>{data.feed_ready}/{data.feed_count} ready · Sources are checked every {data.source_check_interval}</small>
 						</div>
 					</div>
 					<If cond={data.bluesky_count > 0}>
 						<div class="wire-system-row">
 							<span class="signal-mark" aria-hidden="true"></span>
 							<div>
-								<strong>Bluesky event wire</strong>
+								<strong>Social sources</strong>
 								<small>{data.wire_mode} · {data.bluesky_count} tracked accounts</small>
 							</div>
 						</div>
@@ -276,10 +311,12 @@ func Page() Node {
 						<Each of={data.feeds_visible} as="feed">
 							<div>
 								<a href={feed.url} target="_blank" rel="noreferrer"><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis">{feed.name} ↗</TextBlock></a>
-								<small class="mono">{feed.evidence} · {feed.state} · {feed.accepted} kept</small>
-								<small class="mono">LAST CHECK · {feed.checked} · LAST PUBLISHED · {feed.published}</small>
 								<If cond={feed.has_error}>
-									<small class="mono">ERROR · {feed.last_error}</small>
+									<small class="mono">Failed · {feed.last_error} · last success {feed.last_success}</small>
+								</If>
+								<If cond={feed.has_error == false}>
+									<small class="mono">{feed.evidence} · {feed.state} · {feed.kept_label}</small>
+									<small class="mono">LAST CHECK · {feed.checked} · LAST PUBLISHED · {feed.published}</small>
 								</If>
 							</div>
 						</Each>
@@ -289,10 +326,12 @@ func Page() Node {
 								<Each of={data.feeds_overflow} as="feed">
 									<div>
 										<a href={feed.url} target="_blank" rel="noreferrer"><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis">{feed.name} ↗</TextBlock></a>
-										<small class="mono">{feed.evidence} · {feed.state} · {feed.accepted} kept</small>
-										<small class="mono">LAST CHECK · {feed.checked} · LAST PUBLISHED · {feed.published}</small>
 										<If cond={feed.has_error}>
-											<small class="mono">ERROR · {feed.last_error}</small>
+											<small class="mono">Failed · {feed.last_error} · last success {feed.last_success}</small>
+										</If>
+										<If cond={feed.has_error == false}>
+											<small class="mono">{feed.evidence} · {feed.state} · {feed.kept_label}</small>
+											<small class="mono">LAST CHECK · {feed.checked} · LAST PUBLISHED · {feed.published}</small>
 										</If>
 									</div>
 								</Each>
@@ -320,8 +359,8 @@ func Page() Node {
 
 				<section class="wire-submit-panel" id="community-input">
 					<header>
-						<span class="section-index">LEAGUE EYES // CHANNEL 08</span>
-						<b>Add a sighting</b>
+						<span class="section-index">LEAGUE EYES</span>
+						<b>Send a tip</b>
 					</header>
 					<If cond={data.has_notice}>
 						<TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" role="status" text={data.notice} />
@@ -358,7 +397,7 @@ func Page() Node {
 							<If cond={data.has_submit_error}>
 								<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" role="alert" text={data.submit_error} />
 							</If>
-							<button class="button button--primary" type="submit">Transmit sighting</button>
+							<button class="button button--primary" type="submit">Send a tip</button>
 						</form>
 						<p class="wire-submit-note">Market sightings are human-entered. The league never reads your accounts elsewhere.</p>
 					</If>

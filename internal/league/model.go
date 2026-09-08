@@ -474,6 +474,21 @@ type PersistedState struct {
 	// nil map decodes safely on an old file, and the store normalizes it
 	// in load/NewStore/cloneState.
 	RosterCorrectionNotices map[string]RosterCorrectionNotice `json:"rosterCorrectionNotices,omitempty"`
+
+	// LockerCommissionerNotes marks which Locker Room post IDs the
+	// commissioner posted as an official note (J6 F19, 2026-09-04 audit;
+	// reworked the same day so the schema marker never has to move — the
+	// release rule requires the previous binary to still open the
+	// database for a same-season rollback). A plain set, keyed by post
+	// ID, round-tripped through the existing kv-backed scalar columns
+	// (colScalars, sqlstore.go) — the SeatReleaseNotices/
+	// RosterCorrectionNotices precedent above — so no SQL migration or
+	// currentSchemaVersion change is needed. A nil map decodes safely on
+	// an old file, and the store normalizes it in load/NewStore/
+	// cloneState. LockerPost.CommissionerNote is joined from this set at
+	// SQLite load time (loadStateFromDBMode) and set directly at write
+	// time (Store.PostLocker); it is not itself a persisted column.
+	LockerCommissionerNotes map[string]bool `json:"lockerCommissionerNotes,omitempty"`
 }
 
 // SeatReleaseNotice is one durable record of a seat release, keyed by the
@@ -571,6 +586,18 @@ type LockerPost struct {
 	PostedAt      time.Time `json:"postedAt"`
 	RemovedAt     time.Time `json:"removedAt,omitzero"`
 	RemovedByRole string    `json:"removedByRole,omitempty"`
+	// CommissionerNote (J6 F19, 2026-09-04 audit): set only when the
+	// posting identity held commissioner capability at post time
+	// (PostLocker re-checks server-side; a client-submitted flag from a
+	// non-commissioner is never trusted). The board renders this post
+	// with the same "COMMISSIONER NOTE" label and style the layout
+	// banner already uses, so a ruling reads differently from trash
+	// talk. Not a persisted locker_posts column: PostLocker sets it
+	// directly on the in-memory value it returns, and the SQLite loader
+	// (loadStateFromDBMode, sqlstore.go) joins it from
+	// PersistedState.LockerCommissionerNotes at read time. The JSON tag
+	// still round-trips it for free on the JSON-file store.
+	CommissionerNote bool `json:"commissionerNote,omitempty"`
 }
 
 // ScoreTeam is the live score representation returned to browsers.

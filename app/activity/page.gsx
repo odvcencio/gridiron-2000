@@ -30,8 +30,10 @@ func Page() Node {
 				<span>Recorded moves · <strong class="mono">{data.transactions_count}</strong></span>
 				<div class="draft-clock-meta">
 					<span class="mono">League time · {data.timezone}</span>
-					<a href="/players" data-gosx-link>Player pool →</a>
-					<a href="/team" data-gosx-link>Team terminal →</a>
+					<div class="activity-clock-links">
+						<a href="/players" data-gosx-link>Player pool →</a>
+						<a href="/team" data-gosx-link>Team terminal →</a>
+					</div>
 				</div>
 			</div>
 		</section>
@@ -45,17 +47,29 @@ func Page() Node {
 		>
 		<ActivityRegion></ActivityRegion>
 		</div>
-		<p class="scoring-note lineup-sync-note" role="status" aria-live="polite">
-			Activity refreshes automatically within 4 seconds after a recorded add/drop result.
-			If a refresh fails, use
-			<button type="button" class="board-button" data-gosx-set="$players.state.refresh" data-gosx-set-value="manual">Refresh Activity now</button>.
-		</p>
-		<section class="score-command playoff-truth-card" aria-labelledby="activity-playoff-truth-heading">
-			<header class="section-heading section-heading--split"><div><span class="section-index">POSTSEASON // ACTIVITY CONTEXT</span><h2 id="activity-playoff-truth-heading">{data.playoff_truth.headline}</h2></div><span class="position-chip">{data.playoff_truth.status_label}</span></header>
-			<p>{data.playoff_truth.detail}</p>
-			<If cond={data.playoff_truth.recovery != ""}><p class="scoring-note"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
-			<a href="/matchups" data-gosx-link class="access-link">Open persisted bracket truth →</a>
-		</section>
+		{/* F22 (gap-audit J6): the playoff card used to outweigh the feed
+			a manager actually opened /activity for, in words lifted from
+			the data model ("published season phase", "playoff truth",
+			"persisted"). While the postseason itself is not yet active,
+			this reads as one quiet line below the week's transactions;
+			the full card returns once playoffs are the live phase, when
+			a manager genuinely needs it. playoffTruthMap's own headline/
+			detail (internal/league/postseason_view.go) stay untouched —
+			/matchups and /team read the same shared data. */}
+		<If cond={data.playoff_truth.season_phase == "playoffs" || data.playoff_truth.season_phase == "season-complete"}>
+			<section class="score-command playoff-truth-card" aria-labelledby="activity-playoff-truth-heading">
+				<header class="section-heading section-heading--split"><div><span class="section-index">POSTSEASON // ACTIVITY CONTEXT</span><h2 id="activity-playoff-truth-heading">{data.playoff_truth.headline}</h2></div><span class="position-chip">{data.playoff_truth.status_label}</span></header>
+				<p>{data.playoff_truth.detail}</p>
+				<If cond={data.playoff_truth.recovery != ""}><p class="scoring-note"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
+				<a href="/matchups" data-gosx-link class="access-link">Open persisted bracket truth →</a>
+			</section>
+		</If>
+		<If cond={data.playoff_truth.season_phase != "playoffs" && data.playoff_truth.season_phase != "season-complete"}>
+			<p class="scoring-note">
+				Playoff bracket: not seeded yet. It appears after the last regular-season week closes.
+				<a href="/matchups" data-gosx-link>See the playoff bracket →</a>
+			</p>
+		</If>
 	</main>
 }
 
@@ -136,16 +150,10 @@ func ActivityRegion() Node {
 			<Each of={data.transactions} as="move">
 				<div class="activity-item" data-actor-class={move.ActorClass}>
 					<If cond={move.TimeISO != ""}>
-						<time class="mono" datetime={move.TimeISO}>
-							{move.Time}
-							<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If>
-						</time>
+						<time class="mono" datetime={move.TimeISO}>{move.Time}<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If></time>
 					</If>
 					<If cond={move.TimeISO == ""}>
-						<time class="mono">
-							{move.Time}
-							<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If>
-						</time>
+						<time class="mono">{move.Time}<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If></time>
 					</If>
 					<If cond={move.ActorClass != ""}>
 						<p>
@@ -153,7 +161,12 @@ func ActivityRegion() Node {
 							<TextBlock as="strong" class="activity-token-gap" font="600 16px Plus Jakarta Sans" lineHeight={22} text={move.Team} /><span class="activity-verb"> {move.Action}</span>
 						</p>
 					</If>
-					<If cond={move.ActorClass == ""}>
+					<If cond={move.ActorClass == "" && move.HasTeamCode}>
+						<p>
+							<TextBlock as="strong" class="activity-token-gap" font="600 16px Plus Jakarta Sans" lineHeight={22} text={move.TeamName} /><span class="activity-team-code mono activity-token-gap">{move.TeamCode}</span><span class="activity-verb"> {move.Action} </span><TextBlock as="b" class="activity-token-gap" font="600 16px Plus Jakarta Sans" lineHeight={22} text={move.Player} />
+						</p>
+					</If>
+					<If cond={move.ActorClass == "" && move.HasTeamCode == false}>
 						<p>
 							<TextBlock as="strong" class="activity-token-gap" font="600 16px Plus Jakarta Sans" lineHeight={22} text={move.Team} /><span class="activity-verb"> {move.Action} </span><TextBlock as="b" class="activity-token-gap" font="600 16px Plus Jakarta Sans" lineHeight={22} text={move.Player} />
 						</p>
@@ -173,5 +186,14 @@ func ActivityRegion() Node {
 				</If>
 			</nav>
 		</If>
+		<p class="scoring-note lineup-sync-note" role="status" aria-live="polite">
+			<If cond={data.has_last_update}>
+				Updates every 4 seconds; last update {data.last_update}.
+			</If>
+			<If cond={data.has_last_update == false}>
+				Updates every 4 seconds.
+			</If>
+			<button type="button" class="board-button" data-gosx-set="$players.state.refresh" data-gosx-set-value="manual">Refresh now</button>
+		</p>
 	</section>
 }
