@@ -486,3 +486,41 @@ func TestConsoleSeasonStateSentenceIgnoresSeasonStartAtOnceScheduleExists(t *tes
 		t.Errorf("no-schedule sentence = %q, want %q", got, "Preseason.")
 	}
 }
+
+// TestWeekProgressSentenceAppendsStaleFeedNoticeOnceAwaitingClose is a
+// second coordinator follow-up (2026-09-08 wave C): the attention
+// readout used to glue the week-close panel's own separate Reason span
+// onto this exact sentence unconditionally, which read as a false claim
+// before kickoff ("Week 2 starts ... waiting for 16 of 16 games to go
+// final" — no game has been played yet, so nothing is "waiting" to go
+// final). That span is gone from the readout now; this pins that the one
+// remaining true fact it carried — a stale stat feed once every game is
+// final — still reaches the console, appended to weekProgressSentence's
+// own "awaiting close" sentence instead.
+func TestWeekProgressSentenceAppendsStaleFeedNoticeOnceAwaitingClose(t *testing.T) {
+	svc := schedulerTestService(t)
+	week := svc.store.Snapshot().Schedule.Weeks[0].Week
+	kickoff := time.Date(2026, 9, 10, 20, 20, 0, 0, time.UTC)
+	staleFetch := kickoff.Add(-6 * 24 * time.Hour)
+	now := kickoff.Add(3 * time.Hour)
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: week, Kickoff: kickoff, Final: true}}
+	})
+	svc.SetStatsUpdatedSource(func() time.Time { return staleFetch })
+
+	got := svc.weekProgressSentence(week, now)
+	wantPrefix := fmt.Sprintf("Week %d awaiting close · 1 of 1 final", week)
+	if !strings.HasPrefix(got, wantPrefix) {
+		t.Fatalf("awaiting-close sentence = %q, want prefix %q", got, wantPrefix)
+	}
+	if !strings.Contains(got, "stat feed's last fetch") {
+		t.Fatalf("awaiting-close sentence = %q, want the stale-feed notice appended", got)
+	}
+
+	// A fresh feed carries no notice at all.
+	svc.SetStatsUpdatedSource(func() time.Time { return kickoff.Add(time.Hour) })
+	fresh := svc.weekProgressSentence(week, now)
+	if fresh != wantPrefix {
+		t.Fatalf("awaiting-close sentence with a fresh feed = %q, want exactly %q", fresh, wantPrefix)
+	}
+}

@@ -207,13 +207,21 @@ func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
 			</div>
 			<button type="button" class="board-button" data-gosx-set="$admin.attention.refresh" data-gosx-set-value="manual">Refresh status</button>
 		</div>
+		{/* Coordinator follow-up (2026-09-08 wave C, alongside F21): this
+		    line used to end with the week-close reason glued straight onto
+		    SeasonStateSentence, unconditionally, whenever the week was not
+		    yet ready to close — including before kickoff, where "waiting
+		    for N of M games to go final" is not true of a week that has
+		    not started. SeasonStateSentence (season.go's
+		    weekProgressSentence) already states the one true fact for
+		    every phase — start time, in-progress count, or awaiting-close
+		    count plus a stale-feed notice when it applies — so this line
+		    no longer repeats a second, sometimes-false one beside it. */}
 		<div class="admin-task-nav__readout" aria-live="polite">
 			<strong class="mono">{props.SeasonStateSentence}</strong>
 			<If cond={props.DraftComplete == false}>
 				<span>Draft deadline <span class="mono">{props.DraftDate}<If cond={props.DraftPublished}> · {props.DraftTime}</If></span> · schedule {props.ScheduleStatus}</span>
 			</If>
-			<If cond={props.ScheduleReady}><span>Week {props.ScheduleWeek} is ready to close.</span></If>
-			<If cond={props.ScheduleReady == false}><span>{props.ScheduleReason}</span></If>
 		</div>
 		{/* F2 + F35 (J4 console gap-audit): the first two screens of the
 		    console used to be draft-night telemetry (eight seat rows,
