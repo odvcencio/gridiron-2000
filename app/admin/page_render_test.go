@@ -1018,9 +1018,9 @@ func TestAdminSeasonControlsRenderAndRetainInvalidGenerationFixtureProcess(t *te
 	}
 	body := getRes.Body.String()
 	for _, snippet := range []string{
-		"Regular-season control",
+		"Schedule",
 		"Generate regular-season schedule",
-		"Close a scoring week",
+		"Week close",
 	} {
 		if !strings.Contains(body, snippet) {
 			t.Fatalf("admin page omitted %q: %s", snippet, body)
@@ -1738,7 +1738,7 @@ func TestRosterCorrectionPanelRendersFromFreshLeague(t *testing.T) {
 	body := renderAdminPage(t)
 	for _, want := range []string{
 		`id="roster-correction"`,
-		"06B // ROSTER CORRECTION",
+		"10B // ROSTER CORRECTION",
 		"Correct a team&#39;s roster",
 		`id="admin-roster-correction-team"`,
 		"CHOOSE A TEAM",

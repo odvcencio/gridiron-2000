@@ -5,7 +5,24 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Changed
+- The commissioner console's jump strip now stays on screen at every width: pinned to the top on a desktop, pinned above the bottom tab bar on a phone. The chip for the section in view is marked.
+- Every jump-strip chip now reads the same word as the section it lands on, and every console section carries one number in one reading sequence instead of some sections showing a number and others showing the word "SEASON".
+- The console's job list now includes running waivers, reviewing a trade, changing scoring, and reading the league log. Setting a lineup for a manager now renders as a boxed row like every other job.
+- The jump strip is a same-page link now, not a full page reload, so a jump lands immediately instead of after a visible lurch.
+- On a phone, the jump strip and the league notes move up ahead of the task board, so the console's Sunday jobs are reachable from the first screen.
+- Seat rows in the console's readiness list now lead with the team name and manager; the two-letter seat code moves to a secondary chip, with one line explaining what the code is.
+- League HQ now leads each league card with its week and close readiness, moves release and build details behind a closed "Build" disclosure, and reads the same clock the league's own console uses instead of the server's wall clock.
+- The console's backup section now speaks in plain words: what is backed up, when the last automatic copy ran, how many are kept, and what to do if a backup will not open. The Danger Zone's reset warnings now link to it.
+- The console's schedule card now hides its machine-generated redraw seed behind a closed "Redraw trail" disclosure.
+- The console's pick-clock readout now shows duration and time remaining as minutes and seconds, matching the draft room's own clock, instead of raw seconds.
+- The console's invites card now states that its count covers admitted addresses, not claimed seats, so it no longer reads as a second, contradicting seat count.
+- An in-season console now opens with a "This week" card: the week and its close readiness, open waiver claims, trades in review, and one line naming what needs the commissioner today, each linking to its section.
+
+### Fixed
+- Six status chips on the console (schedule, roster, and playoff cards) no longer overflow or clip their own borders; they size to their own text and wrap instead.
+- The console's pick-clock card no longer shows a blank "Deadline" cell when no pick is armed, or a blank "Duration source" cell; the Playoff Truth card no longer shows a blank "Source" cell before a bracket exists.
+- The console's job list no longer renders as overlapping, ragged boxes on a phone; every row now measures and aligns correctly.
 
 ## [release-2026.09.08-88f7149-season2] — 2026-09-07
 
