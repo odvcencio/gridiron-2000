@@ -1689,6 +1689,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		session.AddFlash(r, "notice", "You are signed out. Sign in again to return to your team.")
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	}))
+	app.Mount("GET /arrival-strip/dismiss", arrivalStripDismissHandler(league.Default()))
 
 	if cfg.TestAuth {
 		rt.restoreClock = mountTestRoutes(app, league.Default(), authManager, rt.Live)

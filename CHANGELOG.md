@@ -46,6 +46,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Six status chips on the console (schedule, roster, and playoff cards) no longer overflow or clip their own borders; they size to their own text and wrap instead.
 - The console's pick-clock card no longer shows a blank "Deadline" cell when no pick is armed, or a blank "Duration source" cell; the Playoff Truth card no longer shows a blank "Source" cell before a bracket exists.
 - The console's job list no longer renders as overlapping, ragged boxes on a phone; every row now measures and aligns correctly.
+- The matchups page no longer clamps a starter's name at desktop width; a long name now wraps onto the row's own second line.
+- On a phone, the matchups status strip is shorter, and the featured matchup card now leads the page instead of sitting below a long freshness sentence.
+- On a phone, a team header with a long, single-word name no longer breaks mid-word; each side of the matchup now gets the full card width.
+- The team page's OPPONENT cell now shows a compact ordinal chip ("19th") with the full matchup ranking in a tip, instead of clamping the full phrase.
+- The team page's per-row PROJ and PTS labels no longer repeat under the column header at desktop; they still show on a phone.
+- The team page's PLAYER cell no longer loses width to a stray icon chevron; a starter's name now has more room.
+- The Pick'em row now leads with the two pick buttons; the line's source and freeze time collapse behind a "Line details" disclosure.
+- The franchise identity disclosure's summary now reads "Close editor" once open, instead of always "Open editor." Every league badge tile now shows its full state label instead of clamping it.
+- "Reset to configured name" now names the value it restores and asks for a confirming click before it takes effect.
+- Every signed-in page now shows the seat's role beside the avatar ("· Manager", "· Commissioner", or "· No seat").
+- The home page shows a dismissible first-session strip for a manager whose team has no saved lineup yet, linking to the lineup, waivers, and the manager guide.
 
 ## [release-2026.09.08-88f7149-season2] — 2026-09-07
 

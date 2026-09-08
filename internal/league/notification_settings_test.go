@@ -222,3 +222,52 @@ func TestNotificationCategoryLabelNamesKnownCategoriesAndFallsBack(t *testing.T)
 		}
 	}
 }
+
+// TestArrivalStripDismissalPersistsPerMember pins J5 F37's own persistence
+// contract: dismissing the strip is a no-op for a signed-out request,
+// false (not dismissed) before any dismissal, and true afterward — for
+// the dismissing member only, never a different one.
+func TestArrivalStripDismissalPersistsPerMember(t *testing.T) {
+	service := newTestService(t, false)
+
+	if err := service.DismissArrivalStrip(httptest.NewRequest(http.MethodPost, "/", nil)); err == nil {
+		t.Fatal("unsigned dismissal unexpectedly succeeded")
+	}
+
+	authn := auth.New(nil, auth.Options{Provider: auth.ProviderFunc(func(*http.Request) (auth.User, bool) {
+		return auth.User{ID: "manager", Email: "manager@example.com"}, true
+	})})
+	var before, after bool
+	authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		before = service.ArrivalStripDismissed(r)
+		if err := service.DismissArrivalStrip(r); err != nil {
+			t.Fatalf("DismissArrivalStrip: %v", err)
+		}
+		after = service.ArrivalStripDismissed(r)
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/", nil))
+	if before {
+		t.Error("ArrivalStripDismissed = true before any dismissal")
+	}
+	if !after {
+		t.Error("ArrivalStripDismissed = false right after DismissArrivalStrip")
+	}
+
+	// A different member never sees another member's dismissal.
+	otherAuthn := auth.New(nil, auth.Options{Provider: auth.ProviderFunc(func(*http.Request) (auth.User, bool) {
+		return auth.User{ID: "other", Email: "other@example.com"}, true
+	})})
+	var otherDismissed bool
+	otherAuthn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		otherDismissed = service.ArrivalStripDismissed(r)
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	if otherDismissed {
+		t.Error("a different member's ArrivalStripDismissed = true; dismissal leaked across members")
+	}
+
+	// The catalog's own category whitelist must never see the UI key.
+	if notificationPreferenceCategoryAllowed(arrivalStripDismissalKey) {
+		t.Error("arrivalStripDismissalKey passed the notification catalog whitelist; it must stay a chrome-only flag")
+	}
+}
