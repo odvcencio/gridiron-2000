@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +20,60 @@ import (
 	"m31labs.dev/gosx/server"
 	"m31labs.dev/gosx/session"
 )
+
+// adminBackupDefaultKeep mirrors backup_scheduler.go's own
+// defaultBackupKeep (package main, not importable here): the nightly
+// snapshot loop's BACKUP_KEEP default. Kept as a literal, commented
+// constant rather than a shared import — main and this route package
+// have no common dependency edge today, and this is a display-only
+// echo of that same default, not a second source of the count itself.
+const adminBackupDefaultKeep = 7
+
+// adminBackupStatus reads the nightly local snapshot directory directly
+// (read-only) so the backup section (J4 F30, gap-audit) can say when the
+// last one ran and how many are kept, instead of pointing a commissioner
+// at repository paths and shell commands. A missing or empty directory
+// (backups off, or none has run yet) renders as "no local copy yet"
+// rather than an error — the commissioner's own on-demand download still
+// works either way.
+func adminBackupStatus() map[string]any {
+	keep := adminBackupDefaultKeep
+	if raw := strings.TrimSpace(os.Getenv("BACKUP_KEEP")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 0 {
+			keep = parsed
+		}
+	}
+	out := map[string]any{
+		"has_last_run": false,
+		"last_run":     "",
+		"keep":         keep,
+	}
+	dir := filepath.Join(league.Default().DataDir(), "backups")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return out
+	}
+	var newest time.Time
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, statErr := entry.Info()
+		if statErr != nil {
+			continue
+		}
+		if info.ModTime().After(newest) {
+			newest = info.ModTime()
+		}
+	}
+	if newest.IsZero() {
+		return out
+	}
+	now := league.Default().Now()
+	out["has_last_run"] = true
+	out["last_run"] = newest.In(league.Default().LeagueLocation()).Format("Jan 2, 3:04 PM MST") + " · " + league.RelativeTime(now, newest)
+	return out
+}
 
 var adminSectionKeys = []string{
 	"draft-control", "schedule", "week-close", "seats", "invites",
@@ -218,6 +274,7 @@ func init() {
 			}
 			data["has_admin_error"] = false
 			data["admin_error"] = ""
+			data["admin_backup"] = adminBackupStatus()
 			data["force_current_pick_confirm"] = ""
 			for _, name := range []string{"clock-force-autopick", "clock-extend"} {
 				if view, ok := ctx.ActionState(name); ok {

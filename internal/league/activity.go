@@ -93,8 +93,19 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 		teamUnknownNotice = fmt.Sprintf("No team is coded %s.", team)
 	}
 	timezone := FriendlyTimezoneLabel(s.matchupLocation().String())
+	// lastUpdate (F27, gap-audit J6) is the newest entry's own already-
+	// formatted league-local time, from the UNFILTERED feed — the
+	// calm "last update <time>" line reports when the record itself
+	// last changed, not just what a manager's current filter happens to
+	// show.
+	lastUpdate := ""
+	if len(entries) > 0 {
+		lastUpdate, _ = entries[0]["time"].(string)
+	}
 	return map[string]any{
 		"timezone":            timezone,
+		"last_update":         lastUpdate,
+		"has_last_update":     lastUpdate != "",
 		"viewer":              s.Viewer(r),
 		"league":              s.leagueMapForViewer(r),
 		"playoff_truth":       s.playoffTruthMap(state, s.clock(), s.IsCommissioner(r)),
