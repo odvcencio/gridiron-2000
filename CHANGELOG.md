@@ -5,6 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+No changes yet.
+
+## [release-2026.09.08-8b73e06-textflow] — 2026-09-07
+
+Scope: the text-flow adoption: names, sentences, notices, and headlines on every non-live surface render through GoSX's text-layout substrate instead of CSS truncation, so long team and player names wrap or clamp at a line boundary instead of clipping. No schema change.
+
 ### Changed
 - Notice and banner text, draft-room static copy, the admin and commissioner consoles, settings, the signed-out entry pages, the help center, scoring, the wire, the locker room, pick'em, and preseason blitz now flow long names and sentences to a real line boundary instead of clipping mid-word: team, manager, and league names; the commissioner announcement; the pool-status and practice-strip banners; the pre-draft checklist and admin runbook; invite, announcement, seat-ledger, and draft-order rows; the reset-panel consequence sentences; category names and ON/OFF state lines; help topic cards, glossary entries, and migration rows; the scoring format summary and section ledes; wire signal headlines and source names; locker post bodies and author names; pick'em game-row labels; and blitz entry and champion names. Toast notifications now wrap to two lines instead of clipping.
 
