@@ -37,6 +37,33 @@ func TestBuildActionCenterEntryAndPredraftMeetingTruth(t *testing.T) {
 		t.Fatalf("entry action = %+v", entry.Actions)
 	}
 
+	// TestBuildActionCenterEntrySummaryIsPhaseAware (F8, J4 console
+	// gap-audit): the entry stage's own summary line ("Complete admission
+	// or claim a franchise before setting up the season.") was one fixed
+	// sentence regardless of season phase — wrong once the draft is
+	// complete and the season is already under way (the exact phrase the
+	// finding names). It must read season-era words once DraftComplete is
+	// true, and keep the original draft-era sentence before that.
+	preDraftEntry := BuildActionCenter(ActionCenterFacts{
+		Now: now, EntryState: PublicEntryAdmittedSeatlessOpen,
+		EntryStateLabel: "ADMITTED · FRANCHISE OPEN", EntryHeadline: "CHOOSE YOUR FRANCHISE.",
+		DraftComplete: false,
+	})
+	if preDraftEntry.Summary != "Complete admission or claim a franchise before setting up the season." {
+		t.Fatalf("pre-draft entry summary = %q", preDraftEntry.Summary)
+	}
+	postDraftEntry := BuildActionCenter(ActionCenterFacts{
+		Now: now, EntryState: PublicEntryAdmittedSeatlessOpen,
+		EntryStateLabel: "ADMITTED · FRANCHISE OPEN", EntryHeadline: "YOUR SEAT WAS RELEASED.",
+		DraftComplete: true,
+	})
+	if strings.Contains(postDraftEntry.Summary, "before setting up the season") {
+		t.Fatalf("post-draft entry summary still uses draft-era wording: %q", postDraftEntry.Summary)
+	}
+	if !strings.Contains(strings.ToLower(postDraftEntry.Summary), "season") {
+		t.Fatalf("post-draft entry summary = %q, want it to still reference the season", postDraftEntry.Summary)
+	}
+
 	predraft := BuildActionCenter(ActionCenterFacts{
 		Now: now, Location: time.UTC, Admitted: true, HasSeat: true,
 		DraftAt: draftAt, BoardCount: 0, Ready: false,

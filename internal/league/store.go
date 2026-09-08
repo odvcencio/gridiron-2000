@@ -235,6 +235,7 @@ func NewStoreWithIdentity(filePath string, resolver identity.Resolver) *Store {
 			TrimmedTeamIDs:          []string{},
 			LockerPosts:             []LockerPost{},
 			CommissionerEvents:      []CommissionerEvent{},
+			SeatReleaseNotices:      map[string]SeatReleaseNotice{},
 			RosterCorrectionNotices: map[string]RosterCorrectionNotice{},
 		},
 	}
@@ -1335,6 +1336,36 @@ func (s *Store) releaseSeat(teamID, confirmation, token string, confirmed bool) 
 		return err
 	}
 	return nil
+}
+
+// SetSeatReleaseNotices records teamID and now against every email in
+// emails (F8, J4 console gap-audit): a member who held a seat and lost it
+// can be told what happened, not asked to read a fresh first-time-arrival
+// welcome. Follows SetRosterCorrectionNotice's own precedent
+// (admin_roster_correction.go): a plain map on PersistedState, persisted
+// through the existing kv-backed colScalars column — no new table or
+// migration. Called after ReleaseSeatConfirmed has already unbound the
+// seat, so a caller passes the emails it read before that call.
+func (s *Store) SetSeatReleaseNotices(emails []string, teamID string, now time.Time) error {
+	if len(emails) == 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
+	if s.state.SeatReleaseNotices == nil {
+		s.state.SeatReleaseNotices = map[string]SeatReleaseNotice{}
+	}
+	for _, email := range emails {
+		email = strings.ToLower(strings.TrimSpace(email))
+		if email == "" {
+			continue
+		}
+		s.state.SeatReleaseNotices[email] = SeatReleaseNotice{TeamID: teamID, At: now}
+	}
+	return s.persistLocked(colScalars)
 }
 
 // errCoManagerLimit is the co-manager registration wave's exact-message
@@ -4357,6 +4388,7 @@ func cloneState(in PersistedState) PersistedState {
 		TrimmedTeamIDs:          append([]string(nil), in.TrimmedTeamIDs...),
 		LockerPosts:             append([]LockerPost(nil), in.LockerPosts...),
 		CommissionerEvents:      append([]CommissionerEvent(nil), in.CommissionerEvents...),
+		SeatReleaseNotices:      make(map[string]SeatReleaseNotice, len(in.SeatReleaseNotices)),
 		RosterCorrectionNotices: make(map[string]RosterCorrectionNotice, len(in.RosterCorrectionNotices)),
 	}
 	for key, value := range in.Ready {
@@ -4485,6 +4517,9 @@ func cloneState(in PersistedState) PersistedState {
 	}
 	for teamID, revision := range in.SeatRevisions {
 		out.SeatRevisions[teamID] = revision
+	}
+	for email, notice := range in.SeatReleaseNotices {
+		out.SeatReleaseNotices[email] = notice
 	}
 	for teamID, notice := range in.RosterCorrectionNotices {
 		out.RosterCorrectionNotices[teamID] = notice

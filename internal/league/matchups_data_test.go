@@ -234,6 +234,32 @@ func TestMatchupsDataFinalWeekPreservesFinalTaxonomy(t *testing.T) {
 	}
 }
 
+// TestMatchupsDataFlagsClosedEarlyInStatusLine pins F3 (J4 console
+// gap-audit): a forced close scores a week even when its real NFL games
+// have not gone final, and the results page had nothing to distinguish
+// that outcome from an honest FINAL. data.status_line.closed_early must
+// be true once the viewed week's fantasy matchups are final while its one
+// known real game is not.
+func TestMatchupsDataFlagsClosedEarlyInStatusLine(t *testing.T) {
+	service, _ := matchupDataFixture(t)
+	schedule := service.store.Snapshot().Schedule
+	for i := range schedule.Weeks[0].Matchups {
+		schedule.Weeks[0].Matchups[i].Final = true
+	}
+	if err := service.store.SetSchedule(*schedule); err != nil {
+		t.Fatal(err)
+	}
+
+	data := service.MatchupsData(context.Background(), matchupDataRequest(t, "/matchups?week=1"))
+	statusLine, ok := data["status_line"].(map[string]any)
+	if !ok {
+		t.Fatalf("status_line = %#v, want map", data["status_line"])
+	}
+	if statusLine["closed_early"] != true {
+		t.Errorf("status_line.closed_early = %v, want true for a final week whose one real game is not final", statusLine["closed_early"])
+	}
+}
+
 func TestMatchupsDataInvalidWeekNormalizesAndPreservesNavigationQuery(t *testing.T) {
 	service, _ := matchupDataFixture(t)
 	data := service.MatchupsData(context.Background(), matchupDataRequest(t, "/matchups?week=99"))

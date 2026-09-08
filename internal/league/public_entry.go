@@ -185,6 +185,16 @@ func (s *Service) publicEntryViewForViewerState(r *http.Request, viewer map[stri
 		view.StateLabel = "ADMITTED · FRANCHISE OPEN"
 		view.Headline = "CHOOSE YOUR FRANCHISE."
 		view.Detail = "You are admitted to this league. " + seatCountCopy(openSeats) + " Claiming a franchise is a deliberate step that unlocks team setup, the Big Board, draft readiness, and roster controls."
+		// A released manager (F8, J4 console gap-audit) used to see this
+		// exact welcome — the same page a member who never held a seat
+		// sees — denying what happened instead of naming it. Naming the
+		// release here, not inventing a fourth PublicEntryState, keeps
+		// every other seatless-open behavior (CanClaim, ActionHref)
+		// unchanged for both a released manager and a brand-new one.
+		if teamName, releasedAt, released := s.SeatReleaseNotice(email); released {
+			view.Headline = "YOUR SEAT WAS RELEASED."
+			view.Detail = "The commissioner released " + teamName + " on " + releasedAt.In(s.matchupLocation()).Format("Jan 2") + ". " + seatCountCopy(openSeats) + " You can claim an open franchise below."
+		}
 		view.ActionLabel = "Claim an open franchise →"
 		view.ActionHref = "/join"
 		return view

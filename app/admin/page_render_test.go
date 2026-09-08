@@ -1685,6 +1685,51 @@ func TestInviteRemoveHasAccessibleNameAndReviewConfirmStep(t *testing.T) {
 	}
 }
 
+// TestWeekCloseNoticeNamesWhatItClosedWith pins F3 (J4 console gap-audit):
+// a forced close used to report bare success ("Week 1 closed and
+// scored.") before ever mentioning that 88 of 88 starters missed their
+// stat join — the sentence opened with success and buried the warning in
+// a diagnostic list. weekCloseNotice must always name how many real NFL
+// games were actually final at close time, leading with the warning
+// whenever any starter missed its stat join.
+func TestWeekCloseNoticeNamesWhatItClosedWith(t *testing.T) {
+	info := league.WeekCloseInfo{Week: 1, GamesKnown: true, GamesFinal: 0, GamesTotal: 16}
+	misses := make([]league.JoinMiss, 88)
+	for i := range misses {
+		misses[i] = league.JoinMiss{PlayerName: fmt.Sprintf("Player %d", i), TeamID: "team-1"}
+	}
+	got := weekCloseNotice(1, info, misses)
+	for _, want := range []string{"Week 1 closed with 0 of 16 games scored", "88 stat join"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("weekCloseNotice = %q, missing %q", got, want)
+		}
+	}
+
+	clean := weekCloseNotice(1, league.WeekCloseInfo{Week: 1, GamesKnown: true, GamesFinal: 16, GamesTotal: 16}, nil)
+	if !strings.Contains(clean, "Week 1 closed with 16 of 16 games scored") || !strings.Contains(clean, "Every starter matched a stat line.") {
+		t.Errorf("clean close notice = %q, want the games-scored fact and the all-matched line", clean)
+	}
+}
+
+// TestSeatReleaseNoticeNamesConsequenceAndNextStep pins F7 (J4 console
+// gap-audit): the release success notice ("Romeo & the End Zone is
+// unclaimed again.") named no consequence and offered no next step. In
+// season, it must also name what stays in place and point at Invites;
+// before the draft completes, with no consequence sentence to add, it
+// stays exactly as short as before.
+func TestSeatReleaseNoticeNamesConsequenceAndNextStep(t *testing.T) {
+	got := seatReleaseSuccessNotice("Romeo & the End Zone", "The 17-player roster, the week 2 lineup, and the week 2 matchup stay in place with no manager.")
+	want := "Romeo & the End Zone is unclaimed again. The 17-player roster, the week 2 lineup, and the week 2 matchup stay in place with no manager. Invite a replacement from Invites →"
+	if got != want {
+		t.Errorf("seatReleaseSuccessNotice = %q, want %q", got, want)
+	}
+
+	preDraft := seatReleaseSuccessNotice("Romeo & the End Zone", "")
+	if preDraft != "Romeo & the End Zone is unclaimed again." {
+		t.Errorf("seatReleaseSuccessNotice with no consequence = %q, want the unchanged short notice", preDraft)
+	}
+}
+
 // TestRosterCorrectionPanelRendersFromFreshLeague pins the console's own
 // pre-draft, no-team-chosen empty state: the panel, its team select with
 // real team names, and the "CHOOSE A TEAM" empty state, all present

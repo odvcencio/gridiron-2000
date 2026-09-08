@@ -18933,3 +18933,17 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
     display: grid;
   }
 }
+
+/* comb — cherry (2026-09-07 UX pass): F3 (J4 console gap-audit) — a
+   forced close can finalize a week while its real NFL games are not
+   final. .state-chip--closed-early is a distinct, static caution chip
+   (not the live-bound state chip's own coloring) so a CLOSED EARLY week
+   never reads the same as an honest final one. */
+.state-chip--closed-early {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+.matchup-week-notice--warning {
+  color: var(--color-warning);
+}

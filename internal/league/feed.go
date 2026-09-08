@@ -206,15 +206,22 @@ func (p scheduleProvider) SnapshotWeek(ctx context.Context, now time.Time, week 
 		}
 	}
 	gamesFinal := ""
+	finalGames := 0
 	if len(weeklyStats.games) > 0 {
-		final := 0
 		for _, game := range weeklyStats.games {
 			if game.Final {
-				final++
+				finalGames++
 			}
 		}
-		gamesFinal = fmt.Sprintf("%d of %d games final", final, len(weeklyStats.games))
+		gamesFinal = fmt.Sprintf("%d of %d games final", finalGames, len(weeklyStats.games))
 	}
+	// closedEarly (F3, J4 console gap-audit): this week's fantasy matchups
+	// are final (stateLabel, from weekState's own allFinal check above),
+	// but the real NFL games behind them are not — the forced-close-
+	// during-a-data-stall shape a normal close can never produce, since
+	// WeekCloseReady already requires every real game final first. This is
+	// a read of state already gathered above; it changes no scoring.
+	closedEarly := stateLabel == MatchupStateFinal && len(weeklyStats.games) > 0 && finalGames < len(weeklyStats.games)
 	statsUpdatedAt := p.svc.statsUpdatedAt()
 	lastUpdated := statsUpdatedAt
 	if lastUpdated.IsZero() {
@@ -244,6 +251,7 @@ func (p scheduleProvider) SnapshotWeek(ctx context.Context, now time.Time, week 
 		StatsUpdatedAt: statsUpdatedAt.UTC(),
 		Matchups:       matchups,
 		Warning:        warning,
+		ClosedEarly:    closedEarly,
 	}, nil
 }
 

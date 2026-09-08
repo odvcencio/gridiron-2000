@@ -324,6 +324,52 @@ func TestInviteEmailTemplateStatesUnpublishedDraftDateCleanly(t *testing.T) {
 	}
 }
 
+// completeDraftForTest fills every pick of svc's draft in snake order with
+// synthetic player IDs, so draftComplete(state) reports true. MakePick
+// enforces turn order (teamOnClock) but never checks the player against a
+// pool, so a distinct synthetic ID per pick is enough.
+func completeDraftForTest(t *testing.T, svc *Service) {
+	t.Helper()
+	svc.store.draftLifecycleBypass = true
+	total := len(defaultTeams()) * CurrentDraftRounds()
+	now := time.Now()
+	for number := 1; number <= total; number++ {
+		team := teamOnClock(nil, number)
+		if _, err := svc.store.MakePick(team, fmt.Sprintf("test-pick-%03d", number), "manager", now, time.Time{}); err != nil {
+			t.Fatalf("MakePick %d for %s: %v", number, team, err)
+		}
+	}
+}
+
+// TestInviteEmailTemplateStatesDraftCompleteInSeason pins F6 (J4 console
+// gap-audit): a commissioner adding a replacement manager mid-season sent
+// "The startup snake draft is Sunday..." and step 4 "Build your draft
+// board before the clock starts" — factually wrong once the draft holds
+// 136 locked picks. A third branch, gated on draftComplete (the same
+// signal draftSummaryForState's own "complete" field already reports),
+// must replace both the draft-date sentence and the draft-board step with
+// season-era language.
+func TestInviteEmailTemplateStatesDraftCompleteInSeason(t *testing.T) {
+	service := newTestService(t, true)
+	completeDraftForTest(t, service)
+
+	subject, text, _ := service.InviteEmailTemplate(nil, "manager@example.com")
+	if !strings.Contains(text, "The draft is finished.") {
+		t.Errorf("text body must state the draft is finished:\n%s", text)
+	}
+	if strings.Contains(text, "Build your draft board before the clock starts") {
+		t.Errorf("text body still tells a post-draft invitee to build a draft board:\n%s", text)
+	}
+	for _, bad := range []string{"The startup snake draft is", "The startup snake draft date is not published yet."} {
+		if strings.Contains(text, bad) {
+			t.Errorf("text body must not carry a draft-night sentence once the draft is complete: %q found in:\n%s", bad, text)
+		}
+	}
+	if strings.Contains(subject, "draft SUN") || strings.Contains(subject, "draft TBD") {
+		t.Errorf("subject must not promise a draft date once the draft is complete: %q", subject)
+	}
+}
+
 // TestInviteEmailTemplateSubjectAndBodyAgreeOnDraftDate guards wave-6 item
 // 7(e): the subject always interpolated the raw draft-summary date fields
 // directly, while the body's sentence separately guarded on the summary's
@@ -559,6 +605,53 @@ func TestAdminDataDraftOrderCarriesPickNumbers(t *testing.T) {
 	}
 }
 
+// TestAdminDataSeatsCarrySeasonReleaseConsequence pins F7 (J4 console
+// gap-audit): the seat-release disclosure's own consequence sentence
+// never named the roster, lineup, or matchup a release leaves in place —
+// AdminData's own seat rows are where the SeatRow disclosure (page.gsx)
+// reads that sentence from, so it must carry
+// SeasonSeatReleaseConsequence's own text (empty before the draft
+// completes, and the real sentence once it does).
+func TestAdminDataSeatsCarrySeasonReleaseConsequence(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	data := service.AdminData(request)
+	seats, ok := data["seats"].([]map[string]any)
+	if !ok || len(seats) == 0 {
+		t.Fatalf("seats = %#v, want a non-empty slice", data["seats"])
+	}
+	for _, seat := range seats {
+		if got := seat["season_release_consequence"]; got != "" {
+			t.Fatalf("season_release_consequence before the draft completes = %q, want empty", got)
+		}
+	}
+
+	completeDraftForTest(t, service)
+	schedule, err := GenerateSchedule(ScheduleParams{
+		Season: 2026, TeamIDs: teamIDList(service.teams), Divisions: teamDivisionMap(service.teams),
+		StartWeek: 1, Weeks: 2, Seed: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.SetSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+
+	data = service.AdminData(request)
+	seats, ok = data["seats"].([]map[string]any)
+	if !ok || len(seats) == 0 {
+		t.Fatalf("seats = %#v, want a non-empty slice", data["seats"])
+	}
+	want := fmt.Sprintf("The %d-player roster, the week 1 lineup, and the week 1 matchup stay in place with no manager.", CurrentDraftRounds())
+	for _, seat := range seats {
+		if got := seat["season_release_consequence"]; got != want {
+			t.Errorf("seat %v season_release_consequence = %q, want %q", seat["id"], got, want)
+		}
+	}
+}
+
 func TestAdminDataMailFieldsAndMailto(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
@@ -581,11 +674,21 @@ func TestAdminDataMailFieldsAndMailto(t *testing.T) {
 	if subject, _ := preview["subject"].(string); !strings.Contains(subject, service.cfg.Name) {
 		t.Errorf("invite_preview subject wrong: %q", subject)
 	}
-	if body, _ := preview["body"].(string); !strings.Contains(body, "their-email@example.com") {
-		t.Errorf("invite_preview body should address the sample email: %q", body)
+	// F6 (J4 console gap-audit): the preview used to always address the
+	// sentinel "their-email@example.com", which read as a failed
+	// substitution — a manager's browser would never see a
+	// "@example.com" address in a real invite. With a real pending
+	// invite on the list (manager@example.com, added above and not yet
+	// signed in), the preview must address that real, first pending
+	// address instead.
+	if body, _ := preview["body"].(string); !strings.Contains(body, "manager@example.com") {
+		t.Errorf("invite_preview body should address the first pending invite: %q", body)
 	}
-	if htmlBody, _ := preview["html"].(string); !strings.Contains(htmlBody, "their-email@example.com") {
-		t.Errorf("invite_preview html should address the sample email: %q", htmlBody)
+	if htmlBody, _ := preview["html"].(string); !strings.Contains(htmlBody, "manager@example.com") {
+		t.Errorf("invite_preview html should address the first pending invite: %q", htmlBody)
+	}
+	if body, _ := preview["body"].(string); strings.Contains(body, "their-email@example.com") {
+		t.Errorf("invite_preview body must not leak the sentinel placeholder address: %q", body)
 	}
 
 	invites, _ := data["invites"].([]map[string]any)
@@ -605,6 +708,30 @@ func TestAdminDataMailFieldsAndMailto(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("invite missing from admin data: %+v", invites)
+	}
+}
+
+// TestAdminDataInvitePreviewFallsBackToPlaceholderWithNoPendingInvite pins
+// F6 (J4 console gap-audit): with no pending invite to address, the
+// preview must name an honest placeholder in angle brackets rather than
+// the sentinel "their-email@example.com", which reads as a failed
+// substitution rather than a placeholder.
+func TestAdminDataInvitePreviewFallsBackToPlaceholderWithNoPendingInvite(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	t.Setenv("LEAGUE_ALLOWED_EMAILS", "")
+
+	data := service.AdminData(request)
+	preview, ok := data["invite_preview"].(map[string]any)
+	if !ok {
+		t.Fatalf("invite_preview missing or wrong type: %#v", data["invite_preview"])
+	}
+	body, _ := preview["body"].(string)
+	if !strings.Contains(body, "<their address>") {
+		t.Errorf("invite_preview body should use the <their address> placeholder with no pending invite: %q", body)
+	}
+	if strings.Contains(body, "their-email@example.com") {
+		t.Errorf("invite_preview body must not leak the sentinel placeholder address: %q", body)
 	}
 }
 
@@ -1546,6 +1673,80 @@ func TestAdminReleaseSeatPersistFailureRestoresSeatState(t *testing.T) {
 		!reflect.DeepEqual(durable.Ready, before.Ready) ||
 		!reflect.DeepEqual(durable.SeatRevisions, before.SeatRevisions) {
 		t.Fatalf("failed release changed durable seat state:\n before=%+v\n durable=%+v", before, durable)
+	}
+}
+
+// TestSeasonSeatReleaseConsequenceNamesRosterAndWeek pins F7 (J4 console
+// gap-audit): the seat-release disclosure's consequence sentence ("This
+// releases the primary manager, co-manager, pending co-invite, and ready
+// state for this seat.") never named the roster, the lineup, or the
+// matchup a release leaves behind — a team keeps playing with nobody at
+// the wheel, and the commissioner could not judge that consequence.
+// Before the draft completes there is no roster or matchup yet to name,
+// so the sentence stays empty; once the draft is done and a schedule
+// exists, it must name the real roster size and the next open week.
+func TestSeasonSeatReleaseConsequenceNamesRosterAndWeek(t *testing.T) {
+	service := newTestService(t, true)
+	if got := service.SeasonSeatReleaseConsequence("team-1"); got != "" {
+		t.Fatalf("consequence before the draft completes = %q, want empty", got)
+	}
+
+	completeDraftForTest(t, service)
+	schedule, err := GenerateSchedule(ScheduleParams{
+		Season: 2026, TeamIDs: teamIDList(service.teams), Divisions: teamDivisionMap(service.teams),
+		StartWeek: 1, Weeks: 2, Seed: 7,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.SetSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+
+	got := service.SeasonSeatReleaseConsequence("team-1")
+	want := fmt.Sprintf("The %d-player roster, the week 1 lineup, and the week 1 matchup stay in place with no manager.", CurrentDraftRounds())
+	if got != want {
+		t.Errorf("consequence = %q, want %q", got, want)
+	}
+}
+
+// TestSeatReleaseNoticeNamesTeamAndInstantForReleasedManager pins F8 (J4
+// console gap-audit): a manager whose seat was released an hour ago saw a
+// first-time arrival page ("CHOOSE YOUR FRANCHISE.") that never named
+// what happened. SeatReleaseNotice must find the released manager's own
+// team and instant from the most recent seat.release event that names
+// them, and report not-found for a manager never named in one.
+func TestSeatReleaseNoticeNamesTeamAndInstantForReleasedManager(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+	member, _, err := service.store.AssignMember("released@example.com", "Released Manager")
+	if err != nil {
+		t.Fatal(err)
+	}
+	team := service.teamByID(member.TeamID)
+	token := seatReleaseToken(service.store.Snapshot(), team.ID, team.Name)
+	if _, err := service.AdminReleaseSeat(request, team.ID, seatReleaseConfirmation(team.ID, team.Name), token); err != nil {
+		t.Fatal(err)
+	}
+
+	teamName, at, found := service.SeatReleaseNotice("released@example.com")
+	if !found {
+		t.Fatal("expected a seat-release notice for the released manager")
+	}
+	if teamName != team.Name {
+		t.Errorf("teamName = %q, want %q", teamName, team.Name)
+	}
+	if at.IsZero() {
+		t.Error("at must not be zero for a found release notice")
+	}
+	// Case-insensitive, since email addresses are matched that way
+	// everywhere else in this package.
+	if _, _, found := service.SeatReleaseNotice("RELEASED@EXAMPLE.COM"); !found {
+		t.Error("expected a case-insensitive match")
+	}
+
+	if _, _, found := service.SeatReleaseNotice("never-released@example.com"); found {
+		t.Error("expected no notice for a manager never named in a release event")
 	}
 }
 

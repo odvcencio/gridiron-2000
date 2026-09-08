@@ -630,6 +630,7 @@ const (
 	kvScheduleHeader          = "schedule_header"
 	kvTrimmedTeamIDs          = "trimmed_team_ids"
 	kvSeatRevisions           = "seat_revisions"
+	kvSeatReleaseNotices      = "seat_release_notices"
 	kvRosterCorrectionNotices = "roster_correction_notices"
 )
 
@@ -683,6 +684,13 @@ var collectionSpecs = [collectionCount]collectionSpec{
 			}
 			if len(st.SeatRevisions) > 0 {
 				put(kvSeatRevisions, sink.jsonValue(st.SeatRevisions))
+			}
+			// SeatReleaseNotices (F8, J4 console gap-audit) and
+			// RosterCorrectionNotices both follow the same precedent: a
+			// plain map, round-tripped through this existing kv-backed
+			// scalar column, no new table or migration.
+			if len(st.SeatReleaseNotices) > 0 {
+				put(kvSeatReleaseNotices, sink.jsonValue(st.SeatReleaseNotices))
 			}
 			if len(st.RosterCorrectionNotices) > 0 {
 				put(kvRosterCorrectionNotices, sink.jsonValue(st.RosterCorrectionNotices))
@@ -1448,6 +1456,13 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 			return state, fmt.Errorf("kv %s: %w", kvSeatRevisions, err)
 		}
 		state.SeatRevisions = revisions
+	}
+	if raw, ok := scalars[kvSeatReleaseNotices]; ok {
+		var notices map[string]SeatReleaseNotice
+		if err := json.Unmarshal([]byte(raw), &notices); err != nil {
+			return state, fmt.Errorf("kv %s: %w", kvSeatReleaseNotices, err)
+		}
+		state.SeatReleaseNotices = notices
 	}
 	if raw, ok := scalars[kvRosterCorrectionNotices]; ok {
 		var notices map[string]RosterCorrectionNotice
@@ -2315,6 +2330,9 @@ func normalizeState(state *PersistedState) {
 	}
 	if state.CommissionerEvents == nil {
 		state.CommissionerEvents = []CommissionerEvent{}
+	}
+	if state.SeatReleaseNotices == nil {
+		state.SeatReleaseNotices = map[string]SeatReleaseNotice{}
 	}
 	if state.RosterCorrectionNotices == nil {
 		state.RosterCorrectionNotices = map[string]RosterCorrectionNotice{}

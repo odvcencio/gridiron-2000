@@ -152,6 +152,66 @@ func TestPublicEntryAdmittedSeatlessOpenAndFull(t *testing.T) {
 	})
 }
 
+// TestPublicEntrySeatlessOpenNamesAReleasedSeat pins F8 (J4 console
+// gap-audit): a manager whose seat was released an hour ago used to see
+// the same first-time-arrival welcome ("CHOOSE YOUR FRANCHISE.") as
+// someone who never had one — denying what happened instead of naming
+// it. A member named in PersistedState.SeatReleaseNotices must instead
+// see the release named in the headline and detail, dated from the
+// notice's own instant.
+func TestPublicEntrySeatlessOpenNamesAReleasedSeat(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+	member, _, err := service.store.AssignMember("released@example.com", "Released Manager")
+	if err != nil {
+		t.Fatal(err)
+	}
+	team := service.teamByID(member.TeamID)
+	token := seatReleaseToken(service.store.Snapshot(), team.ID, team.Name)
+	if _, err := service.AdminReleaseSeat(request, team.ID, seatReleaseConfirmation(team.ID, team.Name), token); err != nil {
+		t.Fatal(err)
+	}
+	// A release deletes the Members row entirely (Store.releaseSeat), so a
+	// returning sign-in re-admits through the same EnsureMember boundary
+	// main.go's real Google callback calls — the released manager's
+	// browser session in the field is exactly this: authenticated, then
+	// re-admitted with no team, never carrying stale seat state forward.
+	if _, err := service.EnsureMember("released@example.com", "Released Manager"); err != nil {
+		t.Fatal(err)
+	}
+
+	view := publicEntryForEmail(t, service, "released@example.com")
+	if view.State != PublicEntryAdmittedSeatlessOpen || !view.CanClaim {
+		t.Fatalf("released manager entry = %+v, want seatless-open with an open franchise to claim", view)
+	}
+	if !strings.Contains(view.Headline, "RELEASED") {
+		t.Errorf("headline = %q, want it to name the release", view.Headline)
+	}
+	if !strings.Contains(view.Detail, team.Name) {
+		t.Errorf("detail = %q, want it to name %q", view.Detail, team.Name)
+	}
+	if !strings.Contains(view.Detail, "released") {
+		t.Errorf("detail = %q, must state that the commissioner released the seat", view.Detail)
+	}
+	if strings.Contains(view.Headline, "CHOOSE YOUR FRANCHISE") {
+		t.Error("released manager must not see the generic first-time-arrival headline")
+	}
+}
+
+// TestPublicEntrySeatlessOpenKeepsGenericHeadlineWithNoRelease is the
+// control for TestPublicEntrySeatlessOpenNamesAReleasedSeat: a member who
+// never held a seat must keep the ordinary first-time-arrival welcome.
+func TestPublicEntrySeatlessOpenKeepsGenericHeadlineWithNoRelease(t *testing.T) {
+	service := newTestService(t, false)
+	if _, err := service.EnsureMember("open@example.com", "Open"); err != nil {
+		t.Fatal(err)
+	}
+	view := publicEntryForEmail(t, service, "open@example.com")
+	if view.Headline != "CHOOSE YOUR FRANCHISE." {
+		t.Errorf("headline = %q, want the unchanged first-time-arrival headline", view.Headline)
+	}
+}
+
 // TestPublicEntryNamesTheCommissionerWhenSeatedAndNamed (F10, name part):
 // "Ask the commissioner" appeared fourteen times with no name and no
 // route. This pins the three surfaces the fix covers through

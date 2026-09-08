@@ -45,6 +45,42 @@ func TestFeaturedMatchupDataCentrePhaseByLiveState(t *testing.T) {
 	}
 }
 
+// TestMatchupStatusBlockRendersClosedEarlyBadge pins F3 (J4 console
+// gap-audit): a forced close can finalize a week while its real NFL games
+// are not final — every score risking 0.0 from a missed player-stat join
+// — and the results page had nothing to distinguish that from an honest
+// FINAL. The status line must carry a CLOSED EARLY badge, gated on the
+// server-computed data.status_line.closed_early flag (internal/league's
+// LiveSnapshot.ClosedEarly), as a plain static element separate from the
+// live-bound state chip (data-gosx-live-bind="liveState") so a later live
+// poll can never silently overwrite it.
+func TestMatchupStatusBlockRendersClosedEarlyBadge(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(source)
+	if !strings.Contains(markup, `<If cond={data.status_line.closed_early}>`) {
+		t.Fatal("MatchupStatusBlock does not gate on data.status_line.closed_early")
+	}
+	if !strings.Contains(markup, "CLOSED EARLY") {
+		t.Fatal("MatchupStatusBlock is missing the CLOSED EARLY badge text")
+	}
+	closedEarlyAt := strings.Index(markup, `<If cond={data.status_line.closed_early}>`)
+	liveBindAt := strings.Index(markup, `data-gosx-live-bind="liveState"`)
+	if closedEarlyAt < 0 || liveBindAt < 0 {
+		t.Fatal("could not locate both the closed-early badge and the live-bound state chip")
+	}
+	badgeBlockEnd := strings.Index(markup[closedEarlyAt:], "</If>")
+	if badgeBlockEnd < 0 {
+		t.Fatal("closed-early <If> block has no matching </If>")
+	}
+	badgeBlock := markup[closedEarlyAt : closedEarlyAt+badgeBlockEnd]
+	if strings.Contains(badgeBlock, "data-gosx-live-bind") {
+		t.Error("the closed-early badge must be a plain static element, not live-bound (a live poll must never overwrite it)")
+	}
+}
+
 // TestStarterCellDataProjDefaultsToHonestZero covers A2: a raw ledger row
 // with no "proj" key (a source map this wave has not decorated, or a nil
 // row for an unresolved slot) still reads the honest zero PROJ 0.0

@@ -450,6 +450,19 @@ type PersistedState struct {
 	// it in load/NewStore/cloneState.
 	CommissionerEvents []CommissionerEvent `json:"commissionerEvents,omitempty"`
 
+	// SeatReleaseNotices maps a released member's canonical, lowercased
+	// email to the most recent seat.release event that named them (F8, J4
+	// console gap-audit): a member who held a seat and lost it can be
+	// told what happened — which team, and when — instead of reading a
+	// fresh first-time-arrival welcome. Follows RosterCorrectionNotices'
+	// own precedent (admin_roster_correction.go): a plain map on
+	// PersistedState, round-tripped through the existing kv-backed
+	// scalar columns (colScalars, sqlstore.go), so no SQL migration or
+	// user_version change is needed. Additive under schema version 11 —
+	// a nil map decodes safely on an old file, and the store normalizes
+	// it in load/NewStore/cloneState.
+	SeatReleaseNotices map[string]SeatReleaseNotice `json:"seatReleaseNotices,omitempty"`
+
 	// RosterCorrectionNotices maps team ID to the one pending, one-time
 	// flash a commissioner roster correction (AdminRosterCorrection,
 	// admin_roster_correction.go) leaves for that team's own manager. The
@@ -461,6 +474,15 @@ type PersistedState struct {
 	// nil map decodes safely on an old file, and the store normalizes it
 	// in load/NewStore/cloneState.
 	RosterCorrectionNotices map[string]RosterCorrectionNotice `json:"rosterCorrectionNotices,omitempty"`
+}
+
+// SeatReleaseNotice is one durable record of a seat release, keyed by the
+// released member's email in PersistedState.SeatReleaseNotices: which
+// team was released, and when, so that member's own next visit to / can
+// name the release instead of denying it happened.
+type SeatReleaseNotice struct {
+	TeamID string    `json:"teamId"`
+	At     time.Time `json:"at"`
 }
 
 // RosterCorrectionNotice is one pending one-time flash for a team whose
@@ -684,6 +706,12 @@ type LiveSnapshot struct {
 	// (LiveStatus.CheckedAt), distinct from CheckedAt (this snapshot's
 	// own render instant) and StatsUpdatedAt (the ledger's freshness).
 	LiveCheckedAt time.Time `json:"liveCheckedAt,omitzero"`
+	// ClosedEarly (F3, J4 console gap-audit) is true when this week's
+	// fantasy matchups are all final (closed) while its real NFL games are
+	// not all final — the forced-close-with-a-data-stall case, where every
+	// score risks being 0.0 from a missed player-stat join. Results pages
+	// use this to show a CLOSED EARLY warning in place of a plain FINAL.
+	ClosedEarly bool `json:"closedEarly,omitempty"`
 }
 
 // activeTeams backs defaultTeams(): the currently active league's team

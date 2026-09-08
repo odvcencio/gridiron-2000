@@ -324,3 +324,50 @@ func TestScoringPageCommissionerSeesDeadlineNotManagerSentence(t *testing.T) {
 		t.Error("commissioner's scoring page rendered the manager-only locked sentence")
 	}
 }
+
+// TestScoringPageWarnsClosedWeeksKeepTheirScores pins F14 (J4 console
+// gap-audit): each scoring rule row was a bare number input and a Set
+// button with no statement, anywhere near the controls, of whether a
+// change reaches a week that has already closed. The only finality
+// sentence on the page named roster edits ("a later drop, trade, or
+// roster-shape edit can never change a closed week's score") and never
+// named a scoring edit. closeWeek (season.go) computes and persists each
+// matchup's HomeScore/AwayScore once, at close time, from the scoring
+// values in effect then; a later scoring-rule change can never reach a
+// closed week's already-persisted score, so this states that truth
+// directly above the rule groups.
+func TestScoringPageWarnsClosedWeeksKeepTheirScores(t *testing.T) {
+	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
+	t.Setenv("DEMO_MODE", "true")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
+	})
+	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
+		t.Fatalf("AddDir: %v", err)
+	}
+	handler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / (scoring page) = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"Changes apply from the next open week.", "Closed weeks keep the scores they were closed with."} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("scoring page missing %q: %s", want, body)
+		}
+	}
+	groupsAt := strings.Index(body, "06 // SCORING")
+	sentenceAt := strings.Index(body, "Changes apply from the next open week.")
+	if groupsAt < 0 || sentenceAt < 0 || sentenceAt > groupsAt {
+		t.Errorf("the finality sentence must sit above the rule groups, not after them: sentenceAt=%d groupsAt=%d", sentenceAt, groupsAt)
+	}
+}

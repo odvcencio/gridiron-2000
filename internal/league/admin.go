@@ -215,8 +215,29 @@ func (s *Service) CommissionerAttentionDataReadOnly(_ *http.Request) map[string]
 			phase = PhaseRegularSeason
 		}
 	}
+	// open_claim_count/trades_in_review_count (F2, J4 console gap-audit):
+	// once the draft is complete, the week's own open work — waivers and
+	// trades — leads the panel instead of draft-night seat/board counts.
+	// tradesInReview counts only TradeStatusAccepted offers (an open offer
+	// still awaiting a response is not "in review" — see F12's identical
+	// distinction, app/trades/page.server.go).
+	openClaimCount := len(state.WaiverClaims)
+	tradesInReview := 0
+	for _, offer := range state.TradeOffers {
+		if offer.Status == TradeStatusAccepted {
+			tradesInReview++
+		}
+	}
 	return map[string]any{
-		"phase": phase, "draft": map[string]any{
+		// season_state_sentence (F1, J4 console gap-audit): the console's
+		// top line used to glue "phase" and "draft.status" together into
+		// one raw string ("regular-season · COMPLETE"), read by a
+		// commissioner as "the season is over" during week 1. This states
+		// the true week progress in one plain sentence instead.
+		"season_state_sentence":  s.consoleSeasonStateSentence(state, now),
+		"open_claim_count":       openClaimCount,
+		"trades_in_review_count": tradesInReview,
+		"phase":                  phase, "draft": map[string]any{
 			"status": draft["status_label"], "at": draft["at"], "started": draft["started"],
 			"complete": draft["complete"], "window_reached": draft["window_reached"],
 			// date/time/published (item 5, 2026-09-02 audit): the live
@@ -275,6 +296,11 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		item["operator_count"] = len(s.presenceKeysForTeam(state, team.ID))
 		item["board_count"] = len(state.Boards[commissionerV1BoardOwnerKey(state, team.ID)])
 		item["board_gap"] = claimed && len(state.Boards[commissionerV1BoardOwnerKey(state, team.ID)]) == 0
+		// season_release_consequence (F7, J4 console gap-audit): the
+		// release disclosure's own sentence names the roster, lineup, and
+		// matchup a release leaves in place, once there is a season to
+		// name them in.
+		item["season_release_consequence"] = s.SeasonSeatReleaseConsequence(team.ID)
 		// co_email (registration wave, build item 4): the admin seats grid
 		// shows both managers, not just the primary — teamMembers returns
 		// primary first, then the co-manager if one is bound.
@@ -351,7 +377,25 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		row["pick_number"] = index + 1
 		draftOrder = append(draftOrder, row)
 	}
-	previewSubject, previewText, previewHTML := s.InviteEmailTemplate(r, "their-email@example.com")
+	// previewEmail (F6, J4 console gap-audit): the preview used to always
+	// address the fixed sentinel "their-email@example.com", which read as
+	// a failed substitution — no real invite ever carries a
+	// "@example.com" address. This addresses the first pending (not yet
+	// seated) invite when one exists, so the preview shows the actual
+	// letter that address will receive; with no pending invite to name,
+	// it falls back to an honest bracketed placeholder instead of a fake
+	// address.
+	previewEmail := "<their address>"
+	for _, invite := range invites {
+		if seated, _ := invite["seated"].(bool); seated {
+			continue
+		}
+		if candidate, _ := invite["email"].(string); strings.TrimSpace(candidate) != "" {
+			previewEmail = candidate
+			break
+		}
+	}
+	previewSubject, previewText, previewHTML := s.InviteEmailTemplate(r, previewEmail)
 	now := s.clock()
 	// domainGate mirrors rulesMembershipMap's fix (scoring.go): "no invite
 	// list" alone does not mean any Google account may claim a seat when a
@@ -1152,6 +1196,15 @@ func (s *Service) InviteEmailTemplate(r *http.Request, email string) (subject, t
 	// a real "draft TUE · SEP 1" beside a body claiming no date was
 	// published at all.
 	hasDraftDate := draftTime != ""
+	// draftComplete (F6, J4 console gap-audit): a commissioner adding a
+	// replacement manager mid-season used to send "The startup snake draft
+	// is Sunday..." with a step-4 "Build your draft board before the
+	// clock starts" — both factually wrong once the draft holds every
+	// locked pick. draft["complete"] is draftSummaryForState's own signal
+	// (draftComplete, roster.go), the same one the console's task board
+	// already reads, so this branch can never disagree with the console
+	// about whether the draft is over.
+	draftComplete, _ := draft["complete"].(bool)
 	// An unpublished draft date leaves long_date as the placeholder "Draft
 	// time not published yet" and time as "" (draftSummaryForState,
 	// service.go); interpolating those straight into "is %s at %s." read
@@ -1160,7 +1213,19 @@ func (s *Service) InviteEmailTemplate(r *http.Request, email string) (subject, t
 	// clean sentence instead, with no dangling "at" clause.
 	draftSentence := fmt.Sprintf("The startup snake draft is %s at %s.", longDate, draftTime)
 	subjectDate := shortDate
-	if !hasDraftDate {
+	toDoLead := "Here's what to do before then:"
+	lineupStep := "Build your draft board before the clock starts"
+	switch {
+	case draftComplete:
+		lineupStep = "Set your lineup before kickoff"
+		toDoLead = "Here's what to do:"
+		if week := nextOpenScheduleWeek(s.store.Snapshot().Schedule); week > 0 {
+			draftSentence = fmt.Sprintf("The draft is finished. Claim your seat and set your week %d lineup.", week)
+		} else {
+			draftSentence = "The draft is finished. Claim your seat and set your lineup."
+		}
+		subjectDate = "complete"
+	case !hasDraftDate:
 		draftSentence = "The startup snake draft date is not published yet."
 		subjectDate = "TBD"
 	}
@@ -1172,15 +1237,15 @@ You've got a seat waiting in %s, %s.
 
 %s%s
 
-Here's what to do before then:
+%s
   1. Open %s
   2. Sign in with Google using this address (%s is on the list)
   3. Claim your seat and rename your team
-  4. Build your draft board before the clock starts
+  4. %s
 
 The full scoring system is on the Rules page.%s
 
-— The Commissioner`, s.cfg.Name, blurb, draftSentence, venueClause, joinURL, email, seasonText)
+— The Commissioner`, s.cfg.Name, blurb, draftSentence, venueClause, toDoLead, joinURL, email, lineupStep, seasonText)
 	htmlBody = s.inviteEmailHTML(subjectDate, longDate, draftTime, joinURL, email, blurb)
 	return subject, text, htmlBody
 }
@@ -1376,20 +1441,77 @@ func (s *Service) AdminRemoveInvite(r *http.Request, email string) error {
 	return nil
 }
 
+// SeasonSeatReleaseConsequence names what a seat release leaves behind in
+// season (F7, J4 console gap-audit): the release disclosure's own
+// sentence ("This releases the primary manager, co-manager, pending
+// co-invite, and ready state for this seat.") never named the roster,
+// the lineup, or the matchup the released team keeps playing with —
+// nobody at the wheel, and no way for the commissioner to judge the
+// consequence. Empty before the draft completes or before a schedule
+// exists, when there is no roster or matchup yet to name.
+func (s *Service) SeasonSeatReleaseConsequence(teamID string) string {
+	state := s.store.Snapshot()
+	if !draftComplete(state) {
+		return ""
+	}
+	week := nextOpenScheduleWeek(state.Schedule)
+	if week <= 0 {
+		return ""
+	}
+	rosterCount := len(currentRosters(state)[teamID])
+	return fmt.Sprintf("The %d-player roster, the week %d lineup, and the week %d matchup stay in place with no manager.", rosterCount, week, week)
+}
+
 // AdminReleaseSeat unbinds whoever holds the team seat.
 func (s *Service) AdminReleaseSeat(r *http.Request, teamID, confirmation, token string) (Team, error) {
 	if err := s.requireCommissioner(r); err != nil {
 		return Team{}, err
 	}
+	// releasedEmails (F8, J4 console gap-audit) captures every member
+	// email this release is about to unbind — the primary and, if bound,
+	// the co-manager (teamMembers, primary first) — before the store
+	// clears the binding, so a later visit to / can still tell that
+	// specific person their seat was released, and by whom and when
+	// (SeatReleaseNotice, below).
+	var releasedEmails []string
+	for _, member := range teamMembers(s.store.Snapshot().Members, teamID) {
+		if email := strings.TrimSpace(member.Email); email != "" {
+			releasedEmails = append(releasedEmails, email)
+		}
+	}
 	if err := s.store.ReleaseSeatConfirmed(teamID, confirmation, token); err != nil {
 		return Team{}, err
 	}
 	team := s.teamView(s.store.Snapshot(), teamID)
+	now := s.clock()
+	if err := s.store.SetSeatReleaseNotices(releasedEmails, teamID, now); err != nil {
+		log.Printf("seat release notice: %v", err)
+	}
 	summary := fmt.Sprintf("released seat %s", team.Name)
 	if _, err := s.RecordCommissionerEvent(r, "seat.release", summary, CommissionerEventRefs{TeamID: teamID}); err != nil {
 		log.Printf("commissioner event: seat.release: %v", err)
 	}
 	return team, nil
+}
+
+// SeatReleaseNotice reports the most recent seat release that named email
+// (F8, J4 console gap-audit): a member who held a seat an hour ago and
+// lost it must read what happened, not a first-time-arrival welcome.
+// found is false when email was never named in a release. Backed by
+// PersistedState.SeatReleaseNotices — an additive map, round-tripped
+// through the existing kv-backed scalar columns (SetSeatReleaseNotices,
+// store.go), the same durability shape RosterCorrectionNotices uses, so
+// this needs no SQL migration or schema-version change.
+func (s *Service) SeatReleaseNotice(email string) (teamName string, at time.Time, found bool) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return "", time.Time{}, false
+	}
+	notice, ok := s.store.Snapshot().SeatReleaseNotices[email]
+	if !ok {
+		return "", time.Time{}, false
+	}
+	return s.TeamLabel(notice.TeamID), notice.At, true
 }
 
 // AdminResetDraft clears the draft-scoped state after an exact confirmation.

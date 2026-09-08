@@ -140,6 +140,7 @@ func expectedStorePersistMutators() map[persistCallerID]struct{} {
 		"AcceptTradeOffer", "ExecuteTradeOffer", "CommissionerVetoTradeOffer",
 		"FileTradeVetoOffer", "ExpireTradeOffer", "PostAnnouncement",
 		"DeleteAnnouncement", "PostLocker", "RemoveLockerPost",
+		"SetSeatReleaseNotices",
 	}
 	expected := make(map[persistCallerID]struct{}, len(names)+4)
 	for _, name := range names {

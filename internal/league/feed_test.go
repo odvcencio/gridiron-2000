@@ -461,3 +461,46 @@ func TestDemoProviderReturnsPreseasonSnapshot(t *testing.T) {
 		t.Errorf("warning = %q, want empty", snapshot.Warning)
 	}
 }
+
+// TestSnapshotWeekFlagsClosedEarly pins F3 (J4 console gap-audit): a
+// forced close that finalizes a week while its real NFL games have not
+// gone final ("Week 1 closed and scored" beside 88 of 88 player-stat join
+// misses) left the results page with nothing to distinguish it from an
+// honest FINAL — the state chip and the standings both read as if the
+// week played out normally. ClosedEarly must be true once the week is
+// final but its real games are not, and false once a final week's games
+// are genuinely all final too.
+func TestSnapshotWeekFlagsClosedEarly(t *testing.T) {
+	svc := schedulerTestService(t)
+	week := svc.store.Snapshot().Schedule.Weeks[0].Week
+	kickoff := time.Date(2026, 9, 10, 20, 20, 0, 0, time.UTC)
+	now := kickoff.Add(2 * time.Hour)
+	svc.now = func() time.Time { return now }
+
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "g1", Week: week, Kickoff: kickoff, Final: false}}
+	})
+	svc.SetWeekStatsSource(func(int) []WeekStatLine { return nil })
+	if _, _, err := svc.closeWeek(week, now); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := (scheduleProvider{svc: svc}).SnapshotWeek(context.Background(), now, week)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.ClosedEarly {
+		t.Errorf("ClosedEarly = false, want true for a week force-closed with 0 of 1 real games final")
+	}
+
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "g1", Week: week, Kickoff: kickoff, Final: true}}
+	})
+	genuine, err := (scheduleProvider{svc: svc}).SnapshotWeek(context.Background(), now, week)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if genuine.ClosedEarly {
+		t.Errorf("ClosedEarly = true, want false once every real game is actually final")
+	}
+}
