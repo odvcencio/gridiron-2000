@@ -75,7 +75,15 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// one (11 -> 15). The practice module deliberately does not reuse
 	// app/draft's own draftActionSuccess (unexported, and its target is
 	// the real room's path).
-	const wantRedirects = 15
+	// J3 F8 (2026-09-07 truth pass): pickemSetAction's own success path
+	// now names the picked game's own row and calls
+	// actionui.RedirectWithNoticeToRow instead of RedirectWithNotice — a
+	// managed pick must keep that row's fragment, unlike RedirectWithNotice's
+	// own generic-anchor stripping (15 -> 14). team/page.server.go's
+	// lineupMutationSuccess still calls RedirectWithNotice unchanged for
+	// its own no-single-row case (SET BEST LINEUP), so this inventory's
+	// count there is unaffected.
+	const wantRedirects = 14
 	const wantRedirectBacks = 40
 	redirects := 0
 	redirectBacks := 0

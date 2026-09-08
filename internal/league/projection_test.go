@@ -244,3 +244,34 @@ func TestStillToPlaySentence(t *testing.T) {
 		})
 	}
 }
+
+// TestTeamProjectedTotalHelpersAgreePreKickoff pins item 8 of the
+// 2026-09-07 truth pass: the team stat strip's TeamStartersProjectedTotal
+// and the matchup card's own projectedTotal must agree, for the same
+// starters, before kickoff — the exact case where /team's strip and
+// /matchups' featured card render the same team and week side by side.
+// Before this fix the strip summed the WHOLE roster (bench included), so
+// it read a bigger number than the matchup card for the identical
+// lineup.
+func TestTeamProjectedTotalHelpersAgreePreKickoff(t *testing.T) {
+	lineup := EffectiveLineup{Slots: []SlotAssignment{
+		{Slot: SlotInstance{ID: "QB"}, HasPlayer: true, Player: Player{ID: "qb1", NFLTeam: "BUF", Projection: 20.5}},
+		{Slot: SlotInstance{ID: "RB1"}, HasPlayer: true, Player: Player{ID: "rb1", NFLTeam: "PIT", Projection: 14.2}},
+		{Slot: SlotInstance{ID: "FLEX"}, HasPlayer: false},
+	}}
+	rows := []StarterLedgerRow{
+		{PlayerID: "qb1", NFLTeam: "BUF"},
+		{PlayerID: "rb1", NFLTeam: "PIT"},
+		{PlayerID: "", NFLTeam: ""},
+	}
+	projections := map[string]float64{"qb1": 20.5, "rb1": 14.2}
+
+	strip := TeamStartersProjectedTotal(lineup)
+	matchupCard := projectedTotal(rows, projections, LiveStatus{}, false)
+	if strip != matchupCard {
+		t.Fatalf("strip total = %v, matchup card total = %v, want them to agree", strip, matchupCard)
+	}
+	if strip != 34.7 {
+		t.Fatalf("strip total = %v, want 34.7 (20.5 + 14.2, the two filled slots only)", strip)
+	}
+}

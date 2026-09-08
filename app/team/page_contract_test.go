@@ -217,12 +217,13 @@ func TestLineupContinuityContracts(t *testing.T) {
 	}
 	server := string(serverBytes)
 	for _, want := range []string{
-		`return "/team?week=" + week + "#lineup"`,
+		`fragment := "#lineup"`,
+		`fragment = teamLineupRowFragment(slot)`,
 		`LineupTargetAllowed(ctx.Request, target)`,
 		`target = strings.TrimSpace(ctx.FormData["team_id"])`,
 		`url.QueryEscape(target)`,
 		`result.Result.Redirect = teamLineupTarget(ctx)`,
-		`actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)`,
+		`actionui.RedirectWithNoticeToRow(ctx, target, message)`,
 		`"reserve-place"`,
 		`"reserve-activate"`,
 		`"ir-place"`,
