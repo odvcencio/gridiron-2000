@@ -726,8 +726,11 @@ func TestWireVocabularyIsConsolidatedToSourcesAndSignals(t *testing.T) {
 	if !strings.Contains(server, `"label": "Send a tip",`) {
 		t.Error(`page.server.go primary_action label should read "Send a tip"`)
 	}
-	if !strings.Contains(server, `"Your tip is on the wire."`) {
-		t.Error(`page.server.go submit-sighting confirmation should read "Your tip is on the wire."`)
+	// F37 (gap-audit J6) replaced the bare literal confirmation with
+	// wireTipConfirmation, which names the recipient and repeats the
+	// submitted text — see TestWireTipConfirmationNamesRecipientAndRepeatsText.
+	if !strings.Contains(server, "wireTipConfirmation(league.Default().Config().Name, signal.Text)") {
+		t.Error(`page.server.go submit-sighting should build its confirmation with wireTipConfirmation`)
 	}
 	if strings.Contains(server, "Transmit sighting") {
 		t.Error("page.server.go still carries the retired \"Transmit sighting\" label")
@@ -850,5 +853,73 @@ func TestWireFeedRowNamesAFailureWithReasonAndLastSuccess(t *testing.T) {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("page.gsx still carries retired copy %q", unwanted)
 		}
+	}
+}
+
+// TestWireInventedNounsLinkToTheirHelpTopic is F10's failing-test-first
+// reproduction (gap-audit J6, handed over from the help/locker worker):
+// nothing in the long tail linked to a definition. "Wire state" (the
+// masthead's own state word, e.g. LIVE/CACHED/STALE/DEGRADED/
+// UNAVAILABLE), "provisional", and "trust tier" — the three invented
+// nouns that actually render as static text on /wire — now link to the
+// Manager Guide's "data state and freshness" topic on first use. Every
+// other JS/CSS state word on the page (per-source rows, several of the
+// same word) still shares this one topic; only the first, most visible
+// instance carries the link, matching the finding's own "link the first
+// use" guidance rather than repeating the same link many times in one
+// dense list.
+func TestWireInventedNounsLinkToTheirHelpTopic(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(source)
+	for _, want := range []string{
+		`<a href="/help/data-state-and-freshness" data-gosx-link>Wire state</a>`,
+		`<a href="/help/data-state-and-freshness" data-gosx-link>provisional</a>`,
+		`<a href="/help/data-state-and-freshness" data-gosx-link>trust tier</a>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page.gsx missing help-topic link %q", want)
+		}
+	}
+}
+
+// TestWireTipConfirmationNamesRecipientAndRepeatsText is F37's failing-
+// test-first reproduction (gap-audit J6, handed over from the help/
+// locker worker): the confirmation after sending a tip used to be a
+// bare "Your tip is on the wire.", giving no sign the submission was
+// heard correctly. It now names who sees it (the league) and repeats
+// what was actually sent, truncated to keep the one-line confirmation
+// readable.
+func TestWireTipConfirmationNamesRecipientAndRepeatsText(t *testing.T) {
+	tests := []struct {
+		name       string
+		leagueName string
+		text       string
+		want       string
+	}{
+		{
+			name: "short text renders in full", leagueName: "GRIDIRON 2000",
+			text: "Cowboys sign a new punter.",
+			want: `Your tip is on the wire for GRIDIRON 2000: "Cowboys sign a new punter."`,
+		},
+		{
+			name: "long text truncates on a rune boundary", leagueName: "GRIDIRON 2000",
+			text: strings.Repeat("a", 200),
+			want: `Your tip is on the wire for GRIDIRON 2000: "` + strings.Repeat("a", 120) + `…"`,
+		},
+		{
+			name: "no league name still repeats the text", leagueName: "",
+			text: "Backup RB looked fast in warmups.",
+			want: `Your tip is on the wire: "Backup RB looked fast in warmups."`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := wireTipConfirmation(test.leagueName, test.text); got != test.want {
+				t.Fatalf("wireTipConfirmation(%q, %q) = %q, want %q", test.leagueName, test.text, got, test.want)
+			}
+		})
 	}
 }

@@ -437,7 +437,7 @@ func init() {
 				if err != nil {
 					return action.Error(http.StatusServiceUnavailable, "The signal wire is unavailable")
 				}
-				_, err = signals.SubmitSighting(signalwire.CommunitySubmission{
+				signal, err := signals.SubmitSighting(signalwire.CommunitySubmission{
 					ReporterID:   reporterID,
 					ReporterName: reporterName,
 					EvidenceType: ctx.FormData["evidence_type"],
@@ -448,7 +448,8 @@ func init() {
 				if err != nil {
 					return wireValidationWithRedirect(ctx, wireRedirectTarget(ctx.FormData["category"]), err)
 				}
-				actionui.RedirectBackWithScopedNotice(ctx, wireNoticeRoute, wireRedirectTarget(ctx.FormData["category"]), "Your tip is on the wire.")
+				confirmation := wireTipConfirmation(league.Default().Config().Name, signal.Text)
+				actionui.RedirectBackWithScopedNotice(ctx, wireNoticeRoute, wireRedirectTarget(ctx.FormData["category"]), confirmation)
 				return nil
 			},
 		},
@@ -492,6 +493,30 @@ func wireModeLabel(mode string) string {
 		return label
 	}
 	return "UNAVAILABLE"
+}
+
+// wireTipConfirmationTextLimit caps wireTipConfirmation's echoed text at
+// a length that still reads as one line in a flash banner. The full
+// text is already visible in the feed itself once the redirect lands.
+const wireTipConfirmationTextLimit = 120
+
+// wireTipConfirmation is the sent-state message after a manager submits
+// a tip (F37, gap-audit J6, handed over from the help/locker worker): a
+// bare "Your tip is on the wire." gave no sign the submission was heard
+// correctly. This names the recipient (the league every tip actually
+// goes to) and repeats what was sent, truncated on a rune boundary
+// rather than a byte one so a truncated multi-byte character never
+// corrupts the confirmation.
+func wireTipConfirmation(leagueName, text string) string {
+	text = strings.TrimSpace(text)
+	runes := []rune(text)
+	if len(runes) > wireTipConfirmationTextLimit {
+		text = strings.TrimSpace(string(runes[:wireTipConfirmationTextLimit])) + "…"
+	}
+	if leagueName == "" {
+		return fmt.Sprintf("Your tip is on the wire: %q", text)
+	}
+	return fmt.Sprintf("Your tip is on the wire for %s: %q", leagueName, text)
 }
 
 // wireIntervalLabel names a duration in plain words ("2 minutes", "45
