@@ -11,6 +11,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The commissioner console's Announcements section now sits right after Week close in the page itself, on every viewport, instead of only appearing early on a phone through a visual-only reorder that keyboard and screen-reader order never followed.
 - On a phone, /scoring's sticky jump strip is now a closed "Jump to a section" disclosure that opens to a wrapped list, instead of a sideways-scrolling row that hid most of its own sections with no cue. The sticky strip is unchanged on a desktop.
 - A co-manager invite no longer binds a shared seat silently on first sign-in. The invited member now sees a confirm question naming the team and who invited them, with a Join button and a Not now link; the seat binds only on Join.
+- The Help Center's hero card now reads "Draft complete" once the draft is done, instead of "Next draft meeting" for a meeting that already happened, and its phase reads the same league clock the console uses. The search panel's lede now reads in plain words instead of corpus/schema jargon.
 
 ## [release-2026.09.08-97027d0-season3] — 2026-09-08
 

@@ -59,3 +59,28 @@ func (s *Service) SeedStarterForTest(teamID string, week int, slot, playerID str
 	}
 	return s.store.SetLineupSlot(teamID, week, slot, playerID, now)
 }
+
+// CompleteDraftForTest fills every pick of the draft, in real snake
+// order, with synthetic player IDs, so DraftComplete() reports true. It
+// exists so a render fixture outside this package (Help Center hero
+// card residue, app/help/page_render_test.go) can prove a post-draft
+// render without running an actual 136-pick draft — the same "ForTest"
+// seam SetClockForTest/SeedStarterForTest already expose. Harness only:
+// refused when APP_ENV=production, matching those guards.
+func (s *Service) CompleteDraftForTest() error {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
+		return fmt.Errorf("CompleteDraftForTest is refused in production")
+	}
+	previousBypass := s.store.draftLifecycleBypass
+	s.store.draftLifecycleBypass = true
+	defer func() { s.store.draftLifecycleBypass = previousBypass }()
+	now := s.clock()
+	total := len(defaultTeams()) * CurrentDraftRounds()
+	for number := 1; number <= total; number++ {
+		team := teamOnClock(nil, number)
+		if _, err := s.store.MakePick(team, fmt.Sprintf("test-pick-%03d", number), "manager", now, time.Time{}); err != nil {
+			return err
+		}
+	}
+	return nil
+}

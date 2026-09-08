@@ -33,7 +33,14 @@ func TopicView(topic Topic) map[string]any {
 func runtimeProjection() map[string]any {
 	svc := league.Default()
 	cfg := svc.Config()
-	phase := strings.ToUpper(strings.ReplaceAll(svc.SeasonPhase(time.Now()), "-", " "))
+	// now (Help hero residue, wave E): reads the service clock, the same
+	// harness-adjustable clock the commissioner console's own top line
+	// reads (SeasonPhase, DraftDatePublished), not the bare wall clock —
+	// the same seam F13/F29 already fixed elsewhere. A stale bare-clock
+	// read here could show PRESEASON after the harness (or a real
+	// mid-season deploy) had already moved on.
+	now := svc.Now()
+	phase := strings.ToUpper(strings.ReplaceAll(svc.SeasonPhase(now), "-", " "))
 	mode := strings.ToUpper(strings.TrimSpace(cfg.ModeLabel))
 	if mode == "" {
 		mode = "CONFIGURED"
@@ -48,16 +55,27 @@ func runtimeProjection() map[string]any {
 	// audit found rendered here as a live "Next draft meeting" fact. Apply
 	// the same DraftDatePublished guard draftSummaryForState already uses
 	// for / and /guide.
-	now := time.Now()
 	draftAt := svc.DraftAt()
+	draftComplete := svc.DraftComplete()
+	// draftLabel/draftAtLabel (Help hero residue, wave E): after the
+	// draft, this card kept reading "Next draft meeting · Mon, Sep 7 ·
+	// 4:30 PM EDT" as a future promise for a meeting that already
+	// happened. A completed draft reads "Draft complete" instead, still
+	// with the same meeting date when one was published.
+	draftLabel := "Next draft meeting"
 	draftAtLabel := "Not published yet — the commissioner sets it"
 	if league.DraftDatePublished(now, draftAt) {
 		draftAtLabel = draftAt.In(location).Format("Mon, Jan 2, 2006 · 3:04 PM MST")
 	}
+	if draftComplete {
+		draftLabel = "Draft complete"
+	}
 	return map[string]any{
 		"league_name": cfg.Name, "mode": mode, "phase": phase, "timezone": league.FriendlyTimezoneLabel(zone),
-		"draft_at":     draftAtLabel,
-		"runtime_note": "Rules, dates, deadlines, capabilities, and freshness remain owned by the current league runtime.",
+		"draft_label":    draftLabel,
+		"draft_at":       draftAtLabel,
+		"draft_complete": draftComplete,
+		"runtime_note":   "Rules, dates, deadlines, capabilities, and freshness remain owned by the current league runtime.",
 	}
 }
 

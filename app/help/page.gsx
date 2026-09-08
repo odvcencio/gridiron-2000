@@ -21,7 +21,7 @@ func Page() Node {
 				<div><span>Active league</span><strong>{data.runtime.league_name}</strong></div>
 				<div><span>Mode / phase</span><strong>{data.runtime.mode} · {data.runtime.phase}</strong></div>
 				<div><span>League timezone</span><strong>{data.runtime.timezone}</strong></div>
-				<div><span>Next draft meeting</span><strong>{data.runtime.draft_at}</strong></div>
+				<div><span>{data.runtime.draft_label}</span><strong>{data.runtime.draft_at}</strong></div>
 				</aside>
 		</header>
 
@@ -38,7 +38,7 @@ func Page() Node {
 			<header class="guide-section__heading">
 				<span class="section-index">01 // SEARCH</span>
 				<h2 id="search-results-heading">{data.query}</h2>
-				<If cond={data.has_query == false}><p>Search the versioned corpus by canonical term, incoming alias, or task question.</p></If>
+				<If cond={data.has_query == false}><p>Search by a question, a word from the app, or a word from another fantasy app.</p></If>
 				<If cond={data.has_query}><p>Top answers are ranked by explicit match quality, then stable category/title/topic order.</p></If>
 			</header>
 			<If cond={data.has_query && data.has_results}>
