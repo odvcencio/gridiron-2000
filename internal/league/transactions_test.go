@@ -137,10 +137,23 @@ func TestActivityMapsDraftRowCarriesRoundAndPick(t *testing.T) {
 
 // TestActivityMapsAttributesAutoAndCommissionerPicksHonestly is the
 // end-to-end half of F3 (gap-audit J2): activityMaps must route a real
-// DraftPick's MadeBy through draftPickActivityLine, not just build the
+// DraftPick's MadeBy through its own action verb, not just build the
 // "drafts" default. A no-show's autopick and a commissioner's forced pick
 // must never enter the permanent record indistinguishable from a manual
 // pick.
+//
+// F21 residue (wave E): before this fix, the auto/commissioner rows'
+// "team" field carried a combined "Autopick for Team (CODE)" /
+// "Commissioner" sentence prefix instead of the plain, split
+// team_name/team_code pair every other row gets — this test now pins the
+// split lead too, with provenance carried by the action verb alone
+// ("auto-drafts", "commissioner drafts"), matching activityLine's own
+// "auto-drops"/"commissioner drops" pattern for transactions. The draft
+// room's own tape keeps the combined sentence unchanged —
+// TestDraftPickActivityLineAttributesByMadeBy and
+// TestDraftPickAttributionSentenceMatchesTheActivityLine, below, still
+// pin draftPickActivityLine/draftPickAttributionSentence exactly as they
+// were.
 func TestActivityMapsAttributesAutoAndCommissionerPicksHonestly(t *testing.T) {
 	svc := newTestService(t, true)
 	svc.SetPlayerSource(func() ([]Player, int64, string) { return testPool(5), 1, "test" })
@@ -156,30 +169,48 @@ func TestActivityMapsAttributesAutoAndCommissionerPicksHonestly(t *testing.T) {
 	if len(rows) != 3 {
 		t.Fatalf("len(rows) = %d, want 3", len(rows))
 	}
-	team1, _, _ := svc.activityTeamDisplay(state, []string{"team-1"})
-	team2, _, _ := svc.activityTeamDisplay(state, []string{"team-2"})
-	team3, _, _ := svc.activityTeamDisplay(state, []string{"team-3"})
+	team1, teamCode1, teamName1 := svc.activityTeamDisplay(state, []string{"team-1"})
+	_, teamCode2, teamName2 := svc.activityTeamDisplay(state, []string{"team-2"})
+	_, teamCode3, teamName3 := svc.activityTeamDisplay(state, []string{"team-3"})
 
 	// Newest first: commissioner (P3), auto (P2), manager (P1).
-	if got, want := rows[0]["team"], "Commissioner"; got != want {
-		t.Fatalf("commissioner pick team = %q, want %q", got, want)
+	if got, want := rows[0]["team_name"], teamName3[0]; got != want {
+		t.Fatalf("commissioner pick team_name = %q, want %q", got, want)
 	}
-	if got, want := rows[0]["action"], "picks"; got != want {
+	if got, want := rows[0]["team_code"], teamCode3[0]; got != want {
+		t.Fatalf("commissioner pick team_code = %q, want %q", got, want)
+	}
+	if got, want := rows[0]["has_team_code"], true; got != want {
+		t.Fatalf("commissioner pick has_team_code = %v, want %v", got, want)
+	}
+	if got, want := rows[0]["action"], "commissioner drafts"; got != want {
 		t.Fatalf("commissioner pick action = %q, want %q", got, want)
 	}
-	if got, want := rows[0]["player"], "Pool Player 003 (WR) — R1 · P3 for "+team3; got != want {
+	if got, want := rows[0]["player"], "Pool Player 003 (WR) — R1 · P3"; got != want {
 		t.Fatalf("commissioner pick player = %q, want %q", got, want)
 	}
 
-	if got, want := rows[1]["team"], "Autopick for "+team2; got != want {
-		t.Fatalf("auto pick team = %q, want %q", got, want)
+	if got, want := rows[1]["team_name"], teamName2[0]; got != want {
+		t.Fatalf("auto pick team_name = %q, want %q", got, want)
 	}
-	if got, want := rows[1]["action"], "selects"; got != want {
+	if got, want := rows[1]["team_code"], teamCode2[0]; got != want {
+		t.Fatalf("auto pick team_code = %q, want %q", got, want)
+	}
+	if got, want := rows[1]["has_team_code"], true; got != want {
+		t.Fatalf("auto pick has_team_code = %v, want %v", got, want)
+	}
+	if got, want := rows[1]["action"], "auto-drafts"; got != want {
 		t.Fatalf("auto pick action = %q, want %q", got, want)
 	}
 
 	if got, want := rows[2]["team"], team1; got != want {
 		t.Fatalf("manager pick team = %q, want %q", got, want)
+	}
+	if got, want := rows[2]["team_name"], teamName1[0]; got != want {
+		t.Fatalf("manager pick team_name = %q, want %q", got, want)
+	}
+	if got, want := rows[2]["team_code"], teamCode1[0]; got != want {
+		t.Fatalf("manager pick team_code = %q, want %q", got, want)
 	}
 	if got, want := rows[2]["action"], "drafts"; got != want {
 		t.Fatalf("manager pick action = %q, want %q", got, want)

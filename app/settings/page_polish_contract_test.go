@@ -31,21 +31,28 @@ func TestSettingsLoadConsumesOneNativeNoticeAndSharedActionFeedback(t *testing.T
 		t.Fatal(err)
 	}
 	source := string(sourceBytes)
-	if got := strings.Count(source, "Flashes(\"notice\")"); got != 1 {
-		t.Fatalf("settings Load consumes %d notice flash readers, want exactly one", got)
+	// J6 F15 residue (wave E): Load used to read the same untagged
+	// session flash every other page's own action wrote
+	// (session.Current(ctx.Request).Flashes("notice")); it now reads
+	// ScopedNotice(ctx.Request, NoticeRoute), which only this page's own
+	// writes ever populate. See
+	// TestScopedNoticePostedOnOnePageNeverRendersOnAnother
+	// (app/interaction_feedback_contract_test.go).
+	if got := strings.Count(source, "actionui.ScopedNotice(ctx.Request, NoticeRoute)"); got != 1 {
+		t.Fatalf("settings Load consumes %d scoped notice flash readers, want exactly one", got)
 	}
-	if !strings.Contains(source, "session.Current(ctx.Request)") {
-		t.Fatal("settings Load must read the native notice through the current session")
+	if strings.Contains(source, "Flashes(\"notice\")") {
+		t.Fatal("settings Load must not read the old, unscoped \"notice\" flash key")
 	}
 	if strings.Contains(source, "session.AddFlash") {
 		t.Fatal("settings action must use the shared redirect feedback helper, not write a second flash")
 	}
 	// F9 (2026-09-04 UX pass): the redirect now names the saved category's
 	// own fieldset so a manager returns beside it instead of the page top;
-	// RedirectWithNotice still strips that fragment for a managed request
-	// and keeps it for a native one (internal/actionui/feedback.go).
-	if !strings.Contains(source, "actionui.RedirectWithNotice(ctx, notificationRedirectTarget(category), message)") {
-		t.Fatal("settings action must return its success copy through RedirectWithNotice, redirecting to the saved category's own fieldset")
+	// RedirectWithScopedNotice still strips that fragment for a managed
+	// request and keeps it for a native one (internal/actionui/feedback.go).
+	if !strings.Contains(source, "actionui.RedirectWithScopedNotice(ctx, NoticeRoute, notificationRedirectTarget(category), message)") {
+		t.Fatal("settings action must return its success copy through RedirectWithScopedNotice, redirecting to the saved category's own fieldset")
 	}
 }
 

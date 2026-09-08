@@ -92,11 +92,9 @@ func init() {
 			}
 			data["has_notice"] = false
 			data["notice"] = ""
-			if store := session.Current(ctx.Request); store != nil {
-				if flashes := store.Flashes("notice"); len(flashes) > 0 {
-					data["has_notice"] = true
-					data["notice"] = fmt.Sprint(flashes[0])
-				}
+			if notice, ok := actionui.ScopedNotice(ctx.Request, NoticeRoute); ok {
+				data["has_notice"] = true
+				data["notice"] = notice
 			}
 			data["has_settings_error"] = false
 			data["settings_error"] = ""
@@ -178,7 +176,7 @@ func setNotificationPreference(ctx *action.Context) error {
 	}
 	label := league.NotificationCategoryLabel(category)
 	message := notificationPreferenceSavedMessage(label, enabled, deliveryReady)
-	actionui.RedirectWithNotice(ctx, notificationRedirectTarget(category), message)
+	actionui.RedirectWithScopedNotice(ctx, NoticeRoute, notificationRedirectTarget(category), message)
 	return nil
 }
 
@@ -197,6 +195,14 @@ func setDensityPreference(ctx *action.Context) error {
 	if value == density.Compact {
 		label = "Compact"
 	}
-	actionui.RedirectWithNotice(ctx, "/settings", "Data density set to "+label+".")
+	actionui.RedirectWithScopedNotice(ctx, NoticeRoute, "/settings", "Data density set to "+label+".")
 	return nil
 }
+
+// NoticeRoute is /settings' own confirmation scope (J6 F15 residue, wave
+// E): every page used to read the same untagged session flash every
+// other page's own action wrote, so a manager who changed a preference
+// here and opened another page before following the redirect saw that
+// other page's confirmation instead. See
+// internal/actionui.RedirectWithScopedNotice and ScopedNotice.
+const NoticeRoute = "/settings"

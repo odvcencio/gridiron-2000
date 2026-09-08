@@ -441,6 +441,15 @@ const (
 	teamIdentityReturnTarget      = "/team?identity=edit#team-identity"
 )
 
+// NoticeRoute is /team's own confirmation scope (J6 F15 residue, wave
+// E): every page used to read the same untagged session flash every
+// other page's own action wrote, so a manager who saved a lineup or an
+// identity change here and opened another page before following the
+// redirect saw that other page's confirmation instead. See
+// internal/actionui.RedirectWithScopedNotice, RedirectBackWithScopedNotice,
+// RedirectWithScopedNoticeToRow, and ScopedNotice.
+const NoticeRoute = "/team"
+
 // lineupValidation keeps native forms anchored to the selected lineup while
 // retaining GoSX's managed JSON field errors. The action framework's
 // progressive fallback will flash the values and errors before redirecting
@@ -478,10 +487,10 @@ func lineupValidation(ctx *action.Context, field string, err error) error {
 func lineupMutationSuccess(ctx *action.Context, message string) error {
 	target := teamLineupTarget(ctx)
 	if ctx != nil && strings.TrimSpace(ctx.FormData["slot"]) != "" {
-		actionui.RedirectWithNoticeToRow(ctx, target, message)
+		actionui.RedirectWithScopedNoticeToRow(ctx, NoticeRoute, target, message)
 		return nil
 	}
-	actionui.RedirectWithNotice(ctx, target, message)
+	actionui.RedirectWithScopedNotice(ctx, NoticeRoute, target, message)
 	return nil
 }
 
@@ -504,10 +513,10 @@ func benchValidation(ctx *action.Context, field string, err error) error {
 func benchMutationSuccess(ctx *action.Context, message string) error {
 	target := teamBenchTarget(ctx)
 	if ctx != nil && strings.TrimSpace(ctx.FormData["player_id"]) != "" {
-		actionui.RedirectWithNoticeToRow(ctx, target, message)
+		actionui.RedirectWithScopedNoticeToRow(ctx, NoticeRoute, target, message)
 		return nil
 	}
-	actionui.RedirectWithNotice(ctx, target, message)
+	actionui.RedirectWithScopedNotice(ctx, NoticeRoute, target, message)
 	return nil
 }
 
@@ -615,11 +624,11 @@ func init() {
 			// until the bounded-multipart contract is adopted.
 			data["has_avatar_error"] = false
 			data["avatar_error"] = ""
+			if notice, ok := actionui.ScopedNotice(ctx.Request, NoticeRoute); ok {
+				data["has_notice"] = true
+				data["notice"] = notice
+			}
 			if store := session.Current(ctx.Request); store != nil {
-				if flashes := store.Flashes("notice"); len(flashes) > 0 {
-					data["has_notice"] = true
-					data["notice"] = fmt.Sprint(flashes[0])
-				}
 				if flashes := store.Flashes("avatar_error"); len(flashes) > 0 {
 					data["has_avatar_error"] = true
 					data["avatar_error"] = fmt.Sprint(flashes[0])
@@ -648,7 +657,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "team", "name", err)
 				}
-				actionui.RedirectBackWithNotice(ctx, teamIdentityReturnTarget, fmt.Sprintf("Team renamed to %s.", team.Name))
+				actionui.RedirectBackWithScopedNotice(ctx, NoticeRoute, teamIdentityReturnTarget, fmt.Sprintf("Team renamed to %s.", team.Name))
 				return nil
 			},
 			// team-name-reset is item 4's explicit reset action: now that
@@ -664,7 +673,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "team", "name", err)
 				}
-				actionui.RedirectBackWithNotice(ctx, teamIdentityReturnTarget, fmt.Sprintf("Team name reset to %s.", team.Name))
+				actionui.RedirectBackWithScopedNotice(ctx, NoticeRoute, teamIdentityReturnTarget, fmt.Sprintf("Team name reset to %s.", team.Name))
 				return nil
 			},
 			// lineup-set applies one roster-ops spec section 4.4
@@ -706,7 +715,7 @@ func init() {
 				if err := league.Default().InviteCoManager(ctx.Request, ctx.FormData["team_id"], ctx.FormData["email"]); err != nil {
 					return actionui.Validation(ctx, "team", "email", err)
 				}
-				actionui.RedirectBackWithNotice(ctx, teamIdentityReturnTarget, "Co-manager invited: "+ctx.FormData["email"]+".")
+				actionui.RedirectBackWithScopedNotice(ctx, NoticeRoute, teamIdentityReturnTarget, "Co-manager invited: "+ctx.FormData["email"]+".")
 				return nil
 			},
 			// co-detach lets the seat's primary manager or the commissioner
@@ -715,7 +724,7 @@ func init() {
 				if err := league.Default().DetachCoManager(ctx.Request, ctx.FormData["team_id"]); err != nil {
 					return actionui.Validation(ctx, "team", "team_id", err)
 				}
-				actionui.RedirectBackWithNotice(ctx, teamIdentityReturnTarget, "Co-manager detached.")
+				actionui.RedirectBackWithScopedNotice(ctx, NoticeRoute, teamIdentityReturnTarget, "Co-manager detached.")
 				return nil
 			},
 			// lineup-auto applies the section 4.7 SET BEST LINEUP action.

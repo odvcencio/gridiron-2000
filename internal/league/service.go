@@ -6439,6 +6439,30 @@ func draftPickAttributionSentence(madeBy, teamName, playerLabel string) string {
 	return team + " " + action + " " + player
 }
 
+// activityDraftPickAction names the verb an /activity draft-pick row uses
+// for its own MadeBy provenance (F21 residue, wave E: draft-pick
+// provenance rows and commissioner rows on /activity kept the combined
+// "code + name" string because the row's team display was built from
+// draftPickActivityLine, whose team return value folds the provenance in
+// as a full sentence prefix — "Autopick for Team (CODE)" — rather than
+// the plain team name every other feed row leads with). /activity now
+// leads every draft-pick row with the same split team_name/team_code
+// pair as any other row and carries the provenance here instead, on the
+// same "auto-drops"/"commissioner drops" pattern activityLine already
+// uses for transactions. The draft room's own tape keeps its combined
+// sentence unchanged — draft_history.go calls draftPickAttributionSentence
+// (and, through it, draftPickActivityLine) directly, not this function.
+func activityDraftPickAction(madeBy string) string {
+	switch madeBy {
+	case "auto":
+		return "auto-drafts"
+	case "commissioner":
+		return "commissioner drafts"
+	default:
+		return "drafts"
+	}
+}
+
 // activityActorClassCommissioner marks a feed row as a commissioner-actor
 // event ("kind") rather than an ordinary team roster move — /activity's
 // template uses this to render the "COMMISSIONER · <name> <summary>"
@@ -6516,7 +6540,6 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 	type entry struct {
 		at         time.Time
 		teamIDs    []string
-		teamLabel  string // non-empty overrides the shared team-display text below (draft-pick provenance rows only)
 		action     string
 		player     string
 		kind       string // "" for an ordinary team move, activityActorClassCommissioner for a commissioner event
@@ -6536,9 +6559,18 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 		// (adds/drops/trades) never sets this suffix, so it stays specific
 		// to a draft pick's own row.
 		label = fmt.Sprintf("%s — R%d · P%d", label, pick.Round, pick.Number)
-		teamName, _, _ := s.activityTeamDisplay(state, []string{pick.TeamID})
-		teamLabel, action, player := draftPickActivityLine(pick.MadeBy, teamName, label)
-		entries = append(entries, entry{at: pick.MadeAt, teamIDs: []string{pick.TeamID}, teamLabel: teamLabel, action: action, player: player, actionType: activityActionTypeDraft})
+		// F21 residue (wave E): a draft-pick row used to route through
+		// draftPickActivityLine, whose team return value is a single
+		// combined "Autopick for Team (CODE)" / "Commissioner" string —
+		// fine for the draft room's own tape sentence
+		// (draftPickAttributionSentence, draft_history.go, which still
+		// calls draftPickActivityLine directly and is unchanged by this
+		// fix), but wrong for /activity, where every other row already
+		// leads with the plain team name and demotes the code to its own
+		// chip (teamName/teamAbbreviations/teamNames below). A draft-pick
+		// row now leads the same way; its MadeBy provenance folds into
+		// the action verb instead (activityDraftPickAction).
+		entries = append(entries, entry{at: pick.MadeAt, teamIDs: []string{pick.TeamID}, action: activityDraftPickAction(pick.MadeBy), player: label, actionType: activityActionTypeDraft})
 	}
 	for _, txn := range state.Transactions {
 		action, player := activityLine(txn)
@@ -6573,15 +6605,16 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 		teamDisplay, teamAbbreviations, teamNames := s.activityTeamDisplay(state, e.teamIDs)
 		teamSearch := append(append([]string{}, teamAbbreviations...), teamNames...)
 		teamSearch = append(teamSearch, e.teamIDs...)
-		// teamName/teamCode (F21, gap-audit J6) split the row's own
-		// leading label into a name a manager reads and a code a manager
-		// can ignore: the feed used to repeat "(AQ2)" on every one of 137
-		// lines with nothing on the page defining what it means. They stay
-		// "" for a commissioner event (attributed to a person, not a
-		// team/code — wave-2 audit) and for a draft pick's own provenance
-		// label ("Autopick for ...", "Commissioner" — F3, gap-audit J2),
-		// neither of which is a plain team name a code chip could follow;
-		// those two cases keep the single combined "team" string only.
+		// teamName/teamCode (F21, gap-audit J6; split extended to draft
+		// picks, F21 residue wave E) split the row's own leading label
+		// into a name a manager reads and a code a manager can ignore:
+		// the feed used to repeat "(AQ2)" inline on every line with
+		// nothing on the page defining what it means. They stay "" only
+		// for a commissioner event, attributed to a person, not a team —
+		// a draft pick (manual, auto, or commissioner-forced) now always
+		// gets the same split lead as any other row; its MadeBy
+		// provenance lives in the action verb instead
+		// (activityDraftPickAction).
 		teamName := strings.Join(teamNames, " ↔ ")
 		teamCode := strings.Join(teamAbbreviations, " ↔ ")
 		if e.kind == activityActorClassCommissioner {
@@ -6594,15 +6627,6 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 			teamName = e.actorName
 			teamCode = ""
 			teamSearch = append(teamSearch, "commissioner", e.actorName, e.actorEmail)
-		} else if e.teamLabel != "" {
-			// F3 (gap-audit J2): a draft pick's own leading label carries its
-			// MadeBy provenance (draftPickActivityLine) — "Autopick for ..."
-			// or "Commissioner" — while teamIDs/teamAbbreviations/teamNames
-			// above stay the real team's, so filtering by team code still
-			// finds the row.
-			teamDisplay = e.teamLabel
-			teamName = e.teamLabel
-			teamCode = ""
 		}
 		out = append(out, map[string]any{
 			"time":                  e.at.In(location).Format("Jan 2, 3:04 PM MST"),

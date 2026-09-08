@@ -19918,6 +19918,100 @@ body.is-on-clock .draft-command__pill-sentence {
   word-break: normal;
 }
 
+/* comb — yew (2026-09-08 wave E) */
+
+/* J1 F13: the draft room's pool row (.avail-row, app/draft/page.gsx) and
+   its Big Board queue row (.q-row) each keep the news icon in its own
+   fixed 2.75rem trailing cell/column already (.avail-row__info,
+   .q-row__info) — closed, the row is clean. Open, browser evidence
+   (getComputedStyle on the news <summary>'s own ::after) showed
+   content: "DETAILS −", not "none": .stat-tip[open] >
+   .stat-tip__summary::after (this file's stat-tip stacking model block)
+   and .stat-tip__summary--news::after (this file's own "content: none"
+   override) are equal specificity (0,3,1) vs (0,1,1) — the open rule's
+   extra [open] and descendant-class selectors win outright, so the open
+   state always shows "DETAILS −" even on the news trigger, sliding
+   over the PROJ column to its left ("2📰8 DETAILS −" over
+   "20.8"). team/page.gsx's own lineup-grid news icon hit the identical
+   specificity gap and fixed it with one more specific override (this
+   file's own ".lineup-slot__player .stat-tip--news > .stat-tip__summary
+   ::after" rule) — these two rules are that same fix for the draft
+   room's two own news triggers, matching (0,3,1) and winning by landing
+   later in the file. */
+.avail-row .stat-tip--news > .stat-tip__summary::after,
+.q-row .stat-tip--news > .stat-tip__summary::after {
+  content: none;
+}
+
+/* J1 F17: the room's MY TEAM/Big Board pane nests two independent
+   scroll containers at phone width — .draft-pane__body (the pane's own
+   full-height scroll, every pane's shared contract) and, inside it,
+   .pool-list--reorder-scroll's own bounded 65vh box (live-measured:
+   549/5873px, well past its own pane's 567/659px) — so a manager
+   scrolling the pane can run out of pane before running out of queue,
+   then has to find and scroll the SECOND, inner box to keep going. The
+   inner box's own 65vh cap exists so the drag-reorder runtime's
+   auto-scroll-during-drag (gosx@v0.53.10 navigation.ts, this file's own
+   .pool-list--reorder-scroll doc comment) has a bounded container to
+   scroll — real value above tablet width, where the pane itself has
+   room to spare. At phone width the pane is already the tightest box on
+   screen, so this drops the inner cap there: the queue flows with the
+   pane's own single scroll instead, at the cost of the drag runtime's
+   own auto-scroll only reaching as far as one screen of rows on a
+   phone — a manual scroll-then-drag still reaches every row; nothing
+   becomes unreachable, unlike the pre-2026-09 bug the cap itself fixed.
+   Scoped to .draft-mine__view--queue's own copy of the shared
+   .pool-list--reorder-scroll class (app/draft/page.gsx's DraftMyTeam):
+   /board's OWN Big Board list carries the identical class outside that
+   ancestor and keeps its existing 65vh box untouched — a different
+   page's own layout call, not this finding's. */
+@media (width <= 899px) {
+  .draft-mine__view--queue .pool-list--reorder-scroll {
+    max-height: none;
+    overflow-y: visible;
+  }
+}
+
+/* J1 F11 residue: the pick bar region and the available (pool) pane
+   moved earlier in app/draft/page.gsx's own DOM order (right after the
+   tab bar, and leading the panes group) so a keyboard user tabbing
+   straight through the room — not using rowan's own skip link — reaches
+   the on-clock Draft control in a handful of stops instead of walking
+   the whole history/tape pane first. Neither move is meant to change
+   what renders where: these order values put both back at their
+   original visual position.
+   Desktop (.draft-panes is a 3-column grid, min-width: 56.25rem — see
+   this file's own .draft-panes block): with no order at all, the new
+   DOM order (available, history, mine) would auto-place into columns
+   in that same sequence — available in the narrow 360px left column,
+   history in the flexible middle. These orders keep the original
+   left-to-right sequence (history, available, mine) regardless of DOM
+   order.
+   Phone (max-width: 56.1875rem, .draft-shell's own 5-row grid, this
+   file's own .draft-tabbar { order: 2; } two rules up): the pick bar's
+   region div used to land in the "pickbar" row (row 4, right before
+   the tab bar's own explicit order: 2) for free, by being the next
+   default-order (0) sibling after .draft-panes in DOM order. Moved
+   ahead of .draft-panes, it needs its own explicit order — 1, between
+   the shell's other default-order (0) siblings (notice, command,
+   panes) and the tab bar's 2 — to land in that same row 4 slot. */
+@media (min-width: 56.25rem) {
+  .draft-panes > .draft-pane--history {
+    order: 1;
+  }
+  .draft-panes > .draft-pane--available {
+    order: 2;
+  }
+  .draft-panes > .draft-pane--mine {
+    order: 3;
+  }
+}
+@media (width <= 899px) {
+  .draft-pickbar-region {
+    order: 1;
+  }
+}
+
 /* comb — aspen (2026-09-08 wave E) */
 
 /* Decision 1 (J3 F21, J5 F29): the home masthead's slogan-turned-lede
