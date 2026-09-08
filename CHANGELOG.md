@@ -5,6 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+No changes yet.
+
+## [release-2026.09.08-97027d0-season3] — 2026-09-08
+
+Scope: the third in-season batch: the commissioner console's sticky section strip, one numbering, a complete task board, a this-week card, and a week-first status card that follow the next open week; typed confirmations that name the league on every destructive control, a truthful access list after a seat release, a lineup-intervention link that opens the right team and a plain error for an unknown one, rules and scoring that read the real phase, waiver and playoff panels that state the truth, and a reachable, filterable league log; the Signal Wire's filter counts, honest labels and state words, one vocabulary, one refresh statement, and help links; the activity feed with team names first, an action-type filter, and one league-local time format; help search that finds the league's own rules and a true waivers answer; commissioner notes in the Locker Room; trade context on both sides of a deal and an executed-trade notice; the Pick'em row with the pick as its primary control; the seat and role beside the avatar; a first-session strip on the home page; matchups and lineup clamps removed; and the draft room's position filter that survives every refetch, a compact phone pick flow, autopick position caps with a value guard, and a Big Board value warning. No schema change.
+
 ### Added
 - Help search now finds this league's own house rules: searching superflex, punter, punting, half PPR, or IR returns the right topic instead of "No matching topic."
 - A commissioner posting to the Locker Room can mark a post "Post as commissioner note." That post carries a Commissioner badge and a distinct style, so a ruling reads differently from trash talk.
