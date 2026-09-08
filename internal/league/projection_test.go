@@ -167,3 +167,80 @@ func TestWinProbabilityAriaValue(t *testing.T) {
 		})
 	}
 }
+
+// TestStarterProjectedTotalSumsToTheSameTeamTotal covers A2 (matchup
+// redesign 2026-09-07): the slot table's own per-starter PROJ column
+// must sum to exactly the same figure projectedTotal already gives the
+// header card for the same rows — one starter's own honest rest-of-game
+// projection is the identical per-row term projectedTotal sums across a
+// side, never a second, independently-rounded formula.
+func TestStarterProjectedTotalSumsToTheSameTeamTotal(t *testing.T) {
+	byID := map[string]Player{
+		"p-1": {ID: "p-1", NFLTeam: "BUF", Projection: 20},
+		"p-2": {ID: "p-2", NFLTeam: "BAL", Projection: 10},
+	}
+	rows := []StarterLedgerRow{
+		{Slot: "QB", PlayerID: "p-1", NFLTeam: "BUF", Points: 6},
+		{Slot: "RB1", PlayerID: "p-2", NFLTeam: "BAL", Points: 3},
+		{Slot: "RB2"}, // empty slot
+	}
+	status := LiveStatus{Games: map[string]LiveGameState{
+		"BUF": {Period: "Q2", InProgress: true},
+	}}
+	projections := starterProjections(rows, byID)
+	want := projectedTotal(rows, projections, status, true)
+	var sum float64
+	for _, row := range rows {
+		sum += starterProjectedTotal(row, byID, status, true)
+	}
+	if math.Abs(sum-want) > 0.0001 {
+		t.Fatalf("sum of starterProjectedTotal = %v, want the team total %v", sum, want)
+	}
+	// An empty slot always projects the honest zero, never a dash and
+	// never a stray nonzero figure.
+	if got := starterProjectedTotal(rows[2], byID, status, true); got != 0 {
+		t.Fatalf("empty slot starterProjectedTotal = %v, want 0", got)
+	}
+}
+
+// TestStarterProjectedTextRendersANumberNeverADash covers A2: unlike a
+// team-level total (projectedText), which honestly renders "—" for a
+// side with no projectable starters at all, one starter row's own PROJ
+// cell always renders a plain number — an empty slot's honest projection
+// is 0.0, not unknown.
+func TestStarterProjectedTextRendersANumberNeverADash(t *testing.T) {
+	byID := map[string]Player{"p-1": {ID: "p-1", NFLTeam: "BUF", Projection: 18}}
+	filled := StarterLedgerRow{Slot: "QB", PlayerID: "p-1", NFLTeam: "BUF"}
+	if got := starterProjectedText(filled, byID, LiveStatus{}, false); got != "18.0" {
+		t.Fatalf("starterProjectedText(filled) = %q, want %q", got, "18.0")
+	}
+	empty := StarterLedgerRow{Slot: "RB1"}
+	if got := starterProjectedText(empty, byID, LiveStatus{}, false); got != "0.0" {
+		t.Fatalf("starterProjectedText(empty slot) = %q, want the honest zero %q", got, "0.0")
+	}
+}
+
+// TestStillToPlaySentence covers A1 (matchup redesign 2026-09-07): the
+// plain-words still-to-play line retires the fixed "N of M starters
+// still to play" jargon for a sentence that reads naturally at both ends
+// of the range.
+func TestStillToPlaySentence(t *testing.T) {
+	cases := []struct {
+		name        string
+		stillToPlay int
+		total       int
+		want        string
+	}{
+		{"none configured", 0, 0, "Every starter has played"},
+		{"everyone has played", 0, 22, "Every starter has played"},
+		{"nobody has played yet", 22, 22, "All 22 starters yet to play"},
+		{"partway through", 9, 22, "9 of 22 starters still to play"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := stillToPlaySentence(c.stillToPlay, c.total); got != c.want {
+				t.Errorf("stillToPlaySentence(%d, %d) = %q, want %q", c.stillToPlay, c.total, got, c.want)
+			}
+		})
+	}
+}

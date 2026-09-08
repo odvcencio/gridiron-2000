@@ -34,19 +34,20 @@ func TestBrowserMatchupsFeaturedNamesClampCleanly(t *testing.T) {
 	})(` + "`" + textflowLongTeamName + "`" + `)`
 
 	// The brief's own rule 5 tests every surface at 390 and 1440; 1280 is
-	// the finding's own repro width for a SEPARATE, pre-existing defect
-	// (public/styles.css's own "Item 0 re-verify follow-up" comment,
-	// above .matchup-team-line): .my-matchup__summary's three-column grid
-	// (minmax(0,1fr) auto minmax(0,1fr)) lets the middle score column's
-	// own natural width squeeze the name/manager columns to a genuinely
-	// sub-character track at that one viewport — a grid-sizing defect
-	// this text-flow wave's own conversion (retiring CSS ellipsis for
-	// the runtime's own maxLines clamp, adding overflow-wrap: anywhere so
-	// a single long word breaks instead of overflowing) measurably
-	// improves without fully fixing; a grid-template-columns change is
-	// out of this wave's own scope and risk budget. Tracked, not silently
-	// dropped: see the worker report for this finding's own before/after.
-	for _, width := range []int64{390, 1440} {
+	// the finding's own repro width (J3 F13, MATCHUP-LINEUP-SPEC.md) for a
+	// SEPARATE defect this text-flow wave measurably improved without
+	// fully fixing (public/styles.css's own former "Item 0 re-verify
+	// follow-up" comment, since retired): .my-matchup__summary's
+	// three-column grid (minmax(0,1fr) auto minmax(0,1fr)) let the middle
+	// score column's own natural width squeeze the name/manager columns
+	// to a genuinely sub-character track at that one viewport. The
+	// matchup redesign (2026-09-07, oak) closed the gap with an
+	// intermediate 1280px (80rem) breakpoint that stacks the two sides
+	// above the score/probability row instead of squeezing all three
+	// side by side (public/styles.css's own "1280px overlap fix"
+	// comment) — 1280 now gets the same overlap/overflow assertions this
+	// test already runs at 390 and 1440.
+	for _, width := range []int64{390, 1280, 1440} {
 		target := child.URL + "/test/signin?user=" + url.QueryEscape(bot.Email+"|"+bot.Name) + "&to=/matchups"
 		if err := chromedp.Run(ctx, chromedp.EmulateViewport(width, 900), chromedp.Navigate(target)); err != nil {
 			t.Fatalf("sign %s in through %s at %dpx: %v", bot.Email, target, width, err)
@@ -76,6 +77,20 @@ func TestBrowserMatchupsFeaturedNamesClampCleanly(t *testing.T) {
 		scrollWidth, innerWidth := documentOverflowPx(t, ctx)
 		if scrollWidth > innerWidth {
 			t.Errorf("document overflows at %dpx: scrollWidth=%d innerWidth=%d", width, scrollWidth, innerWidth)
+		}
+
+		// At the 1280px finding width, the two team sides stack (grid-area
+		// "mine"/"theirs" share one row) and the score/probability column
+		// gets the full row's own width on the row below (grid-area
+		// "score score") — proof the intermediate breakpoint's stacked
+		// layout, not the squeezed three-column desktop grid, is active.
+		if width == 1280 {
+			mineRect := elementBoundingRect(t, ctx, ".my-matchup__team")
+			theirsRect := elementBoundingRect(t, ctx, ".my-matchup__team--opponent")
+			scoreRect := elementBoundingRect(t, ctx, ".my-matchup__score")
+			if scoreRect.Top < mineRect.Bottom-1 || scoreRect.Top < theirsRect.Bottom-1 {
+				t.Errorf("at 1280px: the score/probability row (top=%.1f) does not sit below both stacked team sides (mine bottom=%.1f, theirs bottom=%.1f)", scoreRect.Top, mineRect.Bottom, theirsRect.Bottom)
+			}
 		}
 	}
 }
