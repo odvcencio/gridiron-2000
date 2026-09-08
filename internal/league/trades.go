@@ -1251,10 +1251,11 @@ type TradeRosterOption struct {
 	// decimal (Player.Projection, the same field /team and /players
 	// already label PROJ).
 	Projection string
-	// SeasonPoints is the pool's own running points figure for this
-	// player (Player.Points), formatted to one decimal. Before any week
-	// has scored, it is honestly "0.0" — the same true-zero the app
-	// already shows elsewhere rather than hiding the column.
+	// SeasonPoints reads the same weekly-ledger truth /team has used
+	// since rev 108 (weeklyPlayerPointsText, matchup_ledger.go): a real
+	// scored number once the weekly ledger has posted for this player,
+	// else the honest "—" — never a claimed "0.0" for a week that has
+	// not been played yet.
 	SeasonPoints string
 	// Detail is Position/NFLTeam/ByeLabel/Projection/SeasonPoints
 	// pre-joined into one line with correct separators (never a stray
@@ -1411,6 +1412,18 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 	rosters := currentRosters(state)
 	threshold := tradeVetoThreshold(len(defaultTeamIDs()))
 
+	// SeasonPoints reads the same weekly-ledger truth /team has used
+	// since rev 108 (weeklyPlayerPointsText, matchup_ledger.go): an
+	// honest "—" before the week's ledger has posted for that player,
+	// never a claimed "0.0" — the composer used to print player.Points
+	// directly, a field nothing in this codebase ever populates from a
+	// real source, so every row read the same false zero regardless of
+	// whether a game had even kicked off.
+	scoringValues := s.currentScoringValues()
+	week := s.pickemWeek(s.schedule(), now)
+	weeklyStats := s.matchupStatsSnapshot(week)
+	weeklyLineByKey := weekStatLinesByKey(weeklyStats.lines)
+
 	rosterOptions := func(id string) []TradeRosterOption {
 		out := make([]TradeRosterOption, 0, len(rosters[id]))
 		for _, playerID := range rosters[id] {
@@ -1421,7 +1434,8 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 					byeLabel = "Bye " + strconv.Itoa(p.ByeWeek)
 					detailParts = append(detailParts, byeLabel)
 				}
-				projection, seasonPoints := fmt.Sprintf("%.1f", p.Projection), fmt.Sprintf("%.1f", p.Points)
+				projection := fmt.Sprintf("%.1f", p.Projection)
+				seasonPoints := weeklyPlayerPointsText(p, weeklyStats, scoringValues, weeklyLineByKey, now)
 				detailParts = append(detailParts, "PROJ "+projection, "PTS "+seasonPoints)
 				out = append(out, TradeRosterOption{
 					ID: p.ID, Label: fmt.Sprintf("%s (%s)", p.Name, p.Position),

@@ -2587,7 +2587,29 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		"has_seat":                      true,
 		"lineup_intervention":           lineupTarget.Intervention,
 		"lineup_target_id":              lineupTarget.TeamID,
-		"team":                          teamMap,
+		// lineup_target_unknown/lineup_target_unknown_value (J4 F10) name
+		// an unresolved ?team= request in place of the old silent
+		// fallback to the commissioner's own seat: page.gsx renders a
+		// plain "team not found" state instead of the ordinary lineup
+		// grid whenever this is true.
+		"lineup_target_unknown":       lineupTarget.RequestedUnknown != "",
+		"lineup_target_unknown_value": lineupTarget.RequestedUnknown,
+		// hero_initials (J4 F32) names whoever the hero is actually
+		// showing: the target team's own manager during a genuine
+		// intervention (the eyebrow used to keep printing the
+		// commissioner's own initials while the rest of the hero showed
+		// the franchise being edited), the viewer's own initials
+		// otherwise — unchanged from before this field existed.
+		"hero_initials": heroInitials(viewer, team, lineupTarget.Intervention),
+		// hero_manager_name (J4 F32) is the same narrow display need as
+		// hero_initials, immediately above: team.manager itself stays
+		// blanked during intervention (below, "Intervention is a
+		// lineup-only projection") — this reads the raw, pre-scrub team
+		// value instead, only while a genuine intervention is underway,
+		// so the hero can name whose franchise it is without widening
+		// what the identity/co-manager/badge state already withholds.
+		"hero_manager_name": interventionManagerName(team, lineupTarget.Intervention),
+		"team":              teamMap,
 		// has_team_streak (wave-8 audit item 6) guards the hero record
 		// line's own "· {streak}" segment: team.Streak reads the em-dash
 		// placeholder "—" (defaultTeams', computeStreak's own "no results
@@ -6754,6 +6776,34 @@ func initials(name string) string {
 		value += string([]rune(parts[len(parts)-1])[0])
 	}
 	return strings.ToUpper(value)
+}
+
+// heroInitials resolves the Team terminal hero eyebrow's own initials (J4
+// F32): during a genuine commissioner intervention the hero otherwise
+// names the target franchise throughout (its avatar, its name, its
+// division), but the eyebrow kept printing the signed-in commissioner's
+// own initials — a mismatch that read as "whose page is this really." The
+// target team's own manager's initials replace it there; every other case
+// (an ordinary manager, or a commissioner viewing their own seat) keeps
+// the viewer's own initials, unchanged.
+func heroInitials(viewer map[string]any, team Team, intervention bool) string {
+	if intervention {
+		return initials(team.Manager)
+	}
+	value, _ := viewer["initials"].(string)
+	return value
+}
+
+// interventionManagerName returns the target franchise's own manager name
+// while a genuine commissioner intervention is underway, empty otherwise
+// (see hero_manager_name's own doc comment, teamData, for why this reads
+// team.Manager directly instead of the shared teamMap's own "manager"
+// key, which stays blanked for the whole intervention view).
+func interventionManagerName(team Team, intervention bool) string {
+	if !intervention {
+		return ""
+	}
+	return team.Manager
 }
 
 func min(a, b int) int {
