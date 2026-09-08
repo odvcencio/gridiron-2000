@@ -14,7 +14,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A help topic's primary button now names its destination ("Go to the league home", "Open sign-in", and so on) instead of "Open owning action," and the page's own source metadata now sits in a collapsed "Sources" disclosure below the answer instead of ahead of it.
 - The Big Board's disabled "LOCKED" buttons on a seatless member's pool now name the player and point to the page's existing explanation, instead of fifty identical unnamed buttons.
 - The phone navigation dialog now lays its destinations out in two columns, so every destination fits without scrolling.
-- The Big Board's move-up/move-down buttons and the Locker Room's post button now meet the 44px touch floor and no longer show two ways to post the same message on a phone.
+- The Locker Room no longer shows two ways to post the same message on a phone.
 - The footer's status now carries a plain "Status" label; the anonymous landing page no longer shows a playoff card that leads to the sign-in wall; a seatless member's rail badge now shows their own name instead of going blank.
 
 ## [release-2026.09.08-8b73e06-textflow] — 2026-09-07
