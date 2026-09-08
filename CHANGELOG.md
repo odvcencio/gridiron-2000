@@ -18,6 +18,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The console's pick-clock readout now shows duration and time remaining as minutes and seconds, matching the draft room's own clock, instead of raw seconds.
 - The console's invites card now states that its count covers admitted addresses, not claimed seats, so it no longer reads as a second, contradicting seat count.
 - An in-season console now opens with a "This week" card: the week and its close readiness, open waiver claims, trades in review, and one line naming what needs the commissioner today, each linking to its section.
+- The console's own top hero card now leads with the week once the draft is complete: the week number, its close readiness in words, the first kickoff in league-local time, and the seat count, instead of the draft's pick count, date, and ready fraction. The task board's own seats row shows the week's own status in place of the same stale ready fraction.
 
 ### Fixed
 - Six status chips on the console (schedule, roster, and playoff cards) no longer overflow or clip their own borders; they size to their own text and wrap instead.
