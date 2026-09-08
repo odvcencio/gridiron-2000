@@ -655,3 +655,60 @@ func TestWirePageCopyGuardsAndActiveFilterMarker(t *testing.T) {
 		t.Error("page.gsx still carries the bare \"player ledger\" label that reads as a contradiction beside the draft pool")
 	}
 }
+
+// TestWireVocabularyIsConsolidatedToSourcesAndSignals is F12's static
+// regression guard (gap-audit J6): the page used to spread "channels",
+// "feeds", "sources", "signals", "dispatches", "sightings", and "tips"
+// across one screen for what are really two ideas. It now says "sources"
+// for every upstream provider and "signals" for every item, and the one
+// submission flow says "tip" end to end.
+func TestWireVocabularyIsConsolidatedToSourcesAndSignals(t *testing.T) {
+	pageSource, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverSource, err := os.ReadFile("page.server.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageSource)
+	server := string(serverSource)
+	for _, want := range []string{
+		"<span>Sources</span>",
+		`<a href="#wire-feed" class="board-button">Signals</a>`,
+		`<a href="#community-input" class="board-button">Send a tip</a>`,
+		"<h2>Fantasy-relevant signals</h2>",
+		"<strong>News sources</strong>",
+		"<strong>Social sources</strong>",
+		`<span class="section-index">LEAGUE EYES</span>`,
+		"<b>Send a tip</b>",
+		`type="submit">Send a tip</button>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page.gsx missing consolidated vocabulary %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		"Open channels",
+		"Public feeds",
+		"Bluesky event wire",
+		"Fantasy-relevant dispatches",
+		"CHANNEL 08",
+		"Add a sighting",
+		"Transmit sighting",
+		">Sighting</a>",
+	} {
+		if strings.Contains(page, unwanted) {
+			t.Errorf("page.gsx still carries retired vocabulary %q", unwanted)
+		}
+	}
+	if !strings.Contains(server, `"label": "Send a tip",`) {
+		t.Error(`page.server.go primary_action label should read "Send a tip"`)
+	}
+	if !strings.Contains(server, `"Your tip is on the wire."`) {
+		t.Error(`page.server.go submit-sighting confirmation should read "Your tip is on the wire."`)
+	}
+	if strings.Contains(server, "Transmit sighting") {
+		t.Error("page.server.go still carries the retired \"Transmit sighting\" label")
+	}
+}

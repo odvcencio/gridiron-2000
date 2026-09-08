@@ -172,7 +172,7 @@ func Page() Node {
 					<strong data-wire-mode data-gosx-live-bind="mode">{data.wire_mode}</strong>
 				</div>
 				<div>
-					<span>Open channels</span>
+					<span>Sources</span>
 					<strong class="mono">{data.source_count}</strong>
 				</div>
 				<div>
@@ -187,9 +187,9 @@ func Page() Node {
 		</header>
 
 		<nav class="wire-section-strip" aria-label="Jump to a wire section">
-			<a href="#wire-feed" class="board-button">Feed</a>
+			<a href="#wire-feed" class="board-button">Signals</a>
 			<a href="#wire-sources" class="board-button">Sources</a>
-			<a href="#community-input" class="board-button">Sighting</a>
+			<a href="#community-input" class="board-button">Send a tip</a>
 		</nav>
 
 		<section class="wire-trust-strip" aria-label="Data confidence">
@@ -217,7 +217,7 @@ func Page() Node {
 				<header class="section-heading section-heading--split">
 					<div>
 						<span class="section-index">NEWS DESK</span>
-						<h2>Fantasy-relevant dispatches</h2>
+						<h2>Fantasy-relevant signals</h2>
 					</div>
 					<div class="sync-state" role="status" aria-live="polite">
 						<span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind="indicator">{data.wire_indicator}</span>
@@ -260,7 +260,7 @@ func Page() Node {
 					<div class="wire-system-row">
 						<span class="signal-mark" aria-hidden="true"></span>
 						<div>
-							<strong>Public feeds</strong>
+							<strong>News sources</strong>
 							<small>{data.feed_ready}/{data.feed_count} ready · updates every 2 min</small>
 						</div>
 					</div>
@@ -268,7 +268,7 @@ func Page() Node {
 						<div class="wire-system-row">
 							<span class="signal-mark" aria-hidden="true"></span>
 							<div>
-								<strong>Bluesky event wire</strong>
+								<strong>Social sources</strong>
 								<small>{data.wire_mode} · {data.bluesky_count} tracked accounts</small>
 							</div>
 						</div>
@@ -355,8 +355,8 @@ func Page() Node {
 
 				<section class="wire-submit-panel" id="community-input">
 					<header>
-						<span class="section-index">LEAGUE EYES // CHANNEL 08</span>
-						<b>Add a sighting</b>
+						<span class="section-index">LEAGUE EYES</span>
+						<b>Send a tip</b>
 					</header>
 					<If cond={data.has_notice}>
 						<TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" role="status" text={data.notice} />
@@ -393,7 +393,7 @@ func Page() Node {
 							<If cond={data.has_submit_error}>
 								<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" role="alert" text={data.submit_error} />
 							</If>
-							<button class="button button--primary" type="submit">Transmit sighting</button>
+							<button class="button button--primary" type="submit">Send a tip</button>
 						</form>
 						<p class="wire-submit-note">Market sightings are human-entered. The league never reads your accounts elsewhere.</p>
 					</If>

@@ -413,7 +413,7 @@ func init() {
 			// nonexistent form id would be a dead control.
 			if canSubmit, _ := data["can_submit"].(bool); canSubmit {
 				data["primary_action"] = map[string]any{
-					"label": "Transmit sighting",
+					"label": "Send a tip",
 					"href":  "#community-input",
 					"kind":  "submit",
 					"form":  "wire-sighting-form",
@@ -438,7 +438,7 @@ func init() {
 				if err != nil {
 					return action.Error(http.StatusServiceUnavailable, "The signal wire is unavailable")
 				}
-				signal, err := signals.SubmitSighting(signalwire.CommunitySubmission{
+				_, err = signals.SubmitSighting(signalwire.CommunitySubmission{
 					ReporterID:   reporterID,
 					ReporterName: reporterName,
 					EvidenceType: ctx.FormData["evidence_type"],
@@ -449,7 +449,7 @@ func init() {
 				if err != nil {
 					return wireValidationWithRedirect(ctx, wireRedirectTarget(ctx.FormData["category"]), err)
 				}
-				actionui.RedirectBackWithNotice(ctx, wireRedirectTarget(ctx.FormData["category"]), fmt.Sprintf("%s added to the provisional wire.", signal.Label))
+				actionui.RedirectBackWithNotice(ctx, wireRedirectTarget(ctx.FormData["category"]), "Your tip is on the wire.")
 				return nil
 			},
 		},

@@ -67,9 +67,12 @@ func TestWireSectionStripAndFoldMarkup(t *testing.T) {
 		`<section class="wire-stage" id="wire-feed">`,
 		`<section class="wire-source-panel" id="wire-sources">`,
 		`<section class="wire-submit-panel" id="community-input">`,
-		`<a href="#wire-feed" class="board-button">Feed</a>`,
+		// F12 (gap-audit J6) consolidated the jump strip's own labels onto
+		// the same two-noun vocabulary ("sources", "signals") plus "tip"
+		// for the one submission flow, retiring "Feed" and "Sighting".
+		`<a href="#wire-feed" class="board-button">Signals</a>`,
 		`<a href="#wire-sources" class="board-button">Sources</a>`,
-		`<a href="#community-input" class="board-button">Sighting</a>`,
+		`<a href="#community-input" class="board-button">Send a tip</a>`,
 		`<form id="wire-sighting-form" method="post" action={actionPath("submit-sighting")} data-gosx-managed="true">`,
 		`<WireFeedList {...data.feed_list}></WireFeedList>`,
 	} {
@@ -112,7 +115,7 @@ func TestWirePrimaryActionOnlyWhenTheSightingFormExists(t *testing.T) {
 	// exact map shape is pinned by TestWireSectionStripAndFoldMarkup's
 	// sibling assertion on the sighting form's id plus this literal.
 	action := map[string]any{
-		"label": "Transmit sighting",
+		"label": "Send a tip",
 		"href":  "#community-input",
 		"kind":  "submit",
 		"form":  "wire-sighting-form",
