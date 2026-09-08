@@ -18394,3 +18394,22 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
 .guide-sources > .masthead-console {
   margin-top: var(--space-sm);
 }
+
+/* comb — linden (2026-09-07 UX pass): J5 F21. The phone nav dialog's own
+   navigation groups used to stack every destination in a single column —
+   TODAY, MY TEAM, and GAME DAY fit the 844px dialog, then a hard divider
+   and the pinned account block, so items 10-15 (Signal Wire through Help
+   center) sat below an unmarked scroll and the list read as complete at
+   the divider. Two columns roughly halves the row count per group,
+   fitting every destination inside the dialog's own viewport with no
+   scroll needed; the group label still spans both columns. */
+@media (width <= 54rem) {
+  .mobile-navigation-dialog .navigation-group {
+    grid-template-columns: 1fr 1fr;
+    column-gap: var(--space-sm);
+  }
+
+  .mobile-navigation-dialog .navigation-group__label {
+    grid-column: 1 / -1;
+  }
+}
