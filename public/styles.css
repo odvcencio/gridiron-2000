@@ -20060,3 +20060,26 @@ body.is-on-clock .draft-command__pill-sentence {
     display: none;
   }
 }
+
+/* comb — sequoia (2026-09-08 wave E integration): the pool row's
+   "+ BOARD" control (renamed from "+ RANK" in wave D) no longer fits its
+   4.5rem action column at desktop, and the button's inherited
+   overflow-wrap: anywhere let the label break letter by letter into a
+   138px-tall column that pushed every pool row to 213px. The label stays
+   on one line and the action column is wide enough for it; the phone
+   block above keeps its own 6.5rem width and compact "+" control. */
+@media (width > 899px) {
+  /* The #main-content ancestor gives this rule enough specificity to
+     win over the coarse-pointer baseline rule (which headless and
+     touch browsers match through "hover: none") the same honest way the
+     home action card and the position chips carve out their exceptions. */
+  .site-frame #main-content .avail-row__rank-button {
+    white-space: nowrap;
+    overflow-wrap: normal;
+  }
+
+  .avail-row--head > :last-child,
+  .avail-row > .avail-row__actions {
+    width: 7rem;
+  }
+}
