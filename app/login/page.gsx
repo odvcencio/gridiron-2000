@@ -30,7 +30,16 @@ func Page() Node {
 					PRIVATE LEAGUE NETWORK
 				</span>
 				<p class="page-kicker">{data.public_entry.state_label}</p>
-				<TextBlock as="h2" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
+				{/* comb — linden (2026-09-07), J5 F18: this used to be an
+				    h2 — a second level-2 heading (with .login-event's own
+				    "LEAGUE DRAFT" card heading below) ahead of the
+				    page's only h1 (.login-console__page-name, in the
+				    aside after this whole poster). A screen reader met
+				    two h2s before the document's one h1; plain text here
+				    keeps the identical gradient styling
+				    (.login-poster__headline, public/styles.css) without
+				    claiming a heading level it does not lead. */}
+				<TextBlock as="p" class="login-poster__headline" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
 					{data.league.name}
 					{" "}
 					<span>{data.public_entry.headline}</span>
@@ -46,7 +55,13 @@ func Page() Node {
 				</TextBlock>
 				<div class="login-event" aria-labelledby="login-event-heading">
 					<span class="section-index">UP NEXT</span>
-					<h2 id="login-event-heading">{data.draft.event_label}</h2>
+					{/* comb — linden (2026-09-07), J5 F18: also a second
+					    h2 ahead of the page's own h1 (see the poster
+					    headline above). aria-labelledby names this card
+					    without needing a real heading element; plain
+					    text keeps the identical visual weight
+					    (.login-event__heading, public/styles.css). */}
+					<p id="login-event-heading" class="login-event__heading">{data.draft.event_label}</p>
 					<time class="event-date">{data.draft.long_date}</time>
 					<div class="event-time">
 						<strong>{data.draft.time}</strong>

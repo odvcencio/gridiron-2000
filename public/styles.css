@@ -18965,3 +18965,137 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
 .matchup-week-notice--warning {
   color: var(--color-warning);
 }
+
+/* comb — linden (2026-09-07 UX pass): J1 F23. The rostered-owner chip
+   (app/players/page.gsx, .owner-chip) showed only the division-style
+   abbreviation ("OR2") with the full team name reachable only via
+   title/aria-label — hover- or screen-reader-only, never in front of a
+   sighted phone user's own eyes. At the phone breakpoint the chip
+   already sits on its own full-width grid row (.pool-row--status's own
+   nth-child rule above), so there is room to show the real name; above
+   that width many rows must stay glanceable side by side, so the
+   abbreviation stays the default there. Clamped to one line (fern's own
+   row-height contract, TestBrowserPlayersFiveRowsVisibleAtPhoneWidth):
+   a wrapping team name regressed a fully-drafted pool's own default
+   row height, since every top-ranked row is rostered. A truncated name
+   still reads far better than a bare two-letter code. */
+.owner-chip__name {
+  display: none;
+}
+
+@media (width <= 54rem) {
+  .owner-chip {
+    width: auto;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .owner-chip__abbr {
+    display: none;
+  }
+
+  .owner-chip__name {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+}
+
+/* comb — linden (2026-09-07 UX pass): J1 F34. .q-row[data-taken="true"]
+   used to strike through only the player's own name (.q-row__name) — the
+   handle, rank, and news icon stayed full brightness, so a taken row on
+   the Big Board rail barely read as different from an available one by
+   round five, when most of the panel had decayed to dead rows. Dims the
+   whole row the same way .avail-row[data-taken="true"] already does
+   (public/styles.css, above), except .q-row__actions — the Clear button
+   there must stay fully legible and tappable. */
+.q-row[data-taken="true"] > .board-row__handle,
+.q-row[data-taken="true"] .q-row__rank,
+.q-row[data-taken="true"] .q-row__player,
+.q-row[data-taken="true"] .q-row__info {
+  opacity: 0.45;
+}
+
+/* comb — linden (2026-09-07 UX pass): J5 F18. .login-poster's own
+   league-name headline and .login-event's own "LEAGUE DRAFT" card
+   heading demoted from h2 to plain text (app/login/page.gsx) — a screen
+   reader used to meet two level-2 headings before the page's only h1.
+   Same selectors' own visual treatment, restated against the new
+   classes so nothing regresses: the gradient text (.login-poster h2's
+   own rule, above) and the event card's own font size (.login-event
+   h2's own rule, above). */
+.login-poster h2,
+.login-poster__headline {
+  background: var(--gradient-chrome);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+.login-event h2,
+.login-event__heading {
+  margin-bottom: var(--space-sm);
+  font-size: var(--type-lg);
+}
+
+/* comb — linden (2026-09-07 UX pass): J5 F19. .guide-sources wraps the
+   topic page's own Actor/Supported/Runtime source/Verified source table
+   (.masthead-console.guide-console), moved out of the masthead and
+   below the prose answer, collapsed by default. */
+.guide-sources {
+  margin: 0 0 var(--space-lg);
+}
+
+.guide-sources > summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--type-sm);
+  color: var(--color-text-secondary);
+  padding: var(--space-xs) 0;
+}
+
+.guide-sources > .masthead-console {
+  margin-top: var(--space-sm);
+}
+
+/* comb — linden (2026-09-07 UX pass): J5 F21. The phone nav dialog's own
+   navigation groups used to stack every destination in a single column —
+   TODAY, MY TEAM, and GAME DAY fit the 844px dialog, then a hard divider
+   and the pinned account block, so items 10-15 (Signal Wire through Help
+   center) sat below an unmarked scroll and the list read as complete at
+   the divider. Two columns roughly halves the row count per group,
+   fitting every destination inside the dialog's own viewport with no
+   scroll needed; the group label still spans both columns. */
+@media (width <= 54rem) {
+  .mobile-navigation-dialog .navigation-group {
+    grid-template-columns: 1fr 1fr;
+    column-gap: var(--space-sm);
+  }
+
+  .mobile-navigation-dialog .navigation-group__label {
+    grid-column: 1 / -1;
+  }
+}
+
+/* comb — linden (2026-09-07 UX pass): J6 F18. Below the same 56.1875rem
+   tier PageActionBar itself shows at (app/layout.gsx, ~1428), /locker's
+   fixed action bar already submits the identical #locker-post-form
+   (form="locker-post-form", a native HTML association — no JavaScript
+   needed), so the composer's own button is redundant there, and the
+   fixed bar used to sit directly over it and the textarea above it.
+   Hidden here, not removed from the DOM: a signed-in phone visitor still
+   posts through the one remaining control. */
+@media (max-width: 56.1875rem) {
+  .locker-post-form__submit {
+    display: none;
+  }
+}
+
+/* comb — linden (2026-09-07 UX pass): J5 F32. .footer-status's own value
+   (a bare status word) now carries an explicit label ahead of it. */
+.footer-status__label {
+  color: var(--color-text-muted);
+}

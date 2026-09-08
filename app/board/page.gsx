@@ -155,9 +155,22 @@ func Page() Node {
 					BIG BOARD
 				</span>
 				<h1>Big Board</h1>
+				{/* comb — linden (2026-09-07), J1 F34: "the draft room and
+				    autopick use this order" stops being true the moment
+				    the room closes. data.draft_complete
+				    (internal/league.BoardData) branches this to the
+				    board's real post-draft job instead of repeating a
+				    promise about a room that has already closed. */}
+				<If cond={data.draft_complete == false}>
 				<p>
 					<strong>Rank it your way.</strong> Private to this team seat and shared by its primary and co-manager. The draft room and autopick use this exact order when your team is on the clock.
 				</p>
+				</If>
+				<If cond={data.draft_complete}>
+				<p>
+					<strong>Your watch list for waivers.</strong> The draft is over, so this order no longer feeds a pick clock — it is a private target list. Rank the players you would claim first, and clear the ones other teams already drafted.
+				</p>
+				</If>
 			</div>
 			<div class="draft-clock-panel">
 				<span>Players on your board</span>
@@ -219,6 +232,24 @@ func Page() Node {
 						<span class="section-index">01 // YOUR BOARD</span>
 						<h2>Big Board</h2>
 					</div>
+					{/* comb — linden (2026-09-07), J1 F34: the board already
+					    dims and strikes through a drafted entry
+					    (data-picked), but offered no way to remove them
+					    all at once — only the per-row remove form.
+					    Gated on board_picked_count so it disappears
+					    once nothing is left to clear; a plain one-click
+					    action, not gated behind a confirmation, since it
+					    only removes entries that are already unusable. */}
+					<If cond={data.board_picked_count > 0}>
+						<form method="post" action={actionPath("board-clear-drafted")} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="pos" value={data.pool_position}></input>
+							<input type="hidden" name="q" value={data.pool_query}></input>
+							<input type="hidden" name="page" value={data.pool_page}></input>
+							<input type="hidden" name={data.board_return_target_field} value={data.board_return_target}></input>
+							<button class="filter-button" type="submit">Clear drafted ({data.board_picked_count})</button>
+						</form>
+					</If>
 					<If cond={data.board_count > 0}>
 						<form method="post" action={actionPath("board-clear")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
@@ -252,7 +283,12 @@ func Page() Node {
 					<If cond={data.can_edit == false}>
 						<div class="empty-tape">
 							<strong>BROWSE THE PLAYER POOL</strong>
-							<p>
+							{/* comb — linden (2026-09-07), J5 F20: this
+							    paragraph's own id is now the target every
+							    LOCKED button's aria-describedby points at
+							    (below) — the explanation already existed,
+							    800px above fifty identical buttons. */}
+							<p id="board-no-franchise-reason">
 								Player rankings remain visible below. A franchise seat is required before this page can save a private draft order.
 							</p>
 						</div>
@@ -461,7 +497,13 @@ func Page() Node {
 									<button class="button button--ghost" type="submit">RANK</button>
 								</If>
 								<If cond={data.can_edit == false}>
-									<button class="button button--ghost" type="button" disabled="disabled">Locked</button>
+									{/* comb — linden (2026-09-07), J5 F20:
+									    fifty of these used to share the
+									    exact same accessible name
+									    ("LOCKED"), with no player and no
+									    reason a screen-reader user could
+									    reach from the row. */}
+									<button class="button button--ghost" type="button" disabled="disabled" aria-label={"Rank " + player.name + " (needs a franchise seat)"} aria-describedby="board-no-franchise-reason">Locked</button>
 								</If>
 							</form>
 						</article>

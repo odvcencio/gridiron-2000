@@ -1188,7 +1188,11 @@ type DraftMyTeamProps struct {
 	// "queue-move" (page.server.go) so a session with JavaScript off can
 	// still reorder its queue one step at a time.
 	QueueMoveAction string
-	Actions         map[string]string
+	// QueueClearDraftedAction (J1 F34, 2026-09-04 audit): the bulk
+	// "Clear drafted" button's post target, alongside the existing
+	// per-row Clear a taken entry already carries.
+	QueueClearDraftedAction string
+	Actions                 map[string]string
 }
 
 type DraftAvailableHeadProps struct {
@@ -2307,6 +2311,21 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 				<If cond={props.Data.queue_empty == false}>
 					<div class="q-list__header mono">NEXT UP</div>
 				</If>
+				{/* comb — linden (2026-09-07), J1 F34: a board that decays
+				    to mostly-drafted entries by round five used to offer
+				    only a per-row Clear button — no way to clear them
+				    all. Gated on queue_taken_count (internal/league.
+				    draftData) so it disappears once nothing is left to
+				    clear. */}
+				<If cond={props.Data.queue_taken_count > 0}>
+					<form method="post" action={props.QueueClearDraftedAction} data-gosx-managed="true">
+						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+						<input type="hidden" name="pos" value={props.Data.pool_position}></input>
+						<input type="hidden" name="q" value={props.Data.pool_query}></input>
+						<input type="hidden" name="page" value={props.Data.pool_page}></input>
+						<button class="btn btn-sm btn-ghost" type="submit">Clear drafted ({props.Data.queue_taken_count})</button>
+					</form>
+				</If>
 				<Each of={props.Queue} as="player">
 					<article class="q-row" data-gosx-reorder-item={player.ID} data-taken={player.Taken} data-gosx-live-bind-attr={"data-taken:queue." + player.ID + ".taken"}>
 						<If cond={props.Data.practice.active == false}>
@@ -2374,6 +2393,15 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 		<div class="draft-mine__view draft-mine__view--roster">
 			<div class="draft-mine__needs">
 				<span class="idx">Roster needs</span>
+				{/* comb — linden (2026-09-07), J1 F25: roster_needs now
+				    lists every open slot first (internal/league.draftData's
+				    own doc comment), and roster_open_summary names the
+				    count in plain words — the panel's own first answer
+				    used to bury a superflex league's two most urgent
+				    holes fifth and seventh, alphabetically. */}
+				<If cond={props.Data.roster_open_summary != ""}>
+					<span class="mono draft-mine__roster-open-summary">{props.Data.roster_open_summary}</span>
+				</If>
 				<Each of={props.Data.roster_needs} as="need">
 					<If cond={need.open}><span class="need need--open">{need.label} {need.filled}/{need.total}</span></If>
 					<If cond={need.open == false}><span class="need need--full">{need.label} {need.filled}/{need.total}</span></If>
@@ -2382,6 +2410,25 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 					<If cond={props.Data.viewer_autopick}>AUTOPICK · ON</If>
 					<If cond={props.Data.viewer_autopick == false}>AUTOPICK · OFF</If>
 				</span>
+			</div>
+			{/* comb — linden (2026-09-07), J1 F25: the tab named ROSTER
+			    used to never list my.roster_players — only need counts.
+			    my_roster_players (internal/league.draftData) is already
+			    ordered starters (a real slot) then bench, in pick order;
+			    bench_first heads the bench section with one label. */}
+			<div class="draft-mine__roster-list" aria-label="Your drafted players">
+				<Each of={props.Data.my_roster_players} as="pick">
+					<If cond={pick.bench_first}><span class="idx draft-mine__roster-heading">Bench</span></If>
+					<div class="draft-mine__roster-row" data-bench={pick.is_bench}>
+						<span class="mono draft-mine__roster-slot">{pick.slot}</span>
+						<strong class="draft-mine__roster-name">{pick.name}</strong>
+						<span class={"pos pos-" + pick.position}>{pick.position}</span>
+						<small class="muted">{pick.nfl_team}</small>
+					</div>
+				</Each>
+				<If cond={props.Data.my_roster_empty}>
+					<p class="muted">No picks yet.</p>
+				</If>
 			</div>
 		</div>
 		<div class="draft-mine__view draft-mine__view--room">
@@ -2879,6 +2926,22 @@ func DraftHistoryBoardTeamsLedger(props DraftHistoryBoardTeamsLedgerProps) Node 
 			<div class="draft-history__ledger">
 				<span class="idx">FINAL LEDGER</span>
 				<a class="btn btn-sm" href="/draft/ledger.csv">Export CSV</a>
+			</div>
+			{/* comb — linden (2026-09-07), J1 F20: the pane a manager who
+			    stayed in the room actually lands on used to end here —
+			    no link out to the results page, the lineup, or free
+			    agents. The pool pane's own DRAFT CLOSED callout
+			    (DraftAvailable, above) already names two of these three;
+			    this is the pane a manager watching the tape actually
+			    sees at the final pick. */}
+			<div class="empty-tape draft-complete-callout">
+				<strong>DRAFT COMPLETE · WHAT'S NEXT</strong>
+				<p>Every pick is locked. Here is where to go from here.</p>
+				<div class="hero-actions">
+					<a href="/draft/results" data-gosx-link class="button button--primary">See the draft results →</a>
+					<a href="/team" data-gosx-link class="button button--ghost">Set your Week 1 lineup →</a>
+					<a href="/players" data-gosx-link class="button button--ghost">Browse free agents →</a>
+				</div>
 			</div>
 		</If>
 	</>

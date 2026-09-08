@@ -3305,6 +3305,13 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 	// undrafted "peek" the legacy DraftWorkspace sidebar reads; both share
 	// one playerMap build per id.
 	queuePanel := make([]map[string]any, 0, len(boardOrder))
+	// queueTakenCount (J1 F34, 2026-09-04 audit): the rail's own Big Board
+	// panel offered a Clear button per drafted row and no way to clear
+	// them all, so a board that decayed to mostly-taken entries by round
+	// five stayed cluttered with dead rows. This gates the bulk "Clear
+	// drafted" action (DraftMyTeam, page.gsx) — hidden once it has
+	// nothing left to do.
+	queueTakenCount := 0
 	for index, id := range boardOrder {
 		player, ok := pool.byID[id]
 		if !ok {
@@ -3315,6 +3322,9 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 		item["board_can_move_up"] = index > 0
 		item["board_can_move_down"] = index+1 < len(boardOrder)
 		queuePanel = append(queuePanel, item)
+		if picked[id] {
+			queueTakenCount++
+		}
 		if !picked[id] && len(boardPanel) < 5 {
 			boardPanel = append(boardPanel, item)
 		}
@@ -3325,31 +3335,102 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 	// maximumDraftStarterFill uses for legality): display only, so a
 	// player who could also cover a flex slot still counts under their
 	// primary position here.
+	//
+	// J1 F25 (2026-09-04 audit): this used to list slotNames via
+	// sort.Strings, so a superflex league's two most urgent holes (QB and
+	// SUPERFLEX) landed fifth and seventh, alphabetically sandwiched
+	// between already-filled slots. slotNames below now walks slotTable's
+	// own fixed engine order (the same fix draft_history.go's own
+	// TeamColumn needs tally already applies — see its own doc comment),
+	// and rosterNeeds itself is stable-sorted open-first: the room's own
+	// most urgent question answered first, not buried.
 	rosterNeeds := make([]map[string]any, 0, 8)
+	rosterOpenCount := 0
+	rosterOpenSummary := ""
+	myRosterPlayers := make([]map[string]any, 0, 8)
 	if viewerTeam != "" {
 		preset := CurrentRoster()
+		type draftedPlayer struct {
+			player Player
+			number int
+		}
+		myPicks := make([]draftedPlayer, 0, 8)
 		filledByPosition := map[string]int{}
-		for _, pick := range state.Picks {
+		for index, pick := range state.Picks {
 			if pick.TeamID != viewerTeam {
 				continue
 			}
 			if player, ok := pool.byID[pick.PlayerID]; ok {
 				filledByPosition[player.Position]++
+				myPicks = append(myPicks, draftedPlayer{player: player, number: index + 1})
 			}
 		}
 		slotNames := make([]string, 0, len(preset.Slots))
-		for name := range preset.Slots {
-			slotNames = append(slotNames, name)
+		for _, slot := range slotTable {
+			if _, ok := preset.Slots[slot.Key]; ok {
+				slotNames = append(slotNames, slot.Key)
+			}
 		}
-		sort.Strings(slotNames)
 		for _, name := range slotNames {
 			required := preset.Slots[name]
 			have := filledByPosition[name]
 			if have > required {
 				have = required
 			}
+			open := have < required
+			if open {
+				rosterOpenCount += required - have
+			}
 			rosterNeeds = append(rosterNeeds, map[string]any{
-				"label": name, "filled": have, "total": required, "open": have < required,
+				"label": name, "filled": have, "total": required, "open": open,
+			})
+		}
+		sort.SliceStable(rosterNeeds, func(i, j int) bool {
+			return rosterNeeds[i]["open"].(bool) && !rosterNeeds[j]["open"].(bool)
+		})
+		if rosterOpenCount > 0 {
+			rosterOpenSummary = fmt.Sprintf("%d starting slot%s still empty", rosterOpenCount, pluralSuffix(rosterOpenCount))
+		} else if len(slotNames) > 0 {
+			rosterOpenSummary = "Every starting slot is filled"
+		}
+
+		// myRosterPlayers (J1 F25's other half): the tab named ROSTER used
+		// to list nothing but need counts, never the players actually
+		// drafted. Starters first — the first slotTable-eligible slot
+		// still open, in pick order, the same display-only simplification
+		// rosterNeeds' own primary-position tally above already accepts —
+		// then bench, in pick order.
+		slotRemaining := make(map[string]int, len(slotNames))
+		for _, name := range slotNames {
+			slotRemaining[name] = preset.Slots[name]
+		}
+		bench := make([]draftedPlayer, 0, 4)
+		for _, drafted := range myPicks {
+			assignedSlot := ""
+			for _, slot := range slotTable {
+				if slotRemaining[slot.Key] <= 0 {
+					continue
+				}
+				if !containsString(slot.Eligible, drafted.player.Position) {
+					continue
+				}
+				assignedSlot = slot.Key
+				slotRemaining[slot.Key]--
+				break
+			}
+			if assignedSlot == "" {
+				bench = append(bench, drafted)
+				continue
+			}
+			myRosterPlayers = append(myRosterPlayers, map[string]any{
+				"slot": assignedSlot, "is_bench": false, "bench_first": false,
+				"name": drafted.player.Name, "position": drafted.player.Position, "nfl_team": drafted.player.NFLTeam,
+			})
+		}
+		for index, drafted := range bench {
+			myRosterPlayers = append(myRosterPlayers, map[string]any{
+				"slot": "BENCH", "is_bench": true, "bench_first": index == 0,
+				"name": drafted.player.Name, "position": drafted.player.Position, "nfl_team": drafted.player.NFLTeam,
 			})
 		}
 	}
@@ -3520,9 +3601,14 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 		"auto_count":            autoCount,
 		"banner":                banner,
 		"queue":                 queuePanel,
+		"queue_taken_count":     queueTakenCount,
 		"queue_empty":           len(queuePanel) == 0,
 		"next_queued":           nextQueued,
 		"roster_needs":          rosterNeeds,
+		"roster_open_count":     rosterOpenCount,
+		"roster_open_summary":   rosterOpenSummary,
+		"my_roster_players":     myRosterPlayers,
+		"my_roster_empty":       len(myRosterPlayers) == 0,
 		"room_path":             roomPath,
 		"live_src":              roomPath + "/live.json",
 		"live_hub":              liveHub,

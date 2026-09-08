@@ -54,7 +54,15 @@ func Page() Node {
 						<span>What's on your mind?</span>
 						<textarea name="body" maxlength="1000" rows="4" placeholder="Talk trash, plan a trade, keep the league honest…" required="required"></textarea>
 					</label>
-					<button class="button button--primary" type="submit">Post</button>
+					{/* comb — linden (2026-09-07), J6 F18: on a phone the
+					    fixed PageActionBar (app/layout.gsx) already
+					    submits this exact form (form="locker-post-form"
+					    is a native association, so this still works
+					    with no JavaScript) — this button hides at that
+					    same breakpoint (public/styles.css) so a phone
+					    never shows two post controls, one covering the
+					    other. */}
+					<button class="button button--primary locker-post-form__submit" type="submit">Post</button>
 				</form>
 			</If>
 			<If cond={data.can_post == false}>

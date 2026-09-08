@@ -9,17 +9,35 @@ func Page() Node {
 				<TextBlock as="h1" font="400 24px Archivo Black" lineHeight={28} maxLines={2} overflow="ellipsis" text={data.topic.title} />
 				<TextBlock as="p" class="guide-lede" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.topic.summary} />
 				<nav class="guide-actions" aria-label="Topic actions">
-					<a href={data.topic.action_route} data-gosx-link class="button button--primary">Open owning action →</a>
+					{/* comb — linden (2026-09-07), J5 F19: this used to
+					    read "Open owning action" for every topic — a
+					    schema field name, not a destination — and for
+					    this topic (ActionRoute "/") sent an anonymous
+					    visitor straight back to the page they arrived
+					    from with no warning. action_label
+					    (ActionRouteLabel, app/help/content.go) names the
+					    real destination instead. */}
+					<a href={data.topic.action_route} data-gosx-link class="button button--primary">{data.topic.action_label}</a>
 					<a href="/help" data-gosx-link class="button button--ghost">Back to help center</a>
 				</nav>
 			</div>
+		</header>
+
+		{/* comb — linden (2026-09-07), J5 F19: the Actor/Supported/
+		    Runtime source/Verified source table used to sit in the
+		    masthead, ahead of the prose answer above — the corpus SHA
+		    and this metadata sat between the question and the answer.
+		    It now renders after the lede, behind a "Sources" disclosure,
+		    collapsed by default. */}
+		<details class="guide-sources">
+			<summary>Sources</summary>
 			<aside class="masthead-console guide-console" aria-label="Topic receipt">
 				<div><span>Actor</span><strong>{data.topic.actor}</strong></div>
 				<div><span>Supported</span><strong>{data.topic.supported}</strong></div>
 				<div><span>Runtime source</span><strong>{data.topic.runtime_source}</strong></div>
 				<div><span>Verified source</span><strong title={data.source_sha}>{data.source_sha_short}</strong></div>
 			</aside>
-		</header>
+		</details>
 
 		<If cond={data.has_state || data.has_field}>
 			<section class="guide-section help-context-panel" id="context" aria-labelledby="context-heading">
@@ -89,6 +107,6 @@ func Page() Node {
 			<p class="scoring-note"><strong>Corpus receipt:</strong> introduced {data.topic.introduced_version}; last verified {data.topic.last_verified_sha}.</p>
 		</section>
 
-		<footer class="guide-next"><div><span class="section-index">NEXT TRANSMISSION</span><h2>Use the owning route.</h2><p>When mutable rules, dates, capabilities, or freshness disagree with a topic, the current runtime page wins.</p></div><div class="guide-actions"><a href={data.topic.action_route} data-gosx-link class="button button--primary">Open {data.topic.action_route} →</a><a href="/help" data-gosx-link class="button button--ghost">Search another topic</a></div></footer>
+		<footer class="guide-next"><div><span class="section-index">NEXT TRANSMISSION</span><h2>Use the owning route.</h2><p>When mutable rules, dates, capabilities, or freshness disagree with a topic, the current runtime page wins.</p></div><div class="guide-actions"><a href={data.topic.action_route} data-gosx-link class="button button--primary">{data.topic.action_label}</a><a href="/help" data-gosx-link class="button button--ghost">Search another topic</a></div></footer>
 	</main>
 }

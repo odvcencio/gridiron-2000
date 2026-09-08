@@ -2305,6 +2305,40 @@ func (s *Store) BoardRemove(owner, playerID string) error {
 	return s.persistLocked(colBoards)
 }
 
+// BoardRemoveTaken drops every board entry whose player id is in taken —
+// the Big Board's own "Clear drafted players" bulk action (J1 F34,
+// 2026-09-04 audit): a board that decays to mostly-drafted entries by
+// round five used to offer a Clear button per taken row and no way to
+// clear them all. It keeps every still-available entry's own relative
+// order untouched, and persists nothing (a true no-op) when there is
+// nothing to remove.
+func (s *Store) BoardRemoveTaken(owner string, taken map[string]bool) (int, error) {
+	owner = s.canonicalEmail(owner)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return 0, err
+	}
+	board := s.state.Boards[owner]
+	kept := make([]string, 0, len(board))
+	removed := 0
+	for _, existing := range board {
+		if taken[existing] {
+			removed++
+			continue
+		}
+		kept = append(kept, existing)
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+	s.state.Boards[owner] = kept
+	if err := s.persistLocked(colBoards); err != nil {
+		return 0, err
+	}
+	return removed, nil
+}
+
 // BoardClear removes every player from the owner's board.
 func (s *Store) BoardClear(owner string) error {
 	owner = s.canonicalEmail(owner)

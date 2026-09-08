@@ -422,12 +422,18 @@ func Page() Node {
 				<a href="/draft/results" data-gosx-link class="access-link">Open Draft results →</a>
 			</section>
 		</If>
-		<If cond={data.playoff_truth.season_phase == "preseason"}>
+		{/* comb — linden (2026-09-07), J5 F32/F34: both playoff-truth
+		    branches used to render for an anonymous visitor too — a
+		    "PLAYOFFS NOT ACTIVE" card whose own "Open Matchups →" link
+		    leads straight to the /login sign-in wall. A stranger
+		    deciding whether the league is worth signing into cannot act
+		    on a playoff status; signed_in now gates both branches. */}
+		<If cond={data.viewer.signed_in && data.playoff_truth.season_phase == "preseason"}>
 			<section class="score-command playoff-truth-card playoff-truth-card--compact" aria-labelledby="home-playoff-truth-heading">
 				<p id="home-playoff-truth-heading"><span class="position-chip">{data.playoff_truth.status_label}</span> {data.playoff_truth.headline} — bracket truth opens after the regular season. <a href="/matchups" data-gosx-link class="access-link">Open Matchups →</a></p>
 			</section>
 		</If>
-		<If cond={data.playoff_truth.season_phase != "preseason"}>
+		<If cond={data.viewer.signed_in && data.playoff_truth.season_phase != "preseason"}>
 		<section class="score-command playoff-truth-card" aria-labelledby="home-playoff-truth-heading">
 			<header class="section-heading section-heading--split">
 				<div><span class="section-index">POSTSEASON // SHARED TRUTH</span><h2 id="home-playoff-truth-heading">{data.playoff_truth.headline}</h2></div>

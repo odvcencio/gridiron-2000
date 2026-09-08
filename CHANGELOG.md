@@ -38,6 +38,17 @@ Scope: the first in-season batch: the matchups page leads with projections (scor
 
 ### Added
 - The commissioner can now correct a named team's roster on that team's own behalf from the admin console's Roster shape section: choose the team, choose a player to drop and a free agent to add (either side is optional), and give a required reason. The change is immediate, with a review step that restates the team and both players before a second, explicit confirm. The correction shows in the transaction feed, in the commissioner's own audit trail with the reason, and as a one-time notice on the affected team's next visit to their Team page.
+### Fixed
+- The draft results page now dates the draft by when it actually started, not by the scheduled meeting time; the scheduled time still shows as a second line when the two disagree. It ends with links to set your Week 1 lineup and browse free agents, and the finished draft room's own pick-history pane ends the same way, plus a link to the results page. The results page's value column now carries a plain-language legend and a "VS ADP" label on each value.
+- After the draft, /players defaults to a "Free agents" filter instead of listing rostered players first; an "All players" link opts back into the full pool. The rostered-owner chip now shows the team's full name on a phone, not just the code.
+- The draft room's ROSTER tab now lists your drafted players by slot, starters before bench, with a plain count of empty starting slots; the needs list itself now shows open slots first instead of alphabetically.
+- The Big Board's rail panel now offers one "Clear drafted" button that removes every already-drafted entry at once, and dims a drafted row's name, rank, and news icon (not only the name). The standalone Big Board page gets the same bulk clear action, and once the draft is complete its own heading changes from draft-night copy to "Your watch list for waivers."
+- The sign-in page now has one heading (Sign in) with nothing above it; the league name and the draft-event card render as plain text instead of a second and third heading.
+- A help topic's primary button now names its destination ("Go to the league home", "Open sign-in", and so on) instead of "Open owning action," and the page's own source metadata now sits in a collapsed "Sources" disclosure below the answer instead of ahead of it.
+- The Big Board's disabled "LOCKED" buttons on a seatless member's pool now name the player and point to the page's existing explanation, instead of fifty identical unnamed buttons.
+- The phone navigation dialog now lays its destinations out in two columns, so every destination fits without scrolling.
+- The Locker Room no longer shows two ways to post the same message on a phone.
+- The footer's status now carries a plain "Status" label; the anonymous landing page no longer shows a playoff card that leads to the sign-in wall; a seatless member's rail badge now shows their own name instead of going blank.
 
 ## [release-2026.09.08-8b73e06-textflow] — 2026-09-07
 

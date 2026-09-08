@@ -280,6 +280,46 @@ func TestBoardSeatlessHeroLeadsWithReasonAndDropsZeroCounter(t *testing.T) {
 	}
 }
 
+// TestBoardSeatlessLockedButtonsNamePlayerAndReason is J5 F20
+// (2026-09-04 audit): a seatless member's discovery pool renders one
+// disabled "LOCKED" button per row, and every one of them shared the
+// exact same accessible name — "LOCKED", with no player and no reason.
+// A screen-reader user cycling fifty identical buttons could not tell
+// which row they were on, and a sighted user had to scroll 800px back up
+// to learn why. Each button now names the player and points
+// aria-describedby at the page's own existing seatless explanation.
+func TestBoardSeatlessLockedButtonsNamePlayerAndReason(t *testing.T) {
+	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
+	t.Setenv("DEMO_MODE", "false")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+
+	service := league.Default()
+	service.SetPlayerSource(func() ([]league.Player, int64, string) {
+		return []league.Player{{ID: "p-1", Name: "Jahmyr Gibbs", Position: "RB", NFLTeam: "DET"}}, 1, "live"
+	})
+	const seatlessEmail = "seatless-board-locked@example.com"
+	if _, err := service.EnsureMember(seatlessEmail, "Seatless Board Locked"); err != nil {
+		t.Fatalf("EnsureMember: %v", err)
+	}
+
+	currentEmail := seatlessEmail
+	handler := buildBoardAuthenticatedHandler(t, &currentEmail)
+	body := renderBoardForUser(t, handler, "/", seatlessEmail)
+
+	if !strings.Contains(body, `<p id="board-no-franchise-reason">`) {
+		t.Fatalf("seatless board page missing the id'd explanation paragraph: %s", body)
+	}
+	if !strings.Contains(body, `aria-label="Rank Jahmyr Gibbs (needs a franchise seat)"`) {
+		t.Errorf("seatless LOCKED button missing a player-named aria-label: %s", body)
+	}
+	if !strings.Contains(body, `aria-describedby="board-no-franchise-reason"`) {
+		t.Errorf("seatless LOCKED button missing aria-describedby pointing at the existing explanation: %s", body)
+	}
+	if strings.Contains(body, `disabled="disabled">Locked</button>`) {
+		t.Error("seatless LOCKED button still carries a bare, unnamed accessible name")
+	}
+}
+
 func TestBoardStylesKeepDesktopRowsAndPagerControlsInBounds(t *testing.T) {
 	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
 	if err != nil {

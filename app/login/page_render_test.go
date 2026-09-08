@@ -146,15 +146,18 @@ func TestLoginPageFallsBackFromAuthenticationReturnTargets(t *testing.T) {
 }
 
 // TestLoginPageHasExactlyOneH1AtTheTopOfTheConsole is wave-7 re-audit
-// item 6's own decisive render test (yew): the page's own <h1> must be
-// .login-console__page-name — the small, unconditional heading at the
-// top of .login-console, the region CSS visually reorders ahead of
-// .login-poster at phone width — and .login-poster's own former h1 (the
-// league name) must now render as an h2, so the page carries exactly one
-// h1, positioned inside the region a phone visitor's first viewport
-// actually shows (the audit's own pre-fix finding: h1 at y=792, well
-// past the fold at 390px, since it used to live in .login-poster, which
-// renders visually SECOND on a phone).
+// item 6's own decisive render test (yew), updated for J5 F18 (2026-09-04
+// audit): the page's own <h1> must be .login-console__page-name — the
+// small, unconditional heading at the top of .login-console, the region
+// CSS visually reorders ahead of .login-poster at phone width. F18 found
+// that yew's own fix left TWO h2s ahead of that h1 in document order
+// (.login-poster's own league-name headline, and .login-event's "LEAGUE
+// DRAFT" card heading) — a screen-reader user browsing by heading met
+// both level-2 headings before the document's only level-1, and the h1
+// itself rendered as a 12px eyebrow while an h2 was the largest text on
+// the page. Both former headings now render as plain text (a <p> with
+// the same visual treatment, not a heading at all), so the page carries
+// exactly one h1, with no h2 anywhere ahead of it.
 func TestLoginPageHasExactlyOneH1AtTheTopOfTheConsole(t *testing.T) {
 	body := renderLoginPage(t, "%2F")
 
@@ -176,28 +179,36 @@ func TestLoginPageHasExactlyOneH1AtTheTopOfTheConsole(t *testing.T) {
 		t.Fatal("the console's own h1 renders before <aside class=\"login-console\"> opens")
 	}
 	// The h1 must be the console's own FIRST content — before its own
-	// notice/branch content, and before .login-poster's own (renamed) h2
-	// anywhere later in the console's own markup.
+	// notice/branch content, and before the branch-specific console h2
+	// ("Manager check-in" or the viewer's own name) anywhere later in the
+	// console's own markup.
 	consoleH2At := strings.Index(body[h1At:], "<h2>")
 	if consoleH2At < 0 {
 		t.Fatal("login page missing the branch-specific console h2 (\"Manager check-in\" or the viewer's own name)")
 	}
 
-	// .login-poster's own former h1 (the league name) must now be an h2:
-	// find .login-poster's own opening tag, then confirm an <h2> opens
-	// before the next <h1> or </div> after it (this render's own
-	// .login-poster is a <div>, matching page.gsx).
+	// J5 F18: no <h2> may appear anywhere before the document's one <h1>.
+	// The page used to carry two — .login-poster's own league-name
+	// headline and .login-event's "LEAGUE DRAFT" card heading — both now
+	// plain paragraphs, not headings, ahead of the h1.
+	if beforeH1 := body[:h1At]; strings.Contains(beforeH1, "<h2") {
+		t.Errorf("an <h2> renders before the page's own <h1> — a screen reader meets a level-2 heading before the document's only level-1: %s", beforeH1)
+	}
+
+	// .login-poster's own former h1 (the league name) must render as
+	// plain text, not any heading level, inside .login-poster.
 	posterAt := strings.Index(body, `class="login-poster"`)
 	if posterAt < 0 {
 		t.Fatal("login page missing .login-poster")
 	}
-	// "<h2" (not the exact "<h2>") matches both a bare heading and the
-	// textflow wave's own <TextBlock as="h2" ...> render (this file's
-	// page.gsx), which carries data-gosx-text-layout-* attributes on the
-	// same tag.
-	posterH2At := strings.Index(body[posterAt:], "<h2")
 	posterCloseAt := strings.Index(body[posterAt:], "</div>")
-	if posterH2At < 0 || (posterCloseAt >= 0 && posterH2At > posterCloseAt) {
-		t.Error("login-poster's own former h1 (the league name + headline span) is not rendering as an h2 inside .login-poster")
+	posterBody := body[posterAt:]
+	if posterCloseAt >= 0 {
+		posterBody = posterBody[:posterCloseAt]
+	}
+	for _, level := range []string{"<h1", "<h2", "<h3"} {
+		if strings.Contains(posterBody, level) {
+			t.Errorf("login-poster still renders a %q heading — the league-name headline and the LEAGUE DRAFT card heading must both be plain text now: %s", level, posterBody)
+		}
 	}
 }

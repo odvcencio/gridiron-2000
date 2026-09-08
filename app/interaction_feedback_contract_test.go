@@ -90,8 +90,11 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// app/team/page.server.go's new benchMutationSuccess helper (the
 	// bench row's Drop action, anchored to #bench) adds one more
 	// RedirectWithNotice call (14 -> 15).
+	// J1 F34 (2026-09-07 UX pass): app/board/page.server.go adds one
+	// direct RedirectBackWithNotice call — board-clear-drafted, the Big
+	// Board's own bulk "Clear drafted players" action (40 -> 41).
 	const wantRedirects = 15
-	const wantRedirectBacks = 41
+	const wantRedirectBacks = 42
 	redirects := 0
 	redirectBacks := 0
 	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, walkErr error) error {

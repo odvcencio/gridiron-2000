@@ -219,7 +219,10 @@ func TestHomePageMarkupRendersCoManagerWelcomePanel(t *testing.T) {
 // PRESEASON and no bracket can exist yet. It now collapses to one status
 // line while season_phase is "preseason" — the identical pattern
 // app/team/page.gsx's own playoff card uses (gap-audit item 1) — and
-// restores the full card once the phase moves past preseason.
+// restores the full card once the phase moves past preseason. J5 F32/F34
+// (2026-09-04 audit) added the data.viewer.signed_in gate: both branches
+// used to render for an anonymous visitor too, whose own "Open Matchups
+// →" link led straight to the /login sign-in wall.
 func TestHomePlayoffCardCollapsesToOneLineInPreseason(t *testing.T) {
 	pageBytes, err := os.ReadFile("page.gsx")
 	if err != nil {
@@ -227,9 +230,9 @@ func TestHomePlayoffCardCollapsesToOneLineInPreseason(t *testing.T) {
 	}
 	page := string(pageBytes)
 	for _, want := range []string{
-		`<If cond={data.playoff_truth.season_phase == "preseason"}>`,
+		`<If cond={data.viewer.signed_in && data.playoff_truth.season_phase == "preseason"}>`,
 		`class="score-command playoff-truth-card playoff-truth-card--compact"`,
-		`<If cond={data.playoff_truth.season_phase != "preseason"}>`,
+		`<If cond={data.viewer.signed_in && data.playoff_truth.season_phase != "preseason"}>`,
 		`class="score-command playoff-truth-card" aria-labelledby="home-playoff-truth-heading">`,
 	} {
 		if !strings.Contains(page, want) {
@@ -275,6 +278,14 @@ func TestPublicLandingPreservesConfiguredModeAndEventTruth(t *testing.T) {
 	}
 	if strings.Contains(body, "Doors in") {
 		t.Error("landing page still uses auto-start-implying Doors in label")
+	}
+	// J5 F32/F34 (2026-09-04 audit): the anonymous landing page used to
+	// show a "PLAYOFFS NOT ACTIVE" card whose own "Open Matchups →" link
+	// led straight to the /login sign-in wall — a stranger deciding
+	// whether the league is worth signing into cannot act on a playoff
+	// status. Hidden for anonymous visitors entirely now.
+	if strings.Contains(body, "playoff-truth-card") {
+		t.Error("anonymous landing page still renders the playoff-truth-card; it must be hidden for a signed-out visitor")
 	}
 
 	h1 := strings.Index(body, "<h1")

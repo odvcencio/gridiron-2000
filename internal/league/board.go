@@ -95,6 +95,7 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 	boardIDs := state.Boards[key]
 	onBoard := make(map[string]bool, len(boardIDs))
 	entries := make([]map[string]any, 0, len(boardIDs))
+	pickedCount := 0
 	for index, id := range boardIDs {
 		player, ok := pool.byID[id]
 		if !ok {
@@ -106,6 +107,9 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 		entry["board_can_move_up"] = index > 0
 		entry["board_can_move_down"] = index+1 < len(boardIDs)
 		entry["picked"] = picked[id]
+		if picked[id] {
+			pickedCount++
+		}
 		entries = append(entries, entry)
 	}
 	availablePlayers := make([]Player, 0, len(pool.players))
@@ -130,12 +134,19 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 	pagedPlayers := matchingPlayers[pagination.Start:pagination.End]
 	paged := playerMapsWithScoring(pagedPlayers, scoringValues, matchup)
 	return map[string]any{
-		"viewer":       viewer,
-		"public_entry": publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),
-		"can_edit":     key != "",
-		"board":        entries,
-		"board_count":  len(entries),
-		"available":    paged,
+		"viewer":             viewer,
+		"public_entry":       publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),
+		"can_edit":           key != "",
+		"board":              entries,
+		"board_count":        len(entries),
+		"board_picked_count": pickedCount,
+		// draft_complete (J1 F34, 2026-09-04 audit): the masthead's own
+		// claim ("the draft room and autopick use this order") stops
+		// being true the moment the room closes; the page.gsx branch on
+		// this reads instead, naming the board's real post-draft job — a
+		// personal watch list for waivers.
+		"draft_complete": draftComplete(state),
+		"available":      paged,
 		// available_count/available_total are deliberately the unfiltered
 		// available pool. matching_count/pool_total describe the current
 		// server-side filter, so the UI can tell "all available" from
@@ -262,6 +273,27 @@ func (s *Service) BoardRemove(r *http.Request, playerID string) error {
 		return err
 	}
 	return s.store.BoardRemove(owner, playerID)
+}
+
+// BoardClearDrafted removes every already-drafted entry from the
+// viewer's board in one action (J1 F34, 2026-09-04 audit): the room's
+// own rail panel offered a Clear button per taken row and no way to
+// clear them all, so a board that decayed to mostly-taken entries by
+// round five stayed cluttered with dead rows. It returns the number of
+// entries removed; zero is a normal, non-error result, not a failure —
+// this is a tidy-up, not the irreversible whole-board wipe BoardClear
+// gates behind a confirmation.
+func (s *Service) BoardClearDrafted(r *http.Request) (int, error) {
+	owner, err := s.boardActionOwner(r)
+	if err != nil {
+		return 0, err
+	}
+	state := s.store.Snapshot()
+	taken := make(map[string]bool, len(state.Picks))
+	for _, pick := range state.Picks {
+		taken[pick.PlayerID] = true
+	}
+	return s.store.BoardRemoveTaken(owner, taken)
 }
 
 // BoardClear empties the viewer's board. confirmation is wave-6 item 9's

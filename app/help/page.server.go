@@ -16,7 +16,11 @@ func TopicView(topic Topic) map[string]any {
 	return map[string]any{
 		"id": topic.ID, "title": topic.Title, "summary": topic.Summary,
 		"category": topic.Category, "action_route": topic.ActionRoute,
-		"keywords": strings.Join(topic.Keywords, ", "), "synonyms": strings.Join(topic.Synonyms, ", "),
+		// action_label (J5 F19, 2026-09-04 audit): names the destination
+		// ("Go to the league home →") instead of the "Open owning
+		// action" schema-field placeholder page.gsx used to render.
+		"action_label": ActionRouteLabel(topic.ActionRoute),
+		"keywords":     strings.Join(topic.Keywords, ", "), "synonyms": strings.Join(topic.Synonyms, ", "),
 		"introduced_version": topic.IntroducedVersion, "last_verified_sha": topic.LastVerifiedSHA,
 		"actor": topic.Actor, "prerequisites": topic.Prerequisites, "supported": topic.Supported,
 		"states": topic.States, "deadline": topic.Deadline, "steps": topic.Steps,

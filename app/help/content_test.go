@@ -5,6 +5,47 @@ import (
 	"testing"
 )
 
+// TestActionRouteLabelNamesTheDestinationNeverASchemaField is J5 F19
+// (2026-09-04 audit): the getting-started topic's own ActionRoute is "/"
+// (the corpus's own entry-surface fallback), and the button that reads it
+// used to say "Open owning action" — a schema field name, not a
+// destination — and land an anonymous visitor straight back on the page
+// they came from. Every known route gets a plain destination name; an
+// unmapped route still names the actual path, never a field name.
+func TestActionRouteLabelNamesTheDestinationNeverASchemaField(t *testing.T) {
+	cases := map[string]string{
+		"/":                                             "Go to the league home →",
+		"/login":                                         "Open sign-in →",
+		"/team":                                          "Open the Team terminal →",
+		"/board":                                         "Open the Big Board →",
+		"/players":                                       "Open the Player pool →",
+		"/draft":                                         "Open the Draft room →",
+		"/help/roles-primary-co-manager-and-commissioner": "Open the roles topic →",
+	}
+	for route, want := range cases {
+		if got := ActionRouteLabel(route); got != want {
+			t.Errorf("ActionRouteLabel(%q) = %q, want %q", route, got, want)
+		}
+	}
+	if got := ActionRouteLabel("/unmapped-route"); !strings.Contains(got, "/unmapped-route") {
+		t.Errorf("ActionRouteLabel for an unmapped route = %q, want it to still name the actual path", got)
+	}
+	if strings.Contains(ActionRouteLabel("/"), "owning action") {
+		t.Error(`ActionRouteLabel must never read "owning action" — a schema field name, not a destination`)
+	}
+}
+
+// TestTopicViewCarriesActionLabel is F19's own wiring proof: TopicView
+// must expose action_label (ActionRouteLabel(topic.ActionRoute)) so
+// page.gsx never has to fall back to a generic button caption.
+func TestTopicViewCarriesActionLabel(t *testing.T) {
+	topic := Topic{ActionRoute: "/"}
+	view := TopicView(topic)
+	if got := view["action_label"]; got != "Go to the league home →" {
+		t.Errorf(`TopicView(...)["action_label"] = %v, want "Go to the league home →"`, got)
+	}
+}
+
 func TestCorpusValidatesAndContainsStableTopicInventory(t *testing.T) {
 	if err := ValidateCorpus(); err != nil {
 		t.Fatal(err)
