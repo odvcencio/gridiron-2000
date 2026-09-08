@@ -42,6 +42,12 @@ type PrimaryNavigationProps struct {
 	// a primary manager never gets a matching "PRIMARY" chip, which the
 	// finding calls out as noise for the common case.
 	IsCoManager bool
+	// DisplayName (J5 F34, 2026-09-04 audit) is data.viewer.name, the
+	// rail badge's own fallback when TeamName is empty — a seatless
+	// member's .user-name used to bind to TeamName alone, rendering
+	// blank beside the initials chip: the one place the chrome could
+	// confirm "you are signed in as <name>" said nothing at all.
+	DisplayName string
 	// DraftComplete (wave 7, item 6) comes from data.league.draft_complete
 	// (leagueMap, internal/league/service.go) — the same "one map every
 	// page's data function already includes" property PickemHot/TradesHot
@@ -224,7 +230,23 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 			<If cond={props.SignedIn}>
 				<div class="user-badge">
 					<span class="user-chip mono">{props.Initials}</span>
-					<TextBlock as="span" class="user-name" font="600 13px IBM Plex Mono" lineHeight={18} text={props.TeamName} />
+					{/* comb — linden (2026-09-07), J5 F34: TeamName alone
+					    left this blank for a seatless member — the one
+					    place the chrome could confirm "you are signed
+					    in as <name>" said nothing. DisplayName
+					    (data.viewer.name) is the fallback; "No franchise
+					    yet" covers the (practically unreachable, since a
+					    signed-in viewer.name always resolves) case
+					    where even that is empty. */}
+					<If cond={props.TeamName != ""}>
+						<TextBlock as="span" class="user-name" font="600 13px IBM Plex Mono" lineHeight={18} text={props.TeamName} />
+					</If>
+					<If cond={props.TeamName == "" && props.DisplayName != ""}>
+						<TextBlock as="span" class="user-name" font="600 13px IBM Plex Mono" lineHeight={18} text={props.DisplayName} />
+					</If>
+					<If cond={props.TeamName == "" && props.DisplayName == ""}>
+						<span class="user-name">No franchise yet</span>
+					</If>
 					<If cond={props.IsCoManager}>
 						<span class="user-role-chip mono">CO-MANAGER</span>
 					</If>
@@ -393,6 +415,7 @@ func Layout() Node {
 					Commissioner={data.viewer.is_commissioner}
 					Initials={data.viewer.initials}
 					TeamName={data.viewer.team_name}
+					DisplayName={data.viewer.name}
 					CSRFToken={csrf.token}
 					PickemHot={data.league.attention.pickem_hot}
 					PickemAttentionText={data.league.attention.pickem_attention_text}
@@ -469,6 +492,7 @@ func Layout() Node {
 					Commissioner={data.viewer.is_commissioner}
 					Initials={data.viewer.initials}
 					TeamName={data.viewer.team_name}
+					DisplayName={data.viewer.name}
 					CSRFToken={csrf.token}
 					PickemHot={data.league.attention.pickem_hot}
 					PickemAttentionText={data.league.attention.pickem_attention_text}
@@ -494,6 +518,7 @@ func Layout() Node {
 					Commissioner={data.viewer.is_commissioner}
 					Initials={data.viewer.initials}
 					TeamName={data.viewer.team_name}
+					DisplayName={data.viewer.name}
 					CSRFToken={csrf.token}
 					PickemHot={data.league.attention.pickem_hot}
 					PickemAttentionText={data.league.attention.pickem_attention_text}
@@ -600,7 +625,12 @@ func Layout() Node {
 					<a href="/open-source" data-gosx-link>Run your own league →</a>
 				</nav>
 			</div>
+			{/* comb — linden (2026-09-07), J5 F32: this used to print a
+			    bare status word ("MATCHUPS SCHEDULED") with no label —
+			    a stranger deciding whether the league is worth signing
+			    into got a fact with no subject. */}
 			<div class="footer-status">
+				<span class="footer-status__label">Status</span>
 				<If cond={data.league.matchup_footer_live}>
 					<span class="live-dot" aria-hidden="true"></span>
 				</If>

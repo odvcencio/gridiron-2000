@@ -18427,3 +18427,9 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
     display: none;
   }
 }
+
+/* comb — linden (2026-09-07 UX pass): J5 F32. .footer-status's own value
+   (a bare status word) now carries an explicit label ahead of it. */
+.footer-status__label {
+  color: var(--color-text-muted);
+}

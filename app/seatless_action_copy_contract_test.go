@@ -14,6 +14,12 @@ func TestSeatlessSeatTiedSurfacesRenderBrowseOnlyBranches(t *testing.T) {
 		gate       string
 		manager    []string
 		browseOnly []string
+		// lockedButton is the exact disabled fallback control's own
+		// source text — kept per test case since J5 F20 (2026-09-04
+		// audit) gave board's own LOCKED button an aria-label naming the
+		// player and an aria-describedby pointing at the page's existing
+		// explanation; blitz's own LOCKED button is unchanged.
+		lockedButton string
 	}{
 		{
 			name: "board",
@@ -28,6 +34,7 @@ func TestSeatlessSeatTiedSurfacesRenderBrowseOnlyBranches(t *testing.T) {
 				"A franchise seat is required before this page can save a private draft order.",
 				"<h2>Browse available players</h2>",
 			},
+			lockedButton: `type="button" disabled="disabled" aria-label={"Rank " + player.name + " (needs a franchise seat)"} aria-describedby="board-no-franchise-reason">Locked</button>`,
 		},
 		{
 			name: "blitz",
@@ -43,6 +50,7 @@ func TestSeatlessSeatTiedSurfacesRenderBrowseOnlyBranches(t *testing.T) {
 				"Entry controls unlock only for an identity that manages a franchise seat.",
 				"<h2>Browse eligible players</h2>",
 			},
+			lockedButton: `type="button" disabled="disabled">Locked</button>`,
 		},
 	}
 
@@ -79,7 +87,7 @@ func TestSeatlessSeatTiedSurfacesRenderBrowseOnlyBranches(t *testing.T) {
 			}
 			for _, want := range []string{
 				"data-gosx-managed=\"true\"",
-				"type=\"button\" disabled=\"disabled\">Locked</button>",
+				tt.lockedButton,
 			} {
 				if !strings.Contains(body, want) {
 					t.Fatalf("%s lost progressive/native action fallback %q", tt.path, want)

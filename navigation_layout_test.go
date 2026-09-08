@@ -55,6 +55,12 @@ type navigationViewerFixture struct {
 	// fixture literal in this file keeps rendering no footer line.
 	hasFooterLine bool
 	footerLine    string
+	// noTeamName/viewerName (J5 F34, 2026-09-04 audit): the seatless
+	// rail-badge repro — team_name renders "" (no franchise yet) and
+	// viewerName backs data.viewer.name, the fallback the rail badge
+	// must show instead of a blank name beside the initials chip.
+	noTeamName bool
+	viewerName string
 }
 
 type renderedNavigationGroup struct {
@@ -103,6 +109,11 @@ func Page() Node {
 		t.Fatalf("write index page fixture: %v", err)
 	}
 
+	teamName, viewerName := "Quality Agents", "Quality Agents"
+	if viewer.noTeamName {
+		teamName = ""
+		viewerName = viewer.viewerName
+	}
 	fixtureData := func(*route.RouteContext, route.FilePage) (any, error) {
 		return map[string]any{
 			"viewer": map[string]any{
@@ -112,7 +123,8 @@ func Page() Node {
 				"seat_claim_eligible": viewer.canClaimSeat,
 				"is_commissioner":     viewer.commissioner,
 				"initials":            "QA",
-				"team_name":           "Quality Agents",
+				"team_name":           teamName,
+				"name":                viewerName,
 			},
 			"league": map[string]any{
 				"name":                 "Test League",
@@ -538,6 +550,59 @@ func TestPrimaryNavigationSeatlessGroupIsDisabledWithReason(t *testing.T) {
 		if len(playersLinks) != 1 {
 			t.Errorf("surface %d player-pool link count = %d, want 1 (Player Pool must stay enabled)", index, len(playersLinks))
 		}
+	}
+}
+
+// TestRailBadgeFallsBackToDisplayNameWithoutATeam is J5 F34 (2026-09-04
+// audit): a seatless member's rail badge bound .user-name to
+// data.viewer.team_name alone, so a member with no team saw a lime "NG"
+// chip and nothing beside it — the one place the chrome could confirm
+// "you are signed in as New Guy" was blank. .user-name must now fall
+// back to the viewer's own display name when there is no team.
+func TestRailBadgeFallsBackToDisplayNameWithoutATeam(t *testing.T) {
+	body := renderNavigationLayout(t, "/pickem?week=2", navigationViewerFixture{
+		signedIn: true, noTeamName: true, viewerName: "New Guy",
+	})
+	document := parseNavigationDocument(t, body)
+	names := findNodes(document, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && hasClass(node, "user-name")
+	})
+	if len(names) == 0 {
+		t.Fatal("no .user-name element rendered for a seatless viewer")
+	}
+	for _, name := range names {
+		text := strings.TrimSpace(descendantText(name))
+		if text == "" {
+			t.Error(".user-name rendered blank for a seatless viewer with no team")
+		}
+		if text != "New Guy" {
+			t.Errorf(".user-name = %q, want the viewer's own display name %q", text, "New Guy")
+		}
+	}
+}
+
+// TestFooterStatusCarriesItsOwnLabel is J5 F32 (2026-09-04 audit): the
+// footer's own right corner printed a bare status word ("MATCHUPS
+// SCHEDULED") with no label — a stranger deciding whether the league is
+// worth signing into had no subject for that phrase. .footer-status now
+// carries an explicit "Status" label ahead of the value.
+func TestFooterStatusCarriesItsOwnLabel(t *testing.T) {
+	body := renderNavigationLayout(t, "/pickem?week=2", navigationViewerFixture{signedIn: true})
+	document := parseNavigationDocument(t, body)
+	statuses := findNodes(document, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && hasClass(node, "footer-status")
+	})
+	if len(statuses) != 1 {
+		t.Fatalf("footer-status count = %d, want 1", len(statuses))
+	}
+	labels := findNodes(statuses[0], func(node *html.Node) bool {
+		return node.Type == html.ElementNode && hasClass(node, "footer-status__label")
+	})
+	if len(labels) != 1 || strings.TrimSpace(descendantText(labels[0])) == "" {
+		t.Fatal("footer-status is missing a non-empty .footer-status__label")
+	}
+	if !strings.Contains(descendantText(statuses[0]), "MATCHUPS SCHEDULED") {
+		t.Error("footer-status must still carry the underlying matchup_footer_label value")
 	}
 }
 
