@@ -225,14 +225,20 @@ func (s *Service) consoleSeasonStateSentence(state PersistedState, now time.Time
 
 // weekProgressSentence names week's own progress in one of three states
 // (F1's exact contract, extended 2026-09-08 wave C to also name the
-// games-final count the attention panel's own week-close reason repeats
-// beside it): the week's games have not kicked off yet (naming the next
-// kickoff in league-local time), the week is under way (with how many
-// real games have gone final), or every real game has gone final and the
-// league is waiting to close it. Read via AdminWeekCloseInfo, the same
-// readiness computation the week-close panel itself already uses, so the
-// console and the panel can never disagree about which of these three
-// states week is in.
+// games-final count and, once every game is final, a stale stat feed):
+// the week's games have not kicked off yet (naming the next kickoff in
+// league-local time, and nothing else — a coordinator follow-up removed
+// the console's own separate week-close-reason span the attention
+// readout used to glue onto this exact sentence, which before kickoff
+// read as a false claim: "waiting for games to go final" implies games
+// are in progress, not still days away), the week is under way (with how
+// many real games have gone final), or every real game has gone final
+// and the league is waiting to close it (with the stat-feed staleness
+// notice appended when it applies — the one console fact that explains
+// why "close" is still waiting even with every game final). Read via
+// AdminWeekCloseInfo, the same readiness computation the week-close
+// panel itself already uses, so the console and the panel can never
+// disagree about which of these three states week is in.
 func (s *Service) weekProgressSentence(week int, now time.Time) string {
 	info := s.AdminWeekCloseInfo(week, now)
 	if !info.GamesKnown {
@@ -247,7 +253,11 @@ func (s *Service) weekProgressSentence(week int, now time.Time) string {
 	if info.GamesFinal < info.GamesTotal {
 		return fmt.Sprintf("Week %d in progress · %d of %d games final", week, info.GamesFinal, info.GamesTotal)
 	}
-	return fmt.Sprintf("Week %d awaiting close · %d of %d final", week, info.GamesFinal, info.GamesTotal)
+	sentence := fmt.Sprintf("Week %d awaiting close · %d of %d final", week, info.GamesFinal, info.GamesTotal)
+	if info.StaleFeedNotice != "" {
+		sentence += " " + info.StaleFeedNotice
+	}
+	return sentence
 }
 
 // AdminCloseWeek closes one league week: it scores every matchup in the

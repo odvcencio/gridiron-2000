@@ -134,6 +134,43 @@ func TestAdminAttentionReadoutRendersSeasonStateSentenceAndHidesDraftDeadline(t 
 	}
 }
 
+// TestAdminAttentionReadoutNoLongerGluesScheduleReasonOntoSeasonState is a
+// coordinator follow-up (2026-09-08 wave C, alongside F21): the readout
+// used to append a second, separate <span>{ScheduleReason}</span> after
+// SeasonStateSentence whenever the week was not ready to close —
+// including before kickoff, where "waiting for N of M games to go final"
+// is not true of a week that has not started (SeasonStateSentence itself
+// now states the one true fact for every phase; season_test.go's
+// TestWeekProgressSentenceAppendsStaleFeedNoticeOnceAwaitingClose covers
+// the one fact — a stale stat feed — the removed span still needed to
+// carry). ScheduleReason legitimately still appears in the "This week"
+// card below the readout, so this checks the readout div alone.
+func TestAdminAttentionReadoutNoLongerGluesScheduleReasonOntoSeasonState(t *testing.T) {
+	props := sampleAdminAttention()
+	props.SeasonStateSentence = "Week 2 starts Wed Sep 17 · 8:15 PM EDT"
+	props.ScheduleReady = false
+	props.ScheduleReason = "waiting for 16 of 16 games to go final"
+	rendered, err := adminAttentionFragmentRender(props)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := strings.Index(rendered, `class="admin-task-nav__readout"`)
+	if start < 0 {
+		t.Fatal("attention readout div missing")
+	}
+	end := strings.Index(rendered[start:], "</div>")
+	if end < 0 {
+		t.Fatal("attention readout div has no closing tag")
+	}
+	readout := rendered[start : start+end]
+	if !strings.Contains(readout, "Week 2 starts Wed Sep 17 · 8:15 PM EDT") {
+		t.Errorf("readout missing the season-state sentence: %s", readout)
+	}
+	if strings.Contains(readout, "waiting for 16 of 16 games to go final") {
+		t.Errorf("readout still glues the week-close reason onto the season-state sentence: %s", readout)
+	}
+}
+
 // TestAdminAttentionReadoutReprioritizesByDraftPhase pins F2 (J4 console
 // gap-audit): the first two screens of the console used to be draft-night
 // telemetry (seat rows, board counts) in week 1, with nothing naming the
