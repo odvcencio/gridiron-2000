@@ -19917,3 +19917,33 @@ body.is-on-clock .draft-command__pill-sentence {
   overflow-wrap: normal;
   word-break: normal;
 }
+
+/* comb — aspen (2026-09-08 wave E) */
+
+/* Decision 1 (J3 F21, J5 F29): the home masthead's slogan-turned-lede
+   sentence reads a step down from the h1, ahead of the unchanged summary
+   paragraph beneath it. Compound selector (two classes) so it wins over
+   the existing ".home-action-center__header p" rule regardless of
+   source order. */
+.home-action-center__header .home-action-center__lede {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+/* Decision 1: the desktop masthead's own copy of the rail's urgent chip
+   (app/layout.gsx .rail-attention-chip — same class, same
+   data.league.attention source, so the rail and the masthead can never
+   disagree). Hidden by default; shown only past the 899px desktop
+   threshold (the cherry re-audit's own line, public/styles.css "width >
+   899px") so a phone or tablet viewport keeps exactly the one urgent
+   chip its mobile bar already carries. */
+.home-action-center__urgent-chip {
+  display: none;
+}
+
+@media (width > 899px) {
+  .home-action-center__urgent-chip {
+    display: inline-flex;
+    align-self: flex-start;
+  }
+}

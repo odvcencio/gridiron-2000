@@ -252,6 +252,13 @@ func init() {
 			if actionCenter, ok := data["action_center"].(map[string]any); ok {
 				card := dashboardActionCenter(actionCenter)
 				card.ArrivalStripShown = stripShown
+				live, _ := data["live"].(map[string]any)
+				card.WeekLabel = homeMastheadWeekLabel(live)
+				demo := boolField(viewer, "demo")
+				if hasSeat && !demo {
+					leagueData, _ := data["league"].(map[string]any)
+					card.UrgentCount, card.HasUrgent, card.UrgentChipLabel = homeMastheadUrgent(leagueData)
+				}
 				isCommissioner, _ := viewer["is_commissioner"].(bool)
 				// A seatless commissioner is a first-class viewer, not a
 				// stalled applicant: internal/league/public_entry.go's
@@ -307,6 +314,21 @@ type ActionCenterCard struct {
 	// inside ActionCenterPanel itself, between its header and its task
 	// list, instead of as Page()'s own sibling ahead of it.
 	ArrivalStripShown bool
+	// WeekLabel, HasUrgent, UrgentCount, UrgentChipLabel (Decision 1, J3
+	// F21 / J5 F29, wave E): the masthead h1 now names the page and the
+	// week ("Home · Week 1" / "Home · Preseason") instead of leading with
+	// the stage's own slogan, and the desktop header carries the same
+	// urgent-attention chip the rail already shows (app/layout.gsx's
+	// rail-attention-chip) so a manager reads "what needs me" without
+	// leaving the masthead. WeekLabel reads data.live (homeMastheadWeekLabel)
+	// — the one page-wide week answer commissionerSeatlessOverlay already
+	// reads above — rather than computing a second one. Urgent* reads
+	// data.league.attention, gated the same three ways the rail chip is
+	// (has_seat, attention.has_items, !demo).
+	WeekLabel       string
+	HasUrgent       bool
+	UrgentCount     int
+	UrgentChipLabel string
 }
 
 func actionCenterActionCardFromMap(raw map[string]any) league.ActionCenterActionCard {
@@ -347,6 +369,34 @@ func dashboardActionCenter(raw map[string]any) ActionCenterCard {
 		HasCommissioner:     boolField(raw, "has_commissioner_actions"),
 		CommissionerActions: actionCenterActionCards(raw["commissioner_actions"]),
 	}
+}
+
+// homeMastheadWeekLabel is Decision 1's own masthead label (J3 F21, J5
+// F29): "Week N" once the schedule has reached game weeks, "Preseason"
+// before it. live is data["live"] (Service.liveMap), the one page-wide
+// week answer commissionerSeatlessOverlay above already reads — this
+// never computes a second one.
+func homeMastheadWeekLabel(live map[string]any) string {
+	if stringField(live, "state") == league.MatchupStatePreseason {
+		return "Preseason"
+	}
+	week := intField(live, "week")
+	if week <= 0 {
+		return "Preseason"
+	}
+	return fmt.Sprintf("Week %d", week)
+}
+
+// homeMastheadUrgent reads data["league"]["attention"] (internal/league/
+// service.go's attentionMap) for the masthead's own copy of the rail's
+// urgent chip. It never recomputes urgency: same map, same count, same
+// chip_label, so the rail and the masthead can never disagree.
+func homeMastheadUrgent(leagueData map[string]any) (count int, has bool, chipLabel string) {
+	attention, _ := leagueData["attention"].(map[string]any)
+	if attention == nil {
+		return 0, false, ""
+	}
+	return intField(attention, "urgent_count"), boolField(attention, "has_items"), stringField(attention, "chip_label")
 }
 
 // commissionerSeatlessOverlay replaces card's leading heading/summary/

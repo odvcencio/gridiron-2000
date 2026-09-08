@@ -140,6 +140,13 @@ type ActionCenterPanelProps struct {
 	// this component's own <header> pushed home's h1 217px further down
 	// than every other route.
 	ArrivalStripShown bool
+	// WeekLabel, HasUrgent, UrgentCount, UrgentChipLabel: see the doc
+	// comment on page.server.go's matching ActionCenterCard fields
+	// (Decision 1, J3 F21 / J5 F29, wave E).
+	WeekLabel       string
+	HasUrgent       bool
+	UrgentCount     int
+	UrgentChipLabel string
 }
 
 func ActionCenterTask(props ActionCenterActionCard) Node {
@@ -195,13 +202,39 @@ func ActionCenterNativeTask(props ActionCenterActionCard) Node {
 
 component ActionCenterPanel(props: ActionCenterPanelProps) {
 	return <section class="home-action-center" data-action-center-stage={props.Stage} aria-labelledby="home-action-center-heading">
+		{/* Decision 1 (J3 F21, J5 F29, wave E): the h1 used to be the
+		    stage's own slogan (for example "TURN PICKS INTO A SEASON."),
+		    naming neither the page nor the week — the masthead lead
+		    contract (TestBrowserMastheadLeadContract) pins the h1's own
+		    vertical offset, not its text, so the h1 now reads "Home ·
+		    <week>" and the slogan drops one line to become the lede
+		    sentence ahead of the summary. The eyebrow above it keeps its
+		    one line (Decision 2: no "00 // " section number, and
+		    StageLabel already differs from the new h1's own words, so it
+		    stays the masthead's one eyebrow). The urgent chip is new: it
+		    repeats app/layout.gsx's rail-attention-chip verbatim (same
+		    class, same data.league.attention source) so the desktop
+		    header and the rail can never disagree; --masthead-lead/
+		    --masthead-title-gap sizing lives on the h1 itself
+		    (public/styles.css), so wrapping it changes nothing there. */}
 		<header class="home-action-center__header">
 			<div>
-				<span class="section-index">00 // {props.StageLabel}</span>
-				<h1 id="home-action-center-heading">{props.Heading}</h1>
+				<span class="section-index">{props.StageLabel}</span>
+				<h1 id="home-action-center-heading">Home · {props.WeekLabel}</h1>
+				<p class="home-action-center__lede">{props.Heading}</p>
 				<p>{props.Summary}</p>
 			</div>
 			<span class="home-action-center__status mono">ACTION CENTER</span>
+			<If cond={props.HasUrgent}>
+				<a
+					href="/#home-action-center-heading"
+					data-gosx-link
+					class="rail-attention-chip home-action-center__urgent-chip"
+					aria-label={props.UrgentChipLabel}
+				>
+					<span class="rail-attention-chip__count">{props.UrgentCount}</span> URGENT
+				</a>
+			</If>
 		</header>
 		{/* J5 F37: an arrival strip for a manager's first session — one
 		    dismissible strip for a member whose team has no saved lineup
