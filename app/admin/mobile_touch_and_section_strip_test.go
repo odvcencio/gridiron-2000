@@ -157,3 +157,49 @@ func TestAdminSeatRowSetButtonsAndEmailToggleMeetTheTouchBaseline(t *testing.T) 
 		}
 	}
 }
+
+// TestAdminTaskBoardRowsUseInstantAnchors is J4 F25's own residue (wave E):
+// cedar's fix in wave C moved the compact .admin-section-strip to plain
+// #anchor hrefs, but left the fuller .admin-task-nav task board's own rows
+// (AdminTaskLink, above) on "/admin?section=X#admin-X" — a full reload of
+// a ~14,000px document that lands well short of the target, then jumps
+// once late layout settles (measured 1.4s -> 5s in the finding). The task
+// board's rows now jump the same instant way the strip already does.
+func TestAdminTaskBoardRowsUseInstantAnchors(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(page)
+	navStart := strings.Index(source, `<nav class="admin-task-nav" aria-labelledby="admin-task-nav-heading">`)
+	if navStart < 0 {
+		t.Fatal("page.gsx is missing the admin-task-nav task board")
+	}
+	navEnd := strings.Index(source[navStart:], "</nav>")
+	if navEnd < 0 {
+		t.Fatal("admin-task-nav nav never closes")
+	}
+	nav := source[navStart : navStart+navEnd]
+	if strings.Contains(nav, `Href="/admin?section=`) {
+		t.Error("admin-task-nav still sends a task-board row through a full /admin?section= reload instead of a plain #anchor jump")
+	}
+	for _, want := range []string{
+		`Href="#admin-draft-control"`,
+		`Href="#admin-draft-order"`,
+		`Href="#admin-data"`,
+		`Href="#admin-clock"`,
+		`Href="#admin-roster"`,
+		`Href="#admin-schedule"`,
+		`Href="#admin-week-close"`,
+		`Href="#admin-playoffs"`,
+		`Href="#admin-seats"`,
+		`Href="#admin-invites"`,
+		`Href="#admin-announcements"`,
+		`Href="#admin-backup"`,
+		`Href="#admin-danger"`,
+	} {
+		if !strings.Contains(nav, want) {
+			t.Errorf("admin-task-nav missing instant anchor %q", want)
+		}
+	}
+}

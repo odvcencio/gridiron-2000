@@ -182,19 +182,40 @@ type AdminTaskLinkProps struct {
 	Current bool
 	Label   string
 	Status  string
+	// IsAnchor marks a same-page "#admin-<section>" jump target (J4 F25
+	// residue, wave E): a plain fragment href needs no data-gosx-link, so
+	// the browser scrolls the same instant way cedar's .admin-section-strip
+	// already does, rather than taking the managed-navigation path a full
+	// "/admin?section=X#admin-X" reload used to (root cause of F25's
+	// 1,600px, several-seconds-late landing). Cross-page rows (Href
+	// "/trades", "/scoring", "/activity") leave this false and keep
+	// data-gosx-link.
+	IsAnchor bool
 }
 
 func AdminTaskLink(props AdminTaskLinkProps) Node {
 	return <li class="admin-task-nav__item">
-		<a
-			href={props.Href}
-			data-gosx-link
-			class="admin-task-nav__link"
-			aria-current={props.Current}
-		>
-			<span class="admin-task-nav__label">{props.Label}</span>
-			<span class="admin-task-nav__status">{props.Status}</span>
-		</a>
+		<If cond={props.IsAnchor}>
+			<a
+				href={props.Href}
+				class="admin-task-nav__link"
+				aria-current={props.Current}
+			>
+				<span class="admin-task-nav__label">{props.Label}</span>
+				<span class="admin-task-nav__status">{props.Status}</span>
+			</a>
+		</If>
+		<If cond={props.IsAnchor == false}>
+			<a
+				href={props.Href}
+				data-gosx-link
+				class="admin-task-nav__link"
+				aria-current={props.Current}
+			>
+				<span class="admin-task-nav__label">{props.Label}</span>
+				<span class="admin-task-nav__status">{props.Status}</span>
+			</a>
+		</If>
 	</li>
 }
 
@@ -547,41 +568,41 @@ func Page() Node {
 						<h3>Draft preparation and live operation</h3>
 						<ul>
 							<If cond={data.draft.complete}>
-								<AdminTaskLink Label="Start and monitor draft" Href="/admin?section=draft-control#admin-draft-control" Current={data.admin_section == "draft-control"} Status="COMPLETE" />
+								<AdminTaskLink Label="Start and monitor draft" Href="#admin-draft-control" IsAnchor={true} Current={data.admin_section == "draft-control"} Status="COMPLETE" />
 							</If>
 							<If cond={data.draft.complete == false}>
 								<If cond={data.draft_started}>
-									<AdminTaskLink Label="Start and monitor draft" Href="/admin?section=draft-control#admin-draft-control" Current={data.admin_section == "draft-control"} Status="LIVE · operate now" />
+									<AdminTaskLink Label="Start and monitor draft" Href="#admin-draft-control" IsAnchor={true} Current={data.admin_section == "draft-control"} Status="LIVE · operate now" />
 								</If>
 								<If cond={data.draft_started == false}>
-									<AdminTaskLink Label="Start and monitor draft" Href="/admin?section=draft-control#admin-draft-control" Current={data.admin_section == "draft-control"} Status="START REQUIRED" />
+									<AdminTaskLink Label="Start and monitor draft" Href="#admin-draft-control" IsAnchor={true} Current={data.admin_section == "draft-control"} Status="START REQUIRED" />
 								</If>
 							</If>
 							<If cond={data.order_randomized}>
-								<AdminTaskLink Label="Draw draft order" Href="/admin?section=draft-order#admin-draft-order" Current={data.admin_section == "draft-order"} Status="PUBLISHED" />
+								<AdminTaskLink Label="Draw draft order" Href="#admin-draft-order" IsAnchor={true} Current={data.admin_section == "draft-order"} Status="PUBLISHED" />
 							</If>
 							<If cond={data.order_randomized == false}>
-								<AdminTaskLink Label="Draw draft order" Href="/admin?section=draft-order#admin-draft-order" Current={data.admin_section == "draft-order"} Status="DRAW REQUIRED" />
+								<AdminTaskLink Label="Draw draft order" Href="#admin-draft-order" IsAnchor={true} Current={data.admin_section == "draft-order"} Status="DRAW REQUIRED" />
 							</If>
 							<If cond={data.pool.error != ""}>
-								<AdminTaskLink Label="Verify player pool" Href="/admin?section=data#admin-data" Current={data.admin_section == "data"} Status="DEGRADED" />
+								<AdminTaskLink Label="Verify player pool" Href="#admin-data" IsAnchor={true} Current={data.admin_section == "data"} Status="DEGRADED" />
 							</If>
 							<If cond={data.pool.error == ""}>
-								<AdminTaskLink Label="Verify player pool" Href="/admin?section=data#admin-data" Current={data.admin_section == "data"} Status="AVAILABLE" />
+								<AdminTaskLink Label="Verify player pool" Href="#admin-data" IsAnchor={true} Current={data.admin_section == "data"} Status="AVAILABLE" />
 							</If>
 							{/* F2/F27 (J2 draft-night audit): the pick-clock job kept
 							    reading ARMED/WAITING after the draft ended, sitting
 							    beside "Start and monitor draft · COMPLETE" as the one
 							    job in its group that never caught up to the phase. */}
 							<If cond={data.draft.complete}>
-								<AdminTaskLink Label="Run pick clock" Href="/admin?section=clock#admin-clock" Current={data.admin_section == "clock"} Status="DONE" />
+								<AdminTaskLink Label="Run pick clock" Href="#admin-clock" IsAnchor={true} Current={data.admin_section == "clock"} Status="DONE" />
 							</If>
 							<If cond={data.draft.complete == false}>
 								<If cond={data.clock.armed}>
-									<AdminTaskLink Label="Run pick clock" Href="/admin?section=clock#admin-clock" Current={data.admin_section == "clock"} Status="ARMED" />
+									<AdminTaskLink Label="Run pick clock" Href="#admin-clock" IsAnchor={true} Current={data.admin_section == "clock"} Status="ARMED" />
 								</If>
 								<If cond={data.clock.armed == false}>
-									<AdminTaskLink Label="Run pick clock" Href="/admin?section=clock#admin-clock" Current={data.admin_section == "clock"} Status="WAITING" />
+									<AdminTaskLink Label="Run pick clock" Href="#admin-clock" IsAnchor={true} Current={data.admin_section == "clock"} Status="WAITING" />
 								</If>
 							</If>
 						</ul>
@@ -590,45 +611,45 @@ func Page() Node {
 						<h3>Season operation</h3>
 						<ul>
 							<If cond={data.draft.complete}>
-								<AdminTaskLink Label="Configure roster shape" Href="/admin?section=roster#admin-roster" Current={data.admin_section == "roster"} Status="LOCKED · DRAFT COMPLETE" />
+								<AdminTaskLink Label="Configure roster shape" Href="#admin-roster" IsAnchor={true} Current={data.admin_section == "roster"} Status="LOCKED · DRAFT COMPLETE" />
 							</If>
 							<If cond={data.draft.complete == false}>
 								<If cond={data.roster_shape.draft_started}>
-									<AdminTaskLink Label="Configure roster shape" Href="/admin?section=roster#admin-roster" Current={data.admin_section == "roster"} Status="LOCKED · DRAFT STARTED" />
+									<AdminTaskLink Label="Configure roster shape" Href="#admin-roster" IsAnchor={true} Current={data.admin_section == "roster"} Status="LOCKED · DRAFT STARTED" />
 								</If>
 								<If cond={data.roster_shape.draft_started == false}>
-									<AdminTaskLink Label="Configure roster shape" Href="/admin?section=roster#admin-roster" Current={data.admin_section == "roster"} Status="OPEN" />
+									<AdminTaskLink Label="Configure roster shape" Href="#admin-roster" IsAnchor={true} Current={data.admin_section == "roster"} Status="OPEN" />
 								</If>
 							</If>
 							<If cond={data.schedule.has_schedule}>
-								<AdminTaskLink Label="Publish regular-season schedule" Href="/admin?section=schedule#admin-schedule" Current={data.admin_section == "schedule"} Status="PUBLISHED" />
+								<AdminTaskLink Label="Publish regular-season schedule" Href="#admin-schedule" IsAnchor={true} Current={data.admin_section == "schedule"} Status="PUBLISHED" />
 							</If>
 							<If cond={data.schedule.has_schedule == false}>
-								<AdminTaskLink Label="Publish regular-season schedule" Href="/admin?section=schedule#admin-schedule" Current={data.admin_section == "schedule"} Status="NEEDS PLAN" />
+								<AdminTaskLink Label="Publish regular-season schedule" Href="#admin-schedule" IsAnchor={true} Current={data.admin_section == "schedule"} Status="NEEDS PLAN" />
 							</If>
 							<If cond={data.schedule.has_schedule}>
-								<AdminTaskLink Label="Week close" Href="/admin?section=week-close#admin-week-close" Current={data.admin_section == "week-close"} Status="CHECK READINESS" />
+								<AdminTaskLink Label="Week close" Href="#admin-week-close" IsAnchor={true} Current={data.admin_section == "week-close"} Status="CHECK READINESS" />
 							</If>
 									<If cond={data.schedule.has_schedule == false}>
-										<AdminTaskLink Label="Week close" Href="/admin?section=week-close#admin-week-close" Current={data.admin_section == "week-close"} Status="NO SCHEDULE" />
+										<AdminTaskLink Label="Week close" Href="#admin-week-close" IsAnchor={true} Current={data.admin_section == "week-close"} Status="NO SCHEDULE" />
 									</If>
-									<AdminTaskLink Label="Operate playoff truth" Href="/admin?section=playoffs#admin-playoffs" Current={data.admin_section == "playoffs"} Status={data.playoff_truth.status_label} />
+									<AdminTaskLink Label="Operate playoff truth" Href="#admin-playoffs" IsAnchor={true} Current={data.admin_section == "playoffs"} Status={data.playoff_truth.status_label} />
 									{/* F17 (J4 console gap-audit): the task board never listed a row
 									    for running waivers or reviewing a trade, so a commissioner
 									    fell back to scrolling to find them. Status reads the same
 									    counts the attention readout above already computes — no new
 									    number, just a second place to see it. */}
 									<If cond={data.waivers.has_open_claims}>
-										<AdminTaskLink Label="Run waivers" Href="/admin?section=week-close#admin-week-close" Current={data.admin_section == "week-close"} Status={data.waivers.open_claim_count + " OPEN"} />
+										<AdminTaskLink Label="Run waivers" Href="#admin-week-close" IsAnchor={true} Current={data.admin_section == "week-close"} Status={data.waivers.open_claim_count + " OPEN"} />
 									</If>
 									<If cond={data.waivers.has_open_claims == false}>
-										<AdminTaskLink Label="Run waivers" Href="/admin?section=week-close#admin-week-close" Current={data.admin_section == "week-close"} Status="NONE DUE" />
+										<AdminTaskLink Label="Run waivers" Href="#admin-week-close" IsAnchor={true} Current={data.admin_section == "week-close"} Status="NONE DUE" />
 									</If>
 									<If cond={data.admin_attention.TradesInReviewCount > 0}>
-										<AdminTaskLink Label="Review a trade" Href="/trades" Current={false} Status={data.admin_attention.TradesInReviewCount + " IN REVIEW"} />
+										<AdminTaskLink Label="Review a trade" Href="/trades" Current={false} IsAnchor={false} Status={data.admin_attention.TradesInReviewCount + " IN REVIEW"} />
 									</If>
 									<If cond={data.admin_attention.TradesInReviewCount == 0}>
-										<AdminTaskLink Label="Review a trade" Href="/trades" Current={false} Status="NONE PENDING" />
+										<AdminTaskLink Label="Review a trade" Href="/trades" Current={false} IsAnchor={false} Status="NONE PENDING" />
 									</If>
 								</ul>
 					</div>
@@ -642,15 +663,15 @@ func Page() Node {
 							    source both the masthead and the attention readout
 							    already read) replaces it. */}
 							<If cond={data.draft.complete && data.schedule.close.final}>
-								<AdminTaskLink Label="Manage seats and managers" Href="/admin?section=seats#admin-seats" Current={data.admin_section == "seats"} Status="ALL WEEKS CLOSED" />
+								<AdminTaskLink Label="Manage seats and managers" Href="#admin-seats" IsAnchor={true} Current={data.admin_section == "seats"} Status="ALL WEEKS CLOSED" />
 							</If>
 							<If cond={data.draft.complete && data.schedule.close.final == false}>
-								<AdminTaskLink Label="Manage seats and managers" Href="/admin?section=seats#admin-seats" Current={data.admin_section == "seats"} Status={"WEEK " + data.schedule.close.week + " · " + data.schedule.close.ready_label} />
+								<AdminTaskLink Label="Manage seats and managers" Href="#admin-seats" IsAnchor={true} Current={data.admin_section == "seats"} Status={"WEEK " + data.schedule.close.week + " · " + data.schedule.close.ready_label} />
 							</If>
 							<If cond={data.draft.complete == false}>
-								<AdminTaskLink Label="Manage seats and managers" Href="/admin?section=seats#admin-seats" Current={data.admin_section == "seats"} Status={data.ready_count + "/" + data.seat_count + " READY"} />
+								<AdminTaskLink Label="Manage seats and managers" Href="#admin-seats" IsAnchor={true} Current={data.admin_section == "seats"} Status={data.ready_count + "/" + data.seat_count + " READY"} />
 							</If>
-							<AdminTaskLink Label="Manage invites" Href="/admin?section=invites#admin-invites" Current={data.admin_section == "invites"} Status="ACCESS LIST" />
+							<AdminTaskLink Label="Manage invites" Href="#admin-invites" IsAnchor={true} Current={data.admin_section == "invites"} Status="ACCESS LIST" />
 							{/* F17 (J4 console gap-audit): this used to sit after the </ul>
 							    as a bare disclosure triangle, the one job on the board not
 							    rendered as a boxed row. The summary now wears the same
@@ -680,16 +701,16 @@ func Page() Node {
 					<div class="admin-task-nav__group">
 						<h3>League configuration and communication</h3>
 						<ul>
-							<AdminTaskLink Label="Post league notes" Href="/admin?section=announcements#admin-announcements" Current={data.admin_section == "announcements"} Status="POST / REVIEW" />
-							<AdminTaskLink Label="Download league backup" Href="/admin?section=backup#admin-backup" Current={data.admin_section == "backup"} Status="LOCAL SNAPSHOT" />
-							<AdminTaskLink Label="Change scoring" Href="/scoring" Current={false} Status="RULES AND WEIGHTS" />
-							<AdminTaskLink Label="Read the league log" Href="/activity" Current={false} Status="ACTIVITY FEED" />
+							<AdminTaskLink Label="Post league notes" Href="#admin-announcements" IsAnchor={true} Current={data.admin_section == "announcements"} Status="POST / REVIEW" />
+							<AdminTaskLink Label="Download league backup" Href="#admin-backup" IsAnchor={true} Current={data.admin_section == "backup"} Status="LOCAL SNAPSHOT" />
+							<AdminTaskLink Label="Change scoring" Href="/scoring" Current={false} IsAnchor={false} Status="RULES AND WEIGHTS" />
+							<AdminTaskLink Label="Read the league log" Href="/activity" Current={false} IsAnchor={false} Status="ACTIVITY FEED" />
 						</ul>
 					</div>
 					<div class="admin-task-nav__group admin-task-nav__group--danger">
 						<h3>Danger Zone</h3>
 						<ul>
-							<AdminTaskLink Label="Reset and recovery controls" Href="/admin?section=danger#admin-danger" Current={data.admin_section == "danger"} Status="IRREVERSIBLE" />
+							<AdminTaskLink Label="Reset and recovery controls" Href="#admin-danger" IsAnchor={true} Current={data.admin_section == "danger"} Status="IRREVERSIBLE" />
 						</ul>
 					</div>
 				</div>

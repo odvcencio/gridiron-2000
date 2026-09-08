@@ -353,18 +353,22 @@ func TestAdminTaskNavigationGroupsAndRoutineOrder(t *testing.T) {
 			t.Errorf("task navigation missing group %q", group)
 		}
 	}
+	// J4 F25 residue (wave E): these targets used to carry a full
+	// "section=X#admin-X" reload; they are plain #anchor jumps now (see
+	// TestAdminTaskBoardRowsUseInstantAnchors), matching cedar's
+	// .admin-section-strip fix from wave C.
 	for _, target := range []string{
-		"section=draft-control#admin-draft-control",
-		"section=draft-order#admin-draft-order",
-		"section=data#admin-data",
-		"section=clock#admin-clock",
-		"section=roster#admin-roster",
-		"section=schedule#admin-schedule",
-		"section=week-close#admin-week-close",
-		"section=seats#admin-seats",
-		"section=invites#admin-invites",
-		"section=announcements#admin-announcements",
-		"section=danger#admin-danger",
+		"#admin-draft-control",
+		"#admin-draft-order",
+		"#admin-data",
+		"#admin-clock",
+		"#admin-roster",
+		"#admin-schedule",
+		"#admin-week-close",
+		"#admin-seats",
+		"#admin-invites",
+		"#admin-announcements",
+		"#admin-danger",
 	} {
 		if !strings.Contains(nav, target) {
 			t.Errorf("task navigation missing target %q", target)
@@ -430,10 +434,12 @@ func TestAdminTaskNavigationRendersAccessibleLinks(t *testing.T) {
 	if !strings.Contains(body, "class="+quote+"admin-task-nav") {
 		t.Fatal("rendered admin page omitted task navigation")
 	}
+	// J4 F25 residue (wave E): plain #anchor jumps, not a full
+	// "section=X#admin-X" reload (TestAdminTaskBoardRowsUseInstantAnchors).
 	for _, target := range []string{
-		"section=draft-control#admin-draft-control",
-		"section=seats#admin-seats",
-		"section=danger#admin-danger",
+		"#admin-draft-control",
+		"#admin-seats",
+		"#admin-danger",
 	} {
 		if !strings.Contains(body, target) {
 			t.Errorf("rendered task navigation missing %s", target)

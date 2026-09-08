@@ -5,7 +5,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- The commissioner console's task board rows now jump to their own section as a same-page link, not a full page reload, matching the jump strip's own fix, so a row click lands without a visible lurch.
 
 ## [release-2026.09.08-97027d0-season3] — 2026-09-08
 
