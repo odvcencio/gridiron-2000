@@ -41,8 +41,10 @@ var errStaleAutoPick = errors.New("auto-pick is stale")
 
 // currentSchemaVersion is the state file schema version this binary writes
 // and the highest version it accepts on load. See PersistedState's
-// SchemaVersion doc comment and Store.load.
-const currentSchemaVersion = 11
+// SchemaVersion doc comment and Store.load. Bumped to 12 for
+// migrate013LockerPostCommissionerNote (J6 F19, 2026-09-04 audit): the
+// LockerPost collection gained the CommissionerNote field.
+const currentSchemaVersion = 12
 
 // errSchemaTooNew is returned by NewStore/load when the state file's
 // SchemaVersion exceeds currentSchemaVersion: an older binary must not
@@ -4225,7 +4227,7 @@ func (s *Store) recordLockerPostLocked(authorEmail string, at time.Time) {
 // on; authorName/authorTeamID are a display snapshot taken now, the same
 // "freeze the actor's identity at the moment of the action" shape
 // DraftPick.MadeBy/TeamID already use.
-func (s *Store) PostLocker(parentID, body, authorEmail, authorName, authorTeamID string, now time.Time) (LockerPost, error) {
+func (s *Store) PostLocker(parentID, body, authorEmail, authorName, authorTeamID string, commissionerNote bool, now time.Time) (LockerPost, error) {
 	body = strings.TrimSpace(body)
 	if body == "" {
 		return LockerPost{}, fmt.Errorf("post text is required")
@@ -4256,13 +4258,14 @@ func (s *Store) PostLocker(parentID, body, authorEmail, authorName, authorTeamID
 		return LockerPost{}, fmt.Errorf("you are posting too quickly; wait a moment and try again")
 	}
 	post := LockerPost{
-		ID:           lockerPostID(body, authorEmail, now),
-		ParentID:     parentID,
-		Body:         body,
-		AuthorEmail:  authorEmail,
-		AuthorName:   authorName,
-		AuthorTeamID: authorTeamID,
-		PostedAt:     now.UTC(),
+		ID:               lockerPostID(body, authorEmail, now),
+		ParentID:         parentID,
+		Body:             body,
+		AuthorEmail:      authorEmail,
+		AuthorName:       authorName,
+		AuthorTeamID:     authorTeamID,
+		PostedAt:         now.UTC(),
+		CommissionerNote: commissionerNote,
 	}
 	s.state.LockerPosts = append(s.state.LockerPosts, post)
 	if err := s.persistLocked(colLockerPosts); err != nil {

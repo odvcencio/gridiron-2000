@@ -571,6 +571,14 @@ type LockerPost struct {
 	PostedAt      time.Time `json:"postedAt"`
 	RemovedAt     time.Time `json:"removedAt,omitzero"`
 	RemovedByRole string    `json:"removedByRole,omitempty"`
+	// CommissionerNote (J6 F19, 2026-09-04 audit): set only when the
+	// posting identity held commissioner capability at post time
+	// (PostLocker re-checks server-side; a client-submitted flag from a
+	// non-commissioner is never trusted). The board renders this post
+	// with the same "COMMISSIONER NOTE" label and style the layout
+	// banner already uses, so a ruling reads differently from trash
+	// talk.
+	CommissionerNote bool `json:"commissionerNote,omitempty"`
 }
 
 // ScoreTeam is the live score representation returned to browsers.

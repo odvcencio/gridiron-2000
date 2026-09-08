@@ -23,6 +23,16 @@ type LockerPostView struct {
 	RemovedLabel string
 	CanRemove    bool
 	Replies      []LockerPostView
+	// CommissionerNote (J6 F19, 2026-09-04 audit) renders the same
+	// "COMMISSIONER NOTE" label and style app/layout.gsx's announcement
+	// banner already uses, so a ruling reads differently from trash talk.
+	CommissionerNote bool
+	// RemoveError/RemoveErrorOpen (J6 F26, 2026-09-04 audit) let
+	// app/locker/page.server.go attach a failed removal's error to the
+	// exact post it was about, instead of a page-top notice far from the
+	// control it describes.
+	RemoveError     string
+	RemoveErrorOpen bool
 }
 
 // lockerViewerIdentity resolves the Locker Room viewer's canonical email,
@@ -94,12 +104,17 @@ func (s *Service) lockerRequireWriter(r *http.Request) (email, name, teamID stri
 // under the acting request's own admitted, non-demo identity. A
 // successful commit calls emitLockerChanged so the locker-live hub
 // broadcasts at once — no interval poll ever discovers a post.
-func (s *Service) PostLockerPost(r *http.Request, parentID, body string) (LockerPost, error) {
+// commissionerNote is re-verified against the acting request's own
+// commissioner capability (J6 F19, 2026-09-04 audit): a form value from a
+// non-commissioner identity is never trusted, so the badge always tells
+// the truth about who posted it.
+func (s *Service) PostLockerPost(r *http.Request, parentID, body string, commissionerNote bool) (LockerPost, error) {
 	email, name, teamID, err := s.lockerRequireWriter(r)
 	if err != nil {
 		return LockerPost{}, err
 	}
-	post, err := s.store.PostLocker(parentID, body, email, name, teamID, s.clock())
+	commissionerNote = commissionerNote && s.IsCommissioner(r)
+	post, err := s.store.PostLocker(parentID, body, email, name, teamID, commissionerNote, s.clock())
 	if err != nil {
 		return LockerPost{}, err
 	}
@@ -225,13 +240,14 @@ func (s *Service) lockerPostView(post LockerPost, replies []LockerPost, viewerEm
 	removed := !post.RemovedAt.IsZero()
 	canRemove := !removed && (commissioner || (viewerEmail != "" && strings.EqualFold(strings.TrimSpace(post.AuthorEmail), viewerEmail)))
 	view := LockerPostView{
-		ID:          post.ID,
-		ParentID:    post.ParentID,
-		Body:        post.Body,
-		AuthorLabel: s.lockerAuthorLabel(post),
-		TimeLabel:   post.PostedAt.In(location).Format("Jan 2, 3:04 PM MST"),
-		Removed:     removed,
-		CanRemove:   canRemove,
+		ID:               post.ID,
+		ParentID:         post.ParentID,
+		Body:             post.Body,
+		AuthorLabel:      s.lockerAuthorLabel(post),
+		TimeLabel:        post.PostedAt.In(location).Format("Jan 2, 3:04 PM MST"),
+		Removed:          removed,
+		CanRemove:        canRemove,
+		CommissionerNote: !removed && post.CommissionerNote,
 	}
 	if removed {
 		view.RemovedLabel = lockerRemovedLabel(post.RemovedByRole)

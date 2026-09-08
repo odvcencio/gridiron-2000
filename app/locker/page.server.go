@@ -90,9 +90,9 @@ func prepareLockerData(data map[string]any, request *http.Request, postAction, r
 }
 
 // lockerValidation keeps native POST-redirect-GET validation on the page a
-// member submitted from (pickemValidation's precedent): a rejected post,
-// reply, or removal returns the member-safe error and the current page,
-// never a bare form-data echo of a 1,000-rune body.
+// member submitted from (pickemValidation's precedent): a rejected post or
+// reply returns the member-safe error and the current page, never a bare
+// form-data echo of a 1,000-rune body.
 func lockerValidation(ctx *action.Context, err error) error {
 	message := actionui.Message("locker", err)
 	validation := action.Validation(message, map[string]string{"body": message}, ctx.FormData)
@@ -101,6 +101,48 @@ func lockerValidation(ctx *action.Context, err error) error {
 	}
 	validation.Result.Redirect = lockerRedirectTarget(ctx.FormData["page"])
 	return validation
+}
+
+// lockerRemoveConfirmationMessage is J6 F26's own rewrite (2026-09-04
+// audit): requireMutationConfirmation's shared error text ("this action
+// requires explicit confirmation") is a fragment, not a sentence, and used
+// to surface far from the checkbox it describes.
+const lockerRemoveConfirmationMessage = "Check the box first. This confirms you cannot restore the post."
+
+// lockerRemoveValidation keeps the removal's own error attached to
+// "confirmation" (never "body") so the page-top notice loop never claims
+// it; Load's own logic renders it inside the specific post/reply's
+// disclosure instead (F26). ctx.FormData carries post_id in Result.Values,
+// which Load reads back through view.Value("post_id").
+func lockerRemoveValidation(ctx *action.Context, err error) error {
+	message := actionui.Message("locker", err)
+	if message == "this action requires explicit confirmation" {
+		message = lockerRemoveConfirmationMessage
+	}
+	validation := action.Validation(message, map[string]string{"confirmation": message}, ctx.FormData)
+	if action.WantsJSON(ctx.Request) {
+		return validation
+	}
+	validation.Result.Redirect = lockerRedirectTarget(ctx.FormData["page"])
+	return validation
+}
+
+// applyLockerRemoveError walks the board's already-loaded posts and
+// replies (both flat levels; LockerPostView.Replies is at most one level
+// deep, GC-4) to attach a failed removal's message to the exact post it
+// named, and reports whether it found one.
+func applyLockerRemoveError(posts []league.LockerPostView, postID, message string) bool {
+	for i := range posts {
+		if posts[i].ID == postID {
+			posts[i].RemoveError = message
+			posts[i].RemoveErrorOpen = true
+			return true
+		}
+		if applyLockerRemoveError(posts[i].Replies, postID, message) {
+			return true
+		}
+	}
+	return false
 }
 
 func init() {
@@ -119,12 +161,30 @@ func init() {
 					data["notice"] = fmt.Sprint(flashes[0])
 				}
 			}
-			for _, name := range []string{"locker-post", "locker-remove"} {
-				if view, ok := ctx.ActionState(name); ok {
-					if message := view.Error("body"); message != "" {
-						data["has_locker_error"] = true
-						data["locker_error"] = message
-					}
+			if view, ok := ctx.ActionState("locker-post"); ok {
+				if message := view.Error("body"); message != "" {
+					data["has_locker_error"] = true
+					data["locker_error"] = message
+				}
+			}
+			// locker-remove's own error (J6 F26, 2026-09-04 audit) used
+			// to land in this same page-top notice: out of sight of the
+			// disclosure it described, and the disclosure had already
+			// re-collapsed. It now attaches to the exact post/reply the
+			// failed removal named, with that post's own <details> held
+			// open. A post no longer present on this page (removed by
+			// someone else meanwhile) falls back to the page-top notice
+			// rather than silently dropping the message.
+			if view, ok := ctx.ActionState("locker-remove"); ok && !view.OK() {
+				message := view.Message()
+				postID := view.Value("post_id")
+				applied := false
+				if posts, ok := data["posts"].([]league.LockerPostView); ok && postID != "" {
+					applied = applyLockerRemoveError(posts, postID, message)
+				}
+				if !applied && message != "" {
+					data["has_locker_error"] = true
+					data["locker_error"] = message
 				}
 			}
 			// primary_action (larch's PageActionBar contract, item 10, wave
@@ -160,18 +220,28 @@ func init() {
 			// groups, for one).
 			"locker-post": func(ctx *action.Context) error {
 				parentID := ctx.FormData["parent_id"]
-				if _, err := league.Default().PostLockerPost(ctx.Request, parentID, ctx.FormData["body"]); err != nil {
+				// commissioner_note (J6 F19, 2026-09-04 audit): the
+				// commissioner's own composer choice. PostLockerPost
+				// re-verifies commissioner capability against the
+				// acting request itself, so a forged form value from
+				// anyone else is ignored server-side.
+				commissionerNote := strings.TrimSpace(ctx.FormData["commissioner_note"]) != ""
+				post, err := league.Default().PostLockerPost(ctx.Request, parentID, ctx.FormData["body"], commissionerNote)
+				if err != nil {
 					return lockerValidation(ctx, err)
 				}
 				message := "Posted."
-				if strings.TrimSpace(parentID) != "" {
+				switch {
+				case strings.TrimSpace(parentID) != "":
 					message = "Reply posted."
+				case post.CommissionerNote:
+					message = "Posted as a commissioner note."
 				}
 				return lockerMutationSuccess(ctx, message)
 			},
 			"locker-remove": func(ctx *action.Context) error {
 				if err := league.Default().RemoveLockerPost(ctx.Request, ctx.FormData["post_id"], ctx.FormData["confirmation"]); err != nil {
-					return lockerValidation(ctx, err)
+					return lockerRemoveValidation(ctx, err)
 				}
 				return lockerMutationSuccess(ctx, "Post removed.")
 			},

@@ -73,6 +73,7 @@ var dbMigrations = []func(*sql.Tx) error{
 	migrate010SetupState,
 	migrate011SetupDraftAndInviteLinks,
 	migrate012CommissionerEvents,
+	migrate013LockerPostCommissionerNote,
 }
 
 // sqlitePersistVerify turns on the read-back check inside persistLocked:
@@ -429,6 +430,22 @@ func migrate012CommissionerEvents(tx *sql.Tx) error {
 	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '11')`); err != nil {
 		return fmt.Errorf("stamp schema_version 11: %w", err)
+	}
+	return nil
+}
+
+// migrate013LockerPostCommissionerNote adds the Locker Room's own
+// commissioner-note flag (J6 F19, 2026-09-04 audit): a commissioner post
+// now carries this column so it can be told apart from an ordinary post —
+// on this row and every one already stored — after a restart. Every
+// existing row defaults to false, the same safe reading an ordinary post
+// already gets.
+func migrate013LockerPostCommissionerNote(tx *sql.Tx) error {
+	if _, err := tx.Exec(`ALTER TABLE locker_posts ADD COLUMN commissioner_note INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("ALTER TABLE locker_posts ADD COLUMN commissioner_note: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '12')`); err != nil {
+		return fmt.Errorf("stamp schema_version 12: %w", err)
 	}
 	return nil
 }
@@ -1009,13 +1026,13 @@ var collectionSpecs = [collectionCount]collectionSpec{
 			name:    "locker_posts",
 			keyCols: []string{"ord"},
 			valCols: []string{"id", "parent_id", "body", "author_email", "author_name", "author_team_id",
-				"posted_at", "removed_at", "removed_by_role"},
+				"posted_at", "removed_at", "removed_by_role", "commissioner_note"},
 		}},
 		emit: func(st *PersistedState, sink *rowSink) {
 			for i, p := range st.LockerPosts {
 				sink.add("locker_posts", []any{i},
 					p.ID, p.ParentID, p.Body, p.AuthorEmail, p.AuthorName, p.AuthorTeamID,
-					encodeTime(p.PostedAt), encodeTime(p.RemovedAt), p.RemovedByRole)
+					encodeTime(p.PostedAt), encodeTime(p.RemovedAt), p.RemovedByRole, boolToInt(p.CommissionerNote))
 			}
 		},
 	},
@@ -1998,12 +2015,13 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 	}
 
 	if err := queryRows(db, `SELECT "id", "parent_id", "body", "author_email", "author_name", "author_team_id",
-		"posted_at", "removed_at", "removed_by_role" FROM locker_posts ORDER BY "ord"`,
+		"posted_at", "removed_at", "removed_by_role", "commissioner_note" FROM locker_posts ORDER BY "ord"`,
 		func(rows *sql.Rows) error {
 			var p LockerPost
 			var postedAt, removedAt string
+			var commissionerNote int
 			if err := rows.Scan(&p.ID, &p.ParentID, &p.Body, &p.AuthorEmail, &p.AuthorName, &p.AuthorTeamID,
-				&postedAt, &removedAt, &p.RemovedByRole); err != nil {
+				&postedAt, &removedAt, &p.RemovedByRole, &commissionerNote); err != nil {
 				return err
 			}
 			var err error
@@ -2013,6 +2031,7 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 			if p.RemovedAt, err = decodeTime(removedAt); err != nil {
 				return err
 			}
+			p.CommissionerNote = commissionerNote == 1
 			state.LockerPosts = append(state.LockerPosts, p)
 			return nil
 		}); err != nil {
