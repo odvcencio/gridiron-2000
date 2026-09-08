@@ -10,7 +10,7 @@ import (
 	"m31labs.dev/gosx/route"
 )
 
-type adminAttentionReadoutProps struct {
+type AdminAttentionReadoutProps struct {
 	// SeasonStateSentence (F1, J4 console gap-audit) is the console's
 	// top-line season summary in plain words, replacing the raw
 	// "{Phase} · {DraftStatus}" concatenation that used to read as "the
@@ -64,7 +64,7 @@ type adminAttentionReadoutProps struct {
 	GeneratedAt         string
 	GeneratedAtISO      string
 	GeneratedAtRelative string
-	Seats               []adminAttentionSeatView
+	Seats               []AdminAttentionSeatView
 	// HasNotCheckedIn/NotCheckedInSummary (F6 + F19, gap-audit J2): the
 	// console used to report "READY 4 / 8" with no way to see WHO that
 	// left out or act on it — the ready toggles exist only in the draft
@@ -75,7 +75,7 @@ type adminAttentionReadoutProps struct {
 	NotCheckedInSummary string
 }
 
-type adminAttentionSeatView struct {
+type AdminAttentionSeatView struct {
 	Name             string
 	Abbreviation     string
 	Manager          string
@@ -100,12 +100,12 @@ func firstNameOf(name string) string {
 	return name
 }
 
-func emptyAdminAttentionReadout() adminAttentionReadoutProps {
-	return adminAttentionReadoutProps{Seats: []adminAttentionSeatView{}}
+func EmptyAdminAttentionReadout() AdminAttentionReadoutProps {
+	return AdminAttentionReadoutProps{Seats: []AdminAttentionSeatView{}}
 }
 
-func adminAttentionReadoutFromData(data map[string]any) adminAttentionReadoutProps {
-	view := emptyAdminAttentionReadout()
+func AdminAttentionReadoutFromData(data map[string]any) AdminAttentionReadoutProps {
+	view := EmptyAdminAttentionReadout()
 	view.SeasonStateSentence = stringValue(data, "season_state_sentence", "")
 	view.Phase = stringValue(data, "phase", "unavailable")
 	view.SeatCount = intValue(data, "seat_count")
@@ -151,13 +151,13 @@ func adminAttentionReadoutFromData(data map[string]any) adminAttentionReadoutPro
 		}
 	}
 	if rawSeats, ok := data["seats"].([]map[string]any); ok {
-		view.Seats = make([]adminAttentionSeatView, 0, len(rawSeats))
+		view.Seats = make([]AdminAttentionSeatView, 0, len(rawSeats))
 		notCheckedIn := make([]string, 0, len(rawSeats))
 		for _, seat := range rawSeats {
 			manager := stringValue(seat, "manager", "")
 			claimed := boolValue(seat, "claimed")
 			ready := boolValue(seat, "ready")
-			view.Seats = append(view.Seats, adminAttentionSeatView{
+			view.Seats = append(view.Seats, AdminAttentionSeatView{
 				Name:             stringValue(seat, "name", "UNKNOWN"),
 				Abbreviation:     stringValue(seat, "abbreviation", ""),
 				Manager:          manager,
@@ -215,11 +215,11 @@ func boolValue(data map[string]any, key string) bool {
 func AdminAttentionFragmentHandler(service *league.Service) http.Handler {
 	return adminAttentionFragmentHandler(
 		adminAttentionAccess(service),
-		func(request *http.Request) adminAttentionReadoutProps {
+		func(request *http.Request) AdminAttentionReadoutProps {
 			if service == nil {
-				return emptyAdminAttentionReadout()
+				return EmptyAdminAttentionReadout()
 			}
-			return adminAttentionReadoutFromData(service.CommissionerAttentionDataReadOnly(request))
+			return AdminAttentionReadoutFromData(service.CommissionerAttentionDataReadOnly(request))
 		},
 		adminAttentionFragmentRender,
 	)
@@ -242,8 +242,8 @@ func adminAttentionAccess(service *league.Service) func(*http.Request) (int, boo
 	}
 }
 
-type adminAttentionLoader func(*http.Request) adminAttentionReadoutProps
-type adminAttentionRenderer func(adminAttentionReadoutProps) (string, error)
+type adminAttentionLoader func(*http.Request) AdminAttentionReadoutProps
+type adminAttentionRenderer func(AdminAttentionReadoutProps) (string, error)
 
 func adminAttentionFragmentHandler(
 	access func(*http.Request) (int, bool),
@@ -306,7 +306,7 @@ func adminAttentionETagMatches(header, current string) bool {
 	return false
 }
 
-func adminAttentionFragmentRender(props adminAttentionReadoutProps) (string, error) {
+func adminAttentionFragmentRender(props AdminAttentionReadoutProps) (string, error) {
 	program, err := route.LoadFileProgramHere("page.gsx")
 	if err != nil {
 		return "", err

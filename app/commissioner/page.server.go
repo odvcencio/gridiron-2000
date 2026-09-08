@@ -8,12 +8,26 @@ import (
 	"strings"
 	"time"
 
+	"gridiron-2000/app/admin"
 	"gridiron-2000/internal/commissionerhq"
 	"gridiron-2000/internal/commissionerhq/v1fleet"
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
 )
+
+// localAdminAttention (J4 F29 residue, wave E) reads the same commissioner
+// attention data /admin's own Load callback reads, through the exact same
+// function (admin.AdminAttentionReadoutFromData), so League HQ's own local
+// card can never disagree with /admin about this league's invite and
+// board-gap counts again.
+func localAdminAttention(request *http.Request) admin.AdminAttentionReadoutProps {
+	service := league.Default()
+	if service == nil {
+		return admin.EmptyAdminAttentionReadout()
+	}
+	return admin.AdminAttentionReadoutFromData(service.CommissionerAttentionDataReadOnly(request))
+}
 
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
@@ -120,7 +134,7 @@ func commissionerPageData(request *http.Request) map[string]any {
 func commissionerPageDataWithReader(request *http.Request, isCommissioner bool, reader func(context.Context) []commissionerhq.FleetEntry, federationEnabled bool) map[string]any {
 	readout := emptyFleetReadout(isCommissioner, federationEnabled)
 	if isCommissioner && reader != nil {
-		readout = readoutFromView(buildFleetView(reader(request.Context()), timeNow(), league.Default().LeagueLocation()), true, federationEnabled)
+		readout = readoutFromView(buildFleetView(reader(request.Context()), timeNow(), league.Default().LeagueLocation(), localAdminAttention(request)), true, federationEnabled)
 	}
 	readout = withHQV1Portfolio(request, readout, isCommissioner)
 	return map[string]any{
@@ -181,7 +195,7 @@ func fragmentHandler(
 
 		readout := emptyFleetReadout(true, federationEnabled)
 		if reader != nil {
-			readout = readoutFromView(buildFleetView(reader(request.Context()), timeNow(), league.Default().LeagueLocation()), true, federationEnabled)
+			readout = readoutFromView(buildFleetView(reader(request.Context()), timeNow(), league.Default().LeagueLocation(), localAdminAttention(request)), true, federationEnabled)
 		}
 		readout = withHQV1Portfolio(request, readout, true)
 		program, err := route.LoadFileProgramHere("page.gsx")

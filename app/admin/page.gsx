@@ -219,7 +219,7 @@ func AdminTaskLink(props AdminTaskLinkProps) Node {
 	</li>
 }
 
-func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
+func AdminAttentionReadout(props AdminAttentionReadoutProps) Node {
 	return <section class="admin-attention-readout" aria-labelledby="admin-attention-heading">
 		<div class="pool-toolbar">
 			<div>
@@ -310,7 +310,7 @@ func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
 // that phase has) and inside a closed "Draft night (complete)" disclosure
 // once the draft is done, so the same markup and the same props serve
 // both phases without duplication.
-func AdminAttentionProvenance(props adminAttentionReadoutProps) Node {
+func AdminAttentionProvenance(props AdminAttentionReadoutProps) Node {
 	return <>
 		<div class="commissioner-hq__provenance">
 			<span><strong>SEATS</strong><span class="mono">{props.ClaimedCount} / {props.SeatCount} CLAIMED</span></span>

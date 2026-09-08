@@ -578,7 +578,7 @@ func TestAdminMastheadLeadsWithWeekOnceDraftIsComplete(t *testing.T) {
 // season.go): after week 1 closes they read Week 2, and when every week
 // is closed they name the last one instead of stopping at week 1.
 //
-// Root cause: adminAttentionReadoutFromData (fragment.go) set ScheduleWeek
+// Root cause: AdminAttentionReadoutFromData (fragment.go) set ScheduleWeek
 // from the schedule map's own "week" key, which adminScheduleMap
 // (admin.go) stamps with the SCHEDULE'S START WEEK, not the next open
 // one — the next open week lives one level down, at schedule.close.week
