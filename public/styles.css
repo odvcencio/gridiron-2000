@@ -17905,8 +17905,8 @@ a.skip-link {
    (.pool-player__text small, wave-8 hotfix item 1(c)) — both rows keep
    their one-line contract, now through the runtime's own maxLines=1
    clamp on both the name and the detail line. */
-.pool-player strong,
-.pool-player__text small {
+.pool-player strong[data-gosx-text-layout],
+.pool-player__text > small[data-gosx-text-layout] {
   white-space: normal;
   overflow: visible;
   text-overflow: clip;

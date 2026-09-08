@@ -244,7 +244,10 @@ func TestBrowserRoomMeetsRefreshBudgetAndKeepsClockIdentity(t *testing.T) {
 	// sticky action strip now refetches on the same events the command bar
 	// already does, in BOTH modes — it never had a region or a bind of its
 	// own before this fix, so this is a new fetch per pick either way.
-	ceilings := map[string]int{"/draft/fragment/command": 2048, "/draft/fragment/tape": 4096, "/draft/fragment/tape-rows": 4096, "/draft/fragment/available": 61440, "/draft/fragment/queue": 4096, "/draft/fragment/pickbar": 2048}
+	// /draft/fragment/command 2048 -> 2304 (text flow, 2026-09-07): the pool-status
+	// banner renders through TextBlock, whose measurement attributes add about
+	// 250 raw bytes (11 gzipped) to every command refetch.
+	ceilings := map[string]int{"/draft/fragment/command": 2304, "/draft/fragment/tape": 4096, "/draft/fragment/tape-rows": 4096, "/draft/fragment/available": 61440, "/draft/fragment/queue": 4096, "/draft/fragment/pickbar": 2048}
 	expected := map[string]map[string]int{
 		"fallback": {"/draft/fragment/command": 1, "/draft/fragment/tape": 1, "/draft/fragment/available": 1, "/draft/fragment/queue": 1, "/draft/fragment/pickbar": 1},
 		"target":   {"/draft/fragment/tape-rows": 1, "/draft/fragment/queue": 1, "/draft/fragment/pickbar": 1},
