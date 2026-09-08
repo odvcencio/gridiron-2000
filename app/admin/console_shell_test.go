@@ -1,12 +1,17 @@
 package admin
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
+
+	"gridiron-2000/internal/league"
 )
 
 // This file pins wave-C's console-shell fixes (2026-09-08): the section
@@ -519,10 +524,19 @@ func TestAdminMastheadLeadsWithWeekOnceDraftIsComplete(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := string(page)
-	weekMetaStart := strings.Index(source, `class="draft-clock-meta admin-masthead-week-meta"`)
+	// The open-week branch (data.schedule.close.final == false) is the one
+	// that carries all three rows; the closed-week branch above it only
+	// carries the seat count, so anchor there rather than at the first
+	// (closed-week) admin-masthead-week-meta wrapper in source order.
+	openWeekBranchAt := strings.Index(source, "data.schedule.close.final == false}>")
+	if openWeekBranchAt < 0 {
+		t.Fatal("page.gsx is missing the open-week masthead branch")
+	}
+	weekMetaStart := strings.Index(source[openWeekBranchAt:], `class="draft-clock-meta admin-masthead-week-meta"`)
 	if weekMetaStart < 0 {
 		t.Fatal("page.gsx is missing the admin-masthead-week-meta wrapper")
 	}
+	weekMetaStart += openWeekBranchAt
 	stateRowAt := strings.Index(source[weekMetaStart:], "schedule.close.ready")
 	kickoffRowAt := strings.Index(source[weekMetaStart:], "First kickoff ·")
 	seatsRowAt := strings.Index(source[weekMetaStart:], "SEATS\n")
@@ -544,5 +558,136 @@ func TestAdminMastheadLeadsWithWeekOnceDraftIsComplete(t *testing.T) {
 	seatsRow := body[seatsLinkAt : seatsLinkAt+seatsRowEnd]
 	if strings.Contains(seatsRow, "READY</span>") && !strings.Contains(seatsRow, "WEEK") {
 		t.Errorf("post-draft task board still shows the bare seat-ready fraction instead of the week's own status: %s", seatsRow)
+	}
+}
+
+// TestAdminMastheadAndThisWeekCardFollowTheNextOpenWeek pins a coordinator
+// truth follow-up (wave C, 2026-09-08): hemlock force-closed week 1 on a
+// copy and the "This week" card and the league-status masthead both kept
+// naming Week 1. Both must follow the next open week the console's own
+// top line already does (nextOpenScheduleWeek, internal/league/
+// season.go): after week 1 closes they read Week 2, and when every week
+// is closed they name the last one instead of stopping at week 1.
+//
+// Root cause: adminAttentionReadoutFromData (fragment.go) set ScheduleWeek
+// from the schedule map's own "week" key, which adminScheduleMap
+// (admin.go) stamps with the SCHEDULE'S START WEEK, not the next open
+// one — the next open week lives one level down, at schedule.close.week
+// (the exact field the masthead itself already reads). The "This week"
+// card used the wrong field; the masthead was reading the right one
+// already, so this test drives a real close through the same HTTP
+// action path a commissioner uses and pins both surfaces.
+func TestAdminMastheadAndThisWeekCardFollowTheNextOpenWeek(t *testing.T) {
+	for _, fixture := range []string{"one-week-closed", "every-week-closed"} {
+		t.Run(fixture, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=^TestAdminNextOpenWeekFixtureProcess$")
+			cmd.Env = append(os.Environ(),
+				"ADMIN_NEXT_OPEN_WEEK_FIXTURE="+fixture,
+				"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+				"DEMO_MODE=true",
+				"GOOGLE_CLIENT_ID=",
+				"APP_ENV=",
+				"LEAGUE_FILE=",
+			)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("next-open-week fixture (%s): %v\n%s", fixture, err, output)
+			}
+		})
+	}
+}
+
+func TestAdminNextOpenWeekFixtureProcess(t *testing.T) {
+	fixture := os.Getenv("ADMIN_NEXT_OPEN_WEEK_FIXTURE")
+	if fixture == "" {
+		t.Skip("fixture helper")
+	}
+
+	service := league.Default()
+	pool := adminTaskFixturePool(200)
+	service.SetPlayerSource(func() ([]league.Player, int64, string) { return pool, 1, "demo" })
+	service.SetWeekStatsSource(func(week int) []league.WeekStatLine { return nil })
+	service.SetStatsUpdatedSource(func() time.Time { return time.Now() })
+	request := httptest.NewRequest(http.MethodPost, "/admin", nil)
+
+	if _, err := service.AdminGenerateSchedule(request, 3, 1, 7); err != nil {
+		t.Fatalf("generate schedule: %v", err)
+	}
+	if started, err := service.AdminStartDraft(request); err != nil || !started {
+		t.Fatalf("start draft: started=%v err=%v", started, err)
+	}
+	data := service.AdminData(request)
+	required, ok := data["draft_required_players"].(int)
+	if !ok || required < 1 {
+		t.Fatalf("draft_required_players = %#v", data["draft_required_players"])
+	}
+	for pick := 1; pick <= required; pick++ {
+		data = service.AdminData(request)
+		token, _ := data["current_pick_token"].(string)
+		if _, _, _, err := service.AdminForceAutopick(request, league.ForceCurrentPickConfirmation, token); err != nil {
+			t.Fatalf("complete draft pick %d/%d: %v", pick, required, err)
+		}
+	}
+
+	if _, _, err := service.AdminCloseWeek(request, 1); err != nil {
+		t.Fatalf("close week 1: %v", err)
+	}
+	// wantWeek/wantFinalPhrase (coordinator truth follow-up): once week 1
+	// closes, both surfaces must read Week 2 — the next open week
+	// (nextOpenScheduleWeek, season.go). Once every week is closed,
+	// nextOpenScheduleWeek's own documented fallback names the schedule's
+	// FIRST week again (not the last), so both surfaces must say so
+	// plainly instead of relabeling a closed week as still current.
+	wantWeek := "Week 2"
+	wantFinalPhrase := ""
+	if fixture == "every-week-closed" {
+		if _, _, err := service.AdminCloseWeek(request, 2); err != nil {
+			t.Fatalf("close week 2: %v", err)
+		}
+		if _, _, err := service.AdminCloseWeek(request, 3); err != nil {
+			t.Fatalf("close week 3: %v", err)
+		}
+		wantWeek = ""
+		wantFinalPhrase = "Every week is closed"
+	}
+
+	body := renderAdminPage(t)
+
+	thisWeekStart := strings.Index(body, `class="admin-this-week"`)
+	if thisWeekStart < 0 {
+		t.Fatal("rendered page is missing the This week card")
+	}
+	thisWeekEnd := strings.Index(body[thisWeekStart:], `class="admin-this-week__today"`)
+	if thisWeekEnd < 0 {
+		t.Fatal("This week card never reaches its own Needs-you-today line")
+	}
+	thisWeek := body[thisWeekStart : thisWeekStart+thisWeekEnd]
+	if wantWeek != "" && !strings.Contains(thisWeek, wantWeek) {
+		t.Errorf("This week card did not follow the next open week (want %q): %s", wantWeek, thisWeek)
+	}
+	if wantFinalPhrase != "" && !strings.Contains(thisWeek, wantFinalPhrase) {
+		t.Errorf("This week card does not say every week is closed (want %q): %s", wantFinalPhrase, thisWeek)
+	}
+	if strings.Contains(thisWeek, "Week 1") {
+		t.Errorf("This week card is still naming the closed week: %s", thisWeek)
+	}
+
+	mastheadStart := strings.Index(body, `<div class="draft-clock-panel">`)
+	if mastheadStart < 0 {
+		t.Fatal("rendered page is missing the draft-clock-panel masthead")
+	}
+	mastheadEnd := strings.Index(body[mastheadStart:], "</section>")
+	if mastheadEnd < 0 {
+		t.Fatal("draft-clock-panel masthead never closes ahead of </section>")
+	}
+	masthead := body[mastheadStart : mastheadStart+mastheadEnd]
+	if wantWeek != "" && !strings.Contains(masthead, wantWeek) {
+		t.Errorf("league-status masthead did not follow the next open week (want %q): %s", wantWeek, masthead)
+	}
+	if wantFinalPhrase != "" && !strings.Contains(masthead, wantFinalPhrase) {
+		t.Errorf("league-status masthead does not say every week is closed (want %q): %s", wantFinalPhrase, masthead)
+	}
+	if strings.Contains(masthead, "Week 1") {
+		t.Errorf("league-status masthead is still naming the closed week: %s", masthead)
 	}
 }

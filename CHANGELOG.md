@@ -34,6 +34,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Six status chips on the console (schedule, roster, and playoff cards) no longer overflow or clip their own borders; they size to their own text and wrap instead.
 - The console's pick-clock card no longer shows a blank "Deadline" cell when no pick is armed, or a blank "Duration source" cell; the Playoff Truth card no longer shows a blank "Source" cell before a bracket exists.
 - The console's job list no longer renders as overlapping, ragged boxes on a phone; every row now measures and aligns correctly.
+- The "This week" card and the league-status card now follow the league's next open week, the same way the console's own top line does: once a week closes they name the next one with its own kickoff, and once every week is closed they say so instead of relabeling a closed week as still current.
 
 ## [release-2026.09.08-88f7149-season2] — 2026-09-07
 

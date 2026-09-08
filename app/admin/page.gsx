@@ -222,17 +222,29 @@ func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
 			<div class="admin-this-week" aria-label="This week">
 				<span class="section-index">THIS WEEK</span>
 				<ul class="admin-this-week__list">
-					<li><a href="#admin-week-close" data-gosx-link><strong>Week {props.ScheduleWeek}</strong> <If cond={props.ScheduleReady}>is ready to close</If><If cond={props.ScheduleReady == false}>{props.ScheduleReason}</If> →</a></li>
+					{/* Coordinator truth follow-up (wave C, 2026-09-08): once
+					    every week is closed, nextOpenScheduleWeek's own
+					    fallback names the schedule's first week again —
+					    ScheduleFinal says so plainly instead of this row
+					    reading as "Week 1 is ready to close" a second time. */}
+					<If cond={props.ScheduleFinal}>
+						<li><a href="#admin-week-close" data-gosx-link>Every week is closed →</a></li>
+					</If>
+					<If cond={props.ScheduleFinal == false}>
+						<li><a href="#admin-week-close" data-gosx-link><strong>Week {props.ScheduleWeek}</strong> <If cond={props.ScheduleReady}>is ready to close</If><If cond={props.ScheduleReady == false}>{props.ScheduleReason}</If> →</a></li>
+					</If>
 					<li><a href="#admin-week-close" data-gosx-link><strong>{props.OpenClaimCount}</strong> open waiver claim<If cond={props.OpenClaimCount != 1}>s</If> →</a></li>
 					<li><a href="/trades"><strong>{props.TradesInReviewCount}</strong> trade<If cond={props.TradesInReviewCount != 1}>s</If> in review →</a></li>
 					<li><a href="#admin-invites" data-gosx-link><strong>{props.InviteCount}</strong> invite<If cond={props.InviteCount != 1}>s</If> pending →</a></li>
 				</ul>
 				<p class="admin-this-week__today">
 					<strong>Needs you today:</strong>
-					<If cond={props.ScheduleReady == false}> {props.ScheduleReason}</If>
-					<If cond={props.ScheduleReady && props.OpenClaimCount > 0}> {props.OpenClaimCount} open waiver claim<If cond={props.OpenClaimCount != 1}>s</If> — <a href="#admin-week-close" data-gosx-link>run waivers</a>.</If>
-					<If cond={props.ScheduleReady && props.OpenClaimCount == 0 && props.TradesInReviewCount > 0}> {props.TradesInReviewCount} trade<If cond={props.TradesInReviewCount != 1}>s</If> waiting on review — <a href="/trades">open trades</a>.</If>
-					<If cond={props.ScheduleReady && props.OpenClaimCount == 0 && props.TradesInReviewCount == 0}> Nothing needs you right now.</If>
+					<If cond={props.ScheduleFinal == false && props.ScheduleReady == false}> {props.ScheduleReason}</If>
+					<If cond={props.ScheduleFinal || props.ScheduleReady}>
+						<If cond={props.OpenClaimCount > 0}> {props.OpenClaimCount} open waiver claim<If cond={props.OpenClaimCount != 1}>s</If> — <a href="#admin-week-close" data-gosx-link>run waivers</a>.</If>
+						<If cond={props.OpenClaimCount == 0 && props.TradesInReviewCount > 0}> {props.TradesInReviewCount} trade<If cond={props.TradesInReviewCount != 1}>s</If> waiting on review — <a href="/trades">open trades</a>.</If>
+						<If cond={props.OpenClaimCount == 0 && props.TradesInReviewCount == 0}> Nothing needs you right now.</If>
+					</If>
 				</p>
 			</div>
 			<details class="commissioner-hq__draft-night">
@@ -372,7 +384,6 @@ func Page() Node {
 				    The READY fraction and the draft date move into the
 				    "Draft night (complete)" disclosure. */}
 				<If cond={data.draft.complete}>
-					<strong class="mono">Week {data.schedule.close.week}</strong>
 					{/* Coordinator follow-up: the shared .draft-clock-meta rule
 					    (public/styles.css) is a flex ROW everywhere else it is
 					    used, so three facts here squeezed into narrow columns
@@ -381,21 +392,41 @@ func Page() Node {
 					    into full-width rows instead, scoped so every other
 					    .draft-clock-meta caller (the pre-draft branch below
 					    included) keeps its own row layout. */}
-					<div class="draft-clock-meta admin-masthead-week-meta">
-						<TextBlock as="span" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
-							<If cond={data.schedule.close.ready}>Ready to close</If>
-							<If cond={data.schedule.close.ready == false}>{data.schedule.close.reason}</If>
-						</TextBlock>
-						<If cond={data.schedule.close.has_first_kickoff}>
-							<span class="mono">First kickoff · {data.schedule.close.first_kickoff_display}</span>
-						</If>
-						<span class="mono">
-							{data.member_count}
-							/
-							{data.seat_count}
-							SEATS
-						</span>
-					</div>
+					{/* Coordinator truth follow-up (wave C, 2026-09-08): once
+					    every week is closed, data.schedule.close.week falls
+					    back to the schedule's first week (nextOpenScheduleWeek's
+					    own documented behavior, season.go) — this said so
+					    plainly instead of relabeling the same closed week as
+					    the current one a second time. */}
+					<If cond={data.schedule.close.final}>
+						<strong class="mono">Every week is closed</strong>
+						<div class="draft-clock-meta admin-masthead-week-meta">
+							<span class="mono">
+								{data.member_count}
+								/
+								{data.seat_count}
+								SEATS
+							</span>
+						</div>
+					</If>
+					<If cond={data.schedule.close.final == false}>
+						<strong class="mono">Week {data.schedule.close.week}</strong>
+						<div class="draft-clock-meta admin-masthead-week-meta">
+							<TextBlock as="span" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
+								<If cond={data.schedule.close.ready}>Ready to close</If>
+								<If cond={data.schedule.close.ready == false}>{data.schedule.close.reason}</If>
+							</TextBlock>
+							<If cond={data.schedule.close.has_first_kickoff}>
+								<span class="mono">First kickoff · {data.schedule.close.first_kickoff_display}</span>
+							</If>
+							<span class="mono">
+								{data.member_count}
+								/
+								{data.seat_count}
+								SEATS
+							</span>
+						</div>
+					</If>
 				</If>
 				<If cond={data.draft.complete == false}>
 					<strong class="mono">
@@ -582,7 +613,10 @@ func Page() Node {
 							    close-readiness status (data.schedule.close, the one
 							    source both the masthead and the attention readout
 							    already read) replaces it. */}
-							<If cond={data.draft.complete}>
+							<If cond={data.draft.complete && data.schedule.close.final}>
+								<AdminTaskLink Label="Manage seats and managers" Href="/admin?section=seats#admin-seats" Current={data.admin_section == "seats"} Status="ALL WEEKS CLOSED" />
+							</If>
+							<If cond={data.draft.complete && data.schedule.close.final == false}>
 								<AdminTaskLink Label="Manage seats and managers" Href="/admin?section=seats#admin-seats" Current={data.admin_section == "seats"} Status={"WEEK " + data.schedule.close.week + " · " + data.schedule.close.ready_label} />
 							</If>
 							<If cond={data.draft.complete == false}>

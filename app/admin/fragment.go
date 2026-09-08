@@ -25,10 +25,20 @@ type adminAttentionReadoutProps struct {
 	DraftDate           string
 	DraftTime           string
 	DraftPublished      bool
-	ScheduleStatus      string
-	ScheduleWeek        int
-	ScheduleReady       bool
-	ScheduleReason      string
+	ScheduleStatus string
+	// ScheduleWeek (coordinator truth follow-up, wave C, 2026-09-08) is
+	// the next OPEN week, not the schedule's start week — the same fact
+	// nextOpenScheduleWeek (season.go) and the masthead's own
+	// data.schedule.close.week already name, so a closed week 1 reads
+	// Week 2 here too instead of staying stuck on Week 1.
+	ScheduleWeek   int
+	ScheduleReady  bool
+	ScheduleReason string
+	// ScheduleFinal (same follow-up) is true once every week in the
+	// schedule is closed — nextOpenScheduleWeek then falls back to the
+	// schedule's first week, which would otherwise misread as "week 1 is
+	// still open." This card states the true, more useful fact instead.
+	ScheduleFinal bool
 	SeatCount           int
 	ClaimedCount        int
 	ReadyCount          int
@@ -120,10 +130,17 @@ func adminAttentionReadoutFromData(data map[string]any) adminAttentionReadoutPro
 	}
 	if schedule, ok := data["schedule"].(map[string]any); ok {
 		view.ScheduleStatus = stringValue(schedule, "status", "UNKNOWN")
-		view.ScheduleWeek = intValue(schedule, "week")
 		if close, ok := schedule["close"].(map[string]any); ok {
+			// ScheduleWeek (coordinator truth follow-up, wave C,
+			// 2026-09-08): this used to read schedule["week"], which
+			// adminScheduleMap (admin.go) stamps with the schedule's own
+			// START week, not the next OPEN one — a closed week 1 never
+			// advanced this card to Week 2. close["week"] is the same
+			// next-open-week fact the masthead already reads.
+			view.ScheduleWeek = intValue(close, "week")
 			view.ScheduleReady = boolValue(close, "ready")
 			view.ScheduleReason = stringValue(close, "reason", "")
+			view.ScheduleFinal = boolValue(close, "final")
 		}
 	}
 	if rawSeats, ok := data["seats"].([]map[string]any); ok {
