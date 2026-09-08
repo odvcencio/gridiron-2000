@@ -12,6 +12,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The matchups page and the home page no longer say "Live scores on" when the live-scoring poller is off. They now read "Live scores off · weekly ledger only" and "Ledger posts after the games".
 - A week's matchup status now moves past "in progress" once its last kickoff is more than six hours old, even when no game ever posts a Final flag, and reads "Games are over · fantasy results await week close". The masthead date/slate phrase now names a broadcast slate only while a game is actually inside its window.
 - A lineup save now reports every slot it changed, not just the one the manager touched. Setting a player into a full slot names each starter the auto-fill cascade promoted or benched as a result.
+- The team page's week selector now keeps a played (closed) week as a read-only option instead of refusing it with a false "not on the published schedule" reason. Opening one shows the accurate "Week N is closed" notice and that week's own lineup.
 
 ## [release-2026.09.05-fee1a4c-practice] — 2026-09-04
 
