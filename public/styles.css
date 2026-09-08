@@ -18413,3 +18413,17 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
     grid-column: 1 / -1;
   }
 }
+
+/* comb — linden (2026-09-07 UX pass): J6 F18. Below the same 56.1875rem
+   tier PageActionBar itself shows at (app/layout.gsx, ~1428), /locker's
+   fixed action bar already submits the identical #locker-post-form
+   (form="locker-post-form", a native HTML association — no JavaScript
+   needed), so the composer's own button is redundant there, and the
+   fixed bar used to sit directly over it and the textarea above it.
+   Hidden here, not removed from the DOM: a signed-in phone visitor still
+   posts through the one remaining control. */
+@media (max-width: 56.1875rem) {
+  .locker-post-form__submit {
+    display: none;
+  }
+}
