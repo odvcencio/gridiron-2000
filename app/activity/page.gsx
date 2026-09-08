@@ -45,11 +45,6 @@ func Page() Node {
 		>
 		<ActivityRegion></ActivityRegion>
 		</div>
-		<p class="scoring-note lineup-sync-note" role="status" aria-live="polite">
-			Activity refreshes automatically within 4 seconds after a recorded add/drop result.
-			If a refresh fails, use
-			<button type="button" class="board-button" data-gosx-set="$players.state.refresh" data-gosx-set-value="manual">Refresh Activity now</button>.
-		</p>
 		<section class="score-command playoff-truth-card" aria-labelledby="activity-playoff-truth-heading">
 			<header class="section-heading section-heading--split"><div><span class="section-index">POSTSEASON // ACTIVITY CONTEXT</span><h2 id="activity-playoff-truth-heading">{data.playoff_truth.headline}</h2></div><span class="position-chip">{data.playoff_truth.status_label}</span></header>
 			<p>{data.playoff_truth.detail}</p>
@@ -153,7 +148,12 @@ func ActivityRegion() Node {
 							<TextBlock as="strong" class="activity-token-gap" font="600 16px Plus Jakarta Sans" lineHeight={22} text={move.Team} /><span class="activity-verb"> {move.Action}</span>
 						</p>
 					</If>
-					<If cond={move.ActorClass == ""}>
+					<If cond={move.ActorClass == "" && move.HasTeamCode}>
+						<p>
+							<TextBlock as="strong" class="activity-token-gap" font="600 16px Plus Jakarta Sans" lineHeight={22} text={move.TeamName} /><span class="activity-team-code mono activity-token-gap">{move.TeamCode}</span><span class="activity-verb"> {move.Action} </span><TextBlock as="b" class="activity-token-gap" font="600 16px Plus Jakarta Sans" lineHeight={22} text={move.Player} />
+						</p>
+					</If>
+					<If cond={move.ActorClass == "" && move.HasTeamCode == false}>
 						<p>
 							<TextBlock as="strong" class="activity-token-gap" font="600 16px Plus Jakarta Sans" lineHeight={22} text={move.Team} /><span class="activity-verb"> {move.Action} </span><TextBlock as="b" class="activity-token-gap" font="600 16px Plus Jakarta Sans" lineHeight={22} text={move.Player} />
 						</p>
@@ -173,5 +173,14 @@ func ActivityRegion() Node {
 				</If>
 			</nav>
 		</If>
+		<p class="scoring-note lineup-sync-note" role="status" aria-live="polite">
+			<If cond={data.has_last_update}>
+				Updates every 4 seconds; last update {data.last_update}.
+			</If>
+			<If cond={data.has_last_update == false}>
+				Updates every 4 seconds.
+			</If>
+			<button type="button" class="board-button" data-gosx-set="$players.state.refresh" data-gosx-set-value="manual">Refresh now</button>
+		</p>
 	</section>
 }

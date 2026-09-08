@@ -19121,3 +19121,17 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
   text-transform: none;
   font-family: var(--font-body);
 }
+
+/* comb — willow (2026-09-08 wave C): J6 F21. /activity repeated a team's
+   division code in a bare parenthetical on every one of 137 feed lines.
+   The team name now leads; the code renders as a small secondary chip
+   right after it, in the same inline flow as the actor-class marker
+   already on this row (.activity-actor-class). */
+.activity-team-code {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+  font-size: var(--type-2xs);
+}
