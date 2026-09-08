@@ -6733,6 +6733,11 @@ func (s *Service) actionCenterDataForSnapshot(r *http.Request, state PersistedSt
 				facts.Trades.OutgoingOpen++
 			}
 		}
+		if other, atLabel, ok := s.recentlyExecutedTradeForTeam(state, teamID, now); ok {
+			facts.Trades.RecentlyExecuted = true
+			facts.Trades.RecentlyExecutedOther = other
+			facts.Trades.RecentlyExecutedAtLabel = atLabel
+		}
 		facts.Trades.TradeDeadline, facts.Trades.HasTradeDeadline = parseTradeDeadline(s.cfg)
 		pool := s.pool()
 		runAt := firstRunAtOrAfter(s.cfg, now)

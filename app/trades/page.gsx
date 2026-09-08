@@ -49,6 +49,21 @@ func Page() Node {
 			<If cond={data.has_trades_error}>
 				<p class="error-message">{data.trades_error}</p>
 			</If>
+			{/* comb — hazel (2026-09-08 wave C), J3 F32: a trade could
+			    execute — moving the viewer's own roster — while the
+			    review window closed with nobody watching, and the trade
+			    desk said nothing about it afterward. Names both sides
+			    and the resolution date; the matching home Action Center
+			    card (hq.go's tradeActions) reads the same
+			    recentlyExecutedTradeForTeam. */}
+			<If cond={data.recent_execution_visible}>
+				<p class="flash-message">
+					Trade executed with
+					{" " + data.recent_execution_team}
+					·
+					{data.recent_execution_at}
+				</p>
+			</If>
 			<If cond={data.can_edit == false}>
 				<p class="demo-message">
 					<strong>{data.public_entry.state_label}:</strong>
@@ -176,6 +191,7 @@ func TradeDeskRegion() Node {
 									<label class="trade-composer__option">
 										<input type="checkbox" name="give" value={opt.ID} checked={opt.Selected}></input>
 										{opt.Label}
+										<small class="trade-composer__option-detail mono">{opt.Detail}</small>
 									</label>
 								</Each>
 							</div>
@@ -188,6 +204,7 @@ func TradeDeskRegion() Node {
 									<label class="trade-composer__option">
 										<input type="checkbox" name="get" value={opt.ID} checked={opt.Selected}></input>
 										{opt.Label}
+										<small class="trade-composer__option-detail mono">{opt.Detail}</small>
 									</label>
 								</Each>
 							</div>
@@ -337,6 +354,7 @@ func TradeDeskRegion() Node {
 												<label class="trade-composer__option">
 													<input type="checkbox" name="give" value={opt.ID} checked={opt.Selected}></input>
 													{opt.Label}
+													<small class="trade-composer__option-detail mono">{opt.Detail}</small>
 												</label>
 											</Each>
 										</div>
@@ -349,6 +367,7 @@ func TradeDeskRegion() Node {
 												<label class="trade-composer__option">
 													<input type="checkbox" name="get" value={opt.ID} checked={opt.Selected}></input>
 													{opt.Label}
+													<small class="trade-composer__option-detail mono">{opt.Detail}</small>
 												</label>
 											</Each>
 										</div>
