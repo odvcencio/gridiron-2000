@@ -19105,6 +19105,17 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
    could click into an empty page — it renders as a disabled
    .control-locked span (the same "disabled control, adjacent reason"
    recipe /players already uses) inside the .wire-filter pill shape. */
+/* .wire-filter itself never set text-decoration: none (pre-existing —
+   not this wave's own defect), so an inactive, non-disabled chip like
+   "Injuries · 17" rendered as underlined plain text instead of the same
+   button-pill shape "All · N" and "is-active" already read as. Verified
+   independently while checking F4 on a fresh capture; fixed here since
+   this comb block already governs the chip's read-only-vs-clickable
+   distinction. */
+.wire-filter {
+  text-decoration: none;
+}
+
 .wire-filter.is-disabled {
   display: inline-flex;
   cursor: not-allowed;
