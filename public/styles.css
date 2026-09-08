@@ -17815,3 +17815,99 @@ a.skip-link {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+/* comb — textflow (2026-09-05) */
+
+/* GoSX's own text-layout runtime injects
+   [data-gosx-text-layout-role="block"][data-gosx-text-layout-max-lines]
+   [data-gosx-text-layout-overflow="ellipsis"] { display: -webkit-box; ... }
+   to drive the multi-line clamp (01-textlayout-engine.ts), a legacy box
+   model whose only line-break points are ordinary word boundaries —
+   never a mid-word break, unlike a normal wrapped paragraph with
+   overflow-wrap already covering that case. Every clamped name this
+   wave converts is real user text (team, player, and league names) with
+   no guaranteed short "words" (live-measured: "TOUCHDOWNS" alone
+   overflowed a 90px name column by 25px, one real word wider than the
+   column, not a framework or layout defect). overflow-wrap: anywhere
+   gives the clamp box the same last-resort mid-word break an ordinary
+   wrapped paragraph already has, so a single long word clamps inside
+   its own box instead of overflowing it. width: 100%/box-sizing:
+   border-box are a defensive pair alongside it: every clamped TextBlock
+   this wave added is either a row/card's own sole shaped content (a
+   name, never mixed with sibling plain text in the same paragraph) or a
+   heading already block-level on its own, so filling the available
+   inline size matches each one's own intended shape either way. */
+[data-gosx-text-layout-role="block"][data-gosx-text-layout-max-lines][data-gosx-text-layout-overflow="ellipsis"] {
+  width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+
+/* Retires the ellipsis half of the shared name-truncation rule
+   (public/styles.css, ".mini-team strong, .standing-team strong, ...")
+   for the two selectors this wave converted to TextBlock (Home's
+   MiniMatchup and StandingRow team names): the runtime's own maxLines=1
+   clamp now owns the single-line ellipsis, so the old CSS-only
+   white-space/overflow/text-overflow triplet is neutralized rather than
+   left to fight the new data-attribute-driven one. Every other selector
+   in that shared rule (.score-team__name, .player-identity, .pool-
+   player, .leader-row, .scout-row, .pick-row) is untouched here — see
+   the separate, selector-specific overrides below for the ones this
+   wave did convert. */
+.mini-team strong,
+.standing-team strong {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* Retires app/matchups/page.gsx's Scorebug name/manager truncation
+   (.mini strong, .mini small) the same way, for the same reason. */
+.mini strong,
+.mini small {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* Retires the featured matchup card's own manager-line ellipsis
+   (.matchup-team-line__manager, wave-8 audit item 8's own fix, above):
+   the flex-wrap/flex-basis fixes that let a too-long name claim the
+   row's full width are unchanged; only the final single-line ellipsis
+   is now the runtime's, not this rule's. */
+.matchup-team-line__manager {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* Retires the featured matchup card's own team-name text-wrap: balance
+   (.my-matchup__team strong, round-2 fidelity pass item M7, above): that
+   rule balanced this box's own natural (unclamped) line count. The
+   runtime's own maxLines=2 clamp now owns this name's line count
+   directly, so balance is redundant rather than actively wrong; retired
+   for the same "runtime owns it now" reason as the ellipsis rules
+   above, not because it caused a defect of its own. */
+.my-matchup__team strong {
+  text-wrap: normal;
+}
+
+/* Retires app/team/page.gsx's RosterRow/lineup-slot name truncation
+   (.player-identity strong, part of the same shared rule above). */
+.player-identity strong {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* Retires app/board and app/players' own pool-row/ranked-row name
+   truncation (.pool-player strong, part of the same shared rule above)
+   and the belt-and-braces detail-line clamp
+   (.pool-player__text small, wave-8 hotfix item 1(c)) — both rows keep
+   their one-line contract, now through the runtime's own maxLines=1
+   clamp on both the name and the detail line. */
+.pool-player strong,
+.pool-player__text small {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
