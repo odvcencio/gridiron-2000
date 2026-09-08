@@ -91,6 +91,19 @@ type ActionCenterTradeFacts struct {
 	HasReviewDeadline  bool
 	TradeDeadline      time.Time
 	HasTradeDeadline   bool
+	// RecentlyExecuted names the most recently executed trade involving
+	// the viewer's team, resolved within tradeRecentExecutionWindow of
+	// now (J3 F32, 2026-09-04 audit): a trade could execute — moving the
+	// viewer's own roster — while the review window closed with nobody
+	// watching, and nothing in the app said so afterward. There is no
+	// "last visit" timestamp anywhere in this app to compare against, so
+	// this bounded window is the owner call standing in for it.
+	// RecentlyExecutedAtLabel is pre-formatted in service.go (league
+	// time, zone, and relative phrase, s.leagueTimeStamp) since hq.go's
+	// pure fact-to-card builders carry no *Service to format with.
+	RecentlyExecuted        bool
+	RecentlyExecutedOther   string
+	RecentlyExecutedAtLabel string
 }
 
 type ActionCenterWaiverFacts struct {
@@ -410,6 +423,14 @@ func tradeActions(f ActionCenterFacts) []ActionCenterAction {
 	}
 	if f.Trades.OutgoingOpen > 0 {
 		out = append(out, ActionCenterAction{ID: "trade-outbox", Priority: ActionCenterPriorityInfo, PriorityLabel: "IN PROGRESS", Label: "Check trade outbox", Detail: fmt.Sprintf("%d outgoing trade", f.Trades.OutgoingOpen) + pluralSuffix(f.Trades.OutgoingOpen) + " in progress.", Href: "/trades"})
+	}
+	// trade-executed (J3 F32, 2026-09-04 audit): the review window can
+	// close and move the viewer's own roster with nobody watching, and
+	// the app had no in-product record that it happened. Informational,
+	// not urgent — the trade already resolved; there is nothing left to
+	// decide.
+	if f.Trades.RecentlyExecuted {
+		out = append(out, ActionCenterAction{ID: "trade-executed", Priority: ActionCenterPriorityInfo, PriorityLabel: "TRADE EXECUTED", Label: "Trade executed with " + f.Trades.RecentlyExecutedOther, Detail: fmt.Sprintf("Your trade with %s executed %s.", f.Trades.RecentlyExecutedOther, f.Trades.RecentlyExecutedAtLabel), Href: "/trades"})
 	}
 	return out
 }

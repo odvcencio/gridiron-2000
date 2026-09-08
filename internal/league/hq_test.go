@@ -256,6 +256,46 @@ func TestBuildActionCenterTradeDeadlinesRemainDistinct(t *testing.T) {
 	}
 }
 
+// TestBuildActionCenterAnnouncesRecentlyExecutedTrade is J3 F32's own
+// regression test (2026-09-04 audit): a trade could execute — moving the
+// viewer's own roster — while the review window closed with nobody
+// watching, and the home page said nothing about it afterward. The card
+// is informational, not urgent: the trade already resolved.
+func TestBuildActionCenterAnnouncesRecentlyExecutedTrade(t *testing.T) {
+	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	got := BuildActionCenter(ActionCenterFacts{
+		Now: now, Admitted: true, HasSeat: true, DraftComplete: true, SeasonPhase: PhaseRegularSeason,
+		Trades: ActionCenterTradeFacts{
+			RecentlyExecuted: true, RecentlyExecutedOther: "DeBÍ TiRAR MáS TOUCHDOWNS",
+			RecentlyExecutedAtLabel: "Sep 14, 12:00 PM UTC · 1 day ago",
+		},
+	})
+	action, ok := findAction(got.Actions, "trade-executed")
+	if !ok {
+		t.Fatalf("trade-executed action missing: %+v", got.Actions)
+	}
+	if action.Urgent {
+		t.Errorf("trade-executed marked urgent, want informational: %+v", action)
+	}
+	if action.Priority != ActionCenterPriorityInfo {
+		t.Errorf("trade-executed priority = %q, want informational", action.Priority)
+	}
+	if !strings.Contains(action.Detail, "DeBÍ TiRAR MáS TOUCHDOWNS") || !strings.Contains(action.Detail, "Sep 14, 12:00 PM UTC · 1 day ago") {
+		t.Errorf("trade-executed detail = %q, missing team/date", action.Detail)
+	}
+	if action.Href != "/trades" {
+		t.Errorf("trade-executed href = %q, want /trades", action.Href)
+	}
+
+	// No recently executed trade: the card must not appear at all.
+	quiet := BuildActionCenter(ActionCenterFacts{
+		Now: now, Admitted: true, HasSeat: true, DraftComplete: true, SeasonPhase: PhaseRegularSeason,
+	})
+	if _, ok := findAction(quiet.Actions, "trade-executed"); ok {
+		t.Fatalf("trade-executed rendered with no recently executed trade: %+v", quiet.Actions)
+	}
+}
+
 // TestBuildActionCenterStableTasksUsePlainOnTrackOrNeedsYouLabels covers
 // wave-8 audit item 7: the four ActionCenterPriorityStable actions used
 // to all share the shouted "STABLE TASK" PriorityLabel; each now reads a

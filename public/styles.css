@@ -19100,6 +19100,61 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
   color: var(--color-text-muted);
 }
 
+/* comb — hazel (2026-09-08 wave C)
+   J6 F19: a commissioner post or reply gets the same left-accent, tinted
+   treatment .commissioner-note already uses for the layout banner's own
+   commissioner voice, plus an uppercase "COMMISSIONER NOTE" chip in the
+   meta line — so a ruling reads differently from trash talk on the board
+   itself, not just in a separate banner. */
+.locker-post[data-commissioner-note="true"],
+.locker-reply[data-commissioner-note="true"] {
+  border-left: 3px solid var(--color-accent-hot);
+  background: var(--color-hot-haze);
+}
+
+.locker-post__commissioner-badge {
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  color: var(--color-accent-hot);
+  background: var(--color-surface);
+  font-size: var(--type-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.locker-commissioner-note-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+  color: var(--color-text-secondary);
+  font-size: var(--type-sm);
+}
+
+/* J6 F26: the removal confirmation's own error used to render in a
+   page-top notice, out of sight of the disclosure and control it
+   described, and by the time a manager saw it the disclosure had
+   re-collapsed. It now renders inside the same <details> the control
+   lives in, right beside "Confirm remove". */
+.action-confirmation .error-message {
+  margin-top: var(--space-xs);
+}
+
+/* J3 F31: the trade composer's checkbox rows named only a player and a
+   position, with nothing to judge the deal by. Each row now also carries
+   NFL team, bye week, this week's projection, and the pool's own points
+   figure; flex-wrap keeps that detail from overflowing the row on a
+   narrow viewport instead of clipping it. */
+.trade-composer__option {
+  flex-wrap: wrap;
+}
+
+.trade-composer__option-detail {
+  flex: 1 0 100%;
+  margin-inline-start: 1.7rem;
+  color: var(--color-text-muted);
+}
+
 /* comb — birch (2026-09-08 wave C) --------------------------------------
    J0 matchups residue after oak. */
 
@@ -19673,6 +19728,31 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
   display: flex;
   padding-block: 0.45rem;
   margin-block: 0;
+}
+
+/* comb — willow (2026-09-08 wave C, coordinator follow-up): /activity's
+   hero card fed .draft-clock-meta three flex children (the league-time
+   span, "Player pool →", "Team terminal →") under
+   justify-content: space-between. At phone width, two of the three fit
+   on the first wrapped line (pushed to its opposite ends by
+   space-between) and the third dropped alone to a second line — "Team
+   terminal →" sat far from "Player pool →" with the wrapped flex
+   container's own extra row-height between them, instead of reading as
+   one link row under the time line. The two links now share one
+   wrapper (page.gsx), so .draft-clock-meta only ever distributes two
+   items (the time line, the links row) and the links wrap together —
+   never split from each other — only when they truly do not fit.
+   align-content: flex-start on the outer compact panel stops its own
+   wrapped rows from stretching apart to fill any leftover height, so
+   the card's height tracks its content instead of growing past it. */
+.draft-clock-panel--compact {
+  align-content: flex-start;
+}
+
+.activity-clock-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
 }
 
 /* Coordinator follow-up on the league-status masthead (wave C,

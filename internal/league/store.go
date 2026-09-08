@@ -41,7 +41,13 @@ var errStaleAutoPick = errors.New("auto-pick is stale")
 
 // currentSchemaVersion is the state file schema version this binary writes
 // and the highest version it accepts on load. See PersistedState's
-// SchemaVersion doc comment and Store.load.
+// SchemaVersion doc comment and Store.load. Stays 11 for J6 F19
+// (2026-09-04 audit, reworked the same day): LockerPost.CommissionerNote
+// persists through the existing kv-backed LockerCommissionerNotes set
+// (colScalars, sqlstore.go), the same additive-under-11 precedent
+// SeatReleaseNotices and RosterCorrectionNotices already use, so the
+// previous binary can still open the database for a same-season
+// rollback.
 const currentSchemaVersion = 11
 
 // errSchemaTooNew is returned by NewStore/load when the state file's
@@ -237,6 +243,7 @@ func NewStoreWithIdentity(filePath string, resolver identity.Resolver) *Store {
 			CommissionerEvents:      []CommissionerEvent{},
 			SeatReleaseNotices:      map[string]SeatReleaseNotice{},
 			RosterCorrectionNotices: map[string]RosterCorrectionNotice{},
+			LockerCommissionerNotes: map[string]bool{},
 		},
 	}
 	// An empty path is the explicit in-memory/test mode: the state this
@@ -4271,7 +4278,7 @@ func (s *Store) recordLockerPostLocked(authorEmail string, at time.Time) {
 // on; authorName/authorTeamID are a display snapshot taken now, the same
 // "freeze the actor's identity at the moment of the action" shape
 // DraftPick.MadeBy/TeamID already use.
-func (s *Store) PostLocker(parentID, body, authorEmail, authorName, authorTeamID string, now time.Time) (LockerPost, error) {
+func (s *Store) PostLocker(parentID, body, authorEmail, authorName, authorTeamID string, commissionerNote bool, now time.Time) (LockerPost, error) {
 	body = strings.TrimSpace(body)
 	if body == "" {
 		return LockerPost{}, fmt.Errorf("post text is required")
@@ -4302,16 +4309,28 @@ func (s *Store) PostLocker(parentID, body, authorEmail, authorName, authorTeamID
 		return LockerPost{}, fmt.Errorf("you are posting too quickly; wait a moment and try again")
 	}
 	post := LockerPost{
-		ID:           lockerPostID(body, authorEmail, now),
-		ParentID:     parentID,
-		Body:         body,
-		AuthorEmail:  authorEmail,
-		AuthorName:   authorName,
-		AuthorTeamID: authorTeamID,
-		PostedAt:     now.UTC(),
+		ID:               lockerPostID(body, authorEmail, now),
+		ParentID:         parentID,
+		Body:             body,
+		AuthorEmail:      authorEmail,
+		AuthorName:       authorName,
+		AuthorTeamID:     authorTeamID,
+		PostedAt:         now.UTC(),
+		CommissionerNote: commissionerNote,
 	}
 	s.state.LockerPosts = append(s.state.LockerPosts, post)
-	if err := s.persistLocked(colLockerPosts); err != nil {
+	// CommissionerNote persists through LockerCommissionerNotes
+	// (colScalars), not a locker_posts column (J6 F19, 2026-09-04 audit
+	// rework) — see PersistedState.LockerCommissionerNotes' doc comment.
+	cols := []collectionID{colLockerPosts}
+	if commissionerNote {
+		if s.state.LockerCommissionerNotes == nil {
+			s.state.LockerCommissionerNotes = map[string]bool{}
+		}
+		s.state.LockerCommissionerNotes[post.ID] = true
+		cols = append(cols, colScalars)
+	}
+	if err := s.persistLocked(cols...); err != nil {
 		return LockerPost{}, err
 	}
 	s.recordLockerPostLocked(authorEmail, now)
@@ -4470,6 +4489,7 @@ func cloneState(in PersistedState) PersistedState {
 		CommissionerEvents:      append([]CommissionerEvent(nil), in.CommissionerEvents...),
 		SeatReleaseNotices:      make(map[string]SeatReleaseNotice, len(in.SeatReleaseNotices)),
 		RosterCorrectionNotices: make(map[string]RosterCorrectionNotice, len(in.RosterCorrectionNotices)),
+		LockerCommissionerNotes: make(map[string]bool, len(in.LockerCommissionerNotes)),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
@@ -4603,6 +4623,9 @@ func cloneState(in PersistedState) PersistedState {
 	}
 	for teamID, notice := range in.RosterCorrectionNotices {
 		out.RosterCorrectionNotices[teamID] = notice
+	}
+	for postID, note := range in.LockerCommissionerNotes {
+		out.LockerCommissionerNotes[postID] = note
 	}
 	sort.Slice(out.Picks, func(i, j int) bool { return out.Picks[i].Number < out.Picks[j].Number })
 	return out

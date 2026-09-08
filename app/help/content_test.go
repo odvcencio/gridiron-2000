@@ -112,6 +112,49 @@ func TestSearchGoldensAreDeterministic(t *testing.T) {
 	}
 }
 
+// TestSearchFindsThisLeagueSignatureRules is J6 F8's own regression test
+// (2026-09-04 audit): `superflex` and `punter` — this league's two most
+// unusual house rules (a SUPERFLEX slot and a startable punter, the
+// gridiron-house roster preset) — returned "No matching topic." Half PPR
+// and IR were also unfindable by the word a manager actually types.
+func TestSearchFindsThisLeagueSignatureRules(t *testing.T) {
+	tests := map[string]string{
+		"superflex": "lineups-locks-matchups-and-scoring",
+		"punter":    "lineups-locks-matchups-and-scoring",
+		"punting":   "lineups-locks-matchups-and-scoring",
+		"half PPR":  "lineups-locks-matchups-and-scoring",
+		"IR":        "teams-team-seats-and-rosters",
+	}
+	for query, want := range tests {
+		got, ok := SearchTop(query)
+		if !ok {
+			t.Errorf("SearchTop(%q) = no matching topic, want %q", query, want)
+			continue
+		}
+		if got.ID != want {
+			t.Errorf("SearchTop(%q) = %q, want %q", query, got.ID, want)
+		}
+	}
+}
+
+// TestWaiversTopicStaysModeNeutral is J6 F8's other half: the waivers
+// topic's own title/summary used to presume FAAB unconditionally, so a
+// league running performance-priority waivers (this league; see
+// TestWaiverModeNoteMatchesConfiguredMode in page_render_test.go) saw its
+// waivers answer name a claim system it does not run.
+func TestWaiversTopicStaysModeNeutral(t *testing.T) {
+	topic, ok := FindTopic("players-free-agents-waivers-and-faab")
+	if !ok {
+		t.Fatal("waivers topic missing")
+	}
+	if strings.Contains(topic.Title, "and FAAB") {
+		t.Errorf("waivers topic title still presumes FAAB: %q", topic.Title)
+	}
+	if !strings.Contains(strings.ToLower(topic.Summary), "priority order or faab bid") {
+		t.Errorf("waivers topic summary must name both claim systems, not just FAAB: %q", topic.Summary)
+	}
+}
+
 func TestSearchNormalizesPunctuationAndWhitespace(t *testing.T) {
 	for _, query := range []string{"  PICK’EM  ", "pick-em", "PICK'EM"} {
 		got, ok := SearchTop(query)

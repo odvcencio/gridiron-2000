@@ -168,7 +168,7 @@ func Page() Node {
 			</div>
 			<div class="masthead-console wire-console">
 				<div>
-					<span>Wire state</span>
+					<a href="/help/data-state-and-freshness" data-gosx-link>Wire state</a>
 					<strong data-wire-mode data-gosx-live-bind="mode">{data.wire_mode}</strong>
 				</div>
 				<div>
@@ -196,13 +196,13 @@ func Page() Node {
 			<div>
 				<span>01</span>
 				<strong>Crowd + publishers alert us</strong>
-				<small>Fast, mixed-source, provisional</small>
+				<small>Fast, mixed-source, <a href="/help/data-state-and-freshness" data-gosx-link>provisional</a></small>
 			</div>
 			<i aria-hidden="true">→</i>
 			<div>
 				<span>02</span>
 				<strong>League clusters the evidence</strong>
-				<small>Links, trust tier, timestamps</small>
+				<small>Links, <a href="/help/data-state-and-freshness" data-gosx-link>trust tier</a>, timestamps</small>
 			</div>
 			<i aria-hidden="true">→</i>
 			<div>

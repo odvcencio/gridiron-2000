@@ -54,6 +54,20 @@ func Page() Node {
 						<span>What's on your mind?</span>
 						<textarea name="body" maxlength="1000" rows="4" placeholder="Talk trash, plan a trade, keep the league honest…" required="required"></textarea>
 					</label>
+					{/* comb — hazel (2026-09-08 wave C), J6 F19: the
+					    commissioner had no way to tell the league
+					    something official from this page, and the board
+					    had no way to tell a ruling from trash talk. This
+					    choice is commissioner-only in the markup and
+					    re-verified server-side (PostLockerPost,
+					    internal/league/locker.go) before it can mark a
+					    post. */}
+					<If cond={data.is_commissioner}>
+						<label class="locker-commissioner-note-choice">
+							<input type="checkbox" name="commissioner_note" value="commissioner-note"></input>
+							Post as commissioner note
+						</label>
+					</If>
 					{/* comb — linden (2026-09-07), J6 F18: on a phone the
 					    fixed PageActionBar (app/layout.gsx) already
 					    submits this exact form (form="locker-post-form"
@@ -105,12 +119,19 @@ func LockerBoard() Node {
 		</If>
 		<div class="locker-feed">
 			<Each of={data.posts} as="post">
-				<div class="locker-post" id={post.ID}>
+				<div class="locker-post" id={post.ID} data-commissioner-note={post.CommissionerNote}>
 					<If cond={post.Removed}>
 						<p class="scoring-note">{post.RemovedLabel}</p>
 					</If>
 					<If cond={post.Removed == false}>
 						<p class="locker-post__meta mono">
+							{/* comb — hazel (2026-09-08 wave C), J6 F19:
+							    same label and treatment the layout
+							    banner's own commissioner voice already
+							    uses (app/layout.gsx), so a ruling reads
+							    differently from trash talk on the board
+							    itself. */}
+							<If cond={post.CommissionerNote}><span class="locker-post__commissioner-badge mono">COMMISSIONER NOTE</span></If>
 							<TextBlock as="strong" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={post.AuthorLabel} />
 							<time>{post.TimeLabel}</time>
 						</p>
@@ -120,7 +141,7 @@ func LockerBoard() Node {
 								<input type="hidden" name="csrf_token" value={data.csrf_token}></input>
 								<input type="hidden" name="post_id" value={post.ID}></input>
 								<If cond={data.page > 1}><input type="hidden" name="page" value={data.page}></input></If>
-								<details class="action-confirmation">
+								<details class="action-confirmation" open={post.RemoveErrorOpen}>
 									<summary>Remove post</summary>
 									<p>
 										Removing replaces this post with a removal notice for the whole league. This cannot be undone from this screen.
@@ -129,6 +150,15 @@ func LockerBoard() Node {
 										<input type="checkbox" name="confirmation" value="remove-locker-item" required="required"></input>
 										I understand this post cannot be restored.
 									</label>
+									{/* comb — hazel (2026-09-08 wave C), J6
+									    F26: the removal error used to
+									    render in a page-top notice, out of
+									    sight of this control, with the
+									    disclosure already re-collapsed.
+									    It now renders beside the control
+									    that failed, and the open attribute
+									    above keeps the disclosure open. */}
+									<If cond={post.RemoveError}><p class="error-message">{post.RemoveError}</p></If>
 									<button class="board-button" type="submit">Confirm remove</button>
 								</details>
 							</form>
@@ -145,12 +175,13 @@ func LockerBoard() Node {
 					</If>
 					<div class="locker-replies">
 						<Each of={post.Replies} as="reply">
-							<div class="locker-reply" id={reply.ID}>
+							<div class="locker-reply" id={reply.ID} data-commissioner-note={reply.CommissionerNote}>
 								<If cond={reply.Removed}>
 									<p class="scoring-note">{reply.RemovedLabel}</p>
 								</If>
 								<If cond={reply.Removed == false}>
 									<p class="locker-post__meta mono">
+										<If cond={reply.CommissionerNote}><span class="locker-post__commissioner-badge mono">COMMISSIONER NOTE</span></If>
 										<TextBlock as="strong" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={reply.AuthorLabel} />
 										<time>{reply.TimeLabel}</time>
 									</p>
@@ -160,7 +191,7 @@ func LockerBoard() Node {
 											<input type="hidden" name="csrf_token" value={data.csrf_token}></input>
 											<input type="hidden" name="post_id" value={reply.ID}></input>
 											<If cond={data.page > 1}><input type="hidden" name="page" value={data.page}></input></If>
-											<details class="action-confirmation">
+											<details class="action-confirmation" open={reply.RemoveErrorOpen}>
 												<summary>Remove reply</summary>
 												<p>
 													Removing replaces this reply with a removal notice for the whole league. This cannot be undone from this screen.
@@ -169,6 +200,7 @@ func LockerBoard() Node {
 													<input type="checkbox" name="confirmation" value="remove-locker-item" required="required"></input>
 													I understand this reply cannot be restored.
 												</label>
+												<If cond={reply.RemoveError}><p class="error-message">{reply.RemoveError}</p></If>
 												<button class="board-button" type="submit">Confirm remove</button>
 											</details>
 										</form>

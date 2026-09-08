@@ -503,6 +503,36 @@ func TestAdminMastheadLeadsWithWeekOnceDraftIsComplete(t *testing.T) {
 		t.Errorf("post-draft masthead dropped the seat count: %s", masthead)
 	}
 
+	// Coordinator follow-up: the shared .draft-clock-meta rule is a flex
+	// row everywhere else it is used, so this card's own three facts
+	// squeezed into narrow columns and wrapped four and five lines deep.
+	// admin-masthead-week-meta stacks this one instance into full-width
+	// rows; the row ORDER (state sentence, then kickoff, then seats) is
+	// pinned at the template source, since the fixture's own synthetic
+	// league carries no real NFL schedule and never renders the
+	// conditional kickoff row.
+	if !strings.Contains(masthead, "admin-masthead-week-meta") {
+		t.Errorf("post-draft masthead facts are not stacked into full-width rows: %s", masthead)
+	}
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(page)
+	weekMetaStart := strings.Index(source, `class="draft-clock-meta admin-masthead-week-meta"`)
+	if weekMetaStart < 0 {
+		t.Fatal("page.gsx is missing the admin-masthead-week-meta wrapper")
+	}
+	stateRowAt := strings.Index(source[weekMetaStart:], "schedule.close.ready")
+	kickoffRowAt := strings.Index(source[weekMetaStart:], "First kickoff ·")
+	seatsRowAt := strings.Index(source[weekMetaStart:], "SEATS\n")
+	if stateRowAt < 0 || kickoffRowAt < 0 || seatsRowAt < 0 {
+		t.Fatalf("could not locate all three masthead rows: state=%d kickoff=%d seats=%d", stateRowAt, kickoffRowAt, seatsRowAt)
+	}
+	if !(stateRowAt < kickoffRowAt && kickoffRowAt < seatsRowAt) {
+		t.Errorf("masthead rows are out of order: state=%d kickoff=%d seats=%d, want state < kickoff < seats", stateRowAt, kickoffRowAt, seatsRowAt)
+	}
+
 	seatsLinkAt := strings.Index(body, "Manage seats and managers")
 	if seatsLinkAt < 0 {
 		t.Fatal("task board is missing the Manage seats and managers row")

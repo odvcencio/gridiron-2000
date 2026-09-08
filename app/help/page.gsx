@@ -5,16 +5,16 @@ func Page() Node {
 		<header class="page-masthead guide-masthead help-masthead">
 			<div>
 				<span class="signal-label"><span class="signal-mark" aria-hidden="true"></span>HELP CENTER // TASK FIRST</span>
-				<p class="page-kicker">{data.runtime.league_name} · {data.runtime.mode} · {data.runtime.phase} · corpus {data.corpus_version}</p>
+				<p class="page-kicker">{data.runtime.league_name} · {data.runtime.mode} · {data.runtime.phase}</p>
 				<h1>Help center</h1>
-				<p class="guide-lede"><strong>Find the next move.</strong> Canonical football terms first. Every topic names the actor, prerequisite, privacy, consequence, reversibility, result, failure, recovery, runtime source, and owning action.</p>
+				<p class="guide-lede"><strong>Ask a question.</strong> Every answer says who can do it, what changes, and how to undo it.</p>
 				<form class="help-search" method="get" action="/help">
 					<label for="help-query">Search help</label>
 					<div class="help-search__row">
 						<input id="help-query" name="q" type="search" value={data.query} placeholder="Try: waiver budget, draft queue" autocomplete="off"></input>
 						<button class="button button--primary" type="submit">Search</button>
 					</div>
-					<small>Search is deterministic: query text, not recency or personal history, sets the order.</small>
+					<small>Results are sorted by match quality, always in the same order for the same words.</small>
 				</form>
 			</div>
 			<aside class="masthead-console guide-console" aria-label="Help center runtime context">
@@ -22,17 +22,16 @@ func Page() Node {
 				<div><span>Mode / phase</span><strong>{data.runtime.mode} · {data.runtime.phase}</strong></div>
 				<div><span>League timezone</span><strong>{data.runtime.timezone}</strong></div>
 				<div><span>Next draft meeting</span><strong>{data.runtime.draft_at}</strong></div>
-				<div><span>Mutable truth</span><strong>Runtime-owned</strong></div>
-			</aside>
+				</aside>
 		</header>
 
 		<nav class="guide-toc help-toc" aria-label="Help center sections">
-			<a href="#search-results">Search results</a>
-			<a href="#topic-corpus">Topic corpus</a>
-			<a href="#checklists">Role checklists</a>
-			<a href="#migration">Concept transition</a>
-			<a href="#glossary">Glossary</a>
-			<a href="#recovery">State recovery</a>
+			<a href="#search-results">Answers</a>
+			<a href="#topic-corpus">Topics</a>
+			<a href="#checklists">Checklists</a>
+			<a href="#migration">Coming from another app</a>
+			<a href="#glossary">Words</a>
+			<a href="#recovery">When something breaks</a>
 		</nav>
 
 		<section class="guide-section guide-section--accent" id="search-results" aria-labelledby="search-results-heading">
@@ -46,8 +45,9 @@ func Page() Node {
 				<div class="help-result-list">
 					<Each of={data.search_results} as="result">
 						<a class="help-result" href={"/help/" + result.id} data-gosx-link>
-							<span class="section-index">{result.category} · score {result.score}</span>
+							<span class="section-index">{result.category}</span>
 							<strong>{result.title}</strong>
+							<If cond={result.has_runtime_note}><span class="mono">{result.runtime_note}</span></If>
 							<span>{result.summary}</span>
 							<span class="help-result__arrow" aria-hidden="true">→</span>
 						</a>
@@ -63,7 +63,7 @@ func Page() Node {
 		</section>
 
 		<section class="guide-section" id="topic-corpus" aria-labelledby="topic-corpus-heading">
-			<header class="guide-section__heading"><span class="section-index">02 // VERSIONED TOPICS</span><h2 id="topic-corpus-heading">One corpus. Stable routes.</h2><p>Every topic has a lowercase-hyphenated route, source references, introduced version, and last verified source SHA.</p></header>
+			<header class="guide-section__heading"><span class="section-index">02 // VERSIONED TOPICS</span><h2 id="topic-corpus-heading">One corpus. Stable routes.</h2><p>Browse by task instead of searching.</p></header>
 			<Each of={data.categories} as="category">
 				<section class="help-category" id={category.id} aria-labelledby={category.id + "-heading"}>
 					<h3 id={category.id + "-heading"}>{category.title}</h3>
@@ -84,8 +84,8 @@ func Page() Node {
 		<section class="guide-section guide-section--accent" id="checklists" aria-labelledby="checklists-heading">
 			<header class="guide-section__heading"><span class="section-index">03 // ROLE + PHASE</span><h2 id="checklists-heading">The checklist follows the person.</h2><p>Base admitted-member guidance composes with primary, co-manager, seatless, and commissioner-overlay predicates. Unsupported capabilities are not dead obligations.</p></header>
 			<div class="guide-card-grid guide-card-grid--two">
-				<article class="guide-card"><span class="section-index">PRIMARY MANAGER</span><h3>Before the next action</h3><ol class="guide-checklist"><Each of={data.checklist} as="item"><If cond={item.applicable}><li><strong>{item.title}</strong><span>{item.detail} <a href={item.action_route} data-gosx-link>Open help/action →</a></span></li></If></Each></ol></article>
-				<article class="guide-card"><span class="section-index">COMMISSIONER OVERLAY</span><h3>Operate the owning room</h3><ol class="guide-checklist"><Each of={data.commissioner_checklist} as="item"><If cond={item.applicable}><li><strong>{item.title}</strong><span>{item.detail} <a href={item.action_route} data-gosx-link>Open help/action →</a></span></li></If></Each></ol></article>
+				<article class="guide-card"><span class="section-index">PRIMARY MANAGER</span><h3>Before the next action</h3><ol class="guide-checklist"><Each of={data.checklist} as="item"><If cond={item.applicable}><li><strong>{item.title}</strong><span>{item.detail} <a href={item.action_route} data-gosx-link>{item.action_label}</a></span></li></If></Each></ol></article>
+				<article class="guide-card"><span class="section-index">COMMISSIONER OVERLAY</span><h3>Operate the owning room</h3><ol class="guide-checklist"><Each of={data.commissioner_checklist} as="item"><If cond={item.applicable}><li><strong>{item.title}</strong><span>{item.detail} <a href={item.action_route} data-gosx-link>{item.action_label}</a></span></li></If></Each></ol></article>
 			</div>
 			<div class="guide-callout" role="note"><strong>Co-manager truth:</strong> a current Big Board is keyed per account. This help center does not promise shared visibility, merged ordering, attribution, detach migration, or shared autopick before the owner decision and implementation gate.</div>
 		</section>

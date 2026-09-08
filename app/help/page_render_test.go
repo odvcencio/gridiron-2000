@@ -36,18 +36,24 @@ func renderHelpRoute(t *testing.T, target string) string {
 	return rec.Body.String()
 }
 
+// The search-determinism and "Mutable truth — Runtime-owned" sentences this
+// test used to pin were F23's own findings (J6, 2026-09-04 audit): internal
+// corpus/schema language ("CORPUS 0.1", determinism, the SHA sentence, the
+// leaked relevance score) on the one page whose job is to lower the
+// vocabulary barrier for a manager. Search still sorts deterministically —
+// TestSearchGoldensAreDeterministic pins that behavior — the sentence
+// announcing it to a manager is gone.
 func TestHelpIndexRendersSearchAndProjectionMarkers(t *testing.T) {
 	body := renderHelpRoute(t, "/?q=draft+queue")
 	for _, want := range []string{
 		"HELP CENTER",
-		"Search is deterministic",
+		"Results are sorted by match quality",
 		"big-board-and-autopick",
 		"One corpus. Stable routes.",
 		"The checklist follows the person.",
-		"Concept transition",
+		"Coming from another app",
 		"CANONICAL VOCABULARY",
 		"Every state explains the way back.",
-		"Runtime-owned",
 		"FAAB",
 	} {
 		if !strings.Contains(body, want) {
@@ -72,6 +78,54 @@ func TestHelpIndexGuardsSentinelDraftDate(t *testing.T) {
 	}
 	if !strings.Contains(body, "Not published yet") {
 		t.Fatalf("help index did not render the unpublished-draft guard text: %s", body)
+	}
+}
+
+// TestWaiverModeNoteMatchesConfiguredMode is J6 F8's search-card fix: the
+// waivers search result used to name "FAAB" as this league's system no
+// matter what the league actually runs. The neutral test tree's config
+// (config.go's DefaultConfig) runs perf-priority waivers, so the rendered
+// result must say so and must not claim a FAAB budget.
+func TestWaiverModeNoteMatchesConfiguredMode(t *testing.T) {
+	body := renderHelpRoute(t, "/?q=how+do+waivers+work")
+	if !strings.Contains(body, "This league does not use FAAB") {
+		t.Errorf("help search result for waivers omitted the configured-mode note: %s", body)
+	}
+	if strings.Contains(body, "score 1000") || strings.Contains(body, "· score") {
+		t.Error("help search result still leaks a relevance score onto the page")
+	}
+}
+
+// TestHelpIndexOmitsInternalSchemaLanguage pins J6 F23 (2026-09-04 audit):
+// the Help Center — the one page whose job is to lower the vocabulary
+// barrier — used to show its own corpus version, schema field names, a
+// determinism sentence, and a raw source SHA to every manager.
+func TestHelpIndexOmitsInternalSchemaLanguage(t *testing.T) {
+	body := renderHelpRoute(t, "/")
+	for _, banned := range []string{
+		"CORPUS 0.1",
+		"Mutable truth",
+		"Every topic names the actor, prerequisite, privacy, consequence",
+		"Search is deterministic",
+		"last verified source SHA",
+	} {
+		if strings.Contains(body, banned) {
+			t.Errorf("help index still shows internal corpus language %q", banned)
+		}
+	}
+}
+
+// TestHelpChecklistLinksNameTheirDestination pins J6 F35 (2026-09-04
+// audit): roughly twenty role-checklist items all ended with the identical
+// link text "Open help/action ->" — a screen reader listing links on the
+// page heard the same name for every destination.
+func TestHelpChecklistLinksNameTheirDestination(t *testing.T) {
+	body := renderHelpRoute(t, "/")
+	if strings.Contains(body, "Open help/action") {
+		t.Error("help checklist still renders the generic \"Open help/action\" link text")
+	}
+	if !strings.Contains(body, "Open the Team terminal") {
+		t.Error("help checklist did not name a real destination (Open the Team terminal)")
 	}
 }
 
