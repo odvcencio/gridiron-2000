@@ -3215,6 +3215,37 @@ func (s *Service) DraftDataReadOnlyOptions(r *http.Request, includeHistory bool)
 	return s.draftData(r, true, includeHistory)
 }
 
+// draftPoolStatusMap is draftData's own copy of poolFreshnessMap's
+// output (Wave D, owner debrief 2026-09-06, J1 F33): the shared label/
+// detail pair ("CACHED SNAPSHOT: A saved player-data snapshot is
+// serving..."), used as-is by /players, /board, and the commissioner
+// console, is real jargon on draft night, where the one fact that
+// matters is narrower and higher-stakes than any of those pages' own
+// context — whether a PICK can still be made while the data source is
+// degraded. Rather than rewrite the shared label/detail pair every one
+// of those other pages also reads (playerPoolStateLabel, poolFreshnessMap,
+// above — out of this wave's own scope), this overrides only the ONE
+// case the finding's own evidence named ("cached") with the room's own
+// plain sentence, off the same map every other field (state, live,
+// has_last_success, ...) still carries through unchanged. Every other
+// state (stale/degraded/offline/unavailable) keeps the shared copy —
+// this wave has no evidence for what those should say in the room
+// specifically, and inventing new copy for an unreported case is worse
+// than leaving the existing, still-true sentence in place.
+func draftPoolStatusMap(status map[string]any) map[string]any {
+	state, _ := status["state"].(string)
+	if state != "cached" {
+		return status
+	}
+	out := make(map[string]any, len(status)+1)
+	for key, value := range status {
+		out[key] = value
+	}
+	out["label"] = "PLAYER DATA"
+	out["detail"] = "Player data is a saved copy. Picks are live."
+	return out
+}
+
 func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool) map[string]any {
 	now := s.clock()
 	var viewer map[string]any
@@ -3497,7 +3528,7 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 			}
 		}
 	}
-	poolStatusMap := s.poolFreshnessMap(pool)
+	poolStatusMap := draftPoolStatusMap(s.poolFreshnessMap(pool))
 	// roomPath/liveHub (practice draft, practice.go): the route and hub
 	// THIS Service's room lives on. The real Service renders "/draft" and
 	// "draft-live" — byte-identical to the literals page.gsx carried before
@@ -3596,25 +3627,33 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 		"next_team":             nextTeamMap,
 		"after_next_team":       afterNextTeamMap,
 		"viewer_on_clock":       viewerTeam != "" && viewerTeam == onClockID,
-		"your_pick_in":          yourPickIn,
-		"here_count":            hereCount,
-		"auto_count":            autoCount,
-		"banner":                banner,
-		"queue":                 queuePanel,
-		"queue_taken_count":     queueTakenCount,
-		"queue_empty":           len(queuePanel) == 0,
-		"next_queued":           nextQueued,
-		"roster_needs":          rosterNeeds,
-		"roster_open_count":     rosterOpenCount,
-		"roster_open_summary":   rosterOpenSummary,
-		"my_roster_players":     myRosterPlayers,
-		"my_roster_empty":       len(myRosterPlayers) == 0,
-		"room_path":             roomPath,
-		"live_src":              roomPath + "/live.json",
-		"live_hub":              liveHub,
-		"fragment_base":         roomPath + "/fragment",
-		"queue_move_url":        "POST " + roomPath + "/queue",
-		"practice":              PracticeInactiveMap(s.practiceAvailabilityForState(r, state)),
+		// viewer_back_to_back (Wave D item 8, J1 F35, owner debrief
+		// 2026-09-06): true when the viewer holds BOTH the current pick
+		// and the very next one (the snake draft's own round-turn
+		// pivot) — page.gsx's "Next: X · then Y" line named the
+		// viewer's own team twice in three stacked lines with no
+		// signal that the two X's were the same, good, notable fact
+		// ("I pick twice in a row"), not a display glitch.
+		"viewer_back_to_back": viewerTeam != "" && viewerTeam == onClockID && nextTeamMap["id"] == viewerTeam,
+		"your_pick_in":        yourPickIn,
+		"here_count":          hereCount,
+		"auto_count":          autoCount,
+		"banner":              banner,
+		"queue":               queuePanel,
+		"queue_taken_count":   queueTakenCount,
+		"queue_empty":         len(queuePanel) == 0,
+		"next_queued":         nextQueued,
+		"roster_needs":        rosterNeeds,
+		"roster_open_count":   rosterOpenCount,
+		"roster_open_summary": rosterOpenSummary,
+		"my_roster_players":   myRosterPlayers,
+		"my_roster_empty":     len(myRosterPlayers) == 0,
+		"room_path":           roomPath,
+		"live_src":            roomPath + "/live.json",
+		"live_hub":            liveHub,
+		"fragment_base":       roomPath + "/fragment",
+		"queue_move_url":      "POST " + roomPath + "/queue",
+		"practice":            PracticeInactiveMap(s.practiceAvailabilityForState(r, state)),
 	}
 }
 
@@ -6165,9 +6204,16 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 		"injury_designation":     injuryDesignationAbbr(player.Injury),
 		"has_injury_designation": player.Injury != "",
 		"injury_tip":             injuryDesignationTip(player.Injury),
-		"rank":                   rank, "house_rank": houseRank, "has_house_rank": houseRank != "", "detail": detail,
-		"detail_team_bye": detailTeamBye,
-		"headshot":        player.Headshot, "has_headshot": player.Headshot != "",
+		"rank":                   rank, "house_rank": houseRank, "has_house_rank": houseRank != "",
+		// house_rank_number (Wave D item 4, owner debrief 2026-09-06): the
+		// raw house rank int behind the "H%03d" display string above —
+		// boardValueWarning (board.go) needs the number itself to compare
+		// against the pick a manager next selects; house_rank stays a
+		// display-only string for every other existing caller.
+		"house_rank_number": player.HouseRank,
+		"detail":            detail,
+		"detail_team_bye":   detailTeamBye,
+		"headshot":          player.Headshot, "has_headshot": player.Headshot != "",
 		"jersey":          jersey,
 		"has_breakdown":   hasBreakdown,
 		"breakdown":       breakdownRows,

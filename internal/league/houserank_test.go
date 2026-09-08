@@ -605,11 +605,20 @@ func TestAutopickHouseOrderTakesASecondQBWhenLegalAndBigBoardIsEmpty(t *testing.
 	}
 }
 
-// TestAutopickBigBoardStillWinsOverHouseOrder is autopick test (c): a
-// seat's Big Board still wins over house order, exactly as it always won
-// over market-ADP order — a low house-rank (RB) player sits at the board
-// head while a QB (house order's actual top choice) sits undrafted and
-// unboarded.
+// TestAutopickBigBoardStillWinsOverHouseOrder is autopick test (c), REVISED
+// for Wave D (owner debrief after the 2026-09-06 draft: a manager's Big
+// Board #1, house rank ~140, was autopicked at his second selection, pick
+// 16 overall — the manager never meant autopick to spend an early pick on
+// a stale sleeper that far off value). The board no longer wins
+// UNCONDITIONALLY: autopickBoardEntryFailsValueGuard now redirects to
+// house order's own next real need once a board entry's house rank sits
+// more than autopickBoardValueGuardMargin ranks below the pick AND house
+// order can offer a needed alternative. rb-20's own house rank here (48)
+// is 47 ranks below pick 1, well past the margin, and pick 1 on an empty
+// roster leaves every non-specialist position an open hole — so this
+// fixture now exercises the guard firing, not the old "board always wins"
+// rule. TestAutopickBigBoardWinsWithinValueGuardMargin (below) keeps that
+// original rule's own coverage for the case the guard does not reach.
 func TestAutopickBigBoardStillWinsOverHouseOrder(t *testing.T) {
 	setRosterShape(rosterPresets["gridiron-house"])
 	t.Cleanup(clearRosterShape)
@@ -621,24 +630,70 @@ func TestAutopickBigBoardStillWinsOverHouseOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	// rb-20 sits far down house order (it is well past the FLEX-favored
-	// elite tier) yet the board must still win outright over the pool's
-	// own best (a QB).
+	// elite tier) — the value guard now redirects autopick to house
+	// order's own top choice instead of taking it outright.
 	if err := service.store.BoardAdd(member.Email, "rb-20"); err != nil {
 		t.Fatal(err)
 	}
 	state := service.store.Snapshot()
 	got, ok := service.autopickChoice(state, member.TeamID)
-	if !ok || got != "rb-20" {
-		t.Fatalf("autopickChoice = %q, %v, want rb-20 (Big Board head, over house order's own top QB)", got, ok)
+	if !ok || got == "rb-20" {
+		t.Fatalf("autopickChoice = %q, %v, want the value guard to redirect away from rb-20 (house rank 48, 47 ranks below pick 1)", got, ok)
+	}
+	pool2 := service.pool()
+	won, exists := pool2.byID[got]
+	if !exists {
+		t.Fatalf("autopickChoice returned %q, not a player in the pool", got)
+	}
+	if won.HouseRank == 0 || won.HouseRank-1 > autopickBoardValueGuardMargin {
+		t.Errorf("the redirected pick %q carries house rank %d, more than %d ranks below pick 1 — the guard should redirect to a BETTER value, not another far-off one", got, won.HouseRank, autopickBoardValueGuardMargin)
+	}
+}
+
+// TestAutopickBigBoardWinsWithinValueGuardMargin is autopick test (c)'s
+// own Wave D companion: a board head within autopickBoardValueGuardMargin
+// ranks of the current pick still wins outright, exactly as test (c)
+// always intended — the guard only ever redirects a board entry that is
+// FAR off value, never a merely-imperfect one.
+func TestAutopickBigBoardWinsWithinValueGuardMargin(t *testing.T) {
+	setRosterShape(rosterPresets["gridiron-house"])
+	t.Cleanup(clearRosterShape)
+	service := newTestService(t, false)
+	pool := houseRankFixturePool()
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+	member, _, err := service.store.AssignMember("near-margin@example.com", "NearMargin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// rb-10 (10th-best RB by raw projection) carries a far smaller house-
+	// rank gap than rb-20 — within margin at pick 1.
+	if err := service.store.BoardAdd(member.Email, "rb-10"); err != nil {
+		t.Fatal(err)
+	}
+	state := service.store.Snapshot()
+	pool2 := service.pool()
+	target, ok := pool2.byID["rb-10"]
+	if !ok {
+		t.Fatal("fixture rb-10 not found in pool")
+	}
+	if target.HouseRank == 0 || target.HouseRank-1 > autopickBoardValueGuardMargin {
+		t.Skipf("fixture rb-10 house rank %d is not within the margin at pick 1; adjust the fixture id", target.HouseRank)
+	}
+	got, ok := service.autopickChoice(state, member.TeamID)
+	if !ok || got != "rb-10" {
+		t.Fatalf("autopickChoice = %q, %v, want rb-10 (Big Board head, within the value guard's margin)", got, ok)
 	}
 }
 
 // TestAutopickBigBoardKWinsOverSpecialistDeferral is autopick test (c)'s
-// sibling for the owner's specialist-deferral directive (2026-08-31): a
-// seat's Big Board still wins outright even when its head is a specialist
-// (K) that pure house order (autopickHouseWalk's Pass C) would otherwise
-// defer behind every skill hole — the deferral applies only to the
-// house-ordered POOL walks, never to the Big Board pass ahead of them.
+// sibling, REVISED for Wave D (owner debrief after the 2026-09-06 draft —
+// see TestAutopickBigBoardStillWinsOverHouseOrder's own doc comment for
+// the full context). A specialist boarded at the head on an empty roster
+// is now exactly the shape the value guard exists for: K-01's house rank
+// (66) sits 65 ranks below pick 1, and every non-specialist starter slot
+// is still an open hole, so the guard redirects to house order's own next
+// real need — the deferral this test used to prove the board bypassed now
+// applies to the board pass too, for a gap this wide.
 func TestAutopickBigBoardKWinsOverSpecialistDeferral(t *testing.T) {
 	setRosterShape(rosterPresets["gridiron-house"])
 	t.Cleanup(clearRosterShape)
@@ -650,14 +705,23 @@ func TestAutopickBigBoardKWinsOverSpecialistDeferral(t *testing.T) {
 		t.Fatal(err)
 	}
 	// K-01 is a specialist that Pass C would defer behind every open skill
-	// hole on an empty roster; the board must still take it immediately.
+	// hole on an empty roster; the value guard now redirects the board
+	// pass there too, rather than taking it immediately.
 	if err := service.store.BoardAdd(member.Email, "K-01"); err != nil {
 		t.Fatal(err)
 	}
 	state := service.store.Snapshot()
 	got, ok := service.autopickChoice(state, member.TeamID)
-	if !ok || got != "K-01" {
-		t.Fatalf("autopickChoice = %q, %v, want K-01 (Big Board head, no specialist deferral)", got, ok)
+	if !ok || got == "K-01" {
+		t.Fatalf("autopickChoice = %q, %v, want the value guard to redirect away from K-01 (house rank 66, 65 ranks below pick 1)", got, ok)
+	}
+	poolSnapshot := service.pool()
+	won, exists := poolSnapshot.byID[got]
+	if !exists {
+		t.Fatalf("autopickChoice returned %q, not a player in the pool", got)
+	}
+	if isSpecialistPosition(won.Position) {
+		t.Errorf("the redirected pick %q (%s) is itself a specialist — the guard should redirect to the open skill hole, not another deferred specialist", got, won.Position)
 	}
 }
 

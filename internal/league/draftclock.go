@@ -421,56 +421,100 @@ func autopickChoiceWith(state PersistedState, pool playerPool, teams []Team, boa
 		holeCache[position] = hole
 		return hole
 	}
+	// nextPickNumber/currentRound/totalRounds (Wave D, owner debrief
+	// 2026-09-06): the per-position cap below is round-aware (K/P/DST
+	// lift in the final rounds), and the board value guard below compares
+	// a board entry's own house rank against the pick it would spend.
+	nextPickNumber := len(state.Picks) + 1
+	currentRound := pickRound(activeTeamCount(state.DraftOrder), nextPickNumber)
+	totalRounds := CurrentDraftRounds()
+	// capCache memoizes autopickPositionCapBlocksCandidate per position,
+	// the same reasoning as scarceCache/holeCache: ownPlayers, preset, and
+	// the round are fixed for the whole call.
+	capCache := make(map[string]bool, len(housePositionOrder))
+	capBlocked := func(position string) bool {
+		if blocked, cached := capCache[position]; cached {
+			return blocked
+		}
+		blocked := autopickPositionCapBlocksCandidate(ownPlayers, preset, position, currentRound, totalRounds)
+		capCache[position] = blocked
+		return blocked
+	}
 	fits := func(playerID string) bool {
 		player, ok := pool.byID[playerID]
 		if !ok {
 			return false
 		}
 		_, _, breach := teamWouldBreachLimit(state, pool.byID, teamID, []string{playerID}, nil)
-		return !breach && draftCandidateKeepsRosterViable(state, pool.byID, teamID, playerID) && !scarce(player.Position)
+		return !breach && draftCandidateKeepsRosterViable(state, pool.byID, teamID, playerID) && !scarce(player.Position) && !capBlocked(player.Position)
 	}
 	viable := func(playerID string) bool {
 		player, ok := pool.byID[playerID]
 		if !ok {
 			return false
 		}
-		return draftCandidateKeepsRosterViable(state, pool.byID, teamID, playerID) && !scarce(player.Position)
+		return draftCandidateKeepsRosterViable(state, pool.byID, teamID, playerID) && !scarce(player.Position) && !capBlocked(player.Position)
 	}
 	key := boardKey
 	for _, id := range state.Boards[key] {
 		if picked[id] {
 			continue
 		}
-		if _, ok := pool.byID[id]; ok && fits(id) {
-			return id, true
+		player, ok := pool.byID[id]
+		if !ok || !fits(id) {
+			continue
 		}
+		// Board value guard (owner debrief 2026-09-06: a manager's Big
+		// Board #1, house rank ~140, was autopicked at pick 16 overall).
+		// Skip this board entry — fall to the NEXT board entry, then to
+		// house order below — only when the house order can offer some
+		// OTHER candidate that fills a starter hole this entry does not;
+		// see autopickBoardEntryFailsValueGuard's own doc comment for why
+		// that second condition keeps the guard from second-guessing a
+		// board that has nothing better to redirect to.
+		if autopickBoardEntryFailsValueGuard(player, nextPickNumber, pool, picked, fits, fillsHole) {
+			log.Printf("autopick: %s skipped board entry %s (%s, house rank %d) at pick %d — more than %d ranks below the pick, and house order offers a needed alternative",
+				teamID, player.ID, player.Position, player.HouseRank, nextPickNumber, autopickBoardValueGuardMargin)
+			continue
+		}
+		return id, true
 	}
 	if id, ok := autopickHouseWalk(pool, picked, fits, fillsHole); ok {
 		return id, true
 	}
 	// Fallback: ignore Limits rather than stall the draft. The scarcity
-	// guard survives this fallback — a soft Limits cap and league-wide
-	// starvation protection are independent knobs, and relaxing Limits is
+	// guard and the position cap survive this fallback — a soft Limits
+	// cap is an independent knob from either, and relaxing Limits is
 	// never a reason to also let a bench pick duplicate the one scarce
-	// specialist a peer seat still needs.
+	// specialist a peer seat still needs, or blow past the position cap.
 	for _, id := range state.Boards[key] {
 		if picked[id] {
 			continue
 		}
-		if _, ok := pool.byID[id]; ok && viable(id) {
-			return id, true
+		player, ok := pool.byID[id]
+		if !ok || !viable(id) {
+			continue
 		}
+		if autopickBoardEntryFailsValueGuard(player, nextPickNumber, pool, picked, viable, fillsHole) {
+			log.Printf("autopick: %s skipped board entry %s (%s, house rank %d) at pick %d — more than %d ranks below the pick, and house order offers a needed alternative",
+				teamID, player.ID, player.Position, player.HouseRank, nextPickNumber, autopickBoardValueGuardMargin)
+			continue
+		}
+		return id, true
 	}
 	if id, ok := autopickHouseWalk(pool, picked, viable, fillsHole); ok {
 		return id, true
 	}
-	// Last resort: drop only the scarcity guard, keep starter viability.
-	// Reached only when literally no legal candidate survives it — the
-	// guard's own predicate should never produce that (it only blocks a
-	// position once at least one OTHER seat still needs it, so someone
-	// downstream can always legally take the alternative), but a stalled
-	// clock is a worse outcome than one guard miss, so this pass exists
-	// as the documented, narrow relief valve rather than a silent stall.
+	// Last resort: drop the scarcity guard AND the position cap, keep
+	// starter viability. Reached only when literally no legal candidate
+	// survives them — neither guard's own predicate should ever produce
+	// that on its own (the scarcity guard only blocks a position once at
+	// least one OTHER seat still needs it, so someone downstream can
+	// always legally take the alternative; the position cap only blocks a
+	// position teamID already holds a legal roster's worth of), but a
+	// stalled clock is a worse outcome than one guard miss, so this pass
+	// exists as the documented, narrow relief valve rather than a silent
+	// stall. No board value guard here either, for the same reason.
 	unguardedViable := func(playerID string) bool {
 		return draftCandidateKeepsRosterViable(state, pool.byID, teamID, playerID)
 	}
@@ -486,6 +530,126 @@ func autopickChoiceWith(state PersistedState, pool playerPool, teams []Team, boa
 		return id, true
 	}
 	return "", false
+}
+
+// autopickPositionCapDefault is the flat per-team cap AUTOPICK enforces
+// for K, P, and DST (Wave D, owner debrief after the 2026-09-06 draft: one
+// team ended with six quarterbacks — the QB/RB/WR/TE cap below covers
+// that; the K/P/DST cap covers the same unchecked-hoarding shape for the
+// specialist positions, which house order's own VORP model has no notion
+// of "enough" for either). A specialist bench stash is a real, if rare,
+// late-draft need — see autopickPositionCap's own final-rounds carve-out.
+const autopickPositionCapDefault = 1
+
+// autopickPositionCapFinalRounds is how many rounds from the very end of
+// the draft the K/P/DST flat cap stops applying.
+const autopickPositionCapFinalRounds = 2
+
+// autopickPositionCap resolves the roster-shape-derived cap AUTOPICK
+// enforces for position, given the draft's current round and total round
+// count. applies is false when no cap governs position at all right now
+// (K/P/DST in the final autopickPositionCapFinalRounds rounds) — the
+// caller then never blocks a candidate at position on this guard.
+//
+// K, P, and DST share the flat autopickPositionCapDefault cap through the
+// rest of the draft. Every other position's cap is the SUM of every
+// preset starter slot position is eligible for (slotTable's own Eligible
+// list, lineup.go — position's own dedicated slot plus any FLEX/
+// SUPERFLEX slot that also accepts it: gridiron-house's QB is eligible
+// for QB and SUPERFLEX, giving a cap of 1+1+1(bench)=3) plus one bench
+// buffer — the same "starters this position could occupy" count
+// teamCoversPositionRequirement (above) already uses for hole-filling,
+// so the cap and the hole-filling logic agree on what "a starter at this
+// position" means. This also keeps every position's own cap sum at or
+// above the preset's own Total() roster size (verified for every shipped
+// preset by TestAutopickPositionCapsSumCoverEveryPresetsRosterSize,
+// houserank_test.go's own sibling suite): a team can always find some
+// legal, in-cap position for all Total() of its picks, so
+// autopickChoiceWith's own last-resort "drop the cap" pass (this file,
+// above) is a true rarity — a genuine supply shortage, never an
+// arithmetic certainty the cap itself created.
+func autopickPositionCap(preset RosterPreset, position string, currentRound, totalRounds int) (limit int, applies bool) {
+	switch position {
+	case "K", "P", "DST":
+		if totalRounds-currentRound < autopickPositionCapFinalRounds {
+			return 0, false
+		}
+		return autopickPositionCapDefault, true
+	default:
+		eligible := 0
+		for _, slot := range slotTable {
+			if slot.Fits(position) {
+				eligible += preset.Slots[slot.Key]
+			}
+		}
+		return eligible + 1, true
+	}
+}
+
+// autopickPositionCapBlocksCandidate reports whether teamID (represented
+// here by ownPlayers, its already-drafted roster) already holds
+// autopickPositionCap(position)'s own limit worth of position. Scoped to
+// AUTOPICK's own selection order only (autopickChoiceWith/
+// autopickHouseWalk, both above) — a manager's own manual pick (MakePick,
+// store.go) is never subject to it; a human choosing a sixth QB on
+// purpose is a decision, not a defect.
+func autopickPositionCapBlocksCandidate(ownPlayers []Player, preset RosterPreset, position string, currentRound, totalRounds int) bool {
+	limit, applies := autopickPositionCap(preset, position, currentRound, totalRounds)
+	if !applies {
+		return false
+	}
+	count := 0
+	for _, player := range ownPlayers {
+		if player.Position == position {
+			count++
+		}
+	}
+	return count >= limit
+}
+
+// autopickBoardValueGuardMargin bounds how far below the CURRENT pick a
+// board-first candidate's own house rank may sit before
+// autopickBoardEntryFailsValueGuard prefers to redirect autopick toward
+// house order's own next real need instead (owner debrief 2026-09-06: a
+// manager's Big Board #1, house rank ~140, was autopicked at his second
+// selection, pick 16 overall).
+const autopickBoardValueGuardMargin = 24
+
+// autopickBoardEntryFailsValueGuard reports whether a board-first
+// candidate should be skipped in favor of house order's own next pick:
+// both candidate's own house rank sits more than
+// autopickBoardValueGuardMargin ranks below pickNumber (the pick this
+// candidate would be spent at), AND house order can offer some OTHER
+// candidate that fills a starter hole this one does not. A player with no
+// house rank at all (HouseRank 0 — a zero-Projection player, houserank.go)
+// never fails this guard: there is no rank to compare against a pick
+// number.
+//
+// The second condition keeps the guard narrow on purpose: without it,
+// autopick would routinely bump a manager's own late-round sleeper for
+// whatever ranks "better," second-guessing the board with no roster
+// benefit at all. The guard exists to redirect autopick toward a real,
+// still-open starter need, never to run its own private best-player-
+// available pass over a manager's own ranking. filter is whichever
+// legality boundary the caller is currently walking (fits or viable, the
+// two board-first passes that call this) — never unguardedViable's last
+// resort, which takes this guard's own doc comment's advice and skips it
+// entirely rather than risk a stall.
+func autopickBoardEntryFailsValueGuard(candidate Player, pickNumber int, pool playerPool, picked map[string]bool, filter func(string) bool, fillsHole func(string) bool) bool {
+	if candidate.HouseRank <= 0 || candidate.HouseRank-pickNumber <= autopickBoardValueGuardMargin {
+		return false
+	}
+	// holeFiller excludes candidate itself: house order's own walk below
+	// starts at rank 1 and virtually always finds a BETTER, distinct
+	// candidate before ever reaching candidate's own (far worse) rank —
+	// but this exclusion keeps that a guarantee, not a coincidence of
+	// walk order, so the guard can never answer "yes, redirect" by
+	// finding no one but the very candidate it is evaluating.
+	holeFiller := func(player Player) bool {
+		return player.ID != candidate.ID && !isSpecialistPosition(player.Position) && fillsHole(player.Position)
+	}
+	_, ok := housePassOrder(pool, picked, filter, holeFiller)
+	return ok
 }
 
 // teamDraftedPlayers resolves teamID's currently drafted players against
