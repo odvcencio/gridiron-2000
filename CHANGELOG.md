@@ -5,7 +5,18 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- The draft reset and the league reset now confirm with a typed phrase that names the league, and the console states the exact phrase it expects when the typed phrase is wrong. Resetting the draft during the season now warns that it empties every drafted roster and lineup and leaves closed weeks final with a zero score. Resetting scoring on the rules page now has a visible label and requires the typed phrase.
+- After a commissioner releases a seat, the access list now keeps the person's last sign-in and shows the release date beside it, instead of claiming the person never signed in.
+- A lineup-intervention link that uses the short seat code the console prints elsewhere now opens the right team, instead of silently opening the commissioner's own team.
+- The rules and scoring page now reads the same season phase the console's own top line reads, and scoring locks once week one starts.
+- The waiver panel's run state now reads "Idle" when no claims are waiting, instead of "overdue" beside a sentence that says there is nothing to run. The last-processed time now shows a relative phrase alongside the exact time.
+- The force-close confirm box now clears after a successful close, instead of keeping the just-closed week's typed phrase in front of the next week's own gate.
+- Seat rows on the console now lead with the team, the manager, and the ready state. The image-upload rules moved out of the section's lead paragraph into a closed disclosure, board-target counts drop away once the draft is over, the not-seen sign-in message reads in plain words, and the autopick button now names its own state and the action a click takes.
+- The standings table and the matchups page now show the identical record for the same team and week, including the three-part record once a tie exists.
+- The playoff panel hides its Source, Final week, and Revision tiles until a bracket exists, instead of showing an empty tile and two zeros, and its lead sentence uses plain words.
+- The console now links the words "the league log" to the activity page from the week-close panel and the danger zone, and the activity page's team filter carries a "Commissioner actions" option.
+- The week-close panel now names a stale stat feed when its last fetch predates the week's own last kickoff, with the fetch time and what the commissioner can do about it.
 
 ## [release-2026.09.08-88f7149-season2] — 2026-09-07
 
