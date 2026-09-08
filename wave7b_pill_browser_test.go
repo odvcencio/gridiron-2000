@@ -74,7 +74,10 @@ func TestBrowserDraftPillCollapsesCommandBarAt390(t *testing.T) {
 	if !strings.Contains(sheetText, "League") {
 		t.Errorf("open pill sheet is missing the League navigation trigger: %q", sheetText)
 	}
-	if !strings.Contains(sheetText, "Sound") {
+	// "Mute"/"Unmute" (Wave D item 8, J1 F24, 2026-09-08): the sound
+	// toggle now commands the action a tap performs instead of stating
+	// "Sound on/off" beside three imperative siblings.
+	if !strings.Contains(sheetText, "Mute") {
 		t.Errorf("open pill sheet is missing the sound toggle: %q", sheetText)
 	}
 	if !strings.Contains(sheetText, "ready") && !strings.Contains(sheetText, "Ready") {

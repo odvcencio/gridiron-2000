@@ -1489,6 +1489,19 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 				<span class="draft-command__pill-caret-glyph" aria-hidden="true">▾</span>
 			</summary>
 			<div class="draft-command__sheet" id="draft-command-sheet">
+				{/* comb — rowan (2026-09-08 wave D), J1 F4 (coordinator
+				    follow-up, wave7b_pill_browser_test.go): the collapsed
+				    pill row keeps its own tight height budget (<= 76px,
+				    the whole command bar <= 160px) — a phone only ever
+				    saw the retro pill-status span's own clipped code
+				    ("DRAFT NO…", "ON CLOCK: I…") there. This plain-
+				    language sentence (props.StatusSummary) now renders
+				    inside the OPEN sheet instead: a sighted user reads it
+				    by tapping ▾, a screen reader always has the identical
+				    text through the visually-hidden <p role="status">
+				    above — aria-hidden here avoids a second live
+				    announcement of the same text on every update. */}
+				<p class="draft-command__pill-sentence" aria-hidden="true">{props.StatusSummary}</p>
 				<div class="draft-command__sheet-room mono">
 					<span data-gosx-live-bind="room.here">{props.Data.here_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> here · <span data-gosx-live-bind="room.ready">{props.Data.ready_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> ready
 					<If cond={props.Data.your_pick_in > 0}>
@@ -1553,20 +1566,6 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 			</div>
 		</details>
 		</div>
-		{/* comb — rowan (2026-09-08 wave D), J1 F4: the plain-language
-		    sentence (props.StatusSummary) used to render only inside the
-		    visually-hidden screen-reader paragraph above — a phone only
-		    ever saw the retro pill-status span's own clipped code
-		    ("DRAFT NO…", "ON CLOCK: I…"). This is the SAME sentence,
-		    shown at phone width in place of that span (public/
-		    styles.css); a full-width sibling of the pill row rather than
-		    a child inside it — the pill row's own narrow, rounded-pill
-		    width (sized for the short mono code it used to hold only)
-		    wrapped a whole readable sentence across nine cramped lines.
-		    aria-hidden because the visually-hidden <p role="status">
-		    above already announces this text once — a second live copy
-		    would double-announce on every update. */}
-		<p class="draft-command__pill-sentence" aria-hidden="true">{props.StatusSummary}</p>
 		<div class="draft-command__room">
 			<span class="idx">Room</span>
 			<span class="mono"><span class="live-dot live-dot--bound" aria-hidden="true"><If cond={props.Data.draft.started && props.Data.draft.complete == false}>LIVE</If></span> <span data-gosx-live-bind="room.here">{props.Data.here_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> here · <span data-gosx-live-bind="room.ready">{props.Data.ready_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> ready<span class="draft-command__auto"> · <span data-gosx-live-bind="room.auto">{props.Data.auto_count}</span> auto</span></span>

@@ -19189,35 +19189,24 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
    the phone pill showed only the retro status span's own clipped code
    ("DRAFT NO…", "ON CLOCK: I…", "DRAFT COMPLE…"); the plain-language
    sentence (props.StatusSummary, page.gsx's DraftCommandBar) rendered
-   only inside a visually-hidden screen-reader paragraph. .draft-command
-   __pill-sentence is the same sentence, shown at phone width in place of
-   the clipped span; aria-hidden on the element itself (page.gsx) keeps
-   the visually-hidden <p role="status"> as the one live-announced copy. */
+   only inside a visually-hidden screen-reader paragraph. Coordinator
+   follow-up (wave7b_pill_browser_test.go's own pinned height budget: the
+   collapsed .draft-command__pill-row must stay <= 76px and the whole
+   .draft-command <= 160px at 390px): the sentence now renders inside the
+   pill's own OPEN sheet (.draft-command__sheet, page.gsx) instead of
+   beside the collapsed row — the sheet's <details> already shows/hides
+   it with no CSS of its own needed here. A sighted user reads it by
+   tapping ▾; aria-hidden on the element itself (page.gsx) keeps the
+   visually-hidden <p role="status"> as the one live-announced copy, so
+   this is never a double announcement. */
 .draft-command__pill-sentence {
-  display: none;
+  margin: 0 0 var(--space-xs);
+  color: var(--color-text-secondary);
+  font-size: var(--type-xs);
 }
 
-@media (width <= 56.1875rem) {
-  .draft-command__pill-status {
-    display: none;
-  }
-
-  .draft-command__pill-sentence {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    overflow: hidden;
-    width: 100%;
-    min-width: 0;
-    margin: 0;
-    color: var(--color-text-secondary);
-    font-size: var(--type-xs);
-    white-space: normal;
-  }
-
-  body.is-on-clock .draft-command__pill-sentence {
-    color: var(--color-accent-hot);
-  }
+body.is-on-clock .draft-command__pill-sentence {
+  color: var(--color-accent-hot);
 }
 
 /* comb — hazel (2026-09-08 wave C)
