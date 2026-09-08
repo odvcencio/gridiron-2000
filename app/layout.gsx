@@ -624,8 +624,16 @@ func Layout() Node {
 						<small>{data.league.tagline}</small>
 					</span>
 				</a>
+				{/* Decision 9 (J5 F33, wave E): this link used to read "Guide"
+				    while PrimaryNavigation's own signed-in copy of the same
+				    href="/guide" link reads "Manager guide" — the same page,
+				    two names, inside this one file. The public nav now
+				    repeats PrimaryNavigation's own name verbatim; see
+				    TestPublicPageLinkLabelsMatchTheNavigationMap
+				    (navigation_labels_contract_test.go) for the pin that
+				    walks the four public pages this decision names. */}
 				<nav class="minimal-actions" aria-label="Public navigation">
-					<a href="/guide" data-gosx-link class="access-link access-link--guide">Guide</a>
+					<a href="/guide" data-gosx-link class="access-link access-link--guide">Manager guide</a>
 					<a href="/login" data-gosx-link class="access-link">
 						<span class="signal-mark" aria-hidden="true"></span>
 						Sign in

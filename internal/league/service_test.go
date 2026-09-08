@@ -2097,9 +2097,11 @@ func TestLatestAnnouncementBannerUsesLeagueZoneWithRelativeLabel(t *testing.T) {
 
 // TestAnnouncementListMapsUsesLeagueZone is the home page announcements
 // list's half of the same finding: posted_at formatted the stored instant
-// without converting to the league zone. posted_ago already carried a
-// relative label (relativeTime) through a separate binding, so it stays a
-// second field here rather than folding into posted_at as the banner does.
+// without converting to the league zone. J6 F20 residue (wave E):
+// posted_at now folds the relative label into itself the same way
+// latestAnnouncementBanner's own posted_at already does — both call
+// leagueTimeStamp — so this list carries no separate posted_ago field
+// anymore.
 func TestAnnouncementListMapsUsesLeagueZone(t *testing.T) {
 	service := newTestService(t, true)
 	postedAt := time.Date(2026, 9, 1, 20, 35, 0, 0, time.UTC)
@@ -2112,11 +2114,11 @@ func TestAnnouncementListMapsUsesLeagueZone(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("announcementListMaps = %+v, want 1 row", rows)
 	}
-	if got := rows[0]["posted_at"]; got != "Sep 1, 4:35 PM EDT" {
-		t.Fatalf("posted_at = %v, want the league-zone stamp", got)
+	if got := rows[0]["posted_at"]; got != "Sep 1, 4:35 PM EDT · 12 minutes ago" {
+		t.Fatalf("posted_at = %v, want the league-zone stamp plus relative suffix", got)
 	}
-	if got := rows[0]["posted_ago"]; got != "12 minutes ago" {
-		t.Fatalf("posted_ago = %v, want the relative label", got)
+	if _, ok := rows[0]["posted_ago"]; ok {
+		t.Fatalf("announcementListMaps still carries a separate posted_ago field: %+v", rows[0])
 	}
 }
 

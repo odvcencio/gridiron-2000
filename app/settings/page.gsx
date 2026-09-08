@@ -141,7 +141,7 @@ func Page() Node {
 		<section class="player-pool notification-settings-panel" aria-labelledby="density-settings-heading">
 			<div class="pool-toolbar">
 				<div>
-					<span class="section-index">00 // DISPLAY</span>
+					<span class="section-index">DISPLAY</span>
 					<h2 id="density-settings-heading">Data density</h2>
 				</div>
 			</div>
@@ -179,7 +179,7 @@ func Page() Node {
 		<section class="player-pool notification-settings-panel" aria-labelledby="notification-settings-heading">
 			<div class="pool-toolbar">
 				<div>
-					<span class="section-index">01 // LIVE DELIVERY</span>
+					<span class="section-index">LIVE DELIVERY</span>
 					<h2 id="notification-settings-heading">Manager notifications</h2>
 				</div>
 				<span class="mono notification-settings-count">{data.live_category_count} AVAILABLE NOW</span>
@@ -233,7 +233,7 @@ func Page() Node {
 		<section class="player-pool notification-settings-panel notification-settings-panel--planned" aria-labelledby="planned-notification-heading">
 			<div class="pool-toolbar">
 				<div>
-					<span class="section-index">02 // DELIVERY ROADMAP</span>
+					<span class="section-index">DELIVERY ROADMAP</span>
 					<h2 id="planned-notification-heading">Planned categories</h2>
 				</div>
 				<span class="mono notification-settings-count">{data.planned_category_count} PLANNED // NOT ACTIVE</span>
