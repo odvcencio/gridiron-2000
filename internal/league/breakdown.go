@@ -201,6 +201,18 @@ type BreakdownRow struct {
 	Points string
 }
 
+// SlotOption is the same cross-package convention as BreakdownRow, just
+// above, for /team's bench "Swap with…" disclosure (section-B item 4):
+// app/team/page.gsx's RosterRowProps.SwapOptions declares its own local
+// SlotOption for gosx's own <Each> type check, while
+// app/team/page.server.go's RosterCard.SwapOptions uses THIS one — the
+// same page cannot declare the name twice once gosx build merges the
+// page's .gsx and .go sources into one type namespace.
+type SlotOption struct {
+	ID    string
+	Label string
+}
+
 // scoreBreakdownWithValues renders a breakdown against an already-resolved
 // set of scoring point values (see currentScoringValues), or, when values
 // is nil, against the league's stock defaults with no store access at all.

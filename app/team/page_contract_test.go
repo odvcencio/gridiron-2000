@@ -198,6 +198,7 @@ func TestLineupContinuityContracts(t *testing.T) {
 	for _, want := range []string{
 		`<section class="roster-panel" id="lineup">`,
 		`aria-label="Lineup lock timing"`,
+		`class="team-command-strip__lock"`,
 		`data.lineup_deadline.exact`,
 		`data.lineup_deadline.relative`,
 		`data.lineup_deadline.timezone`,
@@ -217,7 +218,7 @@ func TestLineupContinuityContracts(t *testing.T) {
 	}
 	server := string(serverBytes)
 	for _, want := range []string{
-		`return "/team?week=" + week + "#lineup"`,
+		`return "/team?week=" + week + fragment`,
 		`LineupTargetAllowed(ctx.Request, target)`,
 		`target = strings.TrimSpace(ctx.FormData["team_id"])`,
 		`url.QueryEscape(target)`,
@@ -632,7 +633,7 @@ func TestRosterRowPropsCarriesWave7Fields(t *testing.T) {
 		"has_bye_label": true, "bye_label": "bye wk 9",
 		"is_drafted": true, "drafted_label": "R6 · P70",
 	}}
-	cards := rosterRowProps(raw)
+	cards := rosterRowProps(raw, "csrf-token", "team-1", "1", true)
 	if len(cards) != 1 {
 		t.Fatalf("rosterRowProps returned %d cards, want 1", len(cards))
 	}
@@ -662,7 +663,7 @@ func TestRosterRowPropsCarriesNewsAndHouseRank(t *testing.T) {
 		"has_injury": true, "injury": "Ankle",
 		"has_house_rank": true, "house_rank": "H007",
 	}}
-	cards := rosterRowProps(raw)
+	cards := rosterRowProps(raw, "csrf-token", "team-1", "1", true)
 	if len(cards) != 1 {
 		t.Fatalf("rosterRowProps returned %d cards, want 1", len(cards))
 	}
@@ -768,9 +769,11 @@ func TestBenchRowRendersNewsTipAndHouseRankChip(t *testing.T) {
 // TestStarterSlotRendersPositionChipDraftedChipAndScheduleLine covers
 // the same three items on a starting slot (TeamLineupRegion), the
 // separate render site from RosterRow: the position chip (item 8's
-// mobile card), the drafted chip (item 5), and the unconditional
-// schedule line (item 4), gated on has_kickoff_label/has_bye_label, not
-// on lock.
+// mobile card), the drafted round/pick (section-B item 3 — moved into
+// the row's own Details panel, "Drafted R6 · P70," rather than a
+// visible chip; the visible meta line no longer carries "R5 · P40"),
+// and the unconditional schedule line (item 4), gated on
+// has_kickoff_label/has_bye_label, not on lock.
 func TestStarterSlotRendersPositionChipDraftedChipAndScheduleLine(t *testing.T) {
 	pageBytes, err := os.ReadFile("page.gsx")
 	if err != nil {
@@ -780,7 +783,7 @@ func TestStarterSlotRendersPositionChipDraftedChipAndScheduleLine(t *testing.T) 
 	for _, want := range []string{
 		`<span class="position-chip lineup-slot__position">{slot.position}</span>`,
 		`<If cond={slot.is_drafted}>`,
-		`<span class="drafted-chip mono">{slot.drafted_label}</span>`,
+		`{"Drafted " + slot.drafted_label}`,
 		`<small class="roster-row__schedule mono">`,
 		`<If cond={slot.has_kickoff_label}>`,
 		`{slot.kickoff_label}`,
@@ -920,7 +923,8 @@ func TestRosterShapeRendersVisibleEligibilityAndPositionalDepth(t *testing.T) {
 
 // TestDraftClassCalloutGatedOnRosterCompleteAndLinksDraftResults covers
 // item 6: the callout only renders once team_terminal_roster_complete
-// (and the teaser itself is non-empty), and it links to
+// (and the teaser itself is non-empty), retires once week 1 has kicked
+// off (section-B item 6: data.in_season), and it links to
 // /draft/results?team=<code> — the URL this wave agreed with app/draft.
 func TestDraftClassCalloutGatedOnRosterCompleteAndLinksDraftResults(t *testing.T) {
 	pageBytes, err := os.ReadFile("page.gsx")
@@ -928,9 +932,9 @@ func TestDraftClassCalloutGatedOnRosterCompleteAndLinksDraftResults(t *testing.T
 		t.Fatal(err)
 	}
 	page := string(pageBytes)
-	gateAt := strings.Index(page, `<If cond={data.team_terminal_roster_complete && data.draft_class_teaser_empty == false}>`)
+	gateAt := strings.Index(page, `<If cond={data.team_terminal_roster_complete && data.draft_class_teaser_empty == false && data.in_season == false}>`)
 	if gateAt < 0 {
-		t.Fatal("draft-class callout is not gated on team_terminal_roster_complete && draft_class_teaser_empty == false")
+		t.Fatal("draft-class callout is not gated on team_terminal_roster_complete && draft_class_teaser_empty == false && in_season == false")
 	}
 	closeAt := strings.Index(page[gateAt:], "</If>")
 	if closeAt < 0 {
@@ -1075,24 +1079,22 @@ func TestTeamCommandStripScrollCueAndTouchFloor(t *testing.T) {
 }
 
 // TestTeamCommandStripActionRendersOutsideTheScrollingStrip covers the
-// "VIEW MATCHUP off-screen" fix (fern's CSS half is pinned by that
-// package's own TestTeamCommandStripActionCSSReadyForClover): the strip
-// scroll-snaps horizontally on narrow viewports (the test above), and a
-// VIEW MATCHUP link living INSIDE that scroller was one more snap tile a
-// manager had to scroll sideways to find — easy to miss entirely.
-// TeamCommandStrip's own closing </div> now closes right after the
-// League tile, and the link renders as team-command-strip__action, a
-// sibling of the strip (fern's CSS already ships a full-width block
-// rule for that class), not a descendant of it.
+// "VIEW MATCHUP off-screen" fix's own structural contract, carried
+// forward onto section-B item 1's replacement: the strip scroll-snaps
+// horizontally on narrow viewports (the test above), so the
+// current-matchup-card that now replaces the lone VIEW MATCHUP button
+// must still render as a SIBLING of team-command-strip, after its own
+// closing </div>, never as a descendant one more snap tile deep inside
+// the scroller.
 func TestTeamCommandStripActionRendersOutsideTheScrollingStrip(t *testing.T) {
 	pageBytes, err := os.ReadFile("page.gsx")
 	if err != nil {
 		t.Fatal(err)
 	}
 	page := string(pageBytes)
-	wantAnchor := `<a href="/matchups" data-gosx-link class="team-command-strip__action button button--primary button--compact">View matchup</a>`
+	wantAnchor := `<section class="current-matchup-card" aria-labelledby="current-matchup-title">`
 	if !strings.Contains(page, wantAnchor) {
-		t.Fatalf("VIEW MATCHUP anchor missing or missing team-command-strip__action: want %q", wantAnchor)
+		t.Fatalf("current-matchup-card section missing: want %q", wantAnchor)
 	}
 	stripStart := strings.Index(page, `<div class="team-command-strip">`)
 	if stripStart < 0 {
@@ -1103,8 +1105,8 @@ func TestTeamCommandStripActionRendersOutsideTheScrollingStrip(t *testing.T) {
 		t.Fatal(".team-command-strip has no closing </div> at the expected indent")
 	}
 	stripBlock := page[stripStart : stripStart+stripEnd]
-	if strings.Contains(stripBlock, "team-command-strip__action") {
-		t.Fatalf(".team-command-strip still contains the VIEW MATCHUP action as a descendant: %s", stripBlock)
+	if strings.Contains(stripBlock, "current-matchup-card") {
+		t.Fatalf(".team-command-strip still contains the current-matchup-card as a descendant: %s", stripBlock)
 	}
 	anchorAt := strings.Index(page, wantAnchor)
 	if anchorAt < stripStart+stripEnd {
@@ -1169,5 +1171,226 @@ func TestTeamPrimaryActionFeedsPhoneActionBar(t *testing.T) {
 	page := string(pageBytes)
 	if !strings.Contains(page, `<form id="lineup-auto-form" method="post" action={actionPath("lineup-auto")} data-gosx-managed="true" class="lineup-auto-form">`) {
 		t.Fatal("the SET BEST LINEUP form no longer carries id=\"lineup-auto-form\"")
+	}
+}
+
+// ---------------------------------------------------------------------
+// Team lineup and bench redesign (2026-09-07, section-B)
+// ---------------------------------------------------------------------
+
+// TestLineupGridHeaderRendersEightColumnLegend covers item 3: the
+// starting lineup gets a plain-language column legend (SLOT · PLAYER ·
+// OPPONENT · GAME · STATUS · PROJ · PTS · ACTION) it never had before —
+// opponent and game already fold into each row's own identity line, so
+// this is the legend the manager reads, not a literal per-cell grid
+// alignment claim.
+func TestLineupGridHeaderRendersEightColumnLegend(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	headerAt := strings.Index(page, `<div class="lineup-slot-labels" aria-hidden="true">`)
+	if headerAt < 0 {
+		t.Fatal("lineup-slot-labels header legend not found")
+	}
+	closeAt := strings.Index(page[headerAt:], "</div>")
+	if closeAt < 0 {
+		t.Fatal("lineup-slot-labels header has no closing </div>")
+	}
+	block := page[headerAt : headerAt+closeAt]
+	for _, want := range []string{"SLOT", "PLAYER", "OPPONENT", "GAME", "STATUS", "PROJ", "PTS", "ACTION"} {
+		if !strings.Contains(block, "<span>"+want+"</span>") {
+			t.Errorf("lineup-slot-labels missing column %q: %s", want, block)
+		}
+	}
+	// The legend must render before the slot list itself, not after.
+	listAt := strings.Index(page, `<div class="lineup-slot-list">`)
+	if listAt < 0 || listAt < headerAt {
+		t.Fatal("lineup-slot-labels must render before .lineup-slot-list")
+	}
+}
+
+// TestStarterRowRendersProjAndPts covers the J3 F23 half of item 3: a
+// starting slot never showed PROJ or PTS at all before this wave — both
+// now render in the row's own stats-action cell, sharing .lineup-slot's
+// existing 4th column with the Swap disclosure rather than widening the
+// pinned grid.
+func TestStarterRowRendersProjAndPts(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	statsActionAt := strings.Index(page, `<div class="lineup-slot__stats-action">`)
+	if statsActionAt < 0 {
+		t.Fatal("lineup-slot__stats-action cell not found")
+	}
+	closeAt := strings.Index(page[statsActionAt:], "\n\t\t\t\t\t\t\t\t\t</div>\n")
+	block := page[statsActionAt:]
+	if closeAt > 0 {
+		block = page[statsActionAt : statsActionAt+closeAt]
+	}
+	for _, want := range []string{
+		`<small>PROJ</small>`,
+		`{slot.projection}`,
+		`<small>PTS</small>`,
+		`{slot.points}`,
+		`<If cond={slot.has_player}>`,
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("lineup-slot__stats-action missing %q: %s", want, block)
+		}
+	}
+}
+
+// TestSwapDisclosureClosedByDefaultOnStarterAndBenchRows covers item 3's
+// "closed by default so the row reads as a lineup" requirement: neither
+// the starter row's nor the bench row's Swap disclosure carries an
+// "open" attribute — a plain <details>, unopened, works with no
+// JavaScript and keeps the grid from reading as a form dump.
+func TestSwapDisclosureClosedByDefaultOnStarterAndBenchRows(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	count := strings.Count(page, `<details class="action-disclosure">`)
+	if count < 2 {
+		t.Fatalf("action-disclosure count = %d, want at least 2 (starter Swap + bench Swap with…)", count)
+	}
+	if strings.Contains(page, `<details class="action-disclosure" open`) {
+		t.Fatal("an action-disclosure carries open= — Swap must be closed by default")
+	}
+}
+
+// TestBenchRowRendersStartSwapAndDropActions covers item 4: the bench
+// row's ACTION cell offers Start (the server-chosen open slot, posted
+// straight to lineup-set), a Swap-with… disclosure when no slot is open,
+// and Drop behind the same review-confirm gate /players' own player-drop
+// control uses, returning to /team#bench.
+func TestBenchRowRendersStartSwapAndDropActions(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	rosterRowAt := strings.Index(page, "func RosterRow(")
+	if rosterRowAt < 0 {
+		t.Fatal("RosterRow function not found")
+	}
+	block := page[rosterRowAt:]
+	for _, want := range []string{
+		`<div class="roster-row__action">`,
+		`<If cond={props.HasOpenSlot}>`,
+		`{"Start at " + props.OpenSlotID}`,
+		`<If cond={props.HasOpenSlot == false && props.HasSwapOptions}>`,
+		`<summary>Swap with…</summary>`,
+		`action={actionPath("player-drop")}`,
+		`<details class="action-confirmation">`,
+		`{"Drop " + props.Name}`,
+		`name="confirmation" value="drop-player" required="required"`,
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("RosterRow ACTION cell missing %q", want)
+		}
+	}
+	serverBytes, err := os.ReadFile("page.server.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := string(serverBytes)
+	if !strings.Contains(server, `"player-drop": func(ctx *action.Context) error {`) {
+		t.Error(`page.server.go does not register a "player-drop" action`)
+	}
+	if !strings.Contains(server, `func teamBenchTarget(ctx *action.Context) string {`) {
+		t.Error("page.server.go is missing teamBenchTarget (#bench return target)")
+	}
+	if !strings.Contains(server, `return target + "#bench"`) {
+		t.Error("teamBenchTarget does not anchor to #bench")
+	}
+}
+
+// TestInjuryDesignationChipRendersOutsideNewsDisclosure covers J3 F10 on
+// both render sites (RosterRow and the starter slot): the injury
+// designation chip must render as a sibling of the news <details>, never
+// nested inside it, so it appears whether or not the player also carries
+// a news headline.
+func TestInjuryDesignationChipRendersOutsideNewsDisclosure(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+
+	rosterRowAt := strings.Index(page, "func RosterRow(")
+	benchNewsAt := strings.Index(page[rosterRowAt:], `<details class="stat-tip stat-tip--news">`)
+	benchChipAt := strings.Index(page[rosterRowAt:], `<If cond={props.HasInjuryDesignation}>`)
+	if benchNewsAt < 0 || benchChipAt < 0 {
+		t.Fatal("could not find RosterRow's news disclosure or injury chip")
+	}
+	if benchChipAt < benchNewsAt {
+		t.Fatal("RosterRow's injury chip renders before the news disclosure; want it after, outside")
+	}
+	benchNewsCloseAt := strings.Index(page[rosterRowAt+benchNewsAt:], "</details>")
+	if benchNewsCloseAt < 0 || rosterRowAt+benchChipAt < rosterRowAt+benchNewsAt+benchNewsCloseAt {
+		t.Fatal("RosterRow's injury chip renders nested inside the news <details>, want it as a sibling after")
+	}
+
+	starterNewsAt := strings.LastIndex(page, `<details class="stat-tip stat-tip--news">`)
+	starterChipAt := strings.Index(page, `<If cond={slot.has_injury_designation}>`)
+	if starterNewsAt < 0 || starterChipAt < 0 {
+		t.Fatal("could not find the starter slot's news disclosure or injury chip")
+	}
+	if starterChipAt < starterNewsAt {
+		t.Fatal("starter slot's injury chip renders before the news disclosure; want it after, outside")
+	}
+}
+
+// TestDraftRoundAndPickMoveIntoDetails covers item 3's "the visible meta
+// loses R5 · P40" requirement: the starter slot no longer shows a
+// visible drafted-round chip; the fact moves into the row's own Details
+// panel instead.
+func TestDraftRoundAndPickMoveIntoDetails(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	if strings.Contains(page, `<span class="drafted-chip mono">{slot.drafted_label}</span>`) {
+		t.Fatal("starter slot still shows a visible drafted-round chip; it must move into Details")
+	}
+	if !strings.Contains(page, `{"Drafted " + slot.drafted_label}`) {
+		t.Fatal("starter slot's stat-tip panel is missing the drafted round/pick detail line")
+	}
+}
+
+// TestInSeasonHeroBandCarriesTheFourCoreFacts covers item 6: the hero
+// keeps exactly one band (name, division, record, badge) — no second
+// competing hero section — whether pre-season or in-season.
+func TestInSeasonHeroBandCarriesTheFourCoreFacts(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	if strings.Count(page, `id="team-identity-hero"`) != 1 {
+		t.Fatal("expected exactly one team-identity-hero band")
+	}
+	heroAt := strings.Index(page, `id="team-identity-hero"`)
+	closeAt := strings.Index(page[heroAt:], "</section>")
+	if closeAt < 0 {
+		t.Fatal("team-identity-hero has no closing </section>")
+	}
+	block := page[heroAt : heroAt+closeAt]
+	for _, want := range []string{
+		`text={data.team.name}`,
+		`{data.team.division}`,
+		`class="team-hero__record"`,
+		`data.team.has_avatar_image`,
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("team-identity-hero missing %q (name/division/record/badge)", want)
+		}
 	}
 }

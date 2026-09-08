@@ -30,6 +30,7 @@ import (
 // name would collide with page.gsx's own RosterRowProps.Breakdown element
 // type if declared again in this package.
 type RosterCard struct {
+	ID              string
 	Position        string
 	HasHeadshot     bool
 	Headshot        string
@@ -65,6 +66,19 @@ type RosterCard struct {
 	Injury          string
 	HasHouseRank    bool
 	HouseRank       string
+
+	HasInjuryDesignation bool
+	InjuryDesignation    string
+	InjuryTip            string
+	Locked               bool
+	HasOpenSlot          bool
+	OpenSlotID           string
+	HasSwapOptions       bool
+	SwapOptions          []league.SlotOption
+	RosterComplete       bool
+	CSRF                 string
+	TeamID               string
+	Week                 string
 }
 
 // BadgeCard is the typed data.badge_grid entry spread into strict
@@ -133,17 +147,38 @@ func breakdownRowsFromMaps(raw []map[string]any) []league.BreakdownRow {
 	return out
 }
 
+// slotOptionsFromMaps converts league.addBenchActionOptions' own
+// swap_options ([]map[string]any, "id"/"label") into typed SlotOption
+// values for the bench row's "Swap with…" disclosure — the same
+// breakdownRowsFromMaps-shaped conversion, just above, for a different
+// nested Each.
+func slotOptionsFromMaps(raw []map[string]any) []league.SlotOption {
+	out := make([]league.SlotOption, 0, len(raw))
+	for _, opt := range raw {
+		out = append(out, league.SlotOption{ID: stringField(opt, "id"), Label: stringField(opt, "label")})
+	}
+	return out
+}
+
 // rosterRowProps converts TeamData's map[string]any "roster" slice into
 // typed RosterCard values so the roster list's {...player} spread into
 // strict RosterRow proves clean: the tier-2 spread boundary rejects a
 // map[string]any source outright (it "cannot prove field coverage"), and
 // RosterRow's own <Each of={props.Breakdown}> loop needs a slice of a
 // same-named struct (BreakdownRow) to pass requireStrictSliceValue.
-func rosterRowProps(raw []map[string]any) []RosterCard {
+//
+// csrfToken/teamID/week/rosterComplete (section-B item 4) repeat onto
+// every row for the same reason badgeGridProps' own CSRF/TeamID/
+// RedirectTo do (that function's doc comment): a strict component call
+// accepts exactly one spread attribute, so the Start/Swap/Drop forms'
+// own hidden fields have to travel inside the spread source.
+func rosterRowProps(raw []map[string]any, csrfToken, teamID, week string, rosterComplete bool) []RosterCard {
 	out := make([]RosterCard, 0, len(raw))
 	for _, player := range raw {
 		breakdown, _ := player["breakdown"].([]map[string]any)
+		swapOptions, _ := player["swap_options"].([]map[string]any)
 		out = append(out, RosterCard{
+			ID:             stringField(player, "id"),
 			Position:       stringField(player, "position"),
 			HasHeadshot:    boolField(player, "has_headshot"),
 			Headshot:       stringField(player, "headshot"),
@@ -190,6 +225,22 @@ func rosterRowProps(raw []map[string]any) []RosterCard {
 			Injury:       stringField(player, "injury"),
 			HasHouseRank: boolField(player, "has_house_rank"),
 			HouseRank:    stringField(player, "house_rank"),
+			// HasInjuryDesignation/InjuryDesignation/InjuryTip (J3 F10) and
+			// Locked/HasOpenSlot/OpenSlotID/HasSwapOptions/SwapOptions
+			// (section-B item 4) read league.playerMap's and
+			// league.addBenchActionOptions' own row decorations.
+			HasInjuryDesignation: boolField(player, "has_injury_designation"),
+			InjuryDesignation:    stringField(player, "injury_designation"),
+			InjuryTip:            stringField(player, "injury_tip"),
+			Locked:               boolField(player, "locked"),
+			HasOpenSlot:          boolField(player, "has_open_slot"),
+			OpenSlotID:           stringField(player, "open_slot_id"),
+			HasSwapOptions:       boolField(player, "has_swap_options"),
+			SwapOptions:          slotOptionsFromMaps(swapOptions),
+			RosterComplete:       rosterComplete,
+			CSRF:                 csrfToken,
+			TeamID:               teamID,
+			Week:                 week,
 		})
 	}
 	return out
@@ -263,7 +314,11 @@ func teamLineupFragmentURL(data map[string]any, request *http.Request) string {
 // the initial render and a later authoritative swap structurally identical.
 func prepareTeamData(data map[string]any, request *http.Request) map[string]any {
 	if bench, ok := data["bench"].([]map[string]any); ok {
-		data["bench"] = rosterRowProps(bench)
+		teamID := ""
+		if team, ok := data["team"].(map[string]any); ok {
+			teamID = stringField(team, "id")
+		}
+		data["bench"] = rosterRowProps(bench, session.Token(request), teamID, stringField(data, "week"), boolField(data, "team_terminal_roster_complete"))
 	}
 	if badgeGrid, ok := data["badge_grid"].([]map[string]any); ok {
 		// Seatless viewers still receive an explicit empty badge_grid
@@ -279,18 +334,45 @@ func prepareTeamData(data map[string]any, request *http.Request) map[string]any 
 	return data
 }
 
+// teamLineupTarget's fragment (section-B item 5, the page-server half of
+// J3 F8) names the one slot a lineup-set submission changed — "slot" is
+// present on every lineup-set form (the starter row's own Swap
+// disclosure and the bench row's Start/Swap-with forms, page.gsx) — so a
+// native (no-JavaScript) redirect lands back on id="slot-<ID>" instead of
+// resetting to the top of the lineup list. lineup-auto and the reserve/IR
+// zone actions never carry a slot field and keep the plain #lineup
+// anchor. Whether GoSX's OWN managed-request runtime also scrolls a JSON
+// redirect to an arbitrary fragment (rather than only re-rendering the
+// document) is tamarack's own J3 F8 item; this is the server's half.
 func teamLineupTarget(ctx *action.Context) string {
 	week := ""
 	target := ""
+	slot := ""
 	if ctx != nil {
 		week = strings.TrimSpace(ctx.FormData["week"])
 		target = strings.TrimSpace(ctx.FormData["team_id"])
+		slot = strings.TrimSpace(ctx.FormData["slot"])
 	}
 	week = strconv.Itoa(league.Default().NormalizeLineupWeek(week))
-	if ctx != nil && league.Default().LineupTargetAllowed(ctx.Request, target) {
-		return "/team?team=" + url.QueryEscape(target) + "&week=" + week + "#lineup"
+	fragment := "#lineup"
+	if slot != "" {
+		fragment = "#slot-" + slot
 	}
-	return "/team?week=" + week + "#lineup"
+	if ctx != nil && league.Default().LineupTargetAllowed(ctx.Request, target) {
+		return "/team?team=" + url.QueryEscape(target) + "&week=" + week + fragment
+	}
+	return "/team?week=" + week + fragment
+}
+
+// teamBenchTarget is teamLineupTarget's own week/team resolution, anchored
+// to #bench instead: section-B item 4 says Drop "returns to /team#bench",
+// and a drop has no single starting slot to land back on.
+func teamBenchTarget(ctx *action.Context) string {
+	target := teamLineupTarget(ctx)
+	if idx := strings.LastIndex(target, "#"); idx >= 0 {
+		target = target[:idx]
+	}
+	return target + "#bench"
 }
 
 const (
@@ -324,6 +406,23 @@ func lineupValidation(ctx *action.Context, field string, err error) error {
 // pick up the authoritative fragment.
 func lineupMutationSuccess(ctx *action.Context, message string) error {
 	actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
+	return nil
+}
+
+// benchValidation/benchMutationSuccess are lineupValidation/
+// lineupMutationSuccess's own shape, anchored to #bench (teamBenchTarget)
+// instead of #lineup — section-B item 4's Drop action.
+func benchValidation(ctx *action.Context, field string, err error) error {
+	message := actionui.Message("team", err)
+	result := action.Validation(message, map[string]string{field: message}, ctx.FormData)
+	if !action.WantsJSON(ctx.Request) {
+		result.Result.Redirect = teamBenchTarget(ctx)
+	}
+	return result
+}
+
+func benchMutationSuccess(ctx *action.Context, message string) error {
+	actionui.RedirectWithNotice(ctx, teamBenchTarget(ctx), message)
 	return nil
 }
 
@@ -404,7 +503,7 @@ func init() {
 			data["has_lineup_error"] = false
 			data["lineup_error"] = ""
 			for _, name := range []string{
-				"lineup-set", "lineup-auto",
+				"lineup-set", "lineup-auto", "player-drop",
 				"reserve-place", "reserve-activate", "ir-place", "ir-activate",
 			} {
 				if view, ok := ctx.ActionState(name); ok {
@@ -493,6 +592,20 @@ func init() {
 					return lineupValidation(ctx, "player_id", err)
 				}
 				return lineupMutationSuccess(ctx, message)
+			},
+			// player-drop (section-B item 4) is the bench row's own Drop
+			// action, behind the same review-confirm gate /players' own
+			// player-drop control uses (app/players/page.gsx) and calling
+			// the identical league.Service.DropPlayer this league already
+			// runs free-agency drops through — /team registers its own copy
+			// of the action name because GoSX action routes are scoped per
+			// page, not shared across pages that post to the same verb.
+			"player-drop": func(ctx *action.Context) error {
+				message, err := league.Default().DropPlayer(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"], ctx.FormData["confirmation"])
+				if err != nil {
+					return benchValidation(ctx, "player_id", err)
+				}
+				return benchMutationSuccess(ctx, message)
 			},
 			// co-invite lets a seat's primary manager invite a co-manager by
 			// email (registration wave, build item 4). league.Service

@@ -468,6 +468,94 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 	}
 }
 
+// teamStartersProjected is the ONE starters-only projected-total
+// calculation the /team stat strip, /team's own current-matchup card, and
+// /matchups all call (section-B item 2 / section-C item 8): the same
+// rest-of-game math featuredMatchupMap already runs for the featured
+// scorebug (teamWeekLedger's starter rows, through projectedTotal), never
+// a separate sum over the whole roster (which is what let the stat strip
+// read PROJECTED 188.0 for a team /matchups projected at 134.6 — bench,
+// reserve, and IR players were being added in). hasProjection follows
+// hasProjectableStarters: a side with at least one filled starting slot
+// has something to project, independent of whether the current score is
+// known yet.
+func (s *Service) teamStartersProjected(state PersistedState, teamID string, week int) (projected float64, hasProjection bool) {
+	ledger := s.teamWeekLedger(state, teamID, week)
+	pool := s.pool()
+	status, hasLive := s.liveStatus()
+	projections := starterProjections(ledger.Rows, pool.byID)
+	return projectedTotal(ledger.Rows, projections, status, hasLive), hasProjectableStarters(ledger.Rows)
+}
+
+// teamCurrentMatchupCard is /team's own scorebug summary (section-B item
+// 1), replacing the lone "View matchup" button: opponent identity, both
+// sides' starters-only projected total (teamStartersProjected, the same
+// helper the stat strip and /matchups use), A6's win probability, and the
+// week's next player lock — reusing deadline, the exact same
+// LineupDeadlineView the stat strip's own "Locks ..." line renders, so the
+// two facts never drift. A week with no published schedule, a bye, or an
+// unpaired team returns has_matchup=false with a plain-language
+// schedule_fact instead of a projection nobody can back yet.
+func (s *Service) teamCurrentMatchupCard(state PersistedState, teamID string, week int, deadline LineupDeadlineView) map[string]any {
+	out := map[string]any{
+		"has_matchup":      false,
+		"is_bye":           false,
+		"opponent":         map[string]any{},
+		"proj_mine":        "",
+		"proj_theirs":      "",
+		"win_prob":         "",
+		"has_kickoff":      false,
+		"kickoff_exact":    "",
+		"kickoff_relative": "",
+		"kickoff_timezone": "",
+		"href":             matchupWeekHref(week),
+		"schedule_fact":    "The schedule has not been published yet.",
+	}
+	if state.Schedule == nil || len(state.Schedule.Weeks) == 0 {
+		return out
+	}
+	wk, ok := scheduleWeekByNumber(*state.Schedule, week)
+	if !ok {
+		out["schedule_fact"] = fmt.Sprintf("Week %d is not on the published schedule.", week)
+		return out
+	}
+	if wk.ByeTeamID == teamID {
+		out["is_bye"] = true
+		out["schedule_fact"] = fmt.Sprintf("Week %d is a bye — no matchup this week.", week)
+		return out
+	}
+	for _, m := range wk.Matchups {
+		var opponentID string
+		switch {
+		case m.HomeTeamID == teamID:
+			opponentID = m.AwayTeamID
+		case m.AwayTeamID == teamID:
+			opponentID = m.HomeTeamID
+		default:
+			continue
+		}
+		opponent := s.teamView(state, opponentID)
+		mineProjected, mineHasProjection := s.teamStartersProjected(state, teamID, week)
+		theirsProjected, theirsHasProjection := s.teamStartersProjected(state, opponentID, week)
+		out["has_matchup"] = true
+		out["opponent"] = s.teamMap(opponent)
+		out["proj_mine"] = projectedText(mineProjected, mineHasProjection)
+		out["proj_theirs"] = projectedText(theirsProjected, theirsHasProjection)
+		winProbText := winProbabilityText(mineProjected, theirsProjected, mineHasProjection, theirsHasProjection)
+		out["win_prob"] = winProbText
+		out["has_win_prob"] = winProbText != winProbabilityDashText
+		if deadline.HasDeadline {
+			out["has_kickoff"] = true
+			out["kickoff_exact"] = deadline.Exact
+			out["kickoff_relative"] = deadline.Relative
+			out["kickoff_timezone"] = FriendlyTimezoneLabel(deadline.Timezone)
+		}
+		return out
+	}
+	out["schedule_fact"] = fmt.Sprintf("No matchup is published for week %d.", week)
+	return out
+}
+
 func scoreTeamFromLedger(team Team, ledger TeamWeekLedger) ScoreTeam {
 	return ScoreTeam{
 		ID:              team.ID,

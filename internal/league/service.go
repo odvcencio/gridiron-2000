@@ -2390,10 +2390,6 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	now := s.clock()
 	radar := s.teamTerminalRadar(state, lifecycle.Phase, now, 3)
 	radarCopy := teamTerminalRadarCopy(lifecycle.Phase)
-	projected := 0.0
-	for _, player := range roster {
-		projected += player.Projection
-	}
 	teamMap := s.teamMap(team)
 	// has_custom_name (wave-6 glue item 5) gates the /team page's own
 	// "Reset to configured name" control (page.gsx): the control has
@@ -2505,6 +2501,13 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		"is_all_locked":  lineupDeadline.State == LineupDeadlineAllLocked,
 		"is_degraded":    lineupDeadline.State == LineupDeadlineDegraded,
 	}
+	// startersProjected/startersHasProjection (section-B item 2, section-C
+	// item 8): the ONE starters-only figure the stat strip, the
+	// current-matchup card just below, and /matchups all agree on for
+	// this team and week — see teamStartersProjected's own doc comment.
+	startersProjected, startersHasProjection := s.teamStartersProjected(state, teamID, week)
+	currentMatchupCard := s.teamCurrentMatchupCard(state, teamID, week, lineupDeadline)
+	seasonPhase := s.SeasonPhase(now)
 
 	placeOptions := make([]map[string]any, 0, len(general))
 	for _, p := range general {
@@ -2532,6 +2535,7 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	benchRows := playerMapsWithScoring(lineup.Bench, scoringValues, s.matchupIndexFor(games, week), drafted)
 	addBenchGroupHeaders(benchRows)
 	addScheduleLabels(benchRows, lineup.Bench, games, week, s.matchupLocation())
+	addBenchActionOptions(benchRows, lineup.Bench, lineup, games, week, now)
 	draftClass := s.draftClassTeaser(state, teamID, 3)
 
 	data := map[string]any{
@@ -2564,8 +2568,16 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		// the franchise is still named its configured seed name — a claimed
 		// seat is not the same as a personalized one.
 		"team_name_is_seed_placeholder": s.TeamNameIsSeedPlaceholder(teamID),
-		"projected":                     fmt.Sprintf("%.1f", projected),
-		"division":                      teamMap["division"],
+		// projected (section-B item 2 truth fix) is now starters only —
+		// teamStartersProjected, the exact rest-of-game calculation
+		// /matchups' featured card runs — never a sum over the whole
+		// roster (bench, reserve, and IR included), which is what made
+		// this figure disagree with /matchups for the same team and week.
+		"projected":       projectedText(startersProjected, startersHasProjection),
+		"current_matchup": currentMatchupCard,
+		"season_phase":    seasonPhase,
+		"in_season":       seasonPhase != "preseason",
+		"division":        teamMap["division"],
 		"scouting":                      radar,
 		"scouting_empty":                len(radar) == 0,
 		"is_commissioner":               s.IsCommissioner(r),
@@ -2930,6 +2942,62 @@ func addScheduleLabels(rows []map[string]any, players []Player, games []GameInfo
 		}
 		row["bye_label"] = byeLabel
 		row["has_bye_label"] = byeLabel != ""
+	}
+}
+
+// addBenchActionOptions decorates rows (already-rendered playerMap output,
+// in the same order as bench) with the /team bench row's ACTION column
+// (section-B item 4): "Start" posts into the best legal open slot,
+// resolved HERE, server-side, in the same engine order lineupSlots
+// walks — never a client-chosen slot — so the form the row renders is
+// already the exact lineup-set(slot, player_id) SetLineup will accept.
+// When no open slot fits the player's position, swap_options lists every
+// slot the player COULD fit whose current occupant is not locked (the
+// same set SetLineup's own L7 would accept a displacement for), so the
+// row's "Swap with…" disclosure never offers a choice the action would
+// reject. locked mirrors playerLocked for this bench player's own game —
+// gating both actions in the template — matching AddPlayer/DropPlayer's
+// PlayerLockedForRosterMutation guard against a bench player nobody can
+// move once their game has kicked off. rows and bench must be the same
+// length, in the same order — see addScheduleLabels' identical zip
+// contract, just above.
+func addBenchActionOptions(rows []map[string]any, bench []Player, lineup EffectiveLineup, games []GameInfo, week int, now time.Time) {
+	for i, row := range rows {
+		if i >= len(bench) {
+			return
+		}
+		player := bench[i]
+		row["locked"] = playerLocked(games, week, player.NFLTeam, now)
+		openSlotID := ""
+		hasOpenSlot := false
+		for _, a := range lineup.Slots {
+			if a.HasPlayer || !a.Slot.Def.Fits(player.Position) {
+				continue
+			}
+			openSlotID = a.Slot.ID
+			hasOpenSlot = true
+			break
+		}
+		row["has_open_slot"] = hasOpenSlot
+		row["open_slot_id"] = openSlotID
+		swapOptions := make([]map[string]any, 0)
+		if !hasOpenSlot {
+			for _, a := range lineup.Slots {
+				if !a.Slot.Def.Fits(player.Position) {
+					continue
+				}
+				if a.HasPlayer && a.Locked {
+					continue
+				}
+				label := a.Slot.ID
+				if a.HasPlayer {
+					label = fmt.Sprintf("%s — replaces %s", a.Slot.ID, a.Player.Name)
+				}
+				swapOptions = append(swapOptions, map[string]any{"id": a.Slot.ID, "label": label})
+			}
+		}
+		row["swap_options"] = swapOptions
+		row["has_swap_options"] = len(swapOptions) > 0
 	}
 }
 
@@ -5666,6 +5734,41 @@ func (s *Service) divisionMaps(state PersistedState) []map[string]any {
 // the same player.Hist != "" check.
 const histScoringLabel = "Scored under this league's own rules"
 
+// injuryDesignationAbbr compacts an injury-report designation (Tank01's
+// full word — "Questionable", "Doubtful", "Out") to the short Q/D/O/IR
+// chip text the lineup grid's STATUS column has room for (J3 F10). An
+// unrecognized non-empty designation renders as-is rather than silently
+// dropping information a real feed reported; an empty designation (a
+// healthy player) renders an empty chip text, gated by has_injury_designation.
+func injuryDesignationAbbr(injury string) string {
+	switch strings.ToLower(strings.TrimSpace(injury)) {
+	case "":
+		return ""
+	case "questionable":
+		return "Q"
+	case "doubtful":
+		return "D"
+	case "out":
+		return "O"
+	case "injured reserve", "ir":
+		return "IR"
+	default:
+		return strings.TrimSpace(injury)
+	}
+}
+
+// injuryDesignationTip is the STATUS chip's native title tip (J3 F10's
+// "report source in a tip"): the full designation word plus the feed
+// this league's injury data comes from, so the compact chip text never
+// has to sacrifice the plain-language designation entirely.
+func injuryDesignationTip(injury string) string {
+	injury = strings.TrimSpace(injury)
+	if injury == "" {
+		return ""
+	}
+	return fmt.Sprintf("Injury report · %s · nflverse", injury)
+}
+
 // playerMap renders one player's view-model map. scoringValues is the
 // league's live, override-aware point values (see currentScoringValues);
 // pass nil to score the player's breakdown against the stock default
@@ -5796,6 +5899,20 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 		// for the news panel to render beside the headline, not a new
 		// source of truth.
 		"injury": player.Injury, "has_injury": player.Injury != "",
+		// injury_designation/has_injury_designation (J3 F10) back /team's
+		// own row-level STATUS chip: the same Injury string above,
+		// compacted to the Q/D/O/IR shorthand a slot-grid chip has room
+		// for, with the full designation staying available in the chip's
+		// title attribute (a native, no-JS tip) below. Unlike "injury"
+		// above (which only ever surfaces inside the news disclosure,
+		// itself gated on has_news — the exact bug F10 reports: 61 of 66
+		// injured players in the pool carry no news item, so the
+		// designation never rendered at all), this pair is meant to
+		// render unconditionally on the row itself, independent of
+		// has_news.
+		"injury_designation":     injuryDesignationAbbr(player.Injury),
+		"has_injury_designation": player.Injury != "",
+		"injury_tip":             injuryDesignationTip(player.Injury),
 		"rank": rank, "house_rank": houseRank, "has_house_rank": houseRank != "", "detail": detail,
 		"detail_team_bye": detailTeamBye,
 		"headshot":        player.Headshot, "has_headshot": player.Headshot != "",

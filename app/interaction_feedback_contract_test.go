@@ -75,7 +75,11 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// one (11 -> 15). The practice module deliberately does not reuse
 	// app/draft's own draftActionSuccess (unexported, and its target is
 	// the real room's path).
-	const wantRedirects = 15
+	// Team lineup and bench redesign (2026-09-07, section-B item 4):
+	// app/team/page.server.go's new benchMutationSuccess helper (the
+	// bench row's Drop action, anchored to #bench) adds one more
+	// RedirectWithNotice call (15 -> 16).
+	const wantRedirects = 16
 	const wantRedirectBacks = 40
 	redirects := 0
 	redirectBacks := 0

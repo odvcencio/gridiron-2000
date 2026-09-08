@@ -17911,3 +17911,224 @@ a.skip-link {
   overflow: visible;
   text-overflow: clip;
 }
+
+/* comb — pine (2026-09-07 team lineup and bench redesign) */
+
+/* Current-matchup card (section-B item 1): replaces the lone VIEW
+   MATCHUP button that used to sit right after .team-command-strip.
+   A plain three-part row on desktop (opponent | proj/win% | kickoff +
+   link); stacks on phone widths. */
+.current-matchup-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-white-faint);
+}
+
+.current-matchup-card__opponent {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.current-matchup-card__badge {
+  display: grid;
+  flex: 0 0 auto;
+  width: 2.6rem;
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent-cyan);
+  background: var(--color-cyan-haze);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+.current-matchup-card__badge-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.current-matchup-card__stats {
+  display: grid;
+  gap: 0.2rem;
+  text-align: center;
+}
+
+.current-matchup-card__kickoff {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+@media (width <= 899px) {
+  .current-matchup-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .current-matchup-card__stats {
+    text-align: left;
+  }
+
+  .current-matchup-card__kickoff {
+    justify-content: flex-start;
+    width: 100%;
+  }
+}
+
+/* Stat strip's own Locks tile (section-B item 2): the big standalone
+   "NEXT PLAYER LOCK" panel that used to sit above the roster shape is
+   now this one tile plus a closed-by-default Details line — the exact
+   same time/zone/relative text and locked-slots sentence, just
+   collapsed. */
+.team-command-strip__lock {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.lineup-deadline-details summary {
+  cursor: pointer;
+  color: var(--color-accent-cyan);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  list-style: none;
+}
+
+.lineup-deadline-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.lineup-deadline-details p {
+  margin: var(--space-xs) 0 0;
+}
+
+/* Lineup grid header legend (section-B item 3): SLOT/PLAYER/OPPONENT/
+   GAME/STATUS/PROJ/PTS/ACTION, in the order a starter row itself
+   reports them — opponent and game already fold into the identity
+   line's own schedule sentence, so this is the plain-language legend,
+   not a literal per-cell grid alignment guarantee. .lineup-slot's own
+   4-track grid, pinned above, is untouched by this redesign. */
+.lineup-slot-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  padding: 0 var(--space-sm) var(--space-xs);
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+}
+
+/* A starter slot's own PROJ/PTS readout plus its Swap disclosure share
+   .lineup-slot's existing 4th ("action") column — a new wrapper, not a
+   new grid track, so the pinned .lineup-slot grid-template-columns rule
+   (and its own mobile reflow override) never has to change. */
+.lineup-slot__stats-action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.lineup-slot__stats-action .player-number {
+  min-width: 2.5rem;
+}
+
+.action-disclosure {
+  display: inline-block;
+}
+
+.action-disclosure > summary {
+  cursor: pointer;
+  color: var(--color-accent-cyan);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  list-style: none;
+}
+
+.action-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.action-disclosure .lineup-slot__form {
+  margin-top: var(--space-xs);
+}
+
+/* Bench row ACTION cell (section-B item 4): Start/Swap-with/Drop. A new
+   6th child of .roster-row's pinned 5-track grid — with no explicit
+   placement, it does not claim a new "auto" column at all (there is no
+   6th track): the sparse auto-placement algorithm wraps it onto a NEW
+   implicit row using the SAME 5 tracks, landing in column 1 (52.8px,
+   the slot-id column's own width). Its two controls (Swap with…, Drop)
+   then wrapped vertically inside that 53px-wide box — 378px tall on a
+   real 17-player desktop roster, the single largest contributor to the
+   page-height budget overrun this wave's own browser test caught.
+   Spanning every column explicitly gives it the full row width instead. */
+.roster-row__action {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+  grid-column: 1 / -1;
+}
+
+@media (width <= 899px) {
+  .lineup-slot__stats-action {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .roster-row__action {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  /* The pinned mobile reflow's own ".player-number:first-of-type" never
+     actually matches a player-number div (:first-of-type/:last-of-type
+     count same-TAG siblings only, ignoring class — .position-chip is
+     the real first div, so neither player-number is ever "first of
+     type"), so PROJ and PTS both fall through to plain auto-placement
+     and land on two separate rows instead of side by side — roughly
+     60px of avoidable height per bench row (page-height budget,
+     section-B item 6). player-number--proj/--pts (RosterRow's own
+     markup, page.gsx) name the two cells directly instead of relying on
+     that ineffective pseudo-class, and seat them on one row together. */
+  .roster-row .player-number--proj {
+    grid-column: 2;
+  }
+
+  .roster-row .player-number--pts {
+    grid-column: 3;
+  }
+}
+
+/* .lineup-slot's chips/stats-action columns (3 and 4) are "auto" in the
+   pinned base rule, and EACH .lineup-slot is its own independent grid
+   container (.lineup-slot-list, its parent, never shares column tracks
+   across rows) — so two rows whose chip content happens to differ in
+   width (an AUTO chip here, a LOCKED chip there) size those "auto"
+   tracks differently, and the stats-action column (PROJ/PTS/Swap ▾)
+   drifts out of alignment row to row (browser-observed: 865px vs
+   755px). Fixed-width tracks for those two columns, desktop only, make
+   every row agree — the phone reflow above already collapses to two
+   columns and is unaffected. */
+@media (width > 899px) {
+  .lineup-slot {
+    grid-template-columns: 3.3rem minmax(11rem, 1fr) 9rem 12rem;
+  }
+}
