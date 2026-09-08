@@ -9,6 +9,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The commissioner console's task board rows now jump to their own section as a same-page link, not a full page reload, matching the jump strip's own fix, so a row click lands without a visible lurch.
 - League HQ's "Attention by league" panel now shows this league's own pending invites and board gaps, the same counts /admin already shows, instead of reading "No open flags" while /admin reports open work.
 - The commissioner console's Announcements section now sits right after Week close in the page itself, on every viewport, instead of only appearing early on a phone through a visual-only reorder that keyboard and screen-reader order never followed.
+- On a phone, /scoring's sticky jump strip is now a closed "Jump to a section" disclosure that opens to a wrapped list, instead of a sideways-scrolling row that hid most of its own sections with no cue. The sticky strip is unchanged on a desktop.
 
 ## [release-2026.09.08-97027d0-season3] — 2026-09-08
 

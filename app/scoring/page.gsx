@@ -87,6 +87,22 @@ func Page() Node {
 				<a href={"#" + jump.ID}>{jump.Label}</a>
 			</Each>
 		</nav>
+		{/* Decision 5 (J6 F28, wave E): the sticky strip above hides most of
+		    its own chips behind a sideways scroll on a phone — 14 of 18
+		    off-screen, no hidden-scroll cue, the exact pattern the base
+		    .guide-toc rule (and a 2026-09-01 audit) otherwise bans. On a
+		    phone this closed disclosure replaces it (hidden via CSS on
+		    desktop, where the sticky strip above is unchanged): closed by
+		    default, opening to the same jump targets wrapped onto as many
+		    rows as they need, never a sideways scroll. */}
+		<details class="scoring-jump-toc-mobile">
+			<summary class="board-button">Jump to a section</summary>
+			<nav class="scoring-jump-toc-mobile__list" aria-label="Rules and scoring sections">
+				<Each of={data.jump_sections} as="jump">
+					<a href={"#" + jump.ID}>{jump.Label}</a>
+				</Each>
+			</nav>
+		</details>
 		<div class="notice-stack" aria-live="polite">
 			<If cond={data.has_notice}>
 				<TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.notice} />
