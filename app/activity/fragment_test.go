@@ -84,6 +84,72 @@ func TestActivityRowsCarryCommissionerActorClass(t *testing.T) {
 	}
 }
 
+// TestActivityRowsCarryTeamNameAndCode is F21's failing-test-first
+// reproduction (gap-audit J6): activityRows must carry the new split
+// team_name/team_code/has_team_code fields internal/league's activityMaps
+// now emits, so the template can lead with the name and demote the code
+// to a secondary chip instead of repeating "(CODE)" inline on every row.
+func TestActivityRowsCarryTeamNameAndCode(t *testing.T) {
+	rows := activityRows([]map[string]any{
+		{"time": "Sep 1, 11:00 AM EDT", "team": "Eastside Elite (E1)", "team_name": "Eastside Elite", "team_code": "E1", "has_team_code": true, "action": "signs", "player": "Tre Harris (WR)", "actor_class": ""},
+		{"time": "Sep 1, 12:00 PM EDT", "team": "Alex", "team_name": "Alex", "team_code": "", "has_team_code": false, "action": "posted an announcement", "player": "", "actor_class": "COMMISSIONER"},
+	})
+	if len(rows) != 2 {
+		t.Fatalf("len(rows) = %d, want 2", len(rows))
+	}
+	if !rows[0].HasTeamCode || rows[0].TeamName != "Eastside Elite" || rows[0].TeamCode != "E1" {
+		t.Fatalf("team-move row = %+v, want split name/code", rows[0])
+	}
+	if rows[1].HasTeamCode || rows[1].TeamName != "Alex" || rows[1].TeamCode != "" {
+		t.Fatalf("commissioner row = %+v, want no code chip", rows[1])
+	}
+}
+
+// TestActivityRegionLeadsWithTeamNameAndRendersCodeAsAChip is F21's render
+// contract: an ordinary row with a team code renders the name first, then
+// a distinct ".activity-team-code" chip for the code — never the old bare
+// parenthetical repeated inline with the name. A row with no code (a
+// commissioner event, or a draft pick's own provenance label) renders the
+// combined string exactly as before, with no chip at all.
+func TestActivityRegionLeadsWithTeamNameAndRendersCodeAsAChip(t *testing.T) {
+	program, err := route.LoadFileProgram("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := activityRows([]map[string]any{
+		{"time": "Sep 1, 11:00 AM EDT", "time_iso": "2026-09-01T15:00:00Z", "time_relative": "2 hours ago", "team": "Eastside Elite (E1)", "team_name": "Eastside Elite", "team_code": "E1", "has_team_code": true, "action": "signs", "player": "Tre Harris (WR)", "actor_class": ""},
+		{"time": "Sep 1, 10:00 AM EDT", "time_iso": "2026-09-01T14:00:00Z", "time_relative": "3 hours ago", "team": "Autopick for Eastside Elite (E1)", "team_name": "Autopick for Eastside Elite (E1)", "team_code": "", "has_team_code": false, "action": "selects", "player": "Bucky Irving (RB)", "actor_class": ""},
+	})
+	data := map[string]any{
+		"teams": []string{}, "team": "", "query": "", "has_filters": false,
+		"filtered_count": 2, "transactions_count": 2, "page": 1, "pages": 1,
+		"page_start": 1, "page_end": 2, "has_previous": false, "has_next": false,
+		"has_transactions": true, "transactions_empty": false,
+		"transactions": rows,
+	}
+	html, err := route.RenderProgramComponent(program, "ActivityRegion", route.ProgramRenderEnv{
+		Values: map[string]any{"data": data},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, `data-gosx-text-layout-source="Eastside Elite"`) {
+		t.Errorf("team-move row should lead with the plain team name: %s", html)
+	}
+	if !strings.Contains(html, `<span class="activity-team-code mono activity-token-gap">E1</span>`) {
+		t.Errorf("team-move row missing its secondary code chip: %s", html)
+	}
+	if strings.Contains(html, `data-gosx-text-layout-source="Eastside Elite (E1)"`) {
+		t.Errorf("team-move row should not render the old combined name-plus-code string as its own name source: %s", html)
+	}
+	if !strings.Contains(html, "Autopick for Eastside Elite (E1)") {
+		t.Errorf("draft-pick provenance row should keep its combined string unchanged: %s", html)
+	}
+	if strings.Count(html, "activity-team-code") != 1 {
+		t.Errorf("only the team-move row should render a code chip: %s", html)
+	}
+}
+
 // TestActivityRegionRendersDatetimeAttributeForEveryRow is the wave-2
 // audit fix (finding 1): every /activity row's <time> element must carry
 // a real datetime attribute (never an empty one) plus the relative label,
@@ -318,4 +384,102 @@ func TestActivityFragmentConcurrentReads(t *testing.T) {
 		}()
 	}
 	wait.Wait()
+}
+
+// TestActivityPlayoffCardDemotesUntilPlayoffsAreTheLivePhase is F22's
+// failing-test-first reproduction (gap-audit J6): the transaction feed's
+// loudest card used to be a full-size playoff-context panel regardless
+// of season phase. While the postseason is not yet the live phase, the
+// page renders one quiet plain-language line instead; the full card
+// (playoffTruthMap's own headline/detail — internal/league/
+// postseason_view.go, shared with /matchups and /team, left untouched)
+// returns once the season phase actually is playoffs.
+func TestActivityPlayoffCardDemotesUntilPlayoffsAreTheLivePhase(t *testing.T) {
+	program, err := route.LoadFileProgram("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := map[string]any{
+		"teams": []string{}, "team": "", "query": "", "has_filters": false,
+		"filtered_count": 0, "transactions_count": 0, "page": 1, "pages": 1,
+		"page_start": 0, "page_end": 0, "has_previous": false, "has_next": false,
+		"has_transactions": false, "transactions_empty": false,
+		"transactions": activityRows(nil),
+		"timezone": "EDT", "activity_fragment_url": "/activity/fragment", "activity_fragment_interval": "4s",
+	}
+	tests := []struct {
+		name        string
+		seasonPhase string
+		wantQuiet   bool
+	}{
+		{name: "preseason demotes to one line", seasonPhase: "", wantQuiet: true},
+		{name: "regular season demotes to one line", seasonPhase: "regular-season", wantQuiet: true},
+		{name: "playoffs shows the full card", seasonPhase: "playoffs", wantQuiet: false},
+		{name: "season complete shows the full card", seasonPhase: "season-complete", wantQuiet: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data := map[string]any{}
+			for k, v := range base {
+				data[k] = v
+			}
+			data["playoff_truth"] = map[string]any{
+				"headline": "PLAYOFFS NOT ACTIVE", "status_label": "WAITING",
+				"detail": "The published season phase is Preseason; playoff truth will appear after the regular season is final.",
+				"recovery": "", "season_phase": test.seasonPhase,
+			}
+			html, err := route.RenderProgramComponent(program, "Page", route.ProgramRenderEnv{
+				Values: map[string]any{"data": data},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			hasQuietLine := strings.Contains(html, "Playoff bracket: not seeded yet.")
+			hasFullCard := strings.Contains(html, `class="score-command playoff-truth-card"`)
+			if hasQuietLine != test.wantQuiet {
+				t.Errorf("quiet line present = %v, want %v: %s", hasQuietLine, test.wantQuiet, html)
+			}
+			if hasFullCard == test.wantQuiet {
+				t.Errorf("full card present = %v, want %v: %s", hasFullCard, !test.wantQuiet, html)
+			}
+		})
+	}
+}
+
+// TestActivityRefreshNoteIsCalmAndInsideThePolledRegion is F27's
+// failing-test-first reproduction (gap-audit J6): "If a refresh fails,
+// use [Refresh Activity now]" told a manager to expect failure, and the
+// "within 4 seconds" phrasing read as implementation detail. The note
+// now states the cadence plainly and names the last real update, and it
+// lives inside ActivityRegion (the same component the 4s poll re-renders)
+// so "last update" stays current instead of freezing at first page load.
+func TestActivityRefreshNoteIsCalmAndInsideThePolledRegion(t *testing.T) {
+	program, err := route.LoadFileProgram("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := map[string]any{
+		"teams": []string{}, "team": "", "query": "", "has_filters": false,
+		"filtered_count": 1, "transactions_count": 1, "page": 1, "pages": 1,
+		"page_start": 1, "page_end": 1, "has_previous": false, "has_next": false,
+		"has_transactions": true, "transactions_empty": false,
+		"last_update": "Sep 4, 5:31 AM EDT", "has_last_update": true,
+		"transactions": activityRows([]map[string]any{
+			{"time": "Sep 4, 5:31 AM EDT", "time_iso": "2026-09-04T09:31:00Z", "time_relative": "just now", "team": "Team A", "team_name": "Team A", "team_code": "", "has_team_code": false, "action": "drafts", "player": "Player X", "actor_class": ""},
+		}),
+	}
+	html, err := route.RenderProgramComponent(program, "ActivityRegion", route.ProgramRenderEnv{
+		Values: map[string]any{"data": data},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, "Updates every 4 seconds; last update Sep 4, 5:31 AM EDT.") {
+		t.Errorf("ActivityRegion missing the calm refresh note: %s", html)
+	}
+	for _, unwanted := range []string{"If a refresh fails", "Activity refreshes automatically within"} {
+		if strings.Contains(html, unwanted) {
+			t.Errorf("ActivityRegion still carries the retired anxious refresh copy %q: %s", unwanted, html)
+		}
+	}
 }

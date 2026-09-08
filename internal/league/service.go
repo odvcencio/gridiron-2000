@@ -310,6 +310,15 @@ func (s *Service) clock() time.Time {
 	return time.Now()
 }
 
+// Now is clock's exported form, for route packages outside this one (J4
+// F29, gap-audit): Commissioner HQ used to stamp its own "GENERATED" and
+// "Player list updated" times from a bare time.Now().UTC(), disagreeing
+// with the same league's /admin console, which already reads this
+// harness-adjustable clock through clock(). Every wall-clock stamp a
+// commissioner reads should come from one clock; this is that seam's
+// only exported door.
+func (s *Service) Now() time.Time { return s.clock() }
+
 var (
 	defaultOnce sync.Once
 	// defaultMu guards defaultSvc's assignment below against any read that
@@ -3693,6 +3702,14 @@ func (s *Service) clockView(state PersistedState, now time.Time) map[string]any 
 		"remaining_label":     countdownMMSSLabel(remaining),
 		"duration_seconds":    int(s.pickClock(state).Seconds()),
 		"duration_label":      countdownMMSSLabel(int(s.pickClock(state).Seconds())),
+		// duration_overridden (J2 F17, gap-audit): app/admin/page.gsx's
+		// "Duration source" cell branches on this key, but clockView never
+		// set it, so neither its OVERRIDE nor its DEFAULT branch ever
+		// rendered — a labelled cell with nothing in it. The commissioner's
+		// own persisted override (ClockDurationSec, same test
+		// clockDurationSource already uses for its own "env"/"override"
+		// pair) is the one source of truth for this.
+		"duration_overridden": state.ClockDurationSec > 0,
 		"server_now":          now.UTC().Format(time.RFC3339),
 		// These opaque values are form contracts, not authorization
 		// credentials. current_pick_token covers the on-clock seat and
@@ -4944,6 +4961,14 @@ func (s *Service) leagueTimeStamp(t time.Time) string {
 	}
 	return stamp + " · " + RelativeTime(s.clock(), t)
 }
+
+// LeagueTimeStamp is leagueTimeStamp, exported for route servers outside
+// this package (F20, gap-audit J6): every timestamp a manager reads was
+// meant to converge on this one recipe — leagueTimeStamp's own doc
+// comment already said so — but nothing exported it, so the Signal Wire
+// kept a second, uppercase, comma-free format ("SEP 03 · 8:43 PM EDT")
+// and the Locker Room carried a zone with no relative phrase at all.
+func (s *Service) LeagueTimeStamp(t time.Time) string { return s.leagueTimeStamp(t) }
 
 // leagueAbsoluteTimeStamp is leagueTimeStamp without the trailing relative
 // label — for the rare surface where the relative half would go stale
@@ -6374,6 +6399,17 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 		teamDisplay, teamAbbreviations, teamNames := s.activityTeamDisplay(state, e.teamIDs)
 		teamSearch := append(append([]string{}, teamAbbreviations...), teamNames...)
 		teamSearch = append(teamSearch, e.teamIDs...)
+		// teamName/teamCode (F21, gap-audit J6) split the row's own
+		// leading label into a name a manager reads and a code a manager
+		// can ignore: the feed used to repeat "(AQ2)" on every one of 137
+		// lines with nothing on the page defining what it means. They stay
+		// "" for a commissioner event (attributed to a person, not a
+		// team/code — wave-2 audit) and for a draft pick's own provenance
+		// label ("Autopick for ...", "Commissioner" — F3, gap-audit J2),
+		// neither of which is a plain team name a code chip could follow;
+		// those two cases keep the single combined "team" string only.
+		teamName := strings.Join(teamNames, " ↔ ")
+		teamCode := strings.Join(teamAbbreviations, " ↔ ")
 		if e.kind == activityActorClassCommissioner {
 			// A commissioner event is attributed to the PERSON, not a team
 			// or seat code (wave-2 audit): the "team" column — the row's
@@ -6381,6 +6417,8 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 			// "actor_class" carrying the distinct "COMMISSIONER" marker the
 			// template renders ahead of it.
 			teamDisplay = e.actorName
+			teamName = e.actorName
+			teamCode = ""
 			teamSearch = append(teamSearch, "commissioner", e.actorName, e.actorEmail)
 		} else if e.teamLabel != "" {
 			// F3 (gap-audit J2): a draft pick's own leading label carries its
@@ -6389,6 +6427,8 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 			// above stay the real team's, so filtering by team code still
 			// finds the row.
 			teamDisplay = e.teamLabel
+			teamName = e.teamLabel
+			teamCode = ""
 		}
 		out = append(out, map[string]any{
 			"time":                  e.at.In(location).Format("Jan 2, 3:04 PM MST"),
@@ -6396,6 +6436,9 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 			"time_relative":         relativeTime(now, e.at),
 			"timezone":              FriendlyTimezoneLabel(location.String()),
 			"team":                  teamDisplay,
+			"team_name":             teamName,
+			"team_code":             teamCode,
+			"has_team_code":         teamCode != "",
 			"teams":                 teamAbbreviations,
 			"team_names":            teamNames,
 			"team_ids":              e.teamIDs,

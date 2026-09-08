@@ -48,7 +48,11 @@ rule Touchdown priority 2 {
 
 rule Injury priority 3 {
     when {
-        post.text matches ".*(injury|injured|questionable|doubtful|left the game|medical tent|locker room).*"
+        # "locker room" is dropped (gap-audit F5): it is also this app's own
+        # page name, and NFL culture and humor pieces use the idiom with no
+        # injury content at all, which was mislabeling most of a wire's
+        # feed as INJURY WATCH.
+        post.text matches ".*(injury|injured|questionable|doubtful|left the game|medical tent).*"
     }
     then Classify {
         category: "injury",

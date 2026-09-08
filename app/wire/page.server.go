@@ -18,7 +18,6 @@ import (
 	"m31labs.dev/gosx/ir"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
-	"m31labs.dev/gosx/session"
 )
 
 // wireFilterOption is one entry in the wire page's category filter strip
@@ -120,6 +119,123 @@ func wireCategory(category string) string {
 	return ""
 }
 
+// wireCategoryNouns names each filter category in a plain, singular noun
+// for a sentence — "No <noun> stories ..." (F4, gap-audit J6) — reusing
+// the same vocabulary the chip labels already carry, not a second set of
+// words for the same idea.
+var wireCategoryNouns = map[string]string{
+	"touchdown":   "score",
+	"injury":      "injury",
+	"practice":    "practice",
+	"inactive":    "inactive",
+	"transaction": "move",
+	"weather":     "weather",
+	"news":        "news",
+	"market":      "market",
+	"community":   "community",
+}
+
+func wireCategoryNoun(category string) string {
+	if noun, ok := wireCategoryNouns[category]; ok {
+		return noun
+	}
+	return "signal"
+}
+
+// wireCategoryCounts tallies items by category across the current window —
+// the same window the "All" chip already covers — so every filter chip can
+// show a real count instead of a fixed vocabulary that may or may not match
+// what the classifier is actually assigning today (F4 root cause).
+func wireCategoryCounts(items []signalwire.Signal) map[string]int {
+	counts := make(map[string]int, len(items))
+	for _, item := range items {
+		counts[item.Category]++
+	}
+	return counts
+}
+
+// wireWindowLabel names how far back the current window reaches — now
+// minus the oldest item still on it — for the filtered-empty state's "No
+// <category> stories in the last <window>" sentence (F4). "hour" is the
+// honest floor for an empty or brand-new wire, never a divide-by-zero
+// duration.
+func wireWindowLabel(now time.Time, items []signalwire.Signal) string {
+	oldest := now
+	found := false
+	for _, item := range items {
+		at := item.OccurredAt
+		if at.IsZero() {
+			at = item.ObservedAt
+		}
+		if at.IsZero() {
+			continue
+		}
+		if !found || at.Before(oldest) {
+			oldest = at
+			found = true
+		}
+	}
+	if !found {
+		return "hour"
+	}
+	d := now.Sub(oldest)
+	n, unit := 1, "hour"
+	switch {
+	case d < time.Hour:
+		if n = int(d / time.Minute); n < 1 {
+			n = 1
+		}
+		unit = "minute"
+	case d < 24*time.Hour:
+		if n = int(d / time.Hour); n < 1 {
+			n = 1
+		}
+		unit = "hour"
+	default:
+		if n = int(d / (24 * time.Hour)); n < 1 {
+			n = 1
+		}
+		unit = "day"
+	}
+	return fmt.Sprintf("%d %s", n, league.Plural(n, unit))
+}
+
+// wireNearestFilter finds the chip closest, in display order, to category
+// that actually holds an item right now — the filtered-empty state's "try
+// this instead" link (F4). ok is false only when nothing but "All" has
+// items, which the wire-unconfigured branch already covers on its own.
+func wireNearestFilter(filters []map[string]any, category string) (label, href string, ok bool) {
+	activeIndex := -1
+	for i, f := range filters {
+		if slug, _ := f["slug"].(string); slug == category {
+			activeIndex = i
+			break
+		}
+	}
+	bestDistance := -1
+	for i, f := range filters {
+		slug, _ := f["slug"].(string)
+		if slug == "" || slug == category {
+			continue
+		}
+		hasItems, _ := f["has_items"].(bool)
+		if !hasItems {
+			continue
+		}
+		distance := i - activeIndex
+		if distance < 0 {
+			distance = -distance
+		}
+		if bestDistance == -1 || distance < bestDistance {
+			bestDistance = distance
+			label, _ = f["base_label"].(string)
+			href, _ = f["href"].(string)
+			ok = true
+		}
+	}
+	return
+}
+
 // wireRedirectTarget builds the canonical same-origin return target for the
 // community form. url.Values performs query escaping; the path and anchor
 // are constants, so form data cannot steer a redirect outside the Wire page.
@@ -182,21 +298,69 @@ func wireValidationWithRedirect(ctx *action.Context, redirect string, err error)
 // already soft-swaps — no bespoke fetch/classList JS is needed for this
 // either. active marks the filter matching the request's own category, so
 // the freshly-rendered page always shows the correct pill highlighted.
-func wireFilterMaps(category string) []map[string]any {
+//
+// counts/total (F4, gap-audit J6) are the real per-category tallies across
+// the current window: half the chips used to be a dead end that returned
+// zero results with no warning. Every chip now carries its own count, and
+// a chip with nothing behind it (has_items false) renders disabled with a
+// reason instead of a link a manager could still click into an empty page.
+func wireFilterMaps(category string, counts map[string]int, total int) []map[string]any {
 	out := make([]map[string]any, 0, len(WireFilterOptions))
 	for _, opt := range WireFilterOptions {
+		count := total
+		if opt.Slug != "" {
+			count = counts[opt.Slug]
+		}
+		hasItems := count > 0
 		href := "/wire"
 		if opt.Slug != "" {
 			href = "/wire?category=" + neturl.QueryEscape(opt.Slug)
 		}
+		reason := ""
+		if !hasItems {
+			reason = fmt.Sprintf("No %s signals right now", wireCategoryNoun(opt.Slug))
+		}
 		out = append(out, map[string]any{
-			"slug":   opt.Slug,
-			"label":  opt.Label,
-			"href":   href,
-			"active": opt.Slug == category,
+			"slug":       opt.Slug,
+			"base_label": opt.Label,
+			"label":      fmt.Sprintf("%s · %d", opt.Label, count),
+			"href":       href,
+			"active":     opt.Slug == category,
+			"has_items":  hasItems,
+			"reason":     reason,
 		})
 	}
 	return out
+}
+
+// wireEmptyStateView builds the panel that renders when a request's own
+// category filter (or, if unconfigured, the whole wire) turns up nothing.
+// Page()'s first render and FeedFragmentWithError (the /wire/fragment poll
+// target) both call this, so an empty result reads identically either way
+// — WireEmptyState's own doc comment already makes that guarantee for the
+// general case; F4 extends it to a filtered-empty result, which used to
+// read the same "your wire is quiet" copy for every category regardless of
+// how many signals every OTHER chip actually held.
+func wireEmptyStateView(windowItems []signalwire.Signal, wireStatus signalwire.Status, category string, now time.Time) WireEmptyView {
+	view := WireEmptyView{
+		WireConfigured: wireStatus.Configured,
+		WireIssue:      wireStatus.ConfigurationIssue,
+		Category:       category,
+		ShowGeneric:    wireStatus.Configured && category == "",
+		ShowFiltered:   wireStatus.Configured && category != "",
+	}
+	if !wireStatus.Configured || category == "" {
+		return view
+	}
+	view.CategoryNoun = wireCategoryNoun(category)
+	view.WindowLabel = wireWindowLabel(now, windowItems)
+	filters := wireFilterMaps(category, wireCategoryCounts(windowItems), len(windowItems))
+	if label, href, ok := wireNearestFilter(filters, category); ok {
+		view.HasNearest = true
+		view.NearestLabel = label
+		view.NearestHref = href
+	}
+	return view
 }
 
 // wireFragmentURL is the data-gosx-region-url the wire feed polls
@@ -248,7 +412,7 @@ func init() {
 			// nonexistent form id would be a dead control.
 			if canSubmit, _ := data["can_submit"].(bool); canSubmit {
 				data["primary_action"] = map[string]any{
-					"label": "Transmit sighting",
+					"label": "Send a tip",
 					"href":  "#community-input",
 					"kind":  "submit",
 					"form":  "wire-sighting-form",
@@ -273,7 +437,7 @@ func init() {
 				if err != nil {
 					return action.Error(http.StatusServiceUnavailable, "The signal wire is unavailable")
 				}
-				signal, err := signals.SubmitSighting(signalwire.CommunitySubmission{
+				_, err = signals.SubmitSighting(signalwire.CommunitySubmission{
 					ReporterID:   reporterID,
 					ReporterName: reporterName,
 					EvidenceType: ctx.FormData["evidence_type"],
@@ -284,7 +448,7 @@ func init() {
 				if err != nil {
 					return wireValidationWithRedirect(ctx, wireRedirectTarget(ctx.FormData["category"]), err)
 				}
-				actionui.RedirectBackWithNotice(ctx, wireRedirectTarget(ctx.FormData["category"]), fmt.Sprintf("%s added to the provisional wire.", signal.Label))
+				actionui.RedirectBackWithScopedNotice(ctx, wireNoticeRoute, wireRedirectTarget(ctx.FormData["category"]), "Your tip is on the wire.")
 				return nil
 			},
 		},
@@ -294,21 +458,33 @@ func init() {
 }
 
 // wireModeLabels turns signalwire.Service's runtime mode constants into
-// plain football labels for the wire masthead. The default case is a safe
-// neutral word, never the raw mode token, so an unmapped future mode still
-// reads as English instead of leaking a machine state name.
+// the SAME six state words the Manager Guide documents for every data-
+// freshness surface (app/guide/page.gsx#data-states: LIVE, CACHED, STALE,
+// DEGRADED, OFFLINE, UNAVAILABLE) — not a seventh, wire-only vocabulary
+// (F30, gap-audit J6). The worst offender: ModeSourceError used to read
+// "QUIET", which sounds like "no news right now" rather than "a source
+// failed"; DEGRADED ("the latest refresh failed but last-good data
+// remains") is the guide's own word for exactly that. The default case
+// stays a safe, already-documented word, never the raw mode token, so an
+// unmapped future mode still reads as English.
 var wireModeLabels = map[string]string{
-	signalwire.ModeDisabled:         "OFF",
-	signalwire.ModeAwaitingSources:  "OFF",
-	signalwire.ModeReady:            "READY",
-	signalwire.ModeSyndicationReady: "READY",
+	signalwire.ModeDisabled:         "UNAVAILABLE",
+	signalwire.ModeAwaitingSources:  "UNAVAILABLE",
+	// Ready/SyndicationReady are connected with fresh data on hand but not
+	// actively streaming this instant — CACHED ("a fresh saved snapshot")
+	// fits that better than LIVE, and keeps LIVE (and the pulsing live
+	// lamp, wireLiveIndicator) reserved for the two modes that are
+	// genuinely streaming right now, matching this label's behavior
+	// before F30.
+	signalwire.ModeReady:            "CACHED",
+	signalwire.ModeSyndicationReady: "CACHED",
 	signalwire.ModeSyndicating:      "LIVE",
-	signalwire.ModeResolvingSources: "STARTING",
-	signalwire.ModeConnecting:       "STARTING",
+	signalwire.ModeResolvingSources: "CACHED",
+	signalwire.ModeConnecting:       "CACHED",
 	signalwire.ModeStreaming:        "LIVE",
-	signalwire.ModeReconnecting:     "CATCHING UP",
-	signalwire.ModeSourceError:      "QUIET",
-	signalwire.ModeStopped:          "OFF",
+	signalwire.ModeReconnecting:     "STALE",
+	signalwire.ModeSourceError:      "DEGRADED",
+	signalwire.ModeStopped:          "UNAVAILABLE",
 }
 
 func wireModeLabel(mode string) string {
@@ -318,6 +494,29 @@ func wireModeLabel(mode string) string {
 	return "UNAVAILABLE"
 }
 
+// wireIntervalLabel names a duration in plain words ("2 minutes", "45
+// seconds") for a sentence, not a bare stat tile. F13 (gap-audit J6): the
+// source panel's own refresh cadence used to be a hard-coded "2 min" no
+// matter what WIRE_FEED_INTERVAL was actually set to; this reads the
+// real configured value (signalwire.Status.FeedInterval).
+func wireIntervalLabel(d time.Duration) string {
+	if d <= 0 {
+		d = 2 * time.Minute
+	}
+	if d < time.Minute {
+		n := int(d / time.Second)
+		if n < 1 {
+			n = 1
+		}
+		return fmt.Sprintf("%d %s", n, league.Plural(n, "second"))
+	}
+	n := int(d / time.Minute)
+	if n < 1 {
+		n = 1
+	}
+	return fmt.Sprintf("%d %s", n, league.Plural(n, "minute"))
+}
+
 func wireFeedStaleThreshold(status signalwire.Status) time.Duration {
 	if status.FeedStaleAfter > 0 {
 		return status.FeedStaleAfter
@@ -325,9 +524,17 @@ func wireFeedStaleThreshold(status signalwire.Status) time.Duration {
 	return signalwire.DeriveFeedStaleAfter(0)
 }
 
+// wireFeedHealthLabelAt names one source's own row state. "Failed" (F31,
+// gap-audit J6) replaces the old bare "ERROR": page.gsx pairs it with the
+// source's own failure reason and last-success time inline, rather than
+// a single opaque word. "LIVE"/"STALE"/"UNAVAILABLE" match the Manager
+// Guide's own six-word vocabulary (see wireModeLabels); "NEVER CHECKED"
+// has no real doc equivalent (none of the six describe "has not run
+// yet") and stays plain English rather than borrowing a word that would
+// misstate what actually happened.
 func wireFeedHealthLabelAt(feed signalwire.FeedStatus, staleAfter time.Duration, now time.Time) string {
 	if feed.LastError != "" || feed.State == "error" {
-		return "ERROR"
+		return "Failed"
 	}
 	if feed.LastChecked.IsZero() {
 		return "NEVER CHECKED"
@@ -338,7 +545,7 @@ func wireFeedHealthLabelAt(feed signalwire.FeedStatus, staleAfter time.Duration,
 	if feed.State != "ready" {
 		return "UNAVAILABLE"
 	}
-	return "READY"
+	return "LIVE"
 }
 
 // wireFeedHealthLabel is deliberately derived from the timestamps and error
@@ -350,6 +557,23 @@ func wireFeedHealthLabel(feed signalwire.FeedStatus, now time.Time) string {
 
 func wireFeedHealthLabelForStatus(feed signalwire.FeedStatus, status signalwire.Status, now time.Time) string {
 	return wireFeedHealthLabelAt(feed, wireFeedStaleThreshold(status), now)
+}
+
+// wireKeptLabel names what a source row's raw "accepted" count actually
+// is (F31, gap-audit J6): "READY · 0 kept" read like a broken source with
+// no explanation of what "kept" counted. "N stories kept after
+// filtering" says plainly that this is a count of items that passed the
+// wire's own relevance filter, not everything the source published.
+func wireKeptLabel(accepted int64) string {
+	n := int(accepted)
+	// "story" pluralizes irregularly ("stories"), which league.Plural's
+	// suffix-only rule does not handle, so this spells both forms out
+	// rather than producing "storys".
+	noun := "stories"
+	if n == 1 {
+		noun = "story"
+	}
+	return fmt.Sprintf("%d %s kept after filtering", n, noun)
 }
 
 func wireFeedCheckedLabel(feed signalwire.FeedStatus) string {
@@ -371,7 +595,7 @@ func wireHasDegradedFeed(status signalwire.Status, now time.Time) bool {
 		return false
 	}
 	for _, feed := range status.Feeds {
-		if wireFeedHealthLabelForStatus(feed, status, now) != "READY" {
+		if wireFeedHealthLabelForStatus(feed, status, now) != "LIVE" {
 			return true
 		}
 	}
@@ -405,20 +629,23 @@ func wirePresentationLabel(status signalwire.Status, now time.Time) string {
 	return base
 }
 
+// wireHealthLabel is the feed-sync region's own status word (the small
+// "sync-state" line beside the feed heading). It used to add two more
+// synonyms on top of wirePresentationLabel's already-documented word
+// ("HEALTHY" for a fine LIVE/READY wire, "PARTIAL" for a partial outage)
+// — F30 (gap-audit J6) retires both: this region now states the exact
+// same six-word vocabulary the masthead does, because a manager reading
+// two different words 200px apart has no reason to believe they mean the
+// same thing.
 func wireHealthLabel(status signalwire.Status, now time.Time) string {
 	base := wireModeLabel(status.Mode)
 	if base == "UNAVAILABLE" {
 		return base
 	}
 	if wireHasPartialOutage(status, now) {
-		return "PARTIAL"
+		return "DEGRADED"
 	}
-	switch base {
-	case "LIVE", "READY":
-		return "HEALTHY"
-	default:
-		return base
-	}
+	return base
 }
 
 // wireLiveIndicator is the only wire status allowed to render the glowing live
@@ -473,6 +700,7 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 	viewer := league.Default().Viewer(request)
 	category := wireCategory(request.URL.Query().Get("category"))
 	recent := signals.Recent(50, category)
+	windowItems := signals.Recent(200, "")
 	items := make([]WireSignalCard, 0, len(recent))
 	for _, signal := range recent {
 		items = append(items, wireSignalCard(signal, wireStatus, now))
@@ -493,7 +721,7 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 	feedIgnored := int64(0)
 	for _, feed := range wireStatus.Feeds {
 		feedState := wireFeedHealthLabelForStatus(feed, wireStatus, now)
-		if feedState == "READY" {
+		if feedState == "LIVE" {
 			readyFeeds++
 		}
 		feedIgnored += feed.Ignored
@@ -506,14 +734,20 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 			"state":          feedState,
 			"accepted":       feed.Accepted,
 			"ignored":        feed.Ignored,
+			"kept_label":     wireKeptLabel(feed.Accepted),
 			"checked":        checked,
 			"last_checked":   checked,
 			"published":      published,
 			"last_published": published,
-			"has_checked":    !feed.LastChecked.IsZero(),
-			"has_published":  !feed.LastPublished.IsZero(),
-			"has_error":      feed.LastError != "",
-			"last_error":     feed.LastError,
+			// last_success (F31, gap-audit J6): the failed-source line
+			// ("Failed · <reason> · last success <time>") reuses the same
+			// last-published instant, named for what it means to a reader
+			// in that sentence rather than the neutral "published".
+			"last_success":  published,
+			"has_checked":   !feed.LastChecked.IsZero(),
+			"has_published": !feed.LastPublished.IsZero(),
+			"has_error":     feed.LastError != "",
+			"last_error":    feed.LastError,
 		})
 	}
 	lastID := ""
@@ -538,7 +772,7 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 		"empty":                  len(items) == 0,
 		"last_event_id":          lastID,
 		"category":               category,
-		"filters":                wireFilterMaps(category),
+		"filters":                wireFilterMaps(category, wireCategoryCounts(windowItems), len(windowItems)),
 		"fragment_url":           wireFragmentURL(category),
 		"wire_mode":              wirePresentationLabel(wireStatus, now),
 		"wire_health":            wireHealthLabel(wireStatus, now),
@@ -552,29 +786,30 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 		// never named attributes built from separate map keys (gosx's
 		// legacy-caller rule), so wire_configured/wire_issue are bundled
 		// here as the one struct the template spreads.
-		"wire_empty":       WireEmptyView{WireConfigured: wireStatus.Configured, WireIssue: wireStatus.ConfigurationIssue},
-		"source_count":     len(wireStatus.Sources) + len(wireStatus.Feeds),
-		"bluesky_count":    len(wireStatus.Sources),
-		"feed_count":       len(wireStatus.Feeds),
-		"feed_ready":       readyFeeds,
-		"feed_stale_after": wireStatus.FeedStaleAfter,
-		"feeds":            feeds,
-		"sources":          sources,
-		"can_submit":       league.Default().DemoMode() || viewer["signed_in"] == true,
-		"signal_count":     wireStatus.RelevantSignals,
-		"ignored_count":    wireStatus.IgnoredPosts + feedIgnored,
-		"deleted_count":    wireStatus.DeletedSignals,
-		"schedule_state":   dataStateLabel(openStatus.Schedules.State),
-		"schedule_rows":    openStatus.Schedules.Rows,
-		"schedule_updated": displayTime(openStatus.Schedules.LastUpdated),
-		"player_state":     dataStateLabel(openStatus.PlayerStats.State),
-		"player_rows":      openStatus.PlayerStats.Rows,
-		"player_updated":   displayTime(openStatus.PlayerStats.LastUpdated),
-		"injury_state":     dataStateLabel(openStatus.Injuries.State),
-		"injury_rows":      openStatus.Injuries.Rows,
-		"injury_updated":   displayTime(openStatus.Injuries.LastUpdated),
-		"season":           openStatus.Season,
-		"refresh_seconds":  20,
+		"wire_empty":            wireEmptyStateView(windowItems, wireStatus, category, now),
+		"source_count":          len(wireStatus.Sources) + len(wireStatus.Feeds),
+		"bluesky_count":         len(wireStatus.Sources),
+		"feed_count":            len(wireStatus.Feeds),
+		"feed_ready":            readyFeeds,
+		"feed_stale_after":      wireStatus.FeedStaleAfter,
+		"feeds":                 feeds,
+		"sources":               sources,
+		"can_submit":            league.Default().DemoMode() || viewer["signed_in"] == true,
+		"signal_count":          wireStatus.RelevantSignals,
+		"ignored_count":         wireStatus.IgnoredPosts + feedIgnored,
+		"deleted_count":         wireStatus.DeletedSignals,
+		"schedule_state":        dataStateLabel(openStatus.Schedules.State),
+		"schedule_rows":         openStatus.Schedules.Rows,
+		"schedule_updated":      displayTime(openStatus.Schedules.LastUpdated),
+		"player_state":          dataStateLabel(openStatus.PlayerStats.State),
+		"player_rows":           openStatus.PlayerStats.Rows,
+		"player_updated":        displayTime(openStatus.PlayerStats.LastUpdated),
+		"injury_state":          dataStateLabel(openStatus.Injuries.State),
+		"injury_rows":           openStatus.Injuries.Rows,
+		"injury_updated":        displayTime(openStatus.Injuries.LastUpdated),
+		"season":                openStatus.Season,
+		"refresh_seconds":       20,
+		"source_check_interval": wireIntervalLabel(wireStatus.FeedInterval),
 	}
 }
 
@@ -603,16 +838,13 @@ func FeedFragmentWithError(request *http.Request, signals *signalwire.Service) (
 	if err != nil {
 		return gosx.Node{}, fmt.Errorf("load wire page.gsx: %w", err)
 	}
-	category := strings.TrimSpace(request.URL.Query().Get("category"))
+	category := wireCategory(request.URL.Query().Get("category"))
 	wireStatus := signals.Status()
 	now := time.Now().UTC()
 	recent := signals.Recent(50, category)
 	if len(recent) == 0 {
 		return route.RenderProgramComponentNode(program, "WireEmptyState", route.ProgramRenderEnv{
-			Props: WireEmptyView{
-				WireConfigured: wireStatus.Configured,
-				WireIssue:      wireStatus.ConfigurationIssue,
-			},
+			Props: wireEmptyStateView(signals.Recent(200, ""), wireStatus, category, now),
 		})
 	}
 	items := make([]WireSignalCard, 0, len(recent))
@@ -707,19 +939,29 @@ func pluralSuffix(count int64) string {
 // body spreading a slice entry into a strict component needs each entry
 // to carry its own proven struct type (gosx's field-coverage boundary).
 type WireSignalCard struct {
-	ID                 string
-	Category           string
-	Label              string
-	Text               string
-	Source             string
-	ReportedBy         string
-	HasReporter        bool
-	Evidence           string
-	Trust              string
-	Time               string
-	URL                string
-	HasURL             bool
-	Rule               string
+	ID          string
+	Category    string
+	Label       string
+	HasLabel    bool
+	Text        string
+	Source      string
+	ReportedBy  string
+	HasReporter bool
+	Evidence    string
+	Trust       string
+	Time        string
+	URL         string
+	HasURL      bool
+	Rule        string
+	// Confidence is kept on the struct (classification.Confidence × the
+	// source's trust weight — see internal/wire's classifier and trust
+	// policy) for callers that still need the raw figure, but page.gsx no
+	// longer renders it next to Trust (F14, gap-audit J6): it is a
+	// blended, internal-only score with no single plain-language name
+	// ("relevance to your roster" would be false — the wire has no
+	// roster awareness at all), and every card already carries the one
+	// word that IS meaningful, Trust's own tier ("PUBLISHER",
+	// "COMMUNITY", ...).
 	Confidence         string
 	Corroborations     int
 	HasCorroboration   bool
@@ -728,10 +970,24 @@ type WireSignalCard struct {
 }
 
 // WireEmptyView is WireEmptyState's (page.gsx, a strict component) spread
-// source: whether the wire is configured and, when not, why.
+// source: whether the wire is configured and, when not, why — plus, for a
+// filtered-empty result (F4, gap-audit J6), the active category's plain
+// noun, how far back the current window reaches, and the nearest chip
+// that still has something on it.
 type WireEmptyView struct {
 	WireConfigured bool
 	WireIssue      string
+	Category       string
+	CategoryNoun   string
+	WindowLabel    string
+	HasNearest     bool
+	NearestLabel   string
+	NearestHref    string
+	// ShowGeneric/ShowFiltered: see WireEmptyStateProps' doc comment
+	// (page.gsx) for why these arrive precomputed rather than as a
+	// compound <If> expression.
+	ShowGeneric  bool
+	ShowFiltered bool
 }
 
 func signalMap(signal signalwire.Signal) WireSignalCard {
@@ -753,6 +1009,7 @@ func signalMap(signal signalwire.Signal) WireSignalCard {
 		ID:                 signal.ID,
 		Category:           signal.Category,
 		Label:              signal.Label,
+		HasLabel:           signal.Label != "",
 		Text:               signal.Text,
 		Source:             source,
 		ReportedBy:         signal.ReportedBy,
@@ -781,7 +1038,7 @@ func signalRetained(signal signalwire.Signal, status signalwire.Status, now time
 	case signalwire.SourceFeed:
 		for _, feed := range status.Feeds {
 			if feed.Name == signal.SourceName {
-				return wireFeedHealthLabelForStatus(feed, status, now) != "READY"
+				return wireFeedHealthLabelForStatus(feed, status, now) != "LIVE"
 			}
 		}
 	case signalwire.SourceBluesky:
@@ -793,14 +1050,20 @@ func signalRetained(signal signalwire.Signal, status signalwire.Status, now time
 	return false
 }
 
+// wireNoticeRoute is the page /wire's own confirmations are scoped to
+// (F15, gap-audit J6): the sighting form's confirmation used to read the
+// same untagged session flash every other page's own action reads, so a
+// manager who submitted a tip and opened /locker before following the
+// redirect saw the Wire's confirmation banner on the Locker Room page
+// instead. See internal/actionui.RedirectBackWithScopedNotice.
+const wireNoticeRoute = "/wire"
+
 func applySubmissionState(ctx *route.RouteContext, data map[string]any) {
 	data["has_notice"] = false
 	data["notice"] = ""
-	if store := session.Current(ctx.Request); store != nil {
-		if flashes := store.Flashes("notice"); len(flashes) > 0 {
-			data["has_notice"] = true
-			data["notice"] = fmt.Sprint(flashes[0])
-		}
+	if notice, ok := actionui.ScopedNotice(ctx.Request, wireNoticeRoute); ok {
+		data["has_notice"] = true
+		data["notice"] = notice
 	}
 	data["has_submit_error"] = false
 	data["submit_error"] = ""
@@ -873,19 +1136,29 @@ func sightingFieldErrors(message string) map[string]string {
 // with a relative label, per the contract's time rule (exact league-local
 // time, timezone, and a useful relative value). It previously hard-coded
 // America/Los_Angeles — three hours behind the league — and carried no
-// relative text.
+// relative text; then, after that fix, it kept its own uppercase,
+// comma-free shape ("SEP 03 · 8:43 PM EDT") instead of the one format
+// every other page's stored-instant display already converges on (F20,
+// gap-audit J6: /locker read "Sep 4, 5:31 AM EDT", /activity read "Sep
+// 4, 5:28 AM EDT" — the wire was the one page with a shape all its own).
 func displayTime(value time.Time) string {
-	return formatWireTime(value, time.Now(), league.Default().LeagueLocation())
+	if value.IsZero() {
+		return "WAITING"
+	}
+	return league.Default().LeagueTimeStamp(value)
 }
 
-// formatWireTime is displayTime's pure core, split out so the format is
-// testable without the league singleton or the wall clock.
+// formatWireTime is displayTime's pure core: the identical "Jan 2, 3:04
+// PM MST · N minutes ago" shape LeagueTimeStamp produces, built from the
+// same two already-exported pieces (a plain time.Format plus
+// league.RelativeTime) so this stays testable with a fixed clock and
+// location instead of the league singleton's own wall-clock-anchored
+// service.
 func formatWireTime(value, now time.Time, location *time.Location) string {
 	if value.IsZero() {
 		return "WAITING"
 	}
-	stamp := strings.ToUpper(value.In(location).Format("Jan 02 · 3:04 PM MST"))
-	return stamp + " · " + league.RelativeTime(now, value)
+	return value.In(location).Format("Jan 2, 3:04 PM MST") + " · " + league.RelativeTime(now, value)
 }
 
 func shortDID(did string) string {
