@@ -2575,6 +2575,52 @@ func (s *Store) SetNotifyPref(email, category string, enabled bool) error {
 	return s.persistLocked(colNotifyPrefs)
 }
 
+// arrivalStripDismissalKey namespaces the home page's first-session
+// arrival strip (J5 F37) inside the same per-member map SetNotifyPref
+// persists — the notify_prefs table, colNotifyPrefs — rather than a new
+// table: the finding's own constraint is "no schema migration", and this
+// reuses the one existing per-member preference store instead of adding
+// one. The leading "ui." keeps it out of notificationPreferenceCategories
+// on purpose: this is a chrome dismissal flag, never a real notification
+// category, and must never surface in the settings page's own catalog or
+// be reachable through SetNotifyPref's whitelist.
+const arrivalStripDismissalKey = "ui.arrival_strip_dismissed"
+
+// SetUIPreference records one small, member-scoped chrome flag in the
+// same per-member map SetNotifyPref uses, but with no category
+// whitelist — see arrivalStripDismissalKey's own doc comment for why a
+// second, unchecked write path exists beside SetNotifyPref rather than
+// widening that one's whitelist.
+func (s *Store) SetUIPreference(email, key string, value bool) error {
+	email = s.canonicalEmail(email)
+	key = strings.TrimSpace(key)
+	if email == "" {
+		return fmt.Errorf("email is required")
+	}
+	if key == "" {
+		return fmt.Errorf("key is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
+	if s.state.NotifyPrefs[email] == nil {
+		s.state.NotifyPrefs[email] = map[string]bool{}
+	}
+	s.state.NotifyPrefs[email][key] = value
+	return s.persistLocked(colNotifyPrefs)
+}
+
+// UIPreference reads one member-scoped chrome flag SetUIPreference wrote.
+// false (not set) is the honest zero value, never an error.
+func (s *Store) UIPreference(email, key string) bool {
+	email = s.canonicalEmail(email)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state.NotifyPrefs[email][key]
+}
+
 // SetSchedule replaces the persisted regular-season schedule wholesale. It
 // does not validate the schedule's shape (GenerateSchedule already did);
 // callers that need the section 2.3 regeneration guard (season not

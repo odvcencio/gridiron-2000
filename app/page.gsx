@@ -390,6 +390,35 @@ func Page() Node {
 				You now co-manage <strong>{data.co_manager_welcome_team_name}</strong> with <strong>{data.co_manager_welcome_primary_first_name}</strong>. You share the roster, the Big Board, and the draft clock.
 			</p>
 		</If>
+		{/* J5 F37: an arrival strip for a manager's first session — one
+		    dismissible strip for a member whose team has no saved lineup
+		    for the current week, with the three next actions. Sits ahead
+		    of the Action Center so it is the first thing a brand-new
+		    manager reads. Dismiss is a plain link (GET /arrival-strip/
+		    dismiss, arrival_strip_handler.go), not a managed form: this
+		    page's own template must stay link-only, no form element at all
+		    (TestHomepageActionCenterTypedAdapterRendersLinkOnly), and that
+		    handler's own doc comment explains why a GET is the deliberate,
+		    narrow exception here. Dismissal (DismissArrivalStrip, "ui."
+		    key inside the existing per-member NotifyPrefs map — no schema
+		    migration) persists per member, so it never returns once
+		    dismissed. */}
+		<If cond={data.arrival_strip_shown}>
+			<section class="score-command arrival-strip" aria-labelledby="home-arrival-heading">
+				<header class="section-heading section-heading--split">
+					<div>
+						<span class="section-index">FIRST SESSION</span>
+						<h2 id="home-arrival-heading">Three things before kickoff</h2>
+					</div>
+					<a href="/arrival-strip/dismiss" data-gosx-link class="access-link" aria-label="Dismiss this strip">Dismiss</a>
+				</header>
+				<ul class="arrival-strip__list">
+					<li><a href="/team" data-gosx-link>Set your lineup →</a></li>
+					<li><a href="/players#waivers" data-gosx-link>Check waivers →</a></li>
+					<li><a href="/guide" data-gosx-link>Read the rules →</a></li>
+				</ul>
+			</section>
+		</If>
 		<If cond={data.viewer.signed_in}>
 			<ActionCenterPanel {...data.action_center}></ActionCenterPanel>
 		</If>
