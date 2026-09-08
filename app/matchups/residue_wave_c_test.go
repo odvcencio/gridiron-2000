@@ -76,6 +76,37 @@ func TestMatchupsResiduePhoneCompactsStatusStripAndPromotesScoreCard(t *testing.
 	}
 }
 
+// TestMatchupsResiduePhoneKeepsManagerAndRecordOnOneLine is a coordinator
+// follow-up on the wave-C manager residue: at phone width the featured
+// card's manager name and record ("Jorge" / "· 0-0") wrapped onto two
+// lines even though the stacked, full-width team header (the phone
+// compaction fix above) leaves plenty of room for both — the row's own
+// flex-wrap kept triggering regardless, leaving the separator dot to
+// lead its own line ("· 0-0"). At true phone width the row now stays on
+// one line; the manager name's own TextBlock ellipsis (maxLines=1) still
+// clamps an unusually long name instead of forcing a wrap.
+func TestMatchupsResiduePhoneKeepsManagerAndRecordOnOneLine(t *testing.T) {
+	css := readMatchupsStylesheet(t)
+	start := strings.Index(css, "/* comb — birch (2026-09-08 wave C)")
+	if start < 0 {
+		t.Fatal("styles.css is missing the comb — birch (2026-09-08 wave C) block")
+	}
+	block := css[start:]
+	phoneStart := strings.Index(block, "@media (width <= 38rem) {")
+	if phoneStart < 0 {
+		t.Fatal("birch block is missing its @media (width <= 38rem) phone override")
+	}
+	phone := block[phoneStart:]
+	for _, want := range []string{
+		".matchups-page .matchup-team-line {",
+		"flex-wrap: nowrap;",
+	} {
+		if !strings.Contains(phone, want) {
+			t.Errorf("birch phone compaction block missing %q", want)
+		}
+	}
+}
+
 func readMatchupsStylesheet(t *testing.T) string {
 	t.Helper()
 	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
