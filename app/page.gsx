@@ -524,7 +524,7 @@ func Page() Node {
 		<section class="score-command" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval={data.live_interval} data-gosx-live-on="scores:changed">
 			<header class="section-heading section-heading--split">
 				<div>
-					<span class="section-index">01 // MATCHUP PREVIEW</span>
+					<span class="section-index">MATCHUP PREVIEW</span>
 					<h2>League simulator</h2>
 				</div>
 				<div class="sync-state" role="status" aria-live="polite">
@@ -560,7 +560,7 @@ func Page() Node {
 			<section class="score-command">
 				<header class="section-heading section-heading--split">
 					<div>
-						<span class="section-index">00 // ANNOUNCEMENTS</span>
+						<span class="section-index">ANNOUNCEMENTS</span>
 						<h2>From the commissioner</h2>
 					</div>
 				</header>
@@ -583,7 +583,7 @@ func Page() Node {
 		<div class="dashboard-split">
 			<section class="standings-panel">
 				<header class="section-heading">
-					<span class="section-index">02 // POWER GRID</span>
+					<span class="section-index">POWER GRID</span>
 					<h2>{data.standings_title}</h2>
 					<p>{data.standings_note}</p>
 				</header>
@@ -615,7 +615,7 @@ func Page() Node {
 			</section>
 			<aside class="activity-panel">
 				<div class="activity-panel__header">
-					<span class="section-index">03 // WIRE LOG</span>
+					<span class="section-index">WIRE LOG</span>
 					<span class="mono">AUTO-SCROLL</span>
 				</div>
 				<h2>Moves after midnight</h2>

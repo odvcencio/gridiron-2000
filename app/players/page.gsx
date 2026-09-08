@@ -33,9 +33,13 @@ func Page() Node {
 	return <main class="page board-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
+				{/* Decision 2 (J1 F28, wave E): the eyebrow used to repeat the
+				    h1's own words verbatim ("PLAYER POOL" / "PLAYER POOL").
+				    "Roster & waivers" names the page's actual job (sign,
+				    claim, or drop) without restating the heading. */}
 				<span class="signal-label">
 					<span class="signal-mark" aria-hidden="true"></span>
-					PLAYER POOL
+					ROSTER & WAIVERS
 				</span>
 				<h1>PLAYER POOL</h1>
 				<p>
@@ -244,7 +248,7 @@ func PlayerPoolRegion() Node {
 	return <section class="player-pool">
 		<div class="pool-toolbar">
 			<div>
-				<span class="section-index">01 // PLAYER LIST</span>
+				<span class="section-index">PLAYER LIST</span>
 				<h2>Browse the pool</h2>
 			</div>
 		</div>
@@ -576,7 +580,7 @@ func WaiverDeskRegion() Node {
 	return <section class="player-pool" id="waivers-content">
 		<div class="pool-toolbar">
 			<div>
-				<span class="section-index">02 // WAIVER DESK</span>
+				<span class="section-index">WAIVER DESK</span>
 				<If cond={data.pool_unavailable}>
 					<h2>Player data unavailable</h2>
 				</If>
@@ -716,7 +720,7 @@ func WaiverDeskRegion() Node {
 		</If>
 		<div class="pool-toolbar">
 			<div>
-				<span class="section-index">03 // WAIVER ORDER</span>
+				<span class="section-index">WAIVER ORDER</span>
 				<h2>This week's claim order</h2>
 			</div>
 		</div>
