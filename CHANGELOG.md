@@ -5,7 +5,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- The draft room's player pool now keeps the position filter, the search text, and the sort order across every live update, including a pick another manager makes while you watch. Autopick's own house-order redirect and every filter/sort change now carry the same three settings through to the pool region.
+- On a phone, the pool row's "+ BOARD" control is now a compact target beside DRAFT, so at least five rows fit on one screen instead of two and a half. Tapping DRAFT now opens a confirm sheet that names the player and the pick, with a Confirm and a Cancel button, instead of a button that swapped its own label from "Draft" to "Confirm."
+- Autopick no longer drafts more players at one position than the league's own roster shape supports (for example, six quarterbacks on one team). It also no longer takes a Big Board entry that the house order ranks far below the current pick when a real, still-open roster need is available instead; it logs the reason and moves to the next entry.
+- The Big Board now shows an inline warning on a row whose house rank sits far below the pick where you next select, and a one-line note explaining that autopick takes the board in the order it is ranked.
+- A "Skip to the player pool" link now sits right after the room's own "Skip to league content" link, so a keyboard manager reaches the search box in two tab stops instead of about fifty. After a pick, keyboard focus now lands on the pool's search box instead of the top of the page.
+- In landscape on a phone, the draft room's pool now shows more than one player: the column header collapses and each row's own padding shrinks.
+- The draft room's panel navigation no longer offers each destination twice; Picks, Draft grid, and Teams each have one reachable control.
+- The draft room's phone pill now shows the plain-language state sentence ("Pick 56; Los Delfines del Norte on the clock; 7 of 8 ready; clock paused.") instead of a clipped code fragment.
+- The cached-player-data banner in the draft room now reads "Player data is a saved copy. Picks are live." instead of the technical "CACHED SNAPSHOT" label and a longer sentence.
+- The draft room's sound control now reads "Mute" or "Unmute" instead of stating "Sound on" beside three other buttons that command an action.
+- The draft room now names one list, the Big Board, everywhere: adding a player, removing one, and reordering the list all answer with "Big Board," matching the /board page.
+- When a manager holds both the current pick and the next one, the room now says so plainly ("You pick again next turn. Plan the pair.") instead of showing the same team name twice in three stacked lines.
 
 ## [release-2026.09.08-88f7149-season2] — 2026-09-07
 
