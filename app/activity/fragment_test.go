@@ -483,3 +483,84 @@ func TestActivityRefreshNoteIsCalmAndInsideThePolledRegion(t *testing.T) {
 		}
 	}
 }
+
+// TestActivityRegionActionTypeFilterRendersBesideTeamAndNamesTheEmptyChoice
+// is the coordinator's failing-test-first reproduction for the render
+// layer (J4 F33 follow-up, handed over from hemlock's commissioner-
+// actions team filter): an action-type <select> renders beside the team
+// filter, its options and current selection come from data.type_options,
+// and a filtered-empty result states the manager's own choice
+// (data.filtered_empty_message) instead of the generic "no moves match"
+// line.
+func TestActivityRegionActionTypeFilterRendersBesideTeamAndNamesTheEmptyChoice(t *testing.T) {
+	program, err := route.LoadFileProgram("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseData := map[string]any{
+		"teams": []string{}, "team": "", "query": "", "has_filters": true,
+		"page": 1, "pages": 1, "page_start": 0, "page_end": 0,
+		"has_previous": false, "has_next": false,
+		"team_options": []map[string]any{
+			{"value": "PM", "label": "Pale moon (PM)", "selected": true},
+		},
+		"type_options": []map[string]any{
+			{"value": "add", "label": "Adds", "selected": false},
+			{"value": "trade", "label": "Trades", "selected": true},
+		},
+		"type": "trade",
+	}
+
+	t.Run("filter select renders beside team", func(t *testing.T) {
+		data := map[string]any{}
+		for k, v := range baseData {
+			data[k] = v
+		}
+		data["has_transactions"] = true
+		data["transactions_empty"] = false
+		data["filtered_count"] = 1
+		data["transactions_count"] = 5
+		data["transactions"] = activityRows(nil)
+		html, err := route.RenderProgramComponent(program, "ActivityRegion", route.ProgramRenderEnv{
+			Values: map[string]any{"data": data},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(html, `name="type"`) {
+			t.Errorf("ActivityRegion is missing the action-type filter's own <select name=\"type\">: %s", html)
+		}
+		if !strings.Contains(html, `<option value="trade" selected>Trades</option>`) {
+			t.Errorf("ActivityRegion's type filter does not mark Trades selected: %s", html)
+		}
+		if !strings.Contains(html, `<option value="add">Adds</option>`) {
+			t.Errorf("ActivityRegion's type filter is missing the Adds option: %s", html)
+		}
+	})
+
+	t.Run("filtered-empty state names the choice", func(t *testing.T) {
+		data := map[string]any{}
+		for k, v := range baseData {
+			data[k] = v
+		}
+		data["has_transactions"] = true
+		data["transactions_empty"] = true
+		data["filtered_count"] = 0
+		data["transactions_count"] = 5
+		data["transactions"] = activityRows(nil)
+		data["filtered_empty_message"] = "No trades for Pale moon this season."
+		data["has_filtered_empty_message"] = true
+		html, err := route.RenderProgramComponent(program, "ActivityRegion", route.ProgramRenderEnv{
+			Values: map[string]any{"data": data},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(html, "No trades for Pale moon this season.") {
+			t.Errorf("ActivityRegion empty state does not name the filter choice: %s", html)
+		}
+		if strings.Contains(html, "Try another team or query, or clear the filters") {
+			t.Errorf("ActivityRegion still shows the generic empty-state copy when a specific message is available: %s", html)
+		}
+	})
+}

@@ -6372,6 +6372,60 @@ func draftPickAttributionSentence(madeBy, teamName, playerLabel string) string {
 // distinct feed presence).
 const activityActorClassCommissioner = "commissioner"
 
+// Coordinator follow-up (J4 F33, handed over from hemlock's commissioner-
+// actions team-filter work): the normalized action-type vocabulary
+// /activity's own type filter offers, alongside the existing team
+// filter. Every activityMaps entry carries exactly one of these in its
+// own "action_type" field.
+const (
+	activityActionTypeDraft        = "draft"
+	activityActionTypeAdd          = "add"
+	activityActionTypeDrop         = "drop"
+	activityActionTypeWaiver       = "waiver"
+	activityActionTypeTrade        = "trade"
+	activityActionTypeLineup       = "lineup"
+	activityActionTypeCommissioner = "commissioner"
+)
+
+// activityActionTypeForTransaction buckets a Transaction's own Type into
+// the feed's normalized action-type vocabulary. "claim" (a resolved
+// waiver claim) reads "waiver"; "auto-drop" (a roster-full claim's own
+// forced drop) reads "drop", the action it actually performs; both
+// "commissioner" and "commissioner_correction" read "commissioner". A
+// future, still-unmapped Type falls back to itself rather than an empty
+// bucket, so a manager can still filter on it even before this list
+// catches up — see activityTypeOptions for why an unrecognized value
+// never renders as its own select option today.
+func activityActionTypeForTransaction(txnType string) string {
+	switch txnType {
+	case "add":
+		return activityActionTypeAdd
+	case "drop", "auto-drop":
+		return activityActionTypeDrop
+	case "claim":
+		return activityActionTypeWaiver
+	case "trade":
+		return activityActionTypeTrade
+	case "commissioner", "commissioner_correction":
+		return activityActionTypeCommissioner
+	default:
+		return txnType
+	}
+}
+
+// activityActionTypeForCommissionerEvent buckets a CommissionerEvent's
+// own Kind: a lineup intervention (lineup.go's recordLineupInterventionEvent,
+// Kind prefixed "lineup.") reads "lineup" — a manager wants to isolate
+// "the commissioner touched my lineup" from every other commissioner
+// action — everything else (resets, seat releases, roster corrections,
+// announcements, ...) reads the general "commissioner" bucket.
+func activityActionTypeForCommissionerEvent(kind string) string {
+	if strings.HasPrefix(kind, "lineup.") {
+		return activityActionTypeLineup
+	}
+	return activityActionTypeCommissioner
+}
+
 // activityMaps merges Picks, Transactions, and CommissionerEvents into one
 // time-sorted feed, newest first (roster-ops spec section 7.2: "the feed
 // composes at read time" — this replaces the former transactionMaps()
@@ -6393,6 +6447,7 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 		kind       string // "" for an ordinary team move, activityActorClassCommissioner for a commissioner event
 		actorName  string
 		actorEmail string
+		actionType string // the row's own normalized action-type bucket — see activityActionType's doc comment
 	}
 	entries := make([]entry, 0, len(state.Picks)+len(state.Transactions)+len(state.CommissionerEvents))
 	for _, pick := range state.Picks {
@@ -6408,11 +6463,11 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 		label = fmt.Sprintf("%s — R%d · P%d", label, pick.Round, pick.Number)
 		teamName, _, _ := s.activityTeamDisplay(state, []string{pick.TeamID})
 		teamLabel, action, player := draftPickActivityLine(pick.MadeBy, teamName, label)
-		entries = append(entries, entry{at: pick.MadeAt, teamIDs: []string{pick.TeamID}, teamLabel: teamLabel, action: action, player: player})
+		entries = append(entries, entry{at: pick.MadeAt, teamIDs: []string{pick.TeamID}, teamLabel: teamLabel, action: action, player: player, actionType: activityActionTypeDraft})
 	}
 	for _, txn := range state.Transactions {
 		action, player := activityLine(txn)
-		entries = append(entries, entry{at: txn.At, teamIDs: activityTeamIDs(txn), action: action, player: player})
+		entries = append(entries, entry{at: txn.At, teamIDs: activityTeamIDs(txn), action: action, player: player, actionType: activityActionTypeForTransaction(txn.Type)})
 	}
 	for _, event := range state.CommissionerEvents {
 		teamIDs := []string{}
@@ -6429,6 +6484,7 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 		entries = append(entries, entry{
 			at: event.At, teamIDs: teamIDs, action: event.Summary, player: player,
 			kind: activityActorClassCommissioner, actorName: event.ActorName, actorEmail: event.ActorEmail,
+			actionType: activityActionTypeForCommissionerEvent(event.Kind),
 		})
 	}
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].at.After(entries[j].at) })
@@ -6488,6 +6544,7 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 			"team_search":           strings.Join(teamSearch, " "),
 			"action":                e.action,
 			"player":                e.player,
+			"action_type":           e.actionType,
 			"kind":                  e.kind,
 			"actor_class":           activityActorClassLabel(e.kind),
 			"actor_name":            e.actorName,
