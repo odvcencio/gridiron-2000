@@ -68,7 +68,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The playoff panel hides its Source, Final week, and Revision tiles until a bracket exists, instead of showing an empty tile and two zeros, and its lead sentence uses plain words.
 - The console now links the words "the league log" to the activity page from the week-close panel and the danger zone, and the activity page's team filter carries a "Commissioner actions" option.
 - The week-close panel now names a stale stat feed when its last fetch predates the week's own last kickoff, with the fetch time and what the commissioner can do about it.
-- The console's own top line no longer reads "Preseason" beside a week-close reason like "waiting for 16 of 16 games to go final" once a schedule exists; it now names the week's own start time, progress, or close readiness, with the games-final count included.
+- The console's own top line no longer reads "Preseason" once a schedule exists; it now names the week's own start time, progress, or close readiness, with the games-final count included. It also no longer follows that fact with a second, separate week-close reason that read false before kickoff (for example "waiting for 16 of 16 games to go final" days before the week starts); a stale stat feed still gets its own mention once every game is final.
 
 ## [release-2026.09.08-88f7149-season2] — 2026-09-07
 

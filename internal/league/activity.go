@@ -18,6 +18,12 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 	state := s.store.Snapshot()
 	entries := s.activityMaps(state, 0)
 	team := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("team")))
+	// actionType (coordinator follow-up, J4 F33 handed over from hemlock's
+	// commissioner-actions team filter): a second, independent filter
+	// beside team, over the same normalized "action_type" every
+	// activityMaps row now carries — see activityActionTypeForTransaction
+	// and activityActionTypeForCommissionerEvent (service.go).
+	actionType := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("type")))
 	rawQuery := strings.TrimSpace(r.URL.Query().Get("q"))
 	query := strings.ToLower(rawQuery)
 
@@ -25,6 +31,9 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 	for _, entry := range entries {
 		entryTeam, _ := entry["team"].(string)
 		if team != "" && !activityTeamMatches(entry, team) {
+			continue
+		}
+		if actionType != "" && activityText(entry["action_type"]) != actionType {
 			continue
 		}
 		if query != "" {
@@ -62,6 +71,7 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 	// callers/fixtures.
 	teamOptions := make([]map[string]any, 0, len(s.Teams())+1)
 	teamKnown := team == ""
+	selectedTeamName := ""
 	for _, candidate := range s.Teams() {
 		teams = append(teams, candidate.Abbreviation)
 		view := s.teamView(state, candidate.ID)
@@ -72,6 +82,10 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 		selected := team != "" && view.Abbreviation == team
 		if selected {
 			teamKnown = true
+			selectedTeamName = view.Name
+			if selectedTeamName == "" {
+				selectedTeamName = view.Abbreviation
+			}
 		}
 		teamOptions = append(teamOptions, map[string]any{
 			"value":    view.Abbreviation,
@@ -103,6 +117,11 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 	if team != "" && !teamKnown {
 		teamUnknownNotice = fmt.Sprintf("No team is coded %s.", team)
 	}
+	typeOptions := activityTypeOptions(actionType)
+	filteredEmptyMessage := ""
+	if pagination.Total == 0 && (actionType != "" || team != "") {
+		filteredEmptyMessage = activityFilteredEmptyMessage(actionType, selectedTeamName)
+	}
 	timezone := FriendlyTimezoneLabel(s.matchupLocation().String())
 	// lastUpdate (F27, gap-audit J6) is the newest entry's own already-
 	// formatted league-local time, from the UNFILTERED feed — the
@@ -114,32 +133,36 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 		lastUpdate, _ = entries[0]["time"].(string)
 	}
 	return map[string]any{
-		"timezone":            timezone,
-		"last_update":         lastUpdate,
-		"has_last_update":     lastUpdate != "",
-		"viewer":              s.Viewer(r),
-		"league":              s.leagueMapForViewer(r),
-		"playoff_truth":       s.playoffTruthMap(state, s.clock(), s.IsCommissioner(r)),
-		"transactions":        filtered,
-		"transactions_empty":  pagination.Total == 0,
-		"has_transactions":    len(entries) > 0,
-		"transactions_count":  len(entries),
-		"filtered_count":      pagination.Total,
-		"team":                team,
-		"teams":               teams,
-		"team_options":        teamOptions,
-		"team_unknown":        teamUnknownNotice != "",
-		"team_unknown_notice": teamUnknownNotice,
-		"query":               rawQuery,
-		"has_filters":         team != "" || rawQuery != "",
-		"page":                pagination.Page,
-		"pages":               pagination.Pages,
-		"page_start":          pageStart,
-		"page_end":            pagination.End,
-		"has_previous":        pagination.HasPrevious,
-		"has_next":            pagination.HasNext,
-		"previous_href":       activityPageHref(team, rawQuery, pagination.Page-1),
-		"next_href":           activityPageHref(team, rawQuery, pagination.Page+1),
+		"timezone":                   timezone,
+		"last_update":                lastUpdate,
+		"has_last_update":            lastUpdate != "",
+		"viewer":                     s.Viewer(r),
+		"league":                     s.leagueMapForViewer(r),
+		"playoff_truth":              s.playoffTruthMap(state, s.clock(), s.IsCommissioner(r)),
+		"transactions":               filtered,
+		"transactions_empty":         pagination.Total == 0,
+		"has_transactions":           len(entries) > 0,
+		"transactions_count":         len(entries),
+		"filtered_count":             pagination.Total,
+		"team":                       team,
+		"teams":                      teams,
+		"team_options":               teamOptions,
+		"team_unknown":               teamUnknownNotice != "",
+		"team_unknown_notice":        teamUnknownNotice,
+		"type":                       actionType,
+		"type_options":               typeOptions,
+		"query":                      rawQuery,
+		"has_filters":                team != "" || actionType != "" || rawQuery != "",
+		"filtered_empty_message":     filteredEmptyMessage,
+		"has_filtered_empty_message": filteredEmptyMessage != "",
+		"page":                       pagination.Page,
+		"pages":                      pagination.Pages,
+		"page_start":                 pageStart,
+		"page_end":                   pagination.End,
+		"has_previous":               pagination.HasPrevious,
+		"has_next":                   pagination.HasNext,
+		"previous_href":              activityPageHref(team, actionType, rawQuery, pagination.Page-1),
+		"next_href":                  activityPageHref(team, actionType, rawQuery, pagination.Page+1),
 	}
 }
 
@@ -196,12 +219,19 @@ func activityTeamIDs(txn Transaction) []string {
 	return ids
 }
 
-// activityPageHref preserves both filters across pagination and omits page=1
-// so links remain compact and useful without JavaScript.
-func activityPageHref(team, query string, page int) string {
+// activityPageHref preserves every filter across pagination and omits
+// page=1 so links remain compact and useful without JavaScript.
+// actionType was added for the coordinator's own action-type filter
+// (J4 F33 follow-up): applied through the same query parameters the
+// region refresh (activityFragmentURL, app/activity/page.server.go)
+// already preserves for team and q.
+func activityPageHref(team, actionType, query string, page int) string {
 	values := url.Values{}
 	if team != "" {
 		values.Set("team", team)
+	}
+	if actionType != "" {
+		values.Set("type", actionType)
 	}
 	if query != "" {
 		values.Set("q", query)
@@ -213,4 +243,70 @@ func activityPageHref(team, query string, page int) string {
 		return "/activity?" + encoded
 	}
 	return "/activity"
+}
+
+// activityTypeLabels pairs each normalized action-type bucket with the
+// select option's own title-case label and the plain, lowercase plural
+// noun the filtered-empty message's sentence uses ("No trades ...").
+// Order here is display order: activityTypeOptions walks this slice, not
+// a map, so the <select> reads in one stable, meaningful sequence
+// instead of Go's randomized map order.
+var activityTypeLabels = []struct{ value, label, noun string }{
+	{activityActionTypeDraft, "Draft picks", "draft picks"},
+	{activityActionTypeAdd, "Adds", "adds"},
+	{activityActionTypeDrop, "Drops", "drops"},
+	{activityActionTypeWaiver, "Waiver claims", "waiver claims"},
+	{activityActionTypeTrade, "Trades", "trades"},
+	{activityActionTypeLineup, "Lineup changes", "lineup changes"},
+	{activityActionTypeCommissioner, "Commissioner actions", "commissioner actions"},
+}
+
+// activityTypeOptions renders the action-type <select> beside the team
+// filter (coordinator follow-up, J4 F33): "All types" plus one option
+// per bucket in activityTypeLabels, sharing the exact "value"/"label"/
+// "selected" shape team_options already uses so app/activity/page.gsx
+// can render both selects the same way.
+// The "All types" option is not part of this list — hardcoded in
+// app/activity/page.gsx instead, matching team_options' own convention
+// (team_options carries no "All teams" entry either).
+func activityTypeOptions(selected string) []map[string]any {
+	out := make([]map[string]any, 0, len(activityTypeLabels))
+	for _, entry := range activityTypeLabels {
+		out = append(out, map[string]any{
+			"value":    entry.value,
+			"label":    entry.label,
+			"selected": entry.value == selected,
+		})
+	}
+	return out
+}
+
+// activityTypeNoun names one action-type bucket in a sentence ("No
+// trades ..."). An unrecognized bucket (a future Transaction.Type not
+// yet in activityTypeLabels — see activityActionTypeForTransaction's own
+// doc comment) still reads as plain English rather than a raw token.
+func activityTypeNoun(actionType string) string {
+	for _, entry := range activityTypeLabels {
+		if entry.value == actionType {
+			return entry.noun
+		}
+	}
+	if actionType == "" {
+		return "moves"
+	}
+	return actionType + " moves"
+}
+
+// activityFilteredEmptyMessage names the manager's own team and/or
+// action-type choice in the empty state (coordinator follow-up, J4 F33)
+// instead of a generic "no moves match": "No trades for Pale moon this
+// season." teamName "" omits the "for <team>" clause (a type-only
+// filter, or the synthetic "Commissioner actions" team value, which has
+// no plain team name of its own).
+func activityFilteredEmptyMessage(actionType, teamName string) string {
+	noun := activityTypeNoun(actionType)
+	if teamName == "" {
+		return fmt.Sprintf("No %s this season.", noun)
+	}
+	return fmt.Sprintf("No %s for %s this season.", noun, teamName)
 }
