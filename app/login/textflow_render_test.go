@@ -7,21 +7,23 @@ import (
 
 // TestLoginPosterHeadlineUsesTextBlock pins the textflow wave
 // (2026-09-05): the login poster's own bounded action headline (the
-// league name plus data.public_entry.headline, now an <h2> per the
-// wave-7 re-audit's single-h1 contract) renders through
+// league name plus data.public_entry.headline) renders through
 // <TextBlock maxLines={2}>, the product contract's own clamp for a
-// bounded action headline.
+// bounded action headline. J5 F18 (2026-09-04 audit) demoted this from
+// an h2 to a plain <p class="login-poster__headline"> — it used to be
+// the first of two h2s a screen reader met ahead of the page's only h1
+// — so this now looks for the paragraph, not a heading tag.
 func TestLoginPosterHeadlineUsesTextBlock(t *testing.T) {
 	body := renderLoginPage(t, "%2F")
 	at := strings.Index(body, `class="login-poster"`)
 	if at < 0 {
 		t.Fatal("no .login-poster in the rendered login page")
 	}
-	h2At := strings.Index(body[at:], "<h2")
-	if h2At < 0 {
-		t.Fatal("no <h2 inside .login-poster")
+	classAt := strings.Index(body[at:], `class="login-poster__headline"`)
+	if classAt < 0 {
+		t.Fatal(`no class="login-poster__headline" inside .login-poster`)
 	}
-	tagStart := at + h2At
+	tagStart := at + strings.LastIndex(body[at:at+classAt], "<p")
 	tagEnd := strings.Index(body[tagStart:], ">")
 	tag := body[tagStart : tagStart+tagEnd]
 	if !strings.Contains(tag, "data-gosx-text-layout") {

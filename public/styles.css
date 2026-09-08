@@ -18352,3 +18352,25 @@ details.scorebug[data-phase="state--pre"] .scorebug__proj-value {
 .q-row[data-taken="true"] .q-row__info {
   opacity: 0.45;
 }
+
+/* comb — linden (2026-09-07 UX pass): J5 F18. .login-poster's own
+   league-name headline and .login-event's own "LEAGUE DRAFT" card
+   heading demoted from h2 to plain text (app/login/page.gsx) — a screen
+   reader used to meet two level-2 headings before the page's only h1.
+   Same selectors' own visual treatment, restated against the new
+   classes so nothing regresses: the gradient text (.login-poster h2's
+   own rule, above) and the event card's own font size (.login-event
+   h2's own rule, above). */
+.login-poster h2,
+.login-poster__headline {
+  background: var(--gradient-chrome);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+.login-event h2,
+.login-event__heading {
+  margin-bottom: var(--space-sm);
+  font-size: var(--type-lg);
+}
