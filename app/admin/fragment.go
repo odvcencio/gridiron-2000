@@ -39,6 +39,12 @@ type adminAttentionReadoutProps struct {
 	// schedule's first week, which would otherwise misread as "week 1 is
 	// still open." This card states the true, more useful fact instead.
 	ScheduleFinal bool
+	// ScheduleProgressSentence (coordinator addendum, wave C, 2026-09-08)
+	// is weekProgressSentence's own words for this week — the same
+	// function the attention line above already reads — so this card's
+	// first line never glues a close-readiness reason ("waiting for 16
+	// of 16 games to go final") onto a week that has not kicked off yet.
+	ScheduleProgressSentence string
 	SeatCount           int
 	ClaimedCount        int
 	ReadyCount          int
@@ -141,6 +147,7 @@ func adminAttentionReadoutFromData(data map[string]any) adminAttentionReadoutPro
 			view.ScheduleReady = boolValue(close, "ready")
 			view.ScheduleReason = stringValue(close, "reason", "")
 			view.ScheduleFinal = boolValue(close, "final")
+			view.ScheduleProgressSentence = stringValue(close, "progress_sentence", "")
 		}
 	}
 	if rawSeats, ok := data["seats"].([]map[string]any); ok {

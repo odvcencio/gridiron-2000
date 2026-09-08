@@ -240,8 +240,15 @@ func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
 					<If cond={props.ScheduleFinal}>
 						<li><a href="#admin-week-close" data-gosx-link>Every week is closed →</a></li>
 					</If>
+					{/* Coordinator addendum: this row used to read "Week N is
+					    ready to close" / a close-readiness reason ("waiting
+					    for 16 of 16 games to go final") glued onto a week
+					    that had not kicked off yet. ScheduleProgressSentence
+					    is weekProgressSentence's own words for this week —
+					    the same function the attention line above already
+					    reads — so the two lines can never disagree again. */}
 					<If cond={props.ScheduleFinal == false}>
-						<li><a href="#admin-week-close" data-gosx-link><strong>Week {props.ScheduleWeek}</strong> <If cond={props.ScheduleReady}>is ready to close</If><If cond={props.ScheduleReady == false}>{props.ScheduleReason}</If> →</a></li>
+						<li><a href="#admin-week-close" data-gosx-link>{props.ScheduleProgressSentence} →</a></li>
 					</If>
 					<li><a href="#admin-week-close" data-gosx-link><strong>{props.OpenClaimCount}</strong> open waiver claim<If cond={props.OpenClaimCount != 1}>s</If> →</a></li>
 					<li><a href="/trades"><strong>{props.TradesInReviewCount}</strong> trade<If cond={props.TradesInReviewCount != 1}>s</If> in review →</a></li>
@@ -422,10 +429,13 @@ func Page() Node {
 					<If cond={data.schedule.close.final == false}>
 						<strong class="mono">Week {data.schedule.close.week}</strong>
 						<div class="draft-clock-meta admin-masthead-week-meta">
-							<TextBlock as="span" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
-								<If cond={data.schedule.close.ready}>Ready to close</If>
-								<If cond={data.schedule.close.ready == false}>{data.schedule.close.reason}</If>
-							</TextBlock>
+	{/* Coordinator addendum: this used to read close.reason ("waiting
+							    for 16 of 16 games to go final") even before the week's
+							    own first kickoff — a close-readiness reason glued on
+							    before there was anything to close. progress_sentence is
+							    weekProgressSentence's own words for this week — the
+							    same function the attention line above already reads. */}
+							<TextBlock as="span" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text={data.schedule.close.progress_sentence} />
 							<If cond={data.schedule.close.has_first_kickoff}>
 								<span class="mono">First kickoff · {data.schedule.close.first_kickoff_display}</span>
 							</If>

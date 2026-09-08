@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -422,7 +423,12 @@ func TestAdminThisWeekCardAnswersTheJobInOneScreen(t *testing.T) {
 		`href="#admin-week-close"`,
 		`href="/trades"`,
 		`href="#admin-invites"`,
-		"props.ScheduleWeek",
+		// ScheduleProgressSentence (coordinator addendum, wave C,
+		// 2026-09-08) replaced the ScheduleWeek/ScheduleReady/
+		// ScheduleReason trio for the row's own first line — see
+		// TestAdminMastheadAndThisWeekCardFollowTheNextOpenWeek for the
+		// rendered-content pin.
+		"props.ScheduleProgressSentence",
 		"props.OpenClaimCount",
 		"props.TradesInReviewCount",
 		"Needs you today:",
@@ -540,7 +546,7 @@ func TestAdminMastheadLeadsWithWeekOnceDraftIsComplete(t *testing.T) {
 		t.Fatal("page.gsx is missing the admin-masthead-week-meta wrapper")
 	}
 	weekMetaStart += openWeekBranchAt
-	stateRowAt := strings.Index(source[weekMetaStart:], "schedule.close.ready")
+	stateRowAt := strings.Index(source[weekMetaStart:], "schedule.close.progress_sentence")
 	kickoffRowAt := strings.Index(source[weekMetaStart:], "First kickoff ·")
 	seatsRowAt := strings.Index(source[weekMetaStart:], "SEATS\n")
 	if stateRowAt < 0 || kickoffRowAt < 0 || seatsRowAt < 0 {
@@ -655,6 +661,9 @@ func TestAdminNextOpenWeekFixtureProcess(t *testing.T) {
 	}
 
 	body := renderAdminPage(t)
+	if os.Getenv("ADMIN_NEXT_OPEN_WEEK_DEBUG") != "" {
+		fmt.Print(body)
+	}
 
 	thisWeekStart := strings.Index(body, `class="admin-this-week"`)
 	if thisWeekStart < 0 {
@@ -674,6 +683,21 @@ func TestAdminNextOpenWeekFixtureProcess(t *testing.T) {
 	if strings.Contains(thisWeek, "Week 1") {
 		t.Errorf("This week card is still naming the closed week: %s", thisWeek)
 	}
+	// Coordinator addendum: the row's own state must come from
+	// weekProgressSentence (season.go) — the same function the attention
+	// line above already reads — not from the week-close readiness
+	// reason. This fixture's synthetic schedule carries no real NFL
+	// games, so weekProgressSentence's own "games not known" branch
+	// renders the deterministic "Week N." rather than a readiness
+	// sentence; the readiness-only phrasing must not appear at all.
+	if fixture == "one-week-closed" && !strings.Contains(thisWeek, "Week 2.") {
+		t.Errorf("This week card's first line is not weekProgressSentence's own words: %s", thisWeek)
+	}
+	for _, unwanted := range []string{"waiting for", "is ready to close"} {
+		if strings.Contains(thisWeek, unwanted) {
+			t.Errorf("This week card still reads the week-close readiness reason (%q), not weekProgressSentence: %s", unwanted, thisWeek)
+		}
+	}
 
 	mastheadStart := strings.Index(body, `<div class="draft-clock-panel">`)
 	if mastheadStart < 0 {
@@ -692,5 +716,13 @@ func TestAdminNextOpenWeekFixtureProcess(t *testing.T) {
 	}
 	if strings.Contains(masthead, "Week 1") {
 		t.Errorf("league-status masthead is still naming the closed week: %s", masthead)
+	}
+	if fixture == "one-week-closed" && !strings.Contains(masthead, "Week 2.") {
+		t.Errorf("league-status masthead's state sentence is not weekProgressSentence's own words: %s", masthead)
+	}
+	for _, unwanted := range []string{"waiting for", "Ready to close"} {
+		if strings.Contains(masthead, unwanted) {
+			t.Errorf("league-status masthead still reads the week-close readiness reason (%q), not weekProgressSentence: %s", unwanted, masthead)
+		}
 	}
 }
