@@ -303,9 +303,14 @@ func TestBrowserRoomMeetsRefreshBudgetAndKeepsClockIdentity(t *testing.T) {
 	}
 	// Review item 10: EVERY named radio group in the shell, not only the
 	// mobile tab bar, must stay keyboard-reachable (every member's own
-	// tabIndex >= 0, never just "some" member of the group).
+	// tabIndex >= 0, never just "some" member of the group). Wave D
+	// (J5 F28) made the Picks, Draft grid, and Teams destinations one
+	// control each: their radio carries aria-hidden and tabindex=-1 and
+	// the visible <a> right after it is the reachable control, so a
+	// member counts as reachable when it is focusable itself OR when it
+	// is hidden and its next element sibling is a focusable link.
 	groups := `["draft-tab","draft-mine-view","draft-tape-filter"]`
-	if evalString(t, ctx, `String(`+groups+`.every(function(name){var inputs=document.querySelectorAll('input[name="'+name+'"]');return inputs.length>0&&Array.from(inputs).every(function(i){return i.tabIndex>=0})}))`) != "true" {
+	if evalString(t, ctx, `String(`+groups+`.every(function(name){var inputs=document.querySelectorAll('input[name="'+name+'"]');return inputs.length>0&&Array.from(inputs).every(function(i){if(i.tabIndex>=0){return true}var n=i.nextElementSibling;return i.getAttribute('aria-hidden')==='true'&&!!n&&n.tagName==='A'&&n.hasAttribute('href')&&n.tabIndex>=0})}))`) != "true" {
 		t.Fatal("not every radio group in the shell is keyboard reachable")
 	}
 	t.Logf("S6 refresh budget (%s mode): max gzip bytes observed per fragment across 10 picks: %v (ceilings: %v)", mode, maxSize, ceilings)

@@ -177,7 +177,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				target := draftpage.PracticeRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"])
+				target := draftpage.PracticeRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"], ctx.FormData["sort"])
 				actionui.RedirectWithNotice(ctx, target, fmt.Sprintf("Practice pick %d: %s selects %s.", pick.Number, team.Name, player.Name))
 				return nil
 			},

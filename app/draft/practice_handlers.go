@@ -195,7 +195,7 @@ func RenderPracticeRoom(page route.FilePage, data map[string]any) (gosx.Node, er
 
 // PracticeRedirectTarget is draftRedirectTarget for the practice room: a
 // practice pick lands back on /draft/practice with the viewer's own pool
-// position, search, and page preserved, exactly as a real pick does.
-func PracticeRedirectTarget(pos, query, page string) string {
-	return draftRedirectTargetFor(league.PracticeRoomPath, pos, query, page)
+// position, search, page, and sort preserved, exactly as a real pick does.
+func PracticeRedirectTarget(pos, query, page, sort string) string {
+	return draftRedirectTargetFor(league.PracticeRoomPath, pos, query, page, sort)
 }

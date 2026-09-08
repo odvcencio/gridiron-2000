@@ -64,6 +64,71 @@ func boardPageLinks(position, query string, pages, current int) []map[string]any
 // plus the remaining pool to add from, both in draft-relevant order. Primary
 // and co-managers resolve to the same key so the board shown to either person
 // is the board the draft clock will actually use for that team.
+// boardViewerNextPick resolves viewerTeam's own next overall pick number
+// (Wave D item 4, owner debrief 2026-09-06): the same "how many picks
+// until my own turn" walk service.go's yourPickIn already runs for the
+// command bar's "your pick in N" figure, returning the absolute pick
+// number instead of a relative count. ok is false for a seatless viewer,
+// a completed draft, or a viewer whose own turn never comes again — the
+// board value warning never renders without a real pick to compare
+// against.
+func boardViewerNextPick(state PersistedState, viewerTeam string) (pickNumber int, ok bool) {
+	if viewerTeam == "" {
+		return 0, false
+	}
+	teamCount := activeTeamCount(state.DraftOrder)
+	picksTotal := teamCount * CurrentDraftRounds()
+	nextNumber := len(state.Picks) + 1
+	for number := nextNumber; number <= picksTotal; number++ {
+		if teamOnClock(state.DraftOrder, number) == viewerTeam {
+			return number, true
+		}
+	}
+	return 0, false
+}
+
+// boardValueGuardMargin mirrors autopickBoardValueGuardMargin
+// (draftclock.go) exactly: the Big Board's own inline warning fires under
+// the identical threshold the autopick value guard redirects under, so a
+// manager reading the board sees the same "too far off value" line
+// autopick would actually act on.
+const boardValueGuardMargin = autopickBoardValueGuardMargin
+
+// boardValueWarning reports whether entry's own house rank sits more than
+// boardValueGuardMargin ranks below viewerNextPick, and the warning
+// sentence to show when it does (Wave D item 4). round clamps to
+// CurrentDraftRounds() — a house rank beyond the draft's own total pick
+// count (state.go's picksTotal) names a player the draft will likely
+// never reach, not a round number past the last one.
+func boardValueWarning(houseRank, viewerNextPick, teamCount, totalRounds int) (warn bool, text string) {
+	if houseRank <= 0 || viewerNextPick <= 0 || houseRank-viewerNextPick <= boardValueGuardMargin {
+		return false, ""
+	}
+	round := pickRound(teamCount, houseRank)
+	if round > totalRounds {
+		round = totalRounds
+	}
+	return true, fmt.Sprintf("Ranked %s by the house; likely still available in round %d.", ordinalWord(houseRank), round)
+}
+
+// ordinalWord renders n as "1st"/"2nd"/"3rd"/"4th" english ordinal text —
+// the Big Board value warning's own "Ranked 140th by the house" shape.
+func ordinalWord(n int) string {
+	if n%100 >= 11 && n%100 <= 13 {
+		return fmt.Sprintf("%dth", n)
+	}
+	switch n % 10 {
+	case 1:
+		return fmt.Sprintf("%dst", n)
+	case 2:
+		return fmt.Sprintf("%dnd", n)
+	case 3:
+		return fmt.Sprintf("%drd", n)
+	default:
+		return fmt.Sprintf("%dth", n)
+	}
+}
+
 func (s *Service) BoardData(r *http.Request) map[string]any {
 	viewer := s.Viewer(r)
 	state := s.store.Snapshot()
@@ -96,6 +161,18 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 	onBoard := make(map[string]bool, len(boardIDs))
 	entries := make([]map[string]any, 0, len(boardIDs))
 	pickedCount := 0
+	// viewerNextPick/teamCount/totalRounds (Wave D item 4, owner debrief
+	// 2026-09-06): resolved once, off this one request's own viewer/state,
+	// for every row's own boardValueWarning call below — autopick takes
+	// this board in order (draftclock.go's own board-first walk), so a
+	// far-off-value entry a manager will not reach for many rounds is
+	// worth flagging on the row it sits on, not just at the moment
+	// autopick would actually spend a pick on it.
+	viewerTeam, _ := viewer["team_id"].(string)
+	viewerNextPick, viewerHasFuturePick := boardViewerNextPick(state, viewerTeam)
+	teamCount := activeTeamCount(state.DraftOrder)
+	totalRounds := CurrentDraftRounds()
+	valueWarningCount := 0
 	for index, id := range boardIDs {
 		player, ok := pool.byID[id]
 		if !ok {
@@ -109,6 +186,15 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 		entry["picked"] = picked[id]
 		if picked[id] {
 			pickedCount++
+		}
+		valueWarn, valueWarnText := false, ""
+		if !picked[id] && viewerHasFuturePick {
+			valueWarn, valueWarnText = boardValueWarning(player.HouseRank, viewerNextPick, teamCount, totalRounds)
+		}
+		entry["value_warning"] = valueWarn
+		entry["value_warning_text"] = valueWarnText
+		if valueWarn {
+			valueWarningCount++
 		}
 		entries = append(entries, entry)
 	}
@@ -140,6 +226,12 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 		"board":              entries,
 		"board_count":        len(entries),
 		"board_picked_count": pickedCount,
+		// board_value_warning_count/board_has_value_warnings (Wave D item
+		// 4): gate the board's own one-line explainer ("autopick takes the
+		// board in order") — it renders only while at least one row
+		// actually carries a warning, never as permanent chrome.
+		"board_value_warning_count": valueWarningCount,
+		"board_has_value_warnings":  valueWarningCount > 0,
 		// draft_complete (J1 F34, 2026-09-04 audit): the masthead's own
 		// claim ("the draft room and autopick use this order") stops
 		// being true the moment the room closes; the page.gsx branch on
