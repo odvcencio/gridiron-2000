@@ -93,6 +93,87 @@ func TestCommissionerLineupViewTargetIsClaimedAndScoped(t *testing.T) {
 	}
 }
 
+// TestCommissionerLineupViewTargetNamesAnUnknownRequest pins J4 F10 (the
+// coordinator's own hand-off from hemlock): an unresolved ?team= request
+// must not vanish into the silent own-team fallback the loop above still
+// proves for lineup_target_id — lineup_target_unknown/
+// lineup_target_unknown_value now carry the raw request through so the
+// page can state the truth ("No team matches '<value>'") instead of
+// quietly substituting the commissioner's own franchise with no sign
+// anything was ever rejected.
+func TestCommissionerLineupViewTargetNamesAnUnknownRequest(t *testing.T) {
+	service, _, _, _ := claimedLineupViewService(t)
+	for _, target := range []string{"team-4", "unknown-team"} {
+		request := authenticatedLineupRequest(t, "commissioner-lineup@example.com", "Commissioner", "/team?team="+target+"&week=2")
+		data := service.TeamData(request)
+		if data["lineup_target_unknown"] != true {
+			t.Errorf("target %q: lineup_target_unknown = %v, want true", target, data["lineup_target_unknown"])
+		}
+		if data["lineup_target_unknown_value"] != target {
+			t.Errorf("target %q: lineup_target_unknown_value = %q, want %q", target, data["lineup_target_unknown_value"], target)
+		}
+		// The old silent fallback still resolves lineup_target_id to the
+		// commissioner's own seat underneath — see the loop in
+		// TestCommissionerLineupViewTargetIsClaimedAndScoped, above — but
+		// page.gsx must read lineup_target_unknown first and never render
+		// that fallback team as though it were what was asked for.
+		if data["lineup_target_id"] != "team-3" {
+			t.Errorf("target %q: lineup_target_id = %v, want the commissioner's own team-3 (the underlying fallback, not yet the rendered state)", target, data["lineup_target_id"])
+		}
+	}
+
+	// A valid target must never carry the unknown flag or a stray value.
+	valid := authenticatedLineupRequest(t, "commissioner-lineup@example.com", "Commissioner", "/team?team=team-2&week=2")
+	data := service.TeamData(valid)
+	if data["lineup_target_unknown"] != false || data["lineup_target_unknown_value"] != "" {
+		t.Fatalf("valid target leaked lineup_target_unknown state: unknown=%v value=%q", data["lineup_target_unknown"], data["lineup_target_unknown_value"])
+	}
+
+	// No ?team= at all (an ordinary manager, or a commissioner on their
+	// own /team with no query) must never carry the unknown flag either.
+	none := authenticatedLineupRequest(t, "commissioner-lineup@example.com", "Commissioner", "/team")
+	noneData := service.TeamData(none)
+	if noneData["lineup_target_unknown"] != false {
+		t.Fatalf("no ?team= at all set lineup_target_unknown = %v, want false", noneData["lineup_target_unknown"])
+	}
+}
+
+// TestCommissionerInterventionHeroNamesTargetManagerNotViewer pins J4 F32
+// (the coordinator's own hand-off from hemlock): during a genuine
+// intervention the hero's eyebrow and its own manager line must name the
+// target franchise's manager, not the signed-in commissioner who is only
+// viewing it. hero_initials/hero_manager_name are dedicated fields for
+// this display need — team.manager itself stays blank during
+// intervention (TestCommissionerLineupViewTargetIsClaimedAndScoped, above,
+// still pins that: identity/co-manager/badge state is deliberately kept
+// out of the shared team map for a lineup-only projection; naming who the
+// manager is, for display only, is a narrower, separate need).
+func TestCommissionerInterventionHeroNamesTargetManagerNotViewer(t *testing.T) {
+	service, commissioner, manager, _ := claimedLineupViewService(t)
+
+	data := service.TeamData(commissioner)
+	if data["hero_initials"] != "S" && data["hero_initials"] != "SE" {
+		// initials() takes the first letter of the first and last name
+		// parts; "Secondary" is one word, so initials("Secondary") = "S".
+		t.Errorf("commissioner intervention hero_initials = %v, want the target manager's own initials (\"S\")", data["hero_initials"])
+	}
+	if data["hero_manager_name"] != "Secondary" {
+		t.Errorf("commissioner intervention hero_manager_name = %v, want the target manager's name (\"Secondary\")", data["hero_manager_name"])
+	}
+	team, ok := data["team"].(map[string]any)
+	if !ok || team["manager"] != "" {
+		t.Fatalf("intervention still leaked team.manager: %#v", data["team"])
+	}
+
+	// An ordinary (non-intervention) render must keep naming the viewer,
+	// unchanged — hero_manager_name has nothing to add there since the
+	// existing "Operated by" line already reads data.team.manager.
+	managerData := service.TeamData(manager)
+	if managerData["hero_manager_name"] != "" {
+		t.Errorf("non-intervention hero_manager_name = %v, want empty", managerData["hero_manager_name"])
+	}
+}
+
 // TestCommissionerLineupViewTargetAcceptsSeatCode pins F10 (J4 console
 // gap-audit): the console prints each team's short seat code (its
 // Abbreviation) in the attention panel, activity feed, draft order, and

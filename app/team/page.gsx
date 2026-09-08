@@ -358,7 +358,20 @@ func Page() Node {
 				<a href={data.public_entry.action_href} data-gosx-link class="button button--primary">{data.public_entry.action_label}</a>
 			</section>
 		</If>
-		<If cond={data.has_seat}>
+		<If cond={data.has_seat && data.lineup_target_unknown}>
+			<section class="no-franchise tone-lime">
+				<div class="signal-label">
+					<span class="signal-mark" aria-hidden="true"></span>
+					COMMISSIONER // LINEUP CONTROL
+				</div>
+				<h1>TEAM NOT FOUND.</h1>
+				<p>
+					{"No team matches \"" + data.lineup_target_unknown_value + "\". Pick a team from the console's seat list."}
+				</p>
+				<a href="/admin#admin-seats" data-gosx-link class="button button--primary">Open the console →</a>
+			</section>
+		</If>
+		<If cond={data.has_seat && data.lineup_target_unknown == false}>
 		<div class="notice-stack">
 			<If cond={data.has_notice}>
 				{/* J3 F4: league.SetLineup now reports every cascading change
@@ -409,13 +422,26 @@ func Page() Node {
 				<div>
 					<span class="section-index">
 						MANAGER TERMINAL //
-						{data.viewer.initials}
+						{data.hero_initials}
 					</span>
 					<TextBlock as="h1" font="400 24px Archivo Black" lineHeight={28} maxLines={2} overflow="ellipsis" text={data.team.name} />
 					<small class="mono">
 						{data.team.division}
 						DIVISION
 					</small>
+					{/* J4 F32: during a genuine intervention the hero must name
+					    the target franchise's own manager, not the signed-in
+					    commissioner who is only viewing it — hero_manager_name
+					    reads the pre-scrub team.Manager value (internal/league)
+					    for exactly this display, independent of the co-manager/
+					    badge/identity-editor state the intervention view model
+					    still withholds everywhere else on this page. */}
+					<If cond={data.lineup_intervention}>
+						<p>
+							Operated by
+							<TextBlock as="span" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.hero_manager_name} />
+						</p>
+					</If>
 					{/* Section-B item 6 (page-height budget): in season, the hero
 					    keeps exactly one band — name, division, record, badge.
 					    The manager line and the Customize franchise link (a

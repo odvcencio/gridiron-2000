@@ -15,6 +15,13 @@ import (
 type lineupViewTarget struct {
 	TeamID       string
 	Intervention bool
+	// RequestedUnknown (J4 F10) carries the raw ?team= value verbatim when
+	// a commissioner's request named one but claimedLineupTeam could not
+	// resolve it — an unknown ID, a stale one, or an unclaimed seat's
+	// code. Empty for every other case (no ?team=, a non-commissioner
+	// viewer, or a value that did resolve), so a caller can gate a "team
+	// not found" state on RequestedUnknown != "" without a second lookup.
+	RequestedUnknown string
 }
 
 // claimedLineupTeam resolves a target against the service's active topology
@@ -64,7 +71,12 @@ func (s *Service) lineupViewTargetForRequest(r *http.Request, state PersistedSta
 	}
 	team, ok := s.claimedLineupTeam(state, requested)
 	if !ok {
-		return lineupViewTarget{TeamID: ownTeamID}
+		// F10 (J4 console gap-audit): this used to fall back to the
+		// commissioner's own seat silently, with no sign the requested
+		// target was ever read, let alone rejected. RequestedUnknown lets
+		// the page state the truth — "No team matches 'XYZ'" — instead of
+		// quietly substituting the commissioner's own franchise.
+		return lineupViewTarget{TeamID: ownTeamID, RequestedUnknown: requested}
 	}
 	// team.ID, not requested: requested may be a seat code (AQ3) that
 	// resolved above, and comparing the raw code against ownTeamID (a
