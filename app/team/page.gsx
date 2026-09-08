@@ -750,7 +750,7 @@ func TeamLineupRegion() Node {
 					</If>
 					<div class="lineup-slot-list">
 							<Each of={data.starters} as="slot">
-								<div class="lineup-slot">
+								<div class="lineup-slot" id={"slot-" + slot.slot_id}>
 									<div class="lineup-slot__id mono">
 										{slot.slot_id}
 										<If cond={slot.has_house_rank}>

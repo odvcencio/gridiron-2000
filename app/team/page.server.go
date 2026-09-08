@@ -279,18 +279,38 @@ func prepareTeamData(data map[string]any, request *http.Request) map[string]any 
 	return data
 }
 
+// teamLineupRowFragment names one lineup slot's own row id (J3 F8):
+// page.gsx sets id={"slot-" + slot.slot_id} on every .lineup-slot row, so
+// this is the one place that spelling is assembled — lineupMutationSuccess
+// keeps it for a managed request (RedirectWithNoticeToRow) instead of the
+// plain "#lineup" section anchor RedirectWithNotice strips.
+func teamLineupRowFragment(slotID string) string {
+	return "#slot-" + url.PathEscape(slotID)
+}
+
 func teamLineupTarget(ctx *action.Context) string {
 	week := ""
 	target := ""
+	slot := ""
 	if ctx != nil {
 		week = strings.TrimSpace(ctx.FormData["week"])
 		target = strings.TrimSpace(ctx.FormData["team_id"])
+		slot = strings.TrimSpace(ctx.FormData["slot"])
 	}
 	week = strconv.Itoa(league.Default().NormalizeLineupWeek(week))
-	if ctx != nil && league.Default().LineupTargetAllowed(ctx.Request, target) {
-		return "/team?team=" + url.QueryEscape(target) + "&week=" + week + "#lineup"
+	// J3 F8: a lineup-set names the one slot it changed (slot, above); a
+	// save with no named slot (SET BEST LINEUP, which can move several
+	// slots at once with no single row to land on, or a validation
+	// failure with nothing yet to land on) keeps the plain "#lineup"
+	// section anchor.
+	fragment := "#lineup"
+	if slot != "" {
+		fragment = teamLineupRowFragment(slot)
 	}
-	return "/team?week=" + week + "#lineup"
+	if ctx != nil && league.Default().LineupTargetAllowed(ctx.Request, target) {
+		return "/team?team=" + url.QueryEscape(target) + "&week=" + week + fragment
+	}
+	return "/team?week=" + week + fragment
 }
 
 const (
@@ -322,8 +342,23 @@ func lineupValidation(ctx *action.Context, field string, err error) error {
 // one 303-with-redirect shape matches the already-working team-rename and
 // notification-set actions and lets the browser's native fetch-and-swap
 // pick up the authoritative fragment.
+//
+// J3 F8: lineup-set names the slot it changed (ctx.FormData["slot"]), so
+// teamLineupTarget's own target carries that row's specific fragment
+// ("#slot-RB1") rather than the plain "#lineup" section anchor. A
+// managed request keeps that fragment too (RedirectWithNoticeToRow) —
+// unlike RedirectWithNotice's own generic-anchor case, landing on the
+// exact row a save just changed is the wanted behavior here, so a
+// manager scrolled far down a long roster is never thrown back to the
+// top. SET BEST LINEUP (lineup-auto) names no single slot, so it keeps
+// the previous RedirectWithNotice/"#lineup" behavior unchanged.
 func lineupMutationSuccess(ctx *action.Context, message string) error {
-	actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
+	target := teamLineupTarget(ctx)
+	if ctx != nil && strings.TrimSpace(ctx.FormData["slot"]) != "" {
+		actionui.RedirectWithNoticeToRow(ctx, target, message)
+		return nil
+	}
+	actionui.RedirectWithNotice(ctx, target, message)
 	return nil
 }
 

@@ -16,6 +16,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A locked player now stays in a lineup slot's picker, disabled, with "locked, game started" instead of disappearing from the list with no explanation.
 - The team page's PROJECTED figure now sums starters only, the same total the matchup card shows, instead of the whole roster including the bench.
 - The team page's PTS column now reads "—" until the weekly ledger has posted, instead of a false "0.0", with the same "Weekly ledger (nflverse)" source line the matchups page uses.
+- Saving a lineup slot or making a Pick'em pick now returns to the row that changed, on both a plain form submit and a JavaScript-managed one, instead of resetting the page to the top.
 
 ## [release-2026.09.05-fee1a4c-practice] — 2026-09-04
 

@@ -110,6 +110,13 @@ func TestPickemWeekSelectionUsesPublishedStartWeekAndNormalizesUnavailableQuerie
 	if got := service.PickemRedirectTarget("not-a-week"); got != "/pickem?week=3" {
 		t.Fatalf("hostile action week redirect = %q, want /pickem?week=3", got)
 	}
+	// J3 F8: a managed pick must land back on the game it just answered.
+	if got := service.PickemRedirectTargetForGame("4", "g-42"); got != "/pickem?week=4#game-g-42" {
+		t.Fatalf("game-row redirect = %q, want /pickem?week=4#game-g-42", got)
+	}
+	if got := service.PickemRedirectTargetForGame("4", ""); got != "/pickem?week=4" {
+		t.Fatalf("no game id: redirect = %q, want the bare PickemRedirectTarget", got)
+	}
 }
 
 // TestPickemDataLimitsWeekSelectorToPublishedSeasonSchedule is item 12's
