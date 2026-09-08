@@ -103,7 +103,13 @@ func TestBrowserTeamMobileCardLayoutAt390(t *testing.T) {
 		}
 	}
 
-	setButtons := evalRectProbes(t, ctx, `JSON.stringify(Array.from(document.querySelectorAll('.lineup-slot__form button.board-button, .lineup-auto-form__button')).map(e => {var r = e.getBoundingClientRect(); return {text: e.textContent.trim(), width: r.width, height: r.height};}))`)
+	// Wave E (decision 7): at phone width the fixed .page-action-bar
+	// submits #lineup-auto-form itself and the in-page
+	// .lineup-auto-form__button hides (display: none), so the control
+	// a manager actually taps is the bar's own link. Measure that one in
+	// place of the hidden in-page copy; every other SET control is still
+	// measured as before.
+	setButtons := evalRectProbes(t, ctx, `JSON.stringify(Array.from(document.querySelectorAll('.lineup-slot__form button.board-button, .lineup-auto-form__button')).map(e => {var r = e.getBoundingClientRect(); if (e.classList.contains('lineup-auto-form__button') && r.width === 0 && r.height === 0) { var bar = document.querySelector('.page-action-bar__link'); if (bar) { r = bar.getBoundingClientRect(); return {text: bar.textContent.trim(), width: r.width, height: r.height}; } } return {text: e.textContent.trim(), width: r.width, height: r.height};}))`)
 	for i, btn := range setButtons {
 		if btn.Width < 44 || btn.Height < 44 {
 			t.Errorf("SET control %d (%q) = %.1fx%.1fpx at 390px, want >= 44x44", i, btn.Text, btn.Width, btn.Height)
