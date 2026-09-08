@@ -847,7 +847,7 @@ func TestScheduleProviderSeparatesStatsFreshnessFromCheckedTime(t *testing.T) {
 // beside the status line's own "Weekly ledger (nflverse)" source clause.
 func TestLiveStatusTextOpensAfterFirstGameBeforeKickoff(t *testing.T) {
 	svc := newTestService(t, true)
-	presentation := matchupPresentation(MatchupStateScheduled)
+	presentation := matchupPresentation(MatchupStateScheduled, true)
 	cases := []struct {
 		name  string
 		state string
@@ -876,7 +876,7 @@ func TestLiveStatusTextOpensAfterFirstGameBeforeKickoff(t *testing.T) {
 // stays — only the pre-kickoff window gets the friendlier phrase.
 func TestLiveStatusTextKeepsUnavailableOutsideThePreKickoffWindow(t *testing.T) {
 	svc := newTestService(t, true)
-	presentation := matchupPresentation(MatchupStateDegraded)
+	presentation := matchupPresentation(MatchupStateDegraded, true)
 	live := LiveSnapshot{State: MatchupStateDegraded}
 	got := svc.liveStatusText(live, presentation)
 	if !strings.Contains(got, "Ledger Unavailable") {

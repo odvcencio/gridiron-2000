@@ -3601,7 +3601,7 @@ func (s *Service) LiveScores(ctx context.Context) LiveSnapshot {
 // cannot be conflated by the browser.
 func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	live := s.LiveScores(ctx)
-	presentation := matchupPresentation(live.State)
+	presentation := matchupPresentation(live.State, s.livePollerEnabled())
 	scores := make(map[string]string, len(live.Matchups)*2)
 	starterPoints := make(map[string]string)
 	starterPlayerName := make(map[string]string)
@@ -5070,7 +5070,7 @@ func (s *Service) presentedWeekLabel(live LiveSnapshot) string {
 }
 
 func (s *Service) liveMap(live LiveSnapshot) map[string]any {
-	presentation := matchupPresentation(live.State)
+	presentation := matchupPresentation(live.State, s.livePollerEnabled())
 	if live.State == MatchupStatePreseason {
 		presentation["refresh_label"] = fmt.Sprintf("Before NFL week %d", s.seasonStartWeek())
 	}
@@ -5144,7 +5144,16 @@ func liveIndicatorToken(state string) string {
 	return ""
 }
 
-func matchupPresentation(state string) map[string]string {
+// matchupPresentation is the copy source for both the /matchups status
+// line and the home page's live region (both reach it through liveMap,
+// service.go's single shared builder). pollerEnabled must come from the
+// live-scoring poller's own state (livePollerEnabled), not from the
+// kickoff-derived state parameter: before J3 F1's fix this function
+// hard-coded "Live scores on" for MatchupStateInProgress whenever kickoff
+// had passed, even with the poller turned off — a manager waited for a
+// score that no poller would ever push. With the poller off, the
+// in-progress copy says so instead and points at the weekly ledger.
+func matchupPresentation(state string, pollerEnabled bool) map[string]string {
 	switch state {
 	case MatchupStateScheduled:
 		return map[string]string{
@@ -5153,6 +5162,13 @@ func matchupPresentation(state string) map[string]string {
 			"note_title": "Scheduled scoring", "note_body": "Scores begin updating after the first NFL kickoff for this fantasy week.",
 		}
 	case MatchupStateInProgress:
+		if !pollerEnabled {
+			return map[string]string{
+				"headline_top": "LIVE", "headline_bottom": "SIGNAL.",
+				"sync_label": "Live scores off · weekly ledger only", "refresh_label": "Ledger posts after the games",
+				"note_title": "Live scoring off", "note_body": "This league's live poller is off. Scores post to the weekly ledger after the games.",
+			}
+		}
 		return map[string]string{
 			"headline_top": "LIVE", "headline_bottom": "SIGNAL.",
 			"sync_label": "Live scores on", "refresh_label": "Push · 60 s fallback",

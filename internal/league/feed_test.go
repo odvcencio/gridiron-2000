@@ -226,6 +226,49 @@ func TestLiveScoresViewScheduledToInProgressTransitionUpdatesPresentation(t *tes
 	}
 }
 
+// TestMatchupPresentationReflectsPollerOffState pins J3 F1: with kickoff
+// past but the live-scoring poller off (LIVE_SCORING_ENABLED=false, seen
+// here as LiveStatus.Enabled false), /matchups and the home page must not
+// claim "Live scores on" — a manager would wait for a score no poller
+// will ever push. Both surfaces (LiveScoresView and liveMap, which the
+// home page's DashboardData also calls) go through the one shared
+// matchupPresentation, so this pins both through their one shared seam.
+func TestMatchupPresentationReflectsPollerOffState(t *testing.T) {
+	svc := newTestService(t, true)
+	kickoff := time.Date(2026, 9, 13, 17, 0, 0, 0, time.UTC)
+	now := kickoff.Add(time.Minute)
+	svc.now = func() time.Time { return now }
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "week-1", Week: 1, Kickoff: kickoff, Away: "BUF", Home: "MIA"}}
+	})
+	schedule, err := GenerateSchedule(ScheduleParams{Season: 2026, TeamIDs: teamIDList(svc.teams), StartWeek: 1, Weeks: 1, Seed: 19})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+	svc.feed = newLiveFeed(scheduleProvider{svc: svc}, svc)
+	svc.feed.cacheFor = 0
+	svc.SetLiveStatusSource(func() LiveStatus { return LiveStatus{Enabled: false} })
+
+	view := svc.LiveScoresView(context.Background())
+	if got := view["refreshLabel"]; got != "Ledger posts after the games" {
+		t.Fatalf("refreshLabel = %v, want the poller-off refresh label", got)
+	}
+	if got := view["liveStatus"].(string); strings.Contains(got, "Live scores on") {
+		t.Fatalf("liveStatus = %q, must not claim scores are on with the poller off", got)
+	}
+
+	home := svc.liveMap(svc.LiveScores(context.Background()))
+	if got := home["live_status"].(string); strings.Contains(got, "Live scores on") {
+		t.Fatalf("home live_status = %q, must not claim scores are on with the poller off", got)
+	}
+	if got := home["sync_label"]; got != "Live scores off · weekly ledger only" {
+		t.Fatalf("home sync_label = %v, want the poller-off label", got)
+	}
+}
+
 type failingScoreProvider struct{}
 
 func (failingScoreProvider) Snapshot(context.Context, time.Time) (LiveSnapshot, error) {
