@@ -9,7 +9,7 @@ package admin
 // the repo root).
 //
 // SeatRow's avatar-mark__photo image (and the matching one in the
-// 07 // DRAFT ORDER list below) carries width="42" height="42": .team-mark
+// 08 // DRAFT ORDER list below) carries width="42" height="42": .team-mark
 // is a fixed 2.6rem (42px at the 16px root) square (styles.css), and
 // .avatar-mark__photo fills it at width/height: 100%, so these attributes
 // exist purely to give the browser the badge's 1:1 aspect ratio before the
@@ -813,7 +813,7 @@ func Page() Node {
 							<span class="checklist-mark mono">01</span>
 							<div class="checklist-item__text">
 								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="About an hour early, drop the seats nobody claimed" />
-								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Use Drop unclaimed seats in 07 // DRAFT ORDER. Do this before you randomize, or the order still lists the seats you are about to remove." />
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Use Drop unclaimed seats in 08 // DRAFT ORDER. Do this before you randomize, or the order still lists the seats you are about to remove." />
 							</div>
 							<If cond={data.runbook_step_1_state == "done"}><span class="position-chip">DONE ✓</span></If>
 							<If cond={data.runbook_step_1_state == "next"}><span class="position-chip">NEXT →</span></If>
@@ -823,7 +823,7 @@ func Page() Node {
 							<span class="checklist-mark mono">02</span>
 							<div class="checklist-item__text">
 								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Draw the final order and publish the schedule" />
-								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Use Draw order + schedule in 07 // DRAFT ORDER. It runs six shuffle passes, saves only the final result, publishes the schedule, then reports the reminder queue outcome. Draft order locks when the commissioner starts the draft." />
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Use Draw order + schedule in 08 // DRAFT ORDER. It runs six shuffle passes, saves only the final result, publishes the schedule, then reports the reminder queue outcome. Draft order locks when the commissioner starts the draft." />
 							</div>
 							<If cond={data.runbook_step_2_state == "done"}><span class="position-chip">DONE ✓</span></If>
 							<If cond={data.runbook_step_2_state == "next"}><span class="position-chip">NEXT →</span></If>
@@ -833,7 +833,7 @@ func Page() Node {
 							<span class="checklist-mark mono">03</span>
 							<div class="checklist-item__text">
 								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Confirm every seat is ready" />
-								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Check the ready count above and the Ready badges in 05 // SEATS." />
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Check the ready count above and the Ready badges in 06 // SEATS." />
 							</div>
 							<If cond={data.runbook_step_3_state == "done"}><span class="position-chip">DONE ✓</span></If>
 							<If cond={data.runbook_step_3_state == "next"}><span class="position-chip">NEXT →</span></If>
@@ -862,7 +862,7 @@ func Page() Node {
 							<span class="checklist-mark mono">05</span>
 							<div class="checklist-item__text">
 								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Pause or extend for a break" />
-								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Use Pause clock, Resume clock, or Extend pick in 09 // DRAFT CLOCK." />
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Use Pause clock, Resume clock, or Extend pick in 10 // DRAFT CLOCK." />
 							</div>
 						</div>
 						<div class="checklist-item">
@@ -876,7 +876,7 @@ func Page() Node {
 							<span class="checklist-mark mono">07</span>
 							<div class="checklist-item__text">
 								<strong>Autopick catches an absent manager</strong>
-								<small>Toggle AUTO for a seat in 05 // SEATS, or force one pick now in 09 // DRAFT CLOCK.</small>
+								<small>Toggle AUTO for a seat in 06 // SEATS, or force one pick now in 10 // DRAFT CLOCK.</small>
 							</div>
 						</div>
 						<div class="checklist-item">
@@ -1092,12 +1092,72 @@ func Page() Node {
 							<button class="button" type="submit" disabled="disabled">No open claims to run</button>
 						</If>
 					</form>
-					<p class="demo-message"><strong>PLAYOFF TIMING:</strong> preview and publish the bracket only after final regular-season standings exist. Weekly advancement is gated on the authoritative starter ledger; see 04 // PLAYOFFS below.</p>
+					<p class="demo-message"><strong>PLAYOFF TIMING:</strong> preview and publish the bracket only after final regular-season standings exist. Weekly advancement is gated on the authoritative starter ledger; see 05 // PLAYOFFS below.</p>
+				</section>
+				<section id="admin-announcements" aria-labelledby="admin-announcements-heading" tabindex="-1" data-admin-section="announcements" class={"player-pool" + data.section_class_announcements}>
+					<div class="pool-toolbar">
+						<div>
+							<span class="section-index">04 // ANNOUNCEMENTS</span>
+							<h2 id="admin-announcements-heading">Notes</h2>
+						</div>
+					</div>
+					<form method="post" action={actionPath("announcement-post")} data-gosx-managed="true">
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<input type="hidden" name={data.admin_return_target_field} value={data.admin_announcements_return_target}></input>
+						<label for="admin-announcement-body" class="visually-hidden">League announcement text</label>
+						<textarea id="admin-announcement-body" name="body" class="announcement-textarea" placeholder="Post a note to the whole league..." maxlength="500" rows="3" aria-describedby="admin-announcement-limit"></textarea>
+						<small id="admin-announcement-limit" class="scoring-note">Up to 500 characters.</small>
+						<If cond={data.mail_enabled}>
+							<label class="announcement-email-toggle">
+								<input type="checkbox" name="also_email" value="true"></input>
+								Also queue an email to the league
+							</label>
+						</If>
+						<If cond={data.mail_enabled == false}>
+							<label class="announcement-email-toggle">
+								<input type="checkbox" name="also_email" value="true" disabled="disabled"></input>
+								Also queue an email to the league — unavailable, delivery is off
+							</label>
+						</If>
+						<button class="button button--primary" type="submit">Post announcement</button>
+					</form>
+					<If cond={data.announcements_empty}>
+						<div class="empty-tape">
+							<strong>NO ANNOUNCEMENTS YET</strong>
+							<p>
+								Posts show here, newest first, and on the home page.
+							</p>
+						</div>
+					</If>
+					<div class="announcement-list">
+						<Each of={data.announcements} as="note">
+							<article class="announcement-item">
+								<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={note.body} />
+								<div class="announcement-item__meta">
+									<TextBlock as="small" class="mono" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={1} overflow="ellipsis">
+										{note.posted_by}
+										·
+										{note.posted_at}
+									</TextBlock>
+									<details class="announcement-delete-disclosure">
+										<summary class="board-button board-button--cut" aria-label={"Delete announcement posted " + note.posted_at_absolute}>✕</summary>
+										<form method="post" action={actionPath("announcement-delete")} data-gosx-managed="true">
+											<input type="hidden" name="csrf_token" value={csrf.token}></input>
+											<input type="hidden" name={data.admin_return_target_field} value={data.admin_announcements_return_target}></input>
+											<input type="hidden" name="id" value={note.id}></input>
+											<p>Delete the announcement posted {note.posted_at}? This removes it from the league notes and the home page; it cannot be undone.</p>
+											<button class="board-button board-button--cut" type="submit">Confirm delete</button>
+										</form>
+									</details>
+								</div>
+							</article>
+						</Each>
+					</div>
 				</section>
 				<section id="admin-playoffs" aria-labelledby="admin-playoffs-heading" tabindex="-1" data-admin-section="playoffs" class={"player-pool admin-season-ops" + data.section_class_playoffs}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">04 // PLAYOFFS</span>
+							<span class="section-index">05 // PLAYOFFS</span>
 							<h2 id="admin-playoffs-heading">Playoffs</h2>
 							{/* F31 (J4 console gap-audit): "persisted", "idempotent",
 							    and "this browser" are engineering words on a page a
@@ -1167,7 +1227,7 @@ func Page() Node {
 				<section id="admin-seats" aria-labelledby="admin-seats-heading" tabindex="-1" data-admin-section="seats" class={"player-pool" + data.section_class_seats}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">05 // SEATS</span>
+							<span class="section-index">06 // SEATS</span>
 							<h2 id="admin-seats-heading">Seats</h2>
 						</div>
 					</div>
@@ -1200,7 +1260,7 @@ func Page() Node {
 				<section id="admin-invites" aria-labelledby="admin-invites-heading" tabindex="-1" data-admin-section="invites" class={"player-pool" + data.section_class_invites}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">06 // INVITES</span>
+							<span class="section-index">07 // INVITES</span>
 							<h2 id="admin-invites-heading">Invites</h2>
 							<If cond={data.invite_count > 0}>
 								{/* J2 F21 (gap-audit): this card's own count used to read
@@ -1241,7 +1301,7 @@ func Page() Node {
 					<If cond={data.has_unclaimed_seats == false}>
 						<p class="demo-message">
 							<strong>SEATS FULL:</strong>
-							every seat is claimed; a new Google sign-in has no seat left to claim. Release a seat in 05 // SEATS to open one, or assign an admitted, seatless member below.
+							every seat is claimed; a new Google sign-in has no seat left to claim. Release a seat in 06 // SEATS to open one, or assign an admitted, seatless member below.
 						</p>
 					</If>
 					<form class="invite-form" method="post" action={actionPath("invite-add")} data-gosx-managed="true">
@@ -1320,7 +1380,7 @@ func Page() Node {
 											<TextBlock as="b" class="mono" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={2} overflow="ellipsis" text={member.email} />
 											<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" text={member.name} />
 										</div>
-										<small class="mono">Assign a seat in 05 // SEATS, or release a claimed one to make room.</small>
+										<small class="mono">Assign a seat in 06 // SEATS, or release a claimed one to make room.</small>
 									</article>
 								</Each>
 							</div>
@@ -1334,7 +1394,7 @@ func Page() Node {
 				<section id="admin-draft-order" aria-labelledby="admin-draft-order-heading" tabindex="-1" data-admin-section="draft-order" class={"player-pool" + data.section_class_draft_order}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">07 // DRAFT ORDER</span>
+							<span class="section-index">08 // DRAFT ORDER</span>
 							<h2 id="admin-draft-order-heading">Draft order</h2>
 						</div>
 						<If cond={data.order_randomized}>
@@ -1434,7 +1494,7 @@ func Page() Node {
 				<section id="admin-data" aria-labelledby="admin-data-heading" tabindex="-1" data-admin-section="data" class={"player-pool" + data.section_class_data}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">08 // PLAYER DATA</span>
+							<span class="section-index">09 // PLAYER DATA</span>
 							<h2 id="admin-data-heading">Data</h2>
 						</div>
 					</div>
@@ -1497,7 +1557,7 @@ func Page() Node {
 				<section id="admin-clock" aria-labelledby="admin-clock-heading" tabindex="-1" data-admin-section="clock" class={"player-pool" + data.section_class_clock}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">09 // DRAFT CLOCK</span>
+							<span class="section-index">10 // DRAFT CLOCK</span>
 							<h2 id="admin-clock-heading">Clock</h2>
 						</div>
 						<span class="position-chip">{data.clock.state}</span>
@@ -1629,7 +1689,7 @@ func Page() Node {
 				<section id="admin-roster" aria-labelledby="admin-roster-heading" tabindex="-1" data-admin-section="roster" class={"player-pool" + data.section_class_roster}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">10 // ROSTER SHAPE</span>
+							<span class="section-index">11 // ROSTER SHAPE</span>
 							<h2 id="admin-roster-heading">Roster</h2>
 						</div>
 						<If cond={data.roster_shape.has_override}>
@@ -1734,7 +1794,7 @@ func Page() Node {
 					</If>
 					<div class="pool-toolbar" id="roster-correction">
 						<div>
-							<span class="section-index">10B // ROSTER CORRECTION</span>
+							<span class="section-index">11B // ROSTER CORRECTION</span>
 							<h2 id="admin-roster-correction-heading">Correct a team's roster</h2>
 							<p class="scoring-note">
 								Corrects one named team's roster on its own behalf — for example, undoing a bad autopick right after the draft. This applies immediately, with no waiver period. Review the change, then confirm; the reason is recorded in the audit trail and activity feed, and the team's manager sees a one-time notice on their next visit to Team.
@@ -1835,66 +1895,6 @@ func Page() Node {
 							</form>
 						</div>
 					</If>
-				</section>
-				<section id="admin-announcements" aria-labelledby="admin-announcements-heading" tabindex="-1" data-admin-section="announcements" class={"player-pool" + data.section_class_announcements}>
-					<div class="pool-toolbar">
-						<div>
-							<span class="section-index">11 // ANNOUNCEMENTS</span>
-							<h2 id="admin-announcements-heading">Notes</h2>
-						</div>
-					</div>
-					<form method="post" action={actionPath("announcement-post")} data-gosx-managed="true">
-						<input type="hidden" name="csrf_token" value={csrf.token}></input>
-						<input type="hidden" name={data.admin_return_target_field} value={data.admin_announcements_return_target}></input>
-						<label for="admin-announcement-body" class="visually-hidden">League announcement text</label>
-						<textarea id="admin-announcement-body" name="body" class="announcement-textarea" placeholder="Post a note to the whole league..." maxlength="500" rows="3" aria-describedby="admin-announcement-limit"></textarea>
-						<small id="admin-announcement-limit" class="scoring-note">Up to 500 characters.</small>
-						<If cond={data.mail_enabled}>
-							<label class="announcement-email-toggle">
-								<input type="checkbox" name="also_email" value="true"></input>
-								Also queue an email to the league
-							</label>
-						</If>
-						<If cond={data.mail_enabled == false}>
-							<label class="announcement-email-toggle">
-								<input type="checkbox" name="also_email" value="true" disabled="disabled"></input>
-								Also queue an email to the league — unavailable, delivery is off
-							</label>
-						</If>
-						<button class="button button--primary" type="submit">Post announcement</button>
-					</form>
-					<If cond={data.announcements_empty}>
-						<div class="empty-tape">
-							<strong>NO ANNOUNCEMENTS YET</strong>
-							<p>
-								Posts show here, newest first, and on the home page.
-							</p>
-						</div>
-					</If>
-					<div class="announcement-list">
-						<Each of={data.announcements} as="note">
-							<article class="announcement-item">
-								<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={note.body} />
-								<div class="announcement-item__meta">
-									<TextBlock as="small" class="mono" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={1} overflow="ellipsis">
-										{note.posted_by}
-										·
-										{note.posted_at}
-									</TextBlock>
-									<details class="announcement-delete-disclosure">
-										<summary class="board-button board-button--cut" aria-label={"Delete announcement posted " + note.posted_at_absolute}>✕</summary>
-										<form method="post" action={actionPath("announcement-delete")} data-gosx-managed="true">
-											<input type="hidden" name="csrf_token" value={csrf.token}></input>
-											<input type="hidden" name={data.admin_return_target_field} value={data.admin_announcements_return_target}></input>
-											<input type="hidden" name="id" value={note.id}></input>
-											<p>Delete the announcement posted {note.posted_at}? This removes it from the league notes and the home page; it cannot be undone.</p>
-											<button class="board-button board-button--cut" type="submit">Confirm delete</button>
-										</form>
-									</details>
-								</div>
-							</article>
-						</Each>
-					</div>
 				</section>
 				<section id="admin-backup" aria-labelledby="admin-backup-heading" tabindex="-1" data-admin-section="backup" class={"player-pool" + data.section_class_backup}>
 					<div class="pool-toolbar">

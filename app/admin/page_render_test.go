@@ -1886,7 +1886,7 @@ func TestRosterCorrectionPanelRendersFromFreshLeague(t *testing.T) {
 	body := renderAdminPage(t)
 	for _, want := range []string{
 		`id="roster-correction"`,
-		"10B // ROSTER CORRECTION",
+		"11B // ROSTER CORRECTION",
 		"Correct a team&#39;s roster",
 		`id="admin-roster-correction-team"`,
 		"CHOOSE A TEAM",
