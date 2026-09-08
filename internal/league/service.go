@@ -2084,6 +2084,9 @@ func (s *Service) fantasyCardData(state PersistedState, viewer map[string]any) m
 	if hasSeat {
 		teamID, _ := viewer["team_id"].(string)
 		team = s.teamMap(s.teamView(state, teamID))
+		// record (F27, J4 console gap-audit): see TeamData's own note —
+		// teamMap's default "record" is the static seed placeholder.
+		team["record"] = s.currentTeamRecord(state, teamID)
 	}
 	return map[string]any{
 		"has_seat":    hasSeat,
@@ -2398,6 +2401,14 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	radar := s.teamTerminalRadar(state, lifecycle.Phase, now, 3)
 	radarCopy := teamTerminalRadarCopy(lifecycle.Phase)
 	teamMap := s.teamMap(team)
+	// record (F27, J4 console gap-audit): teamMap's own "record" key reads
+	// team.Record, the static "0–0" seed placeholder (model.go) every
+	// caller shares by default — the team masthead's own "Season 0–0"
+	// used to freeze at that placeholder regardless of real results, the
+	// third page (with the standings table and the matchups page) this
+	// gap-audit finding named. currentTeamRecord reads the same standings
+	// the standings table itself computes.
+	teamMap["record"] = s.currentTeamRecord(state, teamID)
 	// has_custom_name (wave-6 glue item 5) gates the /team page's own
 	// "Reset to configured name" control (page.gsx): the control has
 	// nothing useful to do, and nothing to reset, for a team still
@@ -5783,7 +5794,13 @@ func (s *Service) featuredTeamMap(state PersistedState, side ScoreTeam, projecte
 	team := s.teamView(state, side.ID)
 	_, hasImage, avatarURL := s.avatarView(team.ID, team.Tone)
 	return map[string]any{
-		"id": side.ID, "name": side.Name, "manager": team.Manager, "record": team.Record,
+		// F27 (J4 console gap-audit): team.Record (teamView's own return
+		// value) never carries more than the static "0–0" seed placeholder
+		// (model.go) — currentTeamRecord reads the same standings the
+		// standings table itself computes, the same fix matchupMaps
+		// already carries for the "other matchups" list; this is the
+		// featured/"my matchup" card's own separate team-shape builder.
+		"id": side.ID, "name": side.Name, "manager": team.Manager, "record": s.currentTeamRecord(state, side.ID),
 		// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2): see
 		// the LiveScoresView call site above.
 		"score": matchupScoreText(side), "projected": projectedText(projected, hasProjectableStarters(side.StarterLedger)),

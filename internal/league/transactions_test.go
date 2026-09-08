@@ -473,7 +473,7 @@ func TestActivityDataCommissionerFilterIsolatesCommissionerRows(t *testing.T) {
 		At:   base,
 	})
 	svc.store.state.CommissionerEvents = append(svc.store.state.CommissionerEvents, CommissionerEvent{
-		ID: "ce-parity", ActorEmail: "oscar@example.com", ActorName: "Oscar",
+		ID: "ce-parity", ActorEmail: "alex@example.com", ActorName: "Alex",
 		Kind: "draft.reset", Summary: "reset the draft", At: base.Add(time.Hour),
 	})
 
@@ -491,8 +491,8 @@ func TestActivityDataCommissionerFilterIsolatesCommissionerRows(t *testing.T) {
 	if !ok || len(rows) != 1 {
 		t.Fatalf("commissioner-filtered rows = %#v, want exactly the one commissioner row", data["transactions"])
 	}
-	if rows[0]["kind"] != activityActorClassCommissioner || rows[0]["team"] != "Oscar" {
-		t.Fatalf("commissioner-filtered row = %+v, want the commissioner event attributed to Oscar", rows[0])
+	if rows[0]["kind"] != activityActorClassCommissioner || rows[0]["team"] != "Alex" {
+		t.Fatalf("commissioner-filtered row = %+v, want the commissioner event attributed to Alex", rows[0])
 	}
 
 	options, ok := data["team_options"].([]map[string]any)
