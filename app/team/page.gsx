@@ -750,7 +750,7 @@ func TeamLineupRegion() Node {
 					</If>
 					<div class="lineup-slot-list">
 							<Each of={data.starters} as="slot">
-								<div class="lineup-slot">
+								<div class="lineup-slot" id={"slot-" + slot.slot_id}>
 									<div class="lineup-slot__id mono">
 										{slot.slot_id}
 										<If cond={slot.has_house_rank}>
@@ -870,7 +870,7 @@ func TeamLineupRegion() Node {
 											<input type="hidden" name="slot" value={slot.slot_id}></input>
 											<select name="player_id" aria-label={"Assign a player to " + slot.slot_id}>
 												<Each of={slot.options} as="opt">
-													<option value={opt.id} selected={opt.selected}>{opt.label}</option>
+													<option value={opt.id} selected={opt.selected} disabled={opt.disabled}>{opt.label}</option>
 												</Each>
 											</select>
 											<button class="board-button" type="submit">Set</button>
@@ -896,6 +896,7 @@ func TeamLineupRegion() Node {
 								<span>PROJ</span>
 								<span>PTS</span>
 							</div>
+							<p class="mono muted">{data.points_source_line} · {data.points_updated_at}</p>
 							<div class="roster-list">
 								<Each of={data.bench} as="player">
 									<RosterRow {...player}></RosterRow>

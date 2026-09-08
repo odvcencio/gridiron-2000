@@ -3,6 +3,7 @@ package league
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -246,6 +247,21 @@ func (s *Service) PickemRedirectTarget(rawWeek string) string {
 		return "/pickem?week=" + strconv.Itoa(parsed)
 	}
 	return "/pickem?week=" + strconv.Itoa(s.pickemWeek(games, s.clock()))
+}
+
+// PickemRedirectTargetForGame is PickemRedirectTarget plus (J3 F8) the
+// picked game's own row fragment, so a managed pick keeps landing on the
+// game it just answered instead of the top of the page: page.gsx sets
+// id={"game-" + props.Game.ID} on every pickem-row article. gameID empty
+// (a validation failure with nothing yet to land on) returns
+// PickemRedirectTarget's own bare target unchanged.
+func (s *Service) PickemRedirectTargetForGame(rawWeek, gameID string) string {
+	target := s.PickemRedirectTarget(rawWeek)
+	gameID = strings.TrimSpace(gameID)
+	if gameID == "" {
+		return target
+	}
+	return target + "#game-" + url.PathEscape(gameID)
 }
 
 func tallyPicks(games []GameInfo, markets map[string]PickemMarket, picks map[string]string, enteredAt, now time.Time) PickemATSRecord {

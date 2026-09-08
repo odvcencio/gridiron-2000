@@ -169,6 +169,16 @@ type lineupWeekSelection struct {
 	CurrentWeek int
 	Weeks       []int
 	Notice      string
+	// ReadOnly is true when Week resolved to a played (closed) week: the
+	// resolved effective lineup still renders (J3 F22 — a closed week must
+	// stay reviewable), but every one of its slots comes back Locked via
+	// the ordinary playerLocked check (every NFL game for a past week has
+	// already kicked off), so the page's own "only render the SET form
+	// when unlocked" rule already hides every edit control with no
+	// separate gate needed. ReadOnly exists so a caller can still label
+	// the view explicitly instead of inferring it from Week < CurrentWeek
+	// itself.
+	ReadOnly bool
 }
 
 // lineupCurrentWeekAt is the lineup lock authority shared by the Team view
@@ -228,13 +238,42 @@ func sortedFutureLineupWeeks(games []GameInfo, current int) []int {
 	return weeks
 }
 
+// filterPublishedWeeks keeps only the weeks that also appear in
+// schedule's own published season (when one exists) — the intersection
+// teamWeekOptions applies to both its future and its played week lists.
+func filterPublishedWeeks(weeks []int, schedule *SeasonSchedule) []int {
+	if schedule == nil || len(schedule.Weeks) == 0 {
+		return weeks
+	}
+	published := seasonScheduleWeeks(*schedule)
+	filtered := make([]int, 0, len(weeks))
+	for _, week := range weeks {
+		if containsInt(published, week) {
+			filtered = append(filtered, week)
+		}
+	}
+	return filtered
+}
+
+// sortedPlayedLineupWeeks is sortedFutureLineupWeeks' mirror image: every
+// week strictly before current, in the same raw-NFL-mirror-then-
+// published-schedule-filtered shape (J3 F22).
+func sortedPlayedLineupWeeks(games []GameInfo, current int) []int {
+	weeks := make([]int, 0, len(games))
+	for _, week := range pickemWeeks(games) {
+		if week < current {
+			weeks = append(weeks, week)
+		}
+	}
+	sort.Ints(weeks)
+	return weeks
+}
+
 // teamWeekOptions resolves /team's own week selector and out-of-range
 // notice. current stays lineupCurrentWeekAt (an NFL-kickoff-driven lock
-// week) — the Team terminal is a lineup-EDITING page, so (unlike
-// /matchups' full-season browser) it has never offered a week that has
-// already closed. What changes here is WHICH future weeks are offered:
-// the raw NFL schedule mirror (games) is intersected with this league's
-// own published season (schedule) when one exists.
+// week). The raw NFL schedule mirror (games) is intersected with this
+// league's own published season (schedule) when one exists, for both the
+// future weeks the selector offers and (J3 F22, below) the played ones.
 //
 // Item 6 (2026-08-31 post-wave audit): sortedFutureLineupWeeks(games,
 // current) alone draws from pickemWeeks(games) — the raw NFL regular-
@@ -248,23 +287,28 @@ func sortedFutureLineupWeeks(games []GameInfo, current int) []int {
 // three differently-worded notices instead of the single one /matchups'
 // own week selector uses for exactly this situation (MatchupsData,
 // service.go). Every rejection reason reads that same notice now.
+//
+// J3 F22: a played (closed) week used to be indistinguishable from a
+// week that was never real — both fell back to current with the same
+// "not on the published schedule" notice, so a manager who wanted to see
+// what they set (and scored) for a closed week was told, falsely, that
+// it did not exist, with no way to review it from anywhere on /team.
+// Played weeks now stay in the selector; requesting one opens it
+// (ReadOnly true) instead of falling back, with a notice that names the
+// true reason. Every one of that week's slots resolves Locked (its NFL
+// games all kicked off long ago), so the page's existing "no SET form on
+// a locked slot" rule already renders it read-only with no extra gate.
 func teamWeekOptions(rawWeek string, schedule *SeasonSchedule, games []GameInfo, now time.Time) lineupWeekSelection {
 	current := lineupCurrentWeekAt(games, now)
-	offered := sortedFutureLineupWeeks(games, current)
-	if schedule != nil && len(schedule.Weeks) > 0 {
-		published := seasonScheduleWeeks(*schedule)
-		filtered := make([]int, 0, len(offered))
-		for _, week := range offered {
-			if containsInt(published, week) {
-				filtered = append(filtered, week)
-			}
-		}
-		offered = filtered
-	}
+	offered := filterPublishedWeeks(sortedFutureLineupWeeks(games, current), schedule)
+	played := filterPublishedWeeks(sortedPlayedLineupWeeks(games, current), schedule)
 	if len(offered) == 0 {
 		offered = []int{current}
 	}
-	selection := lineupWeekSelection{Week: current, CurrentWeek: current, Weeks: offered}
+	all := make([]int, 0, len(played)+len(offered))
+	all = append(all, played...)
+	all = append(all, offered...)
+	selection := lineupWeekSelection{Week: current, CurrentWeek: current, Weeks: all}
 	rawWeek = strings.TrimSpace(rawWeek)
 	if rawWeek == "" {
 		return selection
@@ -272,6 +316,12 @@ func teamWeekOptions(rawWeek string, schedule *SeasonSchedule, games []GameInfo,
 	parsed, err := strconv.Atoi(rawWeek)
 	if err != nil {
 		selection.Notice = fmt.Sprintf("Week %q is not on the published schedule. Showing Week %d.", rawWeek, current)
+		return selection
+	}
+	if containsInt(played, parsed) {
+		selection.Week = parsed
+		selection.ReadOnly = true
+		selection.Notice = fmt.Sprintf("Week %d is closed. Showing the lineup you set that week.", parsed)
 		return selection
 	}
 	if !containsInt(offered, parsed) {
