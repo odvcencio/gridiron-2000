@@ -46,6 +46,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Six status chips on the console (schedule, roster, and playoff cards) no longer overflow or clip their own borders; they size to their own text and wrap instead.
 - The console's pick-clock card no longer shows a blank "Deadline" cell when no pick is armed, or a blank "Duration source" cell; the Playoff Truth card no longer shows a blank "Source" cell before a bracket exists.
 - The console's job list no longer renders as overlapping, ragged boxes on a phone; every row now measures and aligns correctly.
+- The "This week" card and the league-status card now follow the league's next open week, the same way the console's own top line does: once a week closes they name the next one with its own kickoff, and once every week is closed they say so instead of relabeling a closed week as still current. Both now also state the week's own progress (not started, in progress, or awaiting close) with the same words the attention line already uses, instead of a close-readiness reason that could name "games not final" before the week had even started.
 - The matchups page no longer clamps a starter's name at desktop width; a long name now wraps onto the row's own second line.
 - On a phone, the matchups status strip is shorter, and the featured matchup card now leads the page instead of sitting below a long freshness sentence.
 - On a phone, a team header with a long, single-word name no longer breaks mid-word; each side of the matchup now gets the full card width.
