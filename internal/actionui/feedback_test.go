@@ -91,6 +91,95 @@ func TestRedirectWithNoticePreservesNativeFlash(t *testing.T) {
 	}
 }
 
+// TestRedirectBackWithScopedNoticeIsInvisibleToAnotherRoutesRead is F15's
+// failing-test-first reproduction (gap-audit J6): a confirmation from one
+// page used to render on whatever OTHER page a manager opened next,
+// because every page's action wrote and every page's Load read the same
+// untagged "notice" flash. A route-scoped write is readable only by a
+// ScopedNotice call for that SAME route; a different route's own
+// ScopedNotice call (or the old, unscoped Flashes("notice") read) finds
+// nothing.
+func TestRedirectBackWithScopedNoticeIsInvisibleToAnotherRoutesRead(t *testing.T) {
+	registry := action.NewRegistry()
+	registry.Register("submit-sighting", func(ctx *action.Context) error {
+		RedirectBackWithScopedNotice(ctx, "/wire", "/wire", "Your tip is on the wire.")
+		return nil
+	})
+	manager := session.MustNew("actionui-scoped-notice-secret", session.Options{
+		CookieName:    "actionui_scoped_notice",
+		AllowInsecure: true,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/__actions/submit-sighting", strings.NewReader("category=news"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	req.SetPathValue("name", "submit-sighting")
+	postRes := httptest.NewRecorder()
+	handler := manager.Middleware(registry)
+	handler.ServeHTTP(postRes, req)
+	if postRes.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", postRes.Code, http.StatusSeeOther)
+	}
+	cookies := postRes.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("wrote %d cookies, want 1", len(cookies))
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/locker", nil)
+	getReq.AddCookie(cookies[0])
+	getRes := httptest.NewRecorder()
+	manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if notice, ok := ScopedNotice(r, "/locker"); ok {
+			t.Fatalf("a different route's ScopedNotice read the Wire's own notice: %q", notice)
+		}
+		if flashes := session.Current(r).Flashes("notice"); len(flashes) != 0 {
+			t.Fatalf("the old untagged \"notice\" key still carries the Wire's confirmation: %#v", flashes)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(getRes, getReq)
+	if getRes.Code != http.StatusNoContent {
+		t.Fatalf("GET status = %d, want %d", getRes.Code, http.StatusNoContent)
+	}
+}
+
+// TestRedirectBackWithScopedNoticeRoundTripsForItsOwnRoute is the paired
+// positive case: the SAME route's own ScopedNotice call does read the
+// notice back, trimmed, exactly once.
+func TestRedirectBackWithScopedNoticeRoundTripsForItsOwnRoute(t *testing.T) {
+	registry := action.NewRegistry()
+	registry.Register("submit-sighting", func(ctx *action.Context) error {
+		RedirectBackWithScopedNotice(ctx, "/wire", "/wire", "  Your tip is on the wire.  ")
+		return nil
+	})
+	manager := session.MustNew("actionui-scoped-notice-own-secret", session.Options{
+		CookieName:    "actionui_scoped_notice_own",
+		AllowInsecure: true,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/__actions/submit-sighting", strings.NewReader("category=news"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	req.SetPathValue("name", "submit-sighting")
+	postRes := httptest.NewRecorder()
+	manager.Middleware(registry).ServeHTTP(postRes, req)
+	cookies := postRes.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("wrote %d cookies, want 1", len(cookies))
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/wire", nil)
+	getReq.AddCookie(cookies[0])
+	getRes := httptest.NewRecorder()
+	manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		notice, ok := ScopedNotice(r, "/wire")
+		if !ok || notice != "Your tip is on the wire." {
+			t.Fatalf("ScopedNotice(/wire) = %q, %v, want the trimmed notice", notice, ok)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(getRes, getReq)
+	if getRes.Code != http.StatusNoContent {
+		t.Fatalf("GET status = %d, want %d", getRes.Code, http.StatusNoContent)
+	}
+}
+
 // TestRedirectBackWithNoticeManagedResultUsesFragmentFreeFallbackAndKeepsReservedFieldPrivate
 // pins the wave 8 hotfix (item 2, commissioner: "moving players on my big
 // board doesn't feel interactive, it resets the scroll"). Before the fix,

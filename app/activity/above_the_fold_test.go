@@ -42,3 +42,42 @@ func TestActivityFeedSitsAboveThePlayoffContextBandAndPaginationHidesAtOnePage(t
 		t.Errorf("page.gsx guards %d pagination navs with data.pages > 1, want 2 (top and bottom)", got)
 	}
 }
+
+// TestActivityHeroLinksShareOneRowUnderTheTimeLine is a coordinator
+// follow-up to the J6 wave: on a phone, the hero card's own three
+// .draft-clock-meta children (the league-time span, "Player pool →",
+// "Team terminal →") used to wrap as two-then-one under
+// justify-content: space-between, leaving "Team terminal →" alone on
+// its own row with a large gap above it. The two links now share one
+// wrapper, .activity-clock-links, so they read as a single row under
+// the time line and wrap together — never split from each other — only
+// when they do not both fit.
+func TestActivityHeroLinksShareOneRowUnderTheTimeLine(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(page)
+	timeIndex := strings.Index(source, `<span class="mono">League time · {data.timezone}</span>`)
+	linksIndex := strings.Index(source, `<div class="activity-clock-links">`)
+	playerPoolIndex := strings.Index(source, `<a href="/players" data-gosx-link>Player pool →</a>`)
+	teamTerminalIndex := strings.Index(source, `<a href="/team" data-gosx-link>Team terminal →</a>`)
+	if timeIndex < 0 {
+		t.Fatal("page.gsx is missing the hero card's league-time line")
+	}
+	if linksIndex < 0 {
+		t.Fatal(`page.gsx is missing the hero card's ".activity-clock-links" wrapper around Player pool and Team terminal`)
+	}
+	if playerPoolIndex < 0 || teamTerminalIndex < 0 {
+		t.Fatal("page.gsx is missing the hero card's Player pool or Team terminal link")
+	}
+	if timeIndex > linksIndex {
+		t.Error("the league-time line should render before the links row, not after it")
+	}
+	if linksIndex > playerPoolIndex || linksIndex > teamTerminalIndex {
+		t.Error("Player pool and Team terminal should both render inside .activity-clock-links")
+	}
+	if playerPoolIndex > teamTerminalIndex {
+		t.Error("Player pool should render before Team terminal within the shared links row")
+	}
+}

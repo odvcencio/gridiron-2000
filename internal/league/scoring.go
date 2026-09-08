@@ -295,10 +295,17 @@ type ScoringRuleGroup struct {
 
 // ScoringData assembles the scoring settings page: lock state and every
 // rule, grouped for display, with its live or default point value.
+//
+// Both reads below go through s.clock(), not time.Now() (F13, J4 console
+// gap-audit): every other page's season phase — /admin, /commissioner —
+// already read the service clock, so a bare time.Now() here is the one
+// place this page's "Current phase" and its edit lock could disagree with
+// the console's own top line and, under the harness clock, ever call week
+// 1 "preseason" while leaving scoring editable past kickoff.
 func (s *Service) ScoringData(r *http.Request) map[string]any {
 	state := s.store.Snapshot()
 	isCommissioner := s.IsCommissioner(r)
-	locked := s.ScoringLocked(time.Now())
+	locked := s.ScoringLocked(s.clock())
 
 	location := s.draftTZ
 	if location == nil {
@@ -328,7 +335,7 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 		})
 	}
 
-	now := time.Now()
+	now := s.clock()
 	scoringValues := s.currentScoringValues()
 
 	// The masthead "Scoring editable until" line reads the same
@@ -362,6 +369,10 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 		// cfg.Season rather than retyped.
 		"manager_lock_note": fmt.Sprintf("These rules are final for the %d season once week 1 kicks off.", s.cfg.Season),
 		"league":            s.leagueMapForViewer(r),
+		// scoring_reset_confirm (J6 gap-audit F33): the Danger zone's typed
+		// phrase names the league, the same pattern as /admin's own two
+		// resets, so it cannot be confused with theirs or typed from memory.
+		"scoring_reset_confirm": resetScoringConfirmation(s.cfg.Name),
 		// Every section below renders THIS instance's live ruleset: config
 		// (s.cfg), the runtime roster/draft accessors (CurrentRoster,
 		// CurrentDraftRounds), the scoring values store, and each system's

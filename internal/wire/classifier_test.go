@@ -17,6 +17,11 @@ func TestClassifierPrioritizesSpecificSignals(t *testing.T) {
 		{name: "inactive beats injury", text: "Smith is inactive because of the injury", category: "inactive", relevant: true},
 		{name: "turnover", text: "Intercepted at the goal line", category: "turnover", relevant: true},
 		{name: "noise", text: "The pregame playlist is immaculate", category: "noise", relevant: false},
+		// F5 (gap-audit J6): "locker room" is also this app's own page
+		// name, and NFL culture pieces use the idiom constantly with no
+		// injury content at all. A joke story that only mentions the room,
+		// not an injury, must not classify as injury.
+		{name: "locker room culture piece is not an injury", text: "Josh Allen, the jokester: stories of the QB's wit from the locker room, field and sky", category: "noise", relevant: false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

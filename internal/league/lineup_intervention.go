@@ -15,6 +15,13 @@ import (
 type lineupViewTarget struct {
 	TeamID       string
 	Intervention bool
+	// RequestedUnknown (J4 F10) carries the raw ?team= value verbatim when
+	// a commissioner's request named one but claimedLineupTeam could not
+	// resolve it — an unknown ID, a stale one, or an unclaimed seat's
+	// code. Empty for every other case (no ?team=, a non-commissioner
+	// viewer, or a value that did resolve), so a caller can gate a "team
+	// not found" state on RequestedUnknown != "" without a second lookup.
+	RequestedUnknown string
 }
 
 // claimedLineupTeam resolves a target against the service's active topology
@@ -22,16 +29,25 @@ type lineupViewTarget struct {
 // valid commissioner lineup targets. Demo rehearsal treats every active
 // configured team as a synthetic claimed seat so the local commissioner
 // rehearsal can exercise the same lineup-only surface.
+//
+// requested matches either a team's stable ID (team-3) or its short seat
+// code (its Abbreviation, case-insensitive — AQ3, matching the code the
+// console itself prints in the attention panel, activity feed, draft
+// order, and badge picker). F10 (J4 console gap-audit): before this, only
+// an exact ID matched, so pasting the very code the console showed missed
+// silently and this fell through to the "unknown target" path below,
+// which the caller then read as "use the viewer's own seat instead" —
+// landing a commissioner on their own team with no error.
 func (s *Service) claimedLineupTeam(state PersistedState, requested string) (Team, bool) {
 	requested = strings.TrimSpace(requested)
 	if requested == "" {
 		return Team{}, false
 	}
 	for _, candidate := range s.Teams() {
-		if candidate.ID != requested {
+		if candidate.ID != requested && !strings.EqualFold(candidate.Abbreviation, requested) {
 			continue
 		}
-		team := s.teamView(state, requested)
+		team := s.teamView(state, candidate.ID)
 		if s.demoMode || strings.TrimSpace(team.Manager) != "" {
 			return team, true
 		}
@@ -53,13 +69,23 @@ func (s *Service) lineupViewTargetForRequest(r *http.Request, state PersistedSta
 	if !s.IsCommissioner(r) || requested == "" {
 		return lineupViewTarget{TeamID: ownTeamID}
 	}
-	if _, ok := s.claimedLineupTeam(state, requested); !ok {
+	team, ok := s.claimedLineupTeam(state, requested)
+	if !ok {
+		// F10 (J4 console gap-audit): this used to fall back to the
+		// commissioner's own seat silently, with no sign the requested
+		// target was ever read, let alone rejected. RequestedUnknown lets
+		// the page state the truth — "No team matches 'XYZ'" — instead of
+		// quietly substituting the commissioner's own franchise.
+		return lineupViewTarget{TeamID: ownTeamID, RequestedUnknown: requested}
+	}
+	// team.ID, not requested: requested may be a seat code (AQ3) that
+	// resolved above, and comparing the raw code against ownTeamID (a
+	// team-N id) would never match, misreading the commissioner's own
+	// franchise as an intervention target.
+	if team.ID == ownTeamID {
 		return lineupViewTarget{TeamID: ownTeamID}
 	}
-	if requested == ownTeamID {
-		return lineupViewTarget{TeamID: ownTeamID}
-	}
-	return lineupViewTarget{TeamID: requested, Intervention: true}
+	return lineupViewTarget{TeamID: team.ID, Intervention: true}
 }
 
 // lineupInterventionAudit reports whether a SetLineup/LineupAuto call

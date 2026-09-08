@@ -29,6 +29,7 @@ type RosterRowProps struct {
 	HasMatchup     bool
 	MatchupTier    string
 	MatchupChip    string
+	MatchupOrdinal string
 	MatchupDetail  string
 	Jersey         string
 	HasBreakdown   bool
@@ -265,7 +266,7 @@ func RosterRow(props RosterRowProps) Node {
 				<If cond={props.HasOpponent}>
 					{props.Opponent}
 					<If cond={props.HasMatchup}>
-						<span class="matchup-chip" data-matchup-tier={props.MatchupTier}>{props.MatchupChip}</span>
+						<span class="matchup-chip" data-matchup-tier={props.MatchupTier} title={props.MatchupDetail}>{props.MatchupOrdinal}</span>
 					</If>
 				</If>
 				<If cond={props.HasOpponent == false}>—</If>
@@ -357,7 +358,20 @@ func Page() Node {
 				<a href={data.public_entry.action_href} data-gosx-link class="button button--primary">{data.public_entry.action_label}</a>
 			</section>
 		</If>
-		<If cond={data.has_seat}>
+		<If cond={data.has_seat && data.lineup_target_unknown}>
+			<section class="no-franchise tone-lime">
+				<div class="signal-label">
+					<span class="signal-mark" aria-hidden="true"></span>
+					COMMISSIONER // LINEUP CONTROL
+				</div>
+				<h1>TEAM NOT FOUND.</h1>
+				<p>
+					{"No team matches \"" + data.lineup_target_unknown_value + "\". Pick a team from the console's seat list."}
+				</p>
+				<a href="/admin#admin-seats" data-gosx-link class="button button--primary">Open the console →</a>
+			</section>
+		</If>
+		<If cond={data.has_seat && data.lineup_target_unknown == false}>
 		<div class="notice-stack">
 			<If cond={data.has_notice}>
 				{/* J3 F4: league.SetLineup now reports every cascading change
@@ -408,13 +422,26 @@ func Page() Node {
 				<div>
 					<span class="section-index">
 						MANAGER TERMINAL //
-						{data.viewer.initials}
+						{data.hero_initials}
 					</span>
 					<TextBlock as="h1" font="400 24px Archivo Black" lineHeight={28} maxLines={2} overflow="ellipsis" text={data.team.name} />
 					<small class="mono">
 						{data.team.division}
 						DIVISION
 					</small>
+					{/* J4 F32: during a genuine intervention the hero must name
+					    the target franchise's own manager, not the signed-in
+					    commissioner who is only viewing it — hero_manager_name
+					    reads the pre-scrub team.Manager value (internal/league)
+					    for exactly this display, independent of the co-manager/
+					    badge/identity-editor state the intervention view model
+					    still withholds everywhere else on this page. */}
+					<If cond={data.lineup_intervention}>
+						<p>
+							Operated by
+							<TextBlock as="span" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.hero_manager_name} />
+						</p>
+					</If>
 					{/* Section-B item 6 (page-height budget): in season, the hero
 					    keeps exactly one band — name, division, record, badge.
 					    The manager line and the Customize franchise link (a
@@ -450,8 +477,13 @@ func Page() Node {
 				<span>Season</span>
 				<strong class="mono">{data.team.record}</strong>
 				<small>
-					{data.team.points_for}
-					points scored
+					<If cond={data.has_team_points}>
+						{data.team.points_for}
+						points scored
+					</If>
+					<If cond={data.has_team_points == false}>
+						No points scored yet
+					</If>
 					<If cond={data.has_team_streak}>
 						·
 						{data.team.streak}
@@ -517,7 +549,10 @@ func Page() Node {
 						<strong>Customize your team</strong>
 						<small>Name · co-manager · image · league badge</small>
 					</span>
-					<span class="team-identity-settings__summary-action mono">OPEN EDITOR</span>
+					<span class="team-identity-settings__summary-action mono">
+						<If cond={data.identity_expanded}>CLOSE EDITOR</If>
+						<If cond={data.identity_expanded == false}>OPEN EDITOR</If>
+					</span>
 				</summary>
 				<div class="team-identity-settings__body">
 					<section class="team-identity-settings__panel" aria-labelledby="team-profile-settings-title">
@@ -561,11 +596,20 @@ func Page() Node {
 							<button class="button button--compact" type="submit">Rename</button>
 						</form>
 						<If cond={data.team.has_custom_name}>
+							{/* J5 F27: the control used to post immediately, name no
+							    value, and confirm nothing — one click discarded the
+							    manager's name. It now names the value it restores and
+							    confirms in place, the same details/summary pattern
+							    /board's own "Clear board" control uses. */}
 							<form method="post" action={actionPath("team-name-reset")} data-gosx-managed="true" class="team-rename-form">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="team_id" value={data.team.id}></input>
 								<input type="hidden" name={data.team_return_target_field} value={data.team_return_target}></input>
-								<button class="button button--secondary button--compact" type="submit">Reset to configured name</button>
+								<details class="action-confirmation">
+									<summary aria-label={"Reset team name to " + data.team_configured_name}>{"Reset to \"" + data.team_configured_name + "\""}</summary>
+									<p>{"This replaces your team name with the configured default, \"" + data.team_configured_name + "\". You can rename it again at any time."}</p>
+									<button class="button button--secondary button--compact" type="submit" aria-label={"Confirm reset team name to " + data.team_configured_name}>Confirm reset</button>
+								</details>
 							</form>
 						</If>
 						<If cond={data.identity_available}>
@@ -1035,7 +1079,7 @@ func TeamLineupRegion() Node {
 											<If cond={slot.has_opponent}>
 												{slot.opponent}
 												<If cond={slot.has_matchup}>
-													<span class="matchup-chip" data-matchup-tier={slot.matchup_tier}>{slot.matchup_chip}</span>
+													<span class="matchup-chip" data-matchup-tier={slot.matchup_tier} title={slot.matchup_detail}>{slot.matchup_ordinal}</span>
 												</If>
 											</If>
 											<If cond={slot.has_opponent == false}>—</If>

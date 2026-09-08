@@ -947,6 +947,39 @@ func TestBlitzDataEligibleCannotAddAfterKickoff(t *testing.T) {
 	}
 }
 
+// TestBlitzDataOneStateWhenSlateCloses is J6 F11's own regression test
+// (2026-09-04 audit): the masthead used to read "Entries this slate / 0" —
+// an open invitation — at the same moment a "SLATE CLOSED" notice sat right
+// beside it, and the entry section kept inviting new picks. The fixture's
+// pre3 slate carries a single already-final game (blitzFixtureGames'
+// comment: "pre3 holds a single, already-final game, so pre3 is closed"),
+// with pre2 still open, so this asserts slate_closed without archived.
+func TestBlitzDataOneStateWhenSlateCloses(t *testing.T) {
+	now := time.Now()
+	service := blitzTestService(t, now, blitzFixtureGames(now))
+	request, _ := http.NewRequest(http.MethodGet, "/blitz?slate=pre3", nil)
+	data := service.BlitzData(request)
+
+	if data["slate_closed"] != true {
+		t.Fatalf("pre3 slate_closed = %v, want true", data["slate_closed"])
+	}
+	if data["archived"] != false {
+		t.Fatalf("pre3 archived = %v, want false (only pre3 is closed, not the whole contest)", data["archived"])
+	}
+	if data["can_enter"] != false {
+		t.Errorf("can_enter = %v, want false once the slate has closed", data["can_enter"])
+	}
+	if data["has_entry"] != false {
+		t.Errorf("has_entry = %v, want false: this viewer never entered pre3", data["has_entry"])
+	}
+	if data["my_entry_total"] != "0.0" {
+		t.Errorf("my_entry_total = %v, want \"0.0\" for no entry", data["my_entry_total"])
+	}
+	if data["leaderboard_empty"] != true {
+		t.Errorf("leaderboard_empty = %v, want true: nobody entered pre3", data["leaderboard_empty"])
+	}
+}
+
 // TestStateFingerprintMovesAtBlitzKickoff covers the freshness half of
 // the lock: a board open before kickoff soft-refreshes on the same 4s
 // /api/league/version poll everything else uses, so the Add button turns

@@ -282,7 +282,8 @@ func Page() Node {
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<strong>Reset scoring</strong>
 						<p>Restores every rule to the league defaults. Custom values are lost.</p>
-						<input type="text" name="confirm" placeholder="type RESET" autocomplete="off"></input>
+						<label for="scoring-reset-confirm">Type <span class="mono">{data.scoring_reset_confirm}</span> to confirm.</label>
+						<input id="scoring-reset-confirm" class="typed-confirm-input" type="text" name="confirm" autocomplete="off" enterkeyhint="done" placeholder={data.scoring_reset_confirm} required="required"></input>
 						<button class="button" type="submit">Reset scoring</button>
 					</form>
 				</div>

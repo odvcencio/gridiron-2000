@@ -278,3 +278,63 @@ func TestMatchupsDataInvalidWeekNormalizesAndPreservesNavigationQuery(t *testing
 		t.Fatalf("invalid week options = %#v", data["week_options"])
 	}
 }
+
+// TestMatchupsDataRecordAgreesWithStandingsAfterATie pins F27 (J4 console
+// gap-audit): away.Record/home.Record used to read straight off
+// teamView's own Team value, which never carries more than the static
+// "0–0" seed placeholder (model.go) — so a team that tied read as a team
+// that had not played at all, and disagreed with the standings table's
+// own three-part "W–L–T" record for the identical week. Both pages must
+// now report the identical record for a team once any tie exists.
+func TestMatchupsDataRecordAgreesWithStandingsAfterATie(t *testing.T) {
+	service, _ := matchupDataFixture(t)
+	schedule := service.store.Snapshot().Schedule
+	week := schedule.Weeks[0]
+	if len(week.Matchups) == 0 {
+		t.Fatal("fixture schedule's week 1 has no matchups")
+	}
+	tied := &schedule.Weeks[0].Matchups[0]
+	tied.HomeScore = 88.4
+	tied.AwayScore = 88.4
+	tied.Final = true
+	if err := service.store.SetSchedule(*schedule); err != nil {
+		t.Fatal(err)
+	}
+
+	data := service.MatchupsData(context.Background(), matchupDataRequest(t, "/matchups?week=1"))
+	matchups, ok := data["matchups"].([]map[string]any)
+	if !ok || len(matchups) == 0 {
+		t.Fatalf("data.matchups = %#v, want the tied matchup", data["matchups"])
+	}
+	homeMap, ok := matchups[0]["home"].(map[string]any)
+	if !ok {
+		t.Fatalf("matchups[0].home = %#v, want map", matchups[0]["home"])
+	}
+	matchupRecord, ok := homeMap["record"].(string)
+	if !ok || matchupRecord == "" {
+		t.Fatalf("matchup page home record = %#v, want a non-empty record", homeMap["record"])
+	}
+	if !strings.Contains(matchupRecord, "–1") && !strings.Contains(matchupRecord, "-1") {
+		t.Fatalf("matchup page home record = %q, want a three-part record with one tie", matchupRecord)
+	}
+
+	state := service.store.Snapshot()
+	standingsRecord := ""
+	for _, division := range service.divisionMaps(state) {
+		teams, ok := division["teams"].([]map[string]any)
+		if !ok {
+			continue
+		}
+		for _, team := range teams {
+			if team["id"] == tied.HomeTeamID {
+				standingsRecord, _ = team["record"].(string)
+			}
+		}
+	}
+	if standingsRecord == "" {
+		t.Fatalf("standings record for %s not found", tied.HomeTeamID)
+	}
+	if standingsRecord != matchupRecord {
+		t.Fatalf("standings record %q disagrees with matchup page record %q for the same team and week", standingsRecord, matchupRecord)
+	}
+}

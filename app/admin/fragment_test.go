@@ -134,6 +134,43 @@ func TestAdminAttentionReadoutRendersSeasonStateSentenceAndHidesDraftDeadline(t 
 	}
 }
 
+// TestAdminAttentionReadoutNoLongerGluesScheduleReasonOntoSeasonState is a
+// coordinator follow-up (2026-09-08 wave C, alongside F21): the readout
+// used to append a second, separate <span>{ScheduleReason}</span> after
+// SeasonStateSentence whenever the week was not ready to close —
+// including before kickoff, where "waiting for N of M games to go final"
+// is not true of a week that has not started (SeasonStateSentence itself
+// now states the one true fact for every phase; season_test.go's
+// TestWeekProgressSentenceAppendsStaleFeedNoticeOnceAwaitingClose covers
+// the one fact — a stale stat feed — the removed span still needed to
+// carry). ScheduleReason legitimately still appears in the "This week"
+// card below the readout, so this checks the readout div alone.
+func TestAdminAttentionReadoutNoLongerGluesScheduleReasonOntoSeasonState(t *testing.T) {
+	props := sampleAdminAttention()
+	props.SeasonStateSentence = "Week 2 starts Wed Sep 17 · 8:15 PM EDT"
+	props.ScheduleReady = false
+	props.ScheduleReason = "waiting for 16 of 16 games to go final"
+	rendered, err := adminAttentionFragmentRender(props)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := strings.Index(rendered, `class="admin-task-nav__readout"`)
+	if start < 0 {
+		t.Fatal("attention readout div missing")
+	}
+	end := strings.Index(rendered[start:], "</div>")
+	if end < 0 {
+		t.Fatal("attention readout div has no closing tag")
+	}
+	readout := rendered[start : start+end]
+	if !strings.Contains(readout, "Week 2 starts Wed Sep 17 · 8:15 PM EDT") {
+		t.Errorf("readout missing the season-state sentence: %s", readout)
+	}
+	if strings.Contains(readout, "waiting for 16 of 16 games to go final") {
+		t.Errorf("readout still glues the week-close reason onto the season-state sentence: %s", readout)
+	}
+}
+
 // TestAdminAttentionReadoutReprioritizesByDraftPhase pins F2 (J4 console
 // gap-audit): the first two screens of the console used to be draft-night
 // telemetry (seat rows, board counts) in week 1, with nothing naming the
@@ -157,10 +194,16 @@ func TestAdminAttentionReadoutReprioritizesByDraftPhase(t *testing.T) {
 	if !strings.Contains(rendered, "Draft night (complete)") {
 		t.Errorf("post-draft disclosure missing its summary label: %s", rendered)
 	}
-	if !strings.Contains(rendered, "OPEN CLAIMS") || !strings.Contains(rendered, "TRADES IN REVIEW") {
+	// F35 (J4 console gap-audit): the bare OPEN CLAIMS/TRADES IN REVIEW
+	// stat row is now the "This week" card — same underlying counts, each
+	// one named in a sentence and linked to the section that answers it.
+	if !strings.Contains(rendered, `class="admin-this-week"`) {
+		t.Errorf("post-draft readout missing the This week card: %s", rendered)
+	}
+	if !strings.Contains(rendered, "open waiver claim") || !strings.Contains(rendered, "trade") {
 		t.Errorf("post-draft readout missing the week's own open-work summary: %s", rendered)
 	}
-	summaryAt := strings.Index(rendered, "OPEN CLAIMS")
+	summaryAt := strings.Index(rendered, `class="admin-this-week"`)
 	disclosureAt := strings.Index(rendered, `<details class="commissioner-hq__draft-night">`)
 	if summaryAt < 0 || disclosureAt < 0 || summaryAt > disclosureAt {
 		t.Errorf("week summary must lead the disclosure, not follow it: %s", rendered)

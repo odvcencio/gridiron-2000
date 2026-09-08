@@ -652,6 +652,63 @@ func TestAdminDataSeatsCarrySeasonReleaseConsequence(t *testing.T) {
 	}
 }
 
+// TestAdminDataSeatsDropBoardFactsAfterDraft pins F24 (J4 console
+// gap-audit): the board-target count and its "no board" warning are
+// draft-era facts that AdminData's own seat rows kept carrying well after
+// the draft ended. draft_complete gates SeatRow's board-count line
+// (page.gsx); this pins the data side of that gate.
+func TestAdminDataSeatsDropBoardFactsAfterDraft(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	data := service.AdminData(request)
+	seats, ok := data["seats"].([]map[string]any)
+	if !ok || len(seats) == 0 {
+		t.Fatalf("seats = %#v, want a non-empty slice", data["seats"])
+	}
+	for _, seat := range seats {
+		if got := seat["draft_complete"]; got != false {
+			t.Fatalf("seat %v draft_complete before the draft completes = %v, want false", seat["id"], got)
+		}
+	}
+
+	completeDraftForTest(t, service)
+
+	data = service.AdminData(request)
+	seats, ok = data["seats"].([]map[string]any)
+	if !ok || len(seats) == 0 {
+		t.Fatalf("seats = %#v, want a non-empty slice", data["seats"])
+	}
+	for _, seat := range seats {
+		if got := seat["draft_complete"]; got != true {
+			t.Fatalf("seat %v draft_complete after the draft completes = %v, want true", seat["id"], got)
+		}
+	}
+}
+
+// TestAdminDataSeatsPresenceDetailIsPlainLanguage pins the other half of
+// F24: the not-seen presence detail used to leak straight through as
+// server-uptime language ("No room heartbeat since this server
+// started."). AdminData's own seats list now runs it through
+// FriendlyPresenceDetail, the same rewrite the draft room's commissioner
+// drawer and the admin fragment's attention readout already apply.
+func TestAdminDataSeatsPresenceDetailIsPlainLanguage(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	data := service.AdminData(request)
+	seats, ok := data["seats"].([]map[string]any)
+	if !ok || len(seats) == 0 {
+		t.Fatalf("seats = %#v, want a non-empty slice", data["seats"])
+	}
+	for _, seat := range seats {
+		detail, _ := seat["presence_detail"].(string)
+		if strings.Contains(detail, "server started") {
+			t.Fatalf("seat %v presence_detail leaked server language: %q", seat["id"], detail)
+		}
+	}
+}
+
 func TestAdminDataMailFieldsAndMailto(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
@@ -1146,6 +1203,46 @@ func TestAdminRunWaivers(t *testing.T) {
 			t.Fatalf("commissioner events = %+v, want one waivers.force_run row with actor identity", events)
 		}
 	})
+}
+
+// TestAdminWaiversMapRunStateMatchesOpenClaims pins F22 (J4 console
+// gap-audit): with zero open claims, the panel used to show RUN STATE
+// "overdue" (a pure calendar signal) directly beside a sentence saying
+// there was nothing for a forced run to resolve. With no claims waiting,
+// run_state now reads "Idle — no claims due" regardless of the calendar
+// signal; once a claim is open again, a stale calendar cycle still reads
+// "Overdue". processed_through also carries a relative phrase now, the
+// same pairing every other timestamp on the console already carries.
+func TestAdminWaiversMapRunStateMatchesOpenClaims(t *testing.T) {
+	service := newTestService(t, true)
+	// Two days after WaiversProcessedThrough with no further claims filed
+	// is a missed cycle by commissionerV1WaiverRunState's own calendar
+	// rule (see commissioner_summary_v1_test.go's "missed an entire extra
+	// cycle" case), so this now exercises the true "overdue but idle"
+	// disagreement F22 found.
+	processedAt := time.Date(2026, 9, 10, 9, 0, 0, 0, time.UTC)
+	service.store.mu.Lock()
+	service.store.state.WaiversProcessedThrough = processedAt
+	service.store.mu.Unlock()
+	now := processedAt.Add(48 * time.Hour)
+
+	state := service.store.Snapshot()
+	waivers := service.adminWaiversMap(state, now)
+	if got := waivers["run_state"]; got != "Idle — no claims due" {
+		t.Fatalf("run_state with zero open claims = %v, want %q", got, "Idle — no claims due")
+	}
+	if got, ok := waivers["processed_through"].(string); !ok || !strings.Contains(got, "ago") {
+		t.Fatalf("processed_through = %v, want a relative phrase alongside the absolute time", waivers["processed_through"])
+	}
+
+	if err := service.store.FileClaim(WaiverClaim{ID: "clm-run-state", TeamID: "team-7", AddID: "wv-1", FiledAt: now.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	state = service.store.Snapshot()
+	waivers = service.adminWaiversMap(state, now)
+	if got := waivers["run_state"]; got != "Overdue" {
+		t.Fatalf("run_state with an open claim past a missed cycle = %v, want %q", got, "Overdue")
+	}
 }
 
 // TestAdminWaiversMapHasOpenClaimsGatesTheForceRunControl pins finding 8

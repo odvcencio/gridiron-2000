@@ -541,6 +541,7 @@ func (service *Service) Status() Status {
 		Sources:            sources,
 		Feeds:              feeds,
 		FeedStaleAfter:     DeriveFeedStaleAfter(service.config.FeedInterval),
+		FeedInterval:       service.config.FeedInterval,
 		SourceCounts:       service.store.SourceCounts(),
 		RelevantSignals:    relevant,
 		IgnoredPosts:       ignored,

@@ -813,7 +813,10 @@ func TestV6SQLiteMigratesWaiverReceiptsToV7(t *testing.T) {
 	// and the last kv schema_version stamp (migrate012CommissionerEvents,
 	// wave-2) — not currentDBVersion's own step count — is the logical
 	// marker to check; migrate010/migrate011 stamp no logical version at
-	// all (see their own doc comments).
+	// all (see their own doc comments). J6 F19's commissioner-note flag
+	// (wave C) persists through the existing kv-backed LockerCommissioner
+	// Notes scalar instead of a new column, so it needed no migration and
+	// this marker did not move.
 	var userVersion int
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&userVersion); err != nil || userVersion != currentDBVersion {
 		t.Fatalf("user_version = %d (err %v), want %d", userVersion, err, currentDBVersion)
@@ -845,6 +848,84 @@ func TestV6SQLiteMigratesWaiverReceiptsToV7(t *testing.T) {
 	}
 	if priorities["early"] != 1 || priorities["late"] != 2 {
 		t.Fatalf("normalized priorities = %#v, want early=1 late=2", priorities)
+	}
+}
+
+// TestLockerCommissionerNoteRoundTripsThroughKVNotAColumn is J6 F19's own
+// rework regression test (2026-09-08 wave C): the commissioner-note flag
+// must persist through the existing kv-backed LockerCommissionerNotes
+// scalar (colScalars), not a locker_posts column, so currentSchemaVersion
+// — and the same-season rollback the release rule requires — never moves.
+func TestLockerCommissionerNoteRoundTripsThroughKVNotAColumn(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "league-state.json")
+	store := NewStore(path)
+	store.draftLifecycleBypass = true
+	now := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+
+	commish, err := store.PostLocker("", "Week 1 waivers run Tuesday.", "commish@example.com", "Commissioner", "", true, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !commish.CommissionerNote {
+		t.Fatalf("PostLocker returned CommissionerNote=false for a commissioner post: %+v", commish)
+	}
+	ordinary, err := store.PostLocker("", "gl this week", "member@example.com", "Member", "team-1", false, now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ordinary.CommissionerNote {
+		t.Fatalf("an ordinary post was marked as a commissioner note: %+v", ordinary)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	dbPath := filepath.Join(dir, dbFileName)
+	raw, err := openDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+
+	var kvValue string
+	if err := raw.QueryRow(`SELECT value FROM kv WHERE key = ?`, kvLockerCommissionerNotes).Scan(&kvValue); err != nil {
+		t.Fatalf("kv %s row missing: %v", kvLockerCommissionerNotes, err)
+	}
+	var notes map[string]bool
+	if err := json.Unmarshal([]byte(kvValue), &notes); err != nil {
+		t.Fatalf("kv %s did not decode: %v", kvLockerCommissionerNotes, err)
+	}
+	if notes[commish.ID] != true {
+		t.Errorf("kv %s = %#v, want %q true", kvLockerCommissionerNotes, notes, commish.ID)
+	}
+	if notes[ordinary.ID] {
+		t.Errorf("kv %s marked the ordinary post %q true", kvLockerCommissionerNotes, ordinary.ID)
+	}
+
+	// The locker_posts table itself must carry no commissioner_note
+	// column: a fixed schema is exactly the point of this rework.
+	if _, err := raw.Query(`SELECT commissioner_note FROM locker_posts`); err == nil {
+		t.Fatal("locker_posts carries a commissioner_note column; it must not")
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// A fresh Store against the same path forces loadStateFromDBMode to
+	// re-read from disk: the join from LockerCommissionerNotes onto each
+	// LockerPost.CommissionerNote must survive the reload.
+	reloaded := NewStore(path)
+	t.Cleanup(func() { _ = reloaded.Close() })
+	got := map[string]bool{}
+	for _, p := range reloaded.Snapshot().LockerPosts {
+		got[p.ID] = p.CommissionerNote
+	}
+	if !got[commish.ID] {
+		t.Errorf("reloaded commissioner post CommissionerNote = %v, want true", got[commish.ID])
+	}
+	if got[ordinary.ID] {
+		t.Errorf("reloaded ordinary post CommissionerNote = %v, want false", got[ordinary.ID])
 	}
 }
 

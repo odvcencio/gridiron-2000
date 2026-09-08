@@ -632,6 +632,7 @@ const (
 	kvSeatRevisions           = "seat_revisions"
 	kvSeatReleaseNotices      = "seat_release_notices"
 	kvRosterCorrectionNotices = "roster_correction_notices"
+	kvLockerCommissionerNotes = "locker_commissioner_notes"
 )
 
 // scheduleHeader is the SeasonSchedule minus its weeks: the part that has
@@ -694,6 +695,15 @@ var collectionSpecs = [collectionCount]collectionSpec{
 			}
 			if len(st.RosterCorrectionNotices) > 0 {
 				put(kvRosterCorrectionNotices, sink.jsonValue(st.RosterCorrectionNotices))
+			}
+			// LockerCommissionerNotes (J6 F19, 2026-09-04 audit rework)
+			// follows the same precedent: which Locker Room post IDs the
+			// commissioner posted as an official note, as a plain set
+			// round-tripped through this kv-backed scalar column instead
+			// of a locker_posts column — no migration, no
+			// currentSchemaVersion move.
+			if len(st.LockerCommissionerNotes) > 0 {
+				put(kvLockerCommissionerNotes, sink.jsonValue(st.LockerCommissionerNotes))
 			}
 		},
 	},
@@ -1011,6 +1021,12 @@ var collectionSpecs = [collectionCount]collectionSpec{
 			valCols: []string{"id", "parent_id", "body", "author_email", "author_name", "author_team_id",
 				"posted_at", "removed_at", "removed_by_role"},
 		}},
+		// CommissionerNote (J6 F19) is deliberately not a column here: it
+		// persists through colScalars' kv-backed LockerCommissionerNotes
+		// set (SeatReleaseNotices/RosterCorrectionNotices precedent, this
+		// same file) and is joined back onto LockerPost.CommissionerNote
+		// at load time (loadStateFromDBMode), so this table's own schema
+		// — and currentSchemaVersion, store.go — never has to move.
 		emit: func(st *PersistedState, sink *rowSink) {
 			for i, p := range st.LockerPosts {
 				sink.add("locker_posts", []any{i},
@@ -1470,6 +1486,13 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 			return state, fmt.Errorf("kv %s: %w", kvRosterCorrectionNotices, err)
 		}
 		state.RosterCorrectionNotices = notices
+	}
+	if raw, ok := scalars[kvLockerCommissionerNotes]; ok {
+		var notes map[string]bool
+		if err := json.Unmarshal([]byte(raw), &notes); err != nil {
+			return state, fmt.Errorf("kv %s: %w", kvLockerCommissionerNotes, err)
+		}
+		state.LockerCommissionerNotes = notes
 	}
 
 	if err := queryRows(db, `SELECT "number", "round", "team_id", "player_id", "made_at", "made_by" FROM picks ORDER BY "number"`,
@@ -2018,6 +2041,15 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 		}); err != nil {
 		return state, err
 	}
+	// LockerPost.CommissionerNote is joined from the kv-backed
+	// LockerCommissionerNotes set (colScalars), read earlier in this
+	// function, rather than a locker_posts column (J6 F19, 2026-09-04
+	// audit rework): a new column needs a schema migration and a
+	// currentSchemaVersion bump, which would refuse a same-season
+	// rollback to the previous binary.
+	for i := range state.LockerPosts {
+		state.LockerPosts[i].CommissionerNote = state.LockerCommissionerNotes[state.LockerPosts[i].ID]
+	}
 
 	if err := queryRows(db, `SELECT "id", "actor_email", "actor_name", "kind", "summary",
 		"team_id", "player_id", "week", "at" FROM commissioner_events ORDER BY "ord"`,
@@ -2336,6 +2368,9 @@ func normalizeState(state *PersistedState) {
 	}
 	if state.RosterCorrectionNotices == nil {
 		state.RosterCorrectionNotices = map[string]RosterCorrectionNotice{}
+	}
+	if state.LockerCommissionerNotes == nil {
+		state.LockerCommissionerNotes = map[string]bool{}
 	}
 	normalizeIdentityCollections(state)
 }

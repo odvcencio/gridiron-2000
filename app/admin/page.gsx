@@ -9,7 +9,7 @@ package admin
 // the repo root).
 //
 // SeatRow's avatar-mark__photo image (and the matching one in the
-// 03 // DRAFT ORDER list below) carries width="42" height="42": .team-mark
+// 07 // DRAFT ORDER list below) carries width="42" height="42": .team-mark
 // is a fixed 2.6rem (42px at the 16px root) square (styles.css), and
 // .avatar-mark__photo fills it at width/height: 100%, so these attributes
 // exist purely to give the browser the badge's 1:1 aspect ratio before the
@@ -64,9 +64,15 @@ func SeatRow(props SeatRowProps) Node {
 			</small>
 		</If>
 		<small class="mono">{props.seat.presence_label} · {props.seat.presence_detail}</small>
-		<small class="mono">BOARD: {props.seat.board_count} TARGETS</small>
-		<If cond={props.seat.board_gap}>
-			<b class="ready-state">BOARD GAP</b>
+		{/* F24 (J4 console gap-audit): the board-target count and the "no
+		    board" warning are draft-era facts — once the draft is over,
+		    "BOARD: 22 TARGETS" no longer means anything and only pushed the
+		    row's more current facts further down. */}
+		<If cond={props.seat.draft_complete == false}>
+			<small class="mono">BOARD: {props.seat.board_count} TARGETS</small>
+			<If cond={props.seat.board_gap}>
+				<b class="ready-state">BOARD GAP</b>
+			</If>
 		</If>
 		<span class="position-chip">{props.seat.division}</span>
 		</div>
@@ -119,7 +125,11 @@ func SeatRow(props SeatRowProps) Node {
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 					<input type="hidden" name="team_id" value={props.seat.id}></input>
 					<input type="hidden" name="on" value="false"></input>
-					<button class="board-button autopick-toggle is-on" type="submit">AUTO: ON</button>
+					{/* F24 (J4 console gap-audit): "AUTO: ON" named no subject
+					    and gave no hint the button itself was the toggle. The
+					    label now states the current state and the action the
+					    click takes. */}
+					<button class="board-button autopick-toggle is-on" type="submit">Autopick: on — turn off</button>
 				</form>
 			</If>
 			<If cond={props.seat.autopick == false}>
@@ -127,7 +137,7 @@ func SeatRow(props SeatRowProps) Node {
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 					<input type="hidden" name="team_id" value={props.seat.id}></input>
 					<input type="hidden" name="on" value="true"></input>
-					<button class="board-button autopick-toggle" type="submit">AUTO: OFF</button>
+					<button class="board-button autopick-toggle" type="submit">Autopick: off — turn on</button>
 				</form>
 			</If>
 		</If>
@@ -197,27 +207,51 @@ func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
 			</div>
 			<button type="button" class="board-button" data-gosx-set="$admin.attention.refresh" data-gosx-set-value="manual">Refresh status</button>
 		</div>
+		{/* Coordinator follow-up (2026-09-08 wave C, alongside F21): this
+		    line used to end with the week-close reason glued straight onto
+		    SeasonStateSentence, unconditionally, whenever the week was not
+		    yet ready to close — including before kickoff, where "waiting
+		    for N of M games to go final" is not true of a week that has
+		    not started. SeasonStateSentence (season.go's
+		    weekProgressSentence) already states the one true fact for
+		    every phase — start time, in-progress count, or awaiting-close
+		    count plus a stale-feed notice when it applies — so this line
+		    no longer repeats a second, sometimes-false one beside it. */}
 		<div class="admin-task-nav__readout" aria-live="polite">
 			<strong class="mono">{props.SeasonStateSentence}</strong>
 			<If cond={props.DraftComplete == false}>
 				<span>Draft deadline <span class="mono">{props.DraftDate}<If cond={props.DraftPublished}> · {props.DraftTime}</If></span> · schedule {props.ScheduleStatus}</span>
 			</If>
-			<If cond={props.ScheduleReady}><span>Week {props.ScheduleWeek} is ready to close.</span></If>
-			<If cond={props.ScheduleReady == false}><span>{props.ScheduleReason}</span></If>
 		</div>
-		{/* F2 (J4 console gap-audit): the first two screens of the console
-		    used to be draft-night telemetry (eight seat rows, board
-		    counts) in week 1, with nothing naming the week's own open
-		    work. Once the draft is complete, the week's readiness leads;
-		    the seat/board readiness that mattered on draft night moves
-		    into a closed disclosure below it, exactly as the season-
-		    operations runbook already reprioritizes above this panel. */}
+		{/* F2 + F35 (J4 console gap-audit): the first two screens of the
+		    console used to be draft-night telemetry (eight seat rows,
+		    board counts) in week 1, with nothing naming the week's own
+		    open work. Once the draft is complete, a "This week" card
+		    leads instead — the same facts the old stat row already
+		    carried (open claims, trades in review, ready, invites),
+		    named and linked to the section that answers each one. No new
+		    computation: kickoff and a per-team lineup-set count have no
+		    existing source on this page, so this card does not claim
+		    them. The seat/board readiness that mattered on draft night
+		    moves into a closed disclosure below it, exactly as the
+		    season-operations runbook already reprioritizes above this
+		    panel. */}
 		<If cond={props.DraftComplete}>
-			<div class="commissioner-hq__provenance">
-				<span><strong>OPEN CLAIMS</strong><span class="mono">{props.OpenClaimCount}</span></span>
-				<span><strong>TRADES IN REVIEW</strong><span class="mono">{props.TradesInReviewCount}</span></span>
-				<span><strong>READY</strong><span class="mono">{props.ReadyCount} / {props.SeatCount}</span></span>
-				<span><strong>INVITES</strong><span class="mono">{props.InviteCount} PENDING</span></span>
+			<div class="admin-this-week" aria-label="This week">
+				<span class="section-index">THIS WEEK</span>
+				<ul class="admin-this-week__list">
+					<li><a href="#admin-week-close" data-gosx-link><strong>Week {props.ScheduleWeek}</strong> <If cond={props.ScheduleReady}>is ready to close</If><If cond={props.ScheduleReady == false}>{props.ScheduleReason}</If> →</a></li>
+					<li><a href="#admin-week-close" data-gosx-link><strong>{props.OpenClaimCount}</strong> open waiver claim<If cond={props.OpenClaimCount != 1}>s</If> →</a></li>
+					<li><a href="/trades"><strong>{props.TradesInReviewCount}</strong> trade<If cond={props.TradesInReviewCount != 1}>s</If> in review →</a></li>
+					<li><a href="#admin-invites" data-gosx-link><strong>{props.InviteCount}</strong> invite<If cond={props.InviteCount != 1}>s</If> pending →</a></li>
+				</ul>
+				<p class="admin-this-week__today">
+					<strong>Needs you today:</strong>
+					<If cond={props.ScheduleReady == false}> {props.ScheduleReason}</If>
+					<If cond={props.ScheduleReady && props.OpenClaimCount > 0}> {props.OpenClaimCount} open waiver claim<If cond={props.OpenClaimCount != 1}>s</If> — <a href="#admin-week-close" data-gosx-link>run waivers</a>.</If>
+					<If cond={props.ScheduleReady && props.OpenClaimCount == 0 && props.TradesInReviewCount > 0}> {props.TradesInReviewCount} trade<If cond={props.TradesInReviewCount != 1}>s</If> waiting on review — <a href="/trades">open trades</a>.</If>
+					<If cond={props.ScheduleReady && props.OpenClaimCount == 0 && props.TradesInReviewCount == 0}> Nothing needs you right now.</If>
+				</p>
 			</div>
 			<details class="commissioner-hq__draft-night">
 				<summary class="board-button">Draft night (complete)</summary>
@@ -264,16 +298,24 @@ func AdminAttentionProvenance(props adminAttentionReadoutProps) Node {
 				Not checked in: {props.NotCheckedInSummary} · <a href="/draft" data-gosx-link>Open the draft room</a>
 			</TextBlock>
 		</If>
+		{/* J4 F28 + J2 F18 (gap-audit): every row here used to lead with an
+		    unexplained two-letter-and-digit code ("AQ1 · In Shedeur
+		    Time"), asking the commissioner to memorise eight codes to
+		    read his own console. The team name leads now; the code moves
+		    to a secondary mono chip, and this one line defines it the
+		    first time a code appears on the page. */}
+		<p class="scoring-note">Codes like <span class="position-chip">AQ1</span> are each team's short seat code; the team name always leads.</p>
 		<div class="commissioner-hq__ledger" aria-label="Seat readiness and presence">
 			<Each of={props.Seats} as="seat">
 				<div class="commissioner-hq__attention" data-presence={seat.Presence}>
 					<div class="commissioner-hq__attention-copy">
 						<TextBlock as="span" class="section-index" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={2} overflow="ellipsis">
-							{seat.Abbreviation} · {seat.Name}<If cond={seat.Manager != ""}> · {seat.Manager}</If>
+							{seat.Name}<If cond={seat.Manager != ""}> · {seat.Manager}</If>
 						</TextBlock>
 						<strong><If cond={seat.Claimed}>CLAIMED</If><If cond={seat.Claimed == false}>OPEN</If> · <If cond={seat.Ready}>READY</If><If cond={seat.Ready == false}>NOT READY</If></strong>
 						<span class="seat-presence">{seat.PresenceLabel} · {seat.PresenceDetail} · board {seat.BoardCount}</span>
 					</div>
+					<span class="position-chip mono">{seat.Abbreviation}</span>
 					<If cond={seat.BoardGap}><span class="position-chip">BOARD GAP</span></If>
 				</div>
 			</Each>
@@ -336,30 +378,69 @@ func Page() Node {
 					</form>
 				</If>
 				<span>League status</span>
-				<strong class="mono">
-					{data.member_count}
-					/
-					{data.seat_count}
-					SEATS ·
-					{data.pick_count}
-					PICKS
-				</strong>
-				<div class="draft-clock-meta">
-					<span>
-						Draft
-						{data.draft.date}
-						<If cond={data.draft.published}>
-							·
-							{data.draft.time}
+				{/* Coordinator follow-up, wave C (2026-09-08): this card kept
+				    showing draft-night facts (seats/picks, the draft date, the
+				    READY fraction) after the draft finished -- the same condition
+				    the console already uses to collapse the draft-night readiness
+				    panels below it. Once the draft is complete it leads with the
+				    week instead: the week number and its close-readiness state in
+				    words, the first kickoff in league-local time (when the
+				    schedule has one; earliestKickoffForWeek, admin.go, is the one
+				    lookup /matchups and /scoring also share), and the seat count.
+				    The READY fraction and the draft date move into the
+				    "Draft night (complete)" disclosure. */}
+				<If cond={data.draft.complete}>
+					<strong class="mono">Week {data.schedule.close.week}</strong>
+					{/* Coordinator follow-up: the shared .draft-clock-meta rule
+					    (public/styles.css) is a flex ROW everywhere else it is
+					    used, so three facts here squeezed into narrow columns
+					    inside the 330px card and wrapped four and five lines
+					    deep. admin-masthead-week-meta stacks this one instance
+					    into full-width rows instead, scoped so every other
+					    .draft-clock-meta caller (the pre-draft branch below
+					    included) keeps its own row layout. */}
+					<div class="draft-clock-meta admin-masthead-week-meta">
+						<TextBlock as="span" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
+							<If cond={data.schedule.close.ready}>Ready to close</If>
+							<If cond={data.schedule.close.ready == false}>{data.schedule.close.reason}</If>
+						</TextBlock>
+						<If cond={data.schedule.close.has_first_kickoff}>
+							<span class="mono">First kickoff · {data.schedule.close.first_kickoff_display}</span>
 						</If>
-					</span>
-					<span class="mono ready-count-tag">
-						{data.ready_count}
+						<span class="mono">
+							{data.member_count}
+							/
+							{data.seat_count}
+							SEATS
+						</span>
+					</div>
+				</If>
+				<If cond={data.draft.complete == false}>
+					<strong class="mono">
+						{data.member_count}
 						/
 						{data.seat_count}
-						READY
-					</span>
-				</div>
+						SEATS ·
+						{data.pick_count}
+						PICKS
+					</strong>
+					<div class="draft-clock-meta">
+						<span>
+							Draft
+							{data.draft.date}
+							<If cond={data.draft.published}>
+								·
+								{data.draft.time}
+							</If>
+						</span>
+						<span class="mono ready-count-tag">
+							{data.ready_count}
+							/
+							{data.seat_count}
+							READY
+						</span>
+					</div>
+				</If>
 			</div>
 		</section>
 		</If>
@@ -485,35 +566,80 @@ func Page() Node {
 								<AdminTaskLink Label="Publish regular-season schedule" Href="/admin?section=schedule#admin-schedule" Current={data.admin_section == "schedule"} Status="NEEDS PLAN" />
 							</If>
 							<If cond={data.schedule.has_schedule}>
-								<AdminTaskLink Label="Close a scoring week" Href="/admin?section=week-close#admin-week-close" Current={data.admin_section == "week-close"} Status="CHECK READINESS" />
+								<AdminTaskLink Label="Week close" Href="/admin?section=week-close#admin-week-close" Current={data.admin_section == "week-close"} Status="CHECK READINESS" />
 							</If>
 									<If cond={data.schedule.has_schedule == false}>
-										<AdminTaskLink Label="Close a scoring week" Href="/admin?section=week-close#admin-week-close" Current={data.admin_section == "week-close"} Status="NO SCHEDULE" />
+										<AdminTaskLink Label="Week close" Href="/admin?section=week-close#admin-week-close" Current={data.admin_section == "week-close"} Status="NO SCHEDULE" />
 									</If>
 									<AdminTaskLink Label="Operate playoff truth" Href="/admin?section=playoffs#admin-playoffs" Current={data.admin_section == "playoffs"} Status={data.playoff_truth.status_label} />
+									{/* F17 (J4 console gap-audit): the task board never listed a row
+									    for running waivers or reviewing a trade, so a commissioner
+									    fell back to scrolling to find them. Status reads the same
+									    counts the attention readout above already computes — no new
+									    number, just a second place to see it. */}
+									<If cond={data.waivers.has_open_claims}>
+										<AdminTaskLink Label="Run waivers" Href="/admin?section=week-close#admin-week-close" Current={data.admin_section == "week-close"} Status={data.waivers.open_claim_count + " OPEN"} />
+									</If>
+									<If cond={data.waivers.has_open_claims == false}>
+										<AdminTaskLink Label="Run waivers" Href="/admin?section=week-close#admin-week-close" Current={data.admin_section == "week-close"} Status="NONE DUE" />
+									</If>
+									<If cond={data.admin_attention.TradesInReviewCount > 0}>
+										<AdminTaskLink Label="Review a trade" Href="/trades" Current={false} Status={data.admin_attention.TradesInReviewCount + " IN REVIEW"} />
+									</If>
+									<If cond={data.admin_attention.TradesInReviewCount == 0}>
+										<AdminTaskLink Label="Review a trade" Href="/trades" Current={false} Status="NONE PENDING" />
+									</If>
 								</ul>
 					</div>
 					<div class="admin-task-nav__group">
 						<h3>People and access</h3>
 						<ul>
-							<AdminTaskLink Label="Manage seats and managers" Href="/admin?section=seats#admin-seats" Current={data.admin_section == "seats"} Status={data.ready_count + "/" + data.seat_count + " READY"} />
+							{/* Coordinator follow-up, wave C (2026-09-08): once the draft
+							    is complete this row showed the same draft-night READY
+							    fraction the masthead above dropped — the week's own
+							    close-readiness status (data.schedule.close, the one
+							    source both the masthead and the attention readout
+							    already read) replaces it. */}
+							<If cond={data.draft.complete}>
+								<AdminTaskLink Label="Manage seats and managers" Href="/admin?section=seats#admin-seats" Current={data.admin_section == "seats"} Status={"WEEK " + data.schedule.close.week + " · " + data.schedule.close.ready_label} />
+							</If>
+							<If cond={data.draft.complete == false}>
+								<AdminTaskLink Label="Manage seats and managers" Href="/admin?section=seats#admin-seats" Current={data.admin_section == "seats"} Status={data.ready_count + "/" + data.seat_count + " READY"} />
+							</If>
 							<AdminTaskLink Label="Manage invites" Href="/admin?section=invites#admin-invites" Current={data.admin_section == "invites"} Status="ACCESS LIST" />
+							{/* F17 (J4 console gap-audit): this used to sit after the </ul>
+							    as a bare disclosure triangle, the one job on the board not
+							    rendered as a boxed row. The summary now wears the same
+							    .admin-task-nav__link box every other row uses; opening it still
+							    reveals the per-team list beneath. */}
+							<li class="admin-task-nav__item">
+								<details id="admin-task-nav-lineup" class="admin-task-nav__lineup-intervention">
+									<summary class="admin-task-nav__link admin-task-nav__lineup-summary">
+										<span class="admin-task-nav__label">Set a lineup for a manager</span>
+										<span class="admin-task-nav__status">ANY TEAM</span>
+									</summary>
+									<p class="admin-task-nav__hint">A commissioner can set any team's lineup on a missing manager's behalf; this never locks out the manager's own changes once they return.</p>
+									{/* F32 (J4 console gap-audit): the old #lineup fragment
+									    scrolled past the page's own commissioner-intervention
+									    banner and landed mid-page on an unrelated card. The
+									    banner sits at the top of the page in intervention
+									    mode, so the plain link already lands on it. */}
+									<ul class="admin-task-nav__lineup-list">
+										<Each of={data.seats} as="seat">
+											<li><a href={"/team?team=" + seat.id} data-gosx-link>{seat.name}</a></li>
+										</Each>
+									</ul>
+								</details>
+							</li>
 						</ul>
-						<details id="admin-task-nav-lineup" class="admin-task-nav__lineup-intervention">
-							<summary class="admin-task-nav__lineup-summary">Set a lineup for a manager</summary>
-							<p class="admin-task-nav__hint">A commissioner can set any team's lineup on a missing manager's behalf; this never locks out the manager's own changes once they return.</p>
-							<ul class="admin-task-nav__lineup-list">
-								<Each of={data.seats} as="seat">
-									<li><a href={"/team?team=" + seat.id + "#lineup"} data-gosx-link>{seat.name}</a></li>
-								</Each>
-							</ul>
-						</details>
 					</div>
 					<div class="admin-task-nav__group">
 						<h3>League configuration and communication</h3>
 						<ul>
 							<AdminTaskLink Label="Post league notes" Href="/admin?section=announcements#admin-announcements" Current={data.admin_section == "announcements"} Status="POST / REVIEW" />
 							<AdminTaskLink Label="Download league backup" Href="/admin?section=backup#admin-backup" Current={data.admin_section == "backup"} Status="LOCAL SNAPSHOT" />
+							<AdminTaskLink Label="Change scoring" Href="/scoring" Current={false} Status="RULES AND WEIGHTS" />
+							<AdminTaskLink Label="Read the league log" Href="/activity" Current={false} Status="ACTIVITY FEED" />
 						</ul>
 					</div>
 					<div class="admin-task-nav__group admin-task-nav__group--danger">
@@ -524,21 +650,30 @@ func Page() Node {
 					</div>
 				</div>
 			</nav>
+			{/* F5 + F18 + F25 (J4 console gap-audit): plain #anchor hrefs (no
+			    ?section= query) so a jump is an instant in-page scroll, not
+			    a full reload of a ~14,000px document — the slowest path,
+			    per F25's own root cause. Each label now equals the heading
+			    it lands on (F18), and aria-current names the section the
+			    commissioner last opened (data.admin_section, the same
+			    truth the task board's own AdminTaskLink already reads),
+			    since this page has no client-side scroll tracking to name
+			    the section actually in view. */}
 			<div class="admin-section-strip-wrap">
 			<nav class="admin-section-strip" aria-label="Jump to a console section">
-				<a href="/admin?section=draft-control#admin-draft-control" class="board-button">Draft</a>
-				<a href="/admin?section=schedule#admin-schedule" class="board-button">Schedule</a>
-				<a href="/admin?section=week-close#admin-week-close" class="board-button">Week close</a>
-				<a href="/admin?section=playoffs#admin-playoffs" class="board-button">Playoffs</a>
-				<a href="/admin?section=seats#admin-seats" class="board-button">Seats</a>
-				<a href="/admin?section=invites#admin-invites" class="board-button">Invites</a>
-				<a href="/admin?section=draft-order#admin-draft-order" class="board-button">Draft order</a>
-				<a href="/admin?section=data#admin-data" class="board-button">Data</a>
-				<a href="/admin?section=clock#admin-clock" class="board-button">Clock</a>
-				<a href="/admin?section=roster#admin-roster" class="board-button">Roster</a>
-				<a href="/admin?section=announcements#admin-announcements" class="board-button">Notes</a>
-				<a href="/admin?section=backup#admin-backup" class="board-button">Backup</a>
-				<a href="/admin?section=danger#admin-danger" class="board-button">Danger</a>
+				<a href="#admin-draft-control" class="board-button" aria-current={data.admin_section == "draft-control"}>Runbook</a>
+				<a href="#admin-schedule" class="board-button" aria-current={data.admin_section == "schedule"}>Schedule</a>
+				<a href="#admin-week-close" class="board-button" aria-current={data.admin_section == "week-close"}>Week close</a>
+				<a href="#admin-playoffs" class="board-button" aria-current={data.admin_section == "playoffs"}>Playoffs</a>
+				<a href="#admin-seats" class="board-button" aria-current={data.admin_section == "seats"}>Seats</a>
+				<a href="#admin-invites" class="board-button" aria-current={data.admin_section == "invites"}>Invites</a>
+				<a href="#admin-draft-order" class="board-button" aria-current={data.admin_section == "draft-order"}>Draft order</a>
+				<a href="#admin-data" class="board-button" aria-current={data.admin_section == "data"}>Data</a>
+				<a href="#admin-clock" class="board-button" aria-current={data.admin_section == "clock"}>Clock</a>
+				<a href="#admin-roster" class="board-button" aria-current={data.admin_section == "roster"}>Roster</a>
+				<a href="#admin-announcements" class="board-button" aria-current={data.admin_section == "announcements"}>Notes</a>
+				<a href="#admin-backup" class="board-button" aria-current={data.admin_section == "backup"}>Backup</a>
+				<a href="#admin-danger" class="board-button" aria-current={data.admin_section == "danger"}>Danger zone</a>
 			</nav>
 			</div>
 			<div class="admin-grid">
@@ -556,7 +691,7 @@ func Page() Node {
 							<div class="checklist-item__text">
 								<strong>Close each scoring week</strong>
 								<small>
-									Use <a href="/admin?section=week-close#admin-week-close" data-gosx-link>SEASON // WEEK CLOSE</a> once every real game and the player-stat ledger are settled. The forced override stays a separate, explicit action for a data stall.
+									Use <a href="/admin?section=week-close#admin-week-close" data-gosx-link>02 // WEEK CLOSE</a> once every real game and the player-stat ledger are settled. The forced override stays a separate, explicit action for a data stall.
 								</small>
 							</div>
 						</div>
@@ -565,7 +700,7 @@ func Page() Node {
 							<div class="checklist-item__text">
 								<strong>Watch the waiver run</strong>
 								<small>
-									The daily processor resolves every due claim on its own schedule. Force an out-of-cycle run from <a href="/admin?section=week-close#admin-week-close" data-gosx-link>SEASON // WEEK CLOSE</a> only when one is stuck or overdue.
+									The daily processor resolves every due claim on its own schedule. Force an out-of-cycle run from <a href="/admin?section=week-close#admin-week-close" data-gosx-link>02 // WEEK CLOSE</a> only when one is stuck or overdue.
 								</small>
 							</div>
 						</div>
@@ -592,7 +727,7 @@ func Page() Node {
 							<div class="checklist-item__text">
 								<strong>Keep a backup</strong>
 								<small>
-									Download a snapshot from <a href="/admin?section=backup#admin-backup" data-gosx-link>08 // BACKUP</a> before any risky change; a nightly copy also saves automatically.
+									Download a snapshot from <a href="/admin?section=backup#admin-backup" data-gosx-link>12 // BACKUP</a> before any risky change; a nightly copy also saves automatically.
 								</small>
 							</div>
 						</div>
@@ -613,7 +748,7 @@ func Page() Node {
 							<span class="checklist-mark mono">01</span>
 							<div class="checklist-item__text">
 								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="About an hour early, drop the seats nobody claimed" />
-								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Use Drop unclaimed seats in 03 // DRAFT ORDER. Do this before you randomize, or the order still lists the seats you are about to remove." />
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Use Drop unclaimed seats in 07 // DRAFT ORDER. Do this before you randomize, or the order still lists the seats you are about to remove." />
 							</div>
 							<If cond={data.runbook_step_1_state == "done"}><span class="position-chip">DONE ✓</span></If>
 							<If cond={data.runbook_step_1_state == "next"}><span class="position-chip">NEXT →</span></If>
@@ -623,7 +758,7 @@ func Page() Node {
 							<span class="checklist-mark mono">02</span>
 							<div class="checklist-item__text">
 								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Draw the final order and publish the schedule" />
-								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Use Draw order + schedule in 03 // DRAFT ORDER. It runs six shuffle passes, saves only the final result, publishes the schedule, then reports the reminder queue outcome. Draft order locks when the commissioner starts the draft." />
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Use Draw order + schedule in 07 // DRAFT ORDER. It runs six shuffle passes, saves only the final result, publishes the schedule, then reports the reminder queue outcome. Draft order locks when the commissioner starts the draft." />
 							</div>
 							<If cond={data.runbook_step_2_state == "done"}><span class="position-chip">DONE ✓</span></If>
 							<If cond={data.runbook_step_2_state == "next"}><span class="position-chip">NEXT →</span></If>
@@ -633,7 +768,7 @@ func Page() Node {
 							<span class="checklist-mark mono">03</span>
 							<div class="checklist-item__text">
 								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Confirm every seat is ready" />
-								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Check the ready count above and the Ready badges in 01 // SEATS." />
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Check the ready count above and the Ready badges in 05 // SEATS." />
 							</div>
 							<If cond={data.runbook_step_3_state == "done"}><span class="position-chip">DONE ✓</span></If>
 							<If cond={data.runbook_step_3_state == "next"}><span class="position-chip">NEXT →</span></If>
@@ -662,7 +797,7 @@ func Page() Node {
 							<span class="checklist-mark mono">05</span>
 							<div class="checklist-item__text">
 								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Pause or extend for a break" />
-								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Use Pause clock, Resume clock, or Extend pick in 05 // DRAFT CLOCK." />
+								<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Use Pause clock, Resume clock, or Extend pick in 09 // DRAFT CLOCK." />
 							</div>
 						</div>
 						<div class="checklist-item">
@@ -676,7 +811,7 @@ func Page() Node {
 							<span class="checklist-mark mono">07</span>
 							<div class="checklist-item__text">
 								<strong>Autopick catches an absent manager</strong>
-								<small>Toggle AUTO for a seat in 01 // SEATS, or force one pick now in 05 // DRAFT CLOCK.</small>
+								<small>Toggle AUTO for a seat in 05 // SEATS, or force one pick now in 09 // DRAFT CLOCK.</small>
 							</div>
 						</div>
 						<div class="checklist-item">
@@ -736,8 +871,8 @@ func Page() Node {
 				<section id="admin-schedule" aria-labelledby="admin-schedule-heading" tabindex="-1" data-admin-section="schedule" class={"player-pool admin-season-ops" + data.section_class_schedule}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">SEASON // SCHEDULE</span>
-							<h2 id="admin-schedule-heading">Regular-season control</h2>
+							<span class="section-index">01 // SCHEDULE</span>
+							<h2 id="admin-schedule-heading">Schedule</h2>
 							<p class="scoring-note">
 								This plan is durable league state. The final draft-order draw publishes the first 14-week plan automatically; an emergency order redraw preserves it.
 							</p>
@@ -773,11 +908,19 @@ func Page() Node {
 							<div class="pool-stat"><span>Season</span><b class="mono">{data.schedule.season}</b></div>
 							<div class="pool-stat"><span>Weeks</span><b class="mono">{data.schedule.start_week}–{data.schedule.end_week}</b></div>
 							<div class="pool-stat"><span>Generated</span><b class="mono">{data.schedule.generated_at}</b></div>
-							<div class="pool-stat"><span>Seed</span><b class="mono">{data.schedule.seed}</b></div>
 							<div class="pool-stat"><span>Phase</span><b class="mono">{data.schedule.phase}</b></div>
 							<div class="pool-stat"><span>Final</span><b class="mono">{data.schedule.final_weeks}/{data.schedule.week_count} WEEKS · {data.schedule.final_matchups}/{data.schedule.total_matchups} MATCHUPS</b></div>
 						</div>
-						<p class="scoring-note">The stored seed is the redraw trail. A redraw creates a new seed and is available only before season start and before any matchup is final.</p>
+						{/* J2 F33 (gap-audit): a nineteen-digit machine seed sat beside
+						    plain-language stats on a page that otherwise reads in
+						    words — it moves behind its own closed disclosure, plainly
+						    labelled, with the explanation that already named it the
+						    redraw trail. */}
+						<details class="admin-redraw-trail">
+							<summary class="mono">Redraw trail</summary>
+							<div class="pool-stat"><span>Seed</span><b class="mono">{data.schedule.seed}</b></div>
+							<p class="scoring-note">The stored seed is the redraw trail. A redraw creates a new seed and is available only before season start and before any matchup is final.</p>
+						</details>
 						<If cond={data.schedule.regenerate_allowed}>
 							<form method="post" action={actionPath("schedule-regenerate")} data-gosx-managed="true" class="clock-controls">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
@@ -794,9 +937,12 @@ func Page() Node {
 				<section id="admin-week-close" aria-labelledby="admin-week-close-heading" tabindex="-1" data-admin-section="week-close" class={"player-pool admin-season-ops" + data.section_class_week_close}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">SEASON // WEEK CLOSE</span>
-							<h2 id="admin-week-close-heading">Close a scoring week</h2>
-							<p class="scoring-note">Readiness is advisory. The normal close waits for every real game and a settled player ledger; the override is explicit and records the override in the league log.</p>
+							<span class="section-index">02 // WEEK CLOSE</span>
+							<h2 id="admin-week-close-heading">Week close</h2>
+							{/* F33 (J4 console gap-audit): "the league log" named a
+							    record the console's own body never linked to —
+							    only the sidebar reached /activity. */}
+							<p class="scoring-note">Readiness is advisory. The normal close waits for every real game and a settled player ledger; the override is explicit and records the override in <a href="/activity" data-gosx-link>the league log</a>.</p>
 						</div>
 					</div>
 					<If cond={data.schedule.has_schedule == false}>
@@ -810,6 +956,13 @@ func Page() Node {
 							<div class="pool-stat"><span>Readiness</span><b class="mono">{data.schedule.close.ready_label}</b></div>
 						</div>
 						<p class="scoring-note"><strong>WHY:</strong> {data.schedule.close.reason}</p>
+						{/* F21 (J4 console gap-audit): empty unless the stat feed's
+						    last fetch predates this week's own last kickoff — the
+						    reason line above never named a stale feed as the real
+						    cause of "waiting for games to go final". */}
+						<If cond={data.schedule.close.has_stale_feed_notice}>
+							<p class="scoring-note"><strong>STALE FEED:</strong> {data.schedule.close.stale_feed_notice}</p>
+						</If>
 						<If cond={data.schedule.close.final}>
 							<p class="flash-message"><strong>ALREADY FINAL:</strong> Closing the week again changes nothing.</p>
 						</If>
@@ -849,7 +1002,7 @@ func Page() Node {
 					</If>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">SEASON // WAIVER RUN</span>
+							<span class="section-index">03 // WAIVER RUN</span>
 							<h2 id="admin-waivers-heading">Force an out-of-cycle waiver run</h2>
 							<p class="scoring-note">The daily processor already resolves every due claim on its own schedule. Use this only when a run is stuck or overdue — it resolves every currently due claim immediately and cannot be undone from this screen.</p>
 						</div>
@@ -874,22 +1027,30 @@ func Page() Node {
 							<button class="button" type="submit" disabled="disabled">No open claims to run</button>
 						</If>
 					</form>
-					<p class="demo-message"><strong>PLAYOFF TIMING:</strong> preview and publish the bracket only after final regular-season standings exist. Weekly advancement is gated on the authoritative starter ledger; use PLAYOFF TRUTH below.</p>
+					<p class="demo-message"><strong>PLAYOFF TIMING:</strong> preview and publish the bracket only after final regular-season standings exist. Weekly advancement is gated on the authoritative starter ledger; see 04 // PLAYOFFS below.</p>
 				</section>
 				<section id="admin-playoffs" aria-labelledby="admin-playoffs-heading" tabindex="-1" data-admin-section="playoffs" class={"player-pool admin-season-ops" + data.section_class_playoffs}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">SEASON // PLAYOFF TRUTH</span>
-							<h2 id="admin-playoffs-heading">Preview, publish, and advance</h2>
-							<p class="scoring-note">One persisted bracket is shared everywhere. A preview is commissioner-only; publication is explicit and idempotent. Scores are never accepted from this browser.</p>
+							<span class="section-index">04 // PLAYOFFS</span>
+							<h2 id="admin-playoffs-heading">Playoffs</h2>
+							{/* F31 (J4 console gap-audit): "persisted", "idempotent",
+							    and "this browser" are engineering words on a page a
+							    commissioner reads. */}
+							<p class="scoring-note">The league shares one bracket. You preview it privately, then publish it. The server computes every score.</p>
 						</div>
 						<span class="position-chip">{data.playoff_truth.status_label}</span>
 					</div>
+					{/* F31 (J4 console gap-audit): before the playoffs, Source sits
+					    empty and Final week/Revision both read the bare number 0 —
+					    an empty labelled tile and two zeros with no meaning yet.
+					    revision only ever starts at 1 once a bracket exists
+					    (Store.PreviewPlayoffs), so 0 is unambiguously "none yet". */}
 					<div class="pool-stats">
 						<div class="pool-stat"><span>Phase</span><b class="mono">{data.playoff_truth.season_phase_label}</b></div>
-						<div class="pool-stat"><span>Source</span><b class="mono">{data.playoff_truth.source}</b></div>
-						<div class="pool-stat"><span>Final week</span><b class="mono">{data.playoff_truth.final_week}</b></div>
-						<div class="pool-stat"><span>Revision</span><b class="mono">{data.playoff_truth.revision}</b></div>
+						<div class="pool-stat"><span>Source</span><b class="mono"><If cond={data.playoff_truth.source == ""}>—  none yet</If><If cond={data.playoff_truth.source != ""}>{data.playoff_truth.source}</If></b></div>
+						<div class="pool-stat"><span>Final week</span><b class="mono"><If cond={data.playoff_truth.revision == 0}>—  none yet</If><If cond={data.playoff_truth.revision != 0}>{data.playoff_truth.final_week}</If></b></div>
+						<div class="pool-stat"><span>Revision</span><b class="mono"><If cond={data.playoff_truth.revision == 0}>—  none yet</If><If cond={data.playoff_truth.revision != 0}>{data.playoff_truth.revision}</If></b></div>
 					</div>
 					<p class="scoring-note"><strong>STATUS:</strong> {data.playoff_truth.detail}</p>
 					<If cond={data.playoff_truth.recovery != ""}><p class="demo-message"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
@@ -941,11 +1102,19 @@ func Page() Node {
 				<section id="admin-seats" aria-labelledby="admin-seats-heading" tabindex="-1" data-admin-section="seats" class={"player-pool" + data.section_class_seats}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">01 // SEATS</span>
-							<h2 id="admin-seats-heading">Franchise claims</h2>
-							<p class="scoring-note" id="admin-avatar-upload-help">PNG or JPEG, 10 MB maximum, from 64×64 through 4096×4096 pixels. Images are center-cropped and resized to a 512×512 PNG with metadata removed. If this seat has a claimed badge, uploading a custom image releases it so another team can use it.</p>
+							<span class="section-index">05 // SEATS</span>
+							<h2 id="admin-seats-heading">Seats</h2>
 						</div>
 					</div>
+					{/* F24 (J4 console gap-audit): forty words of image-upload
+					    rules used to be the section's own lead paragraph, ahead
+					    of every seat's team, manager, and ready state. It now
+					    sits behind a closed disclosure, still linked to every
+					    row's own upload control by the same id. */}
+					<details class="admin-seats-upload-help">
+						<summary class="board-button">Image requirements</summary>
+						<p class="scoring-note" id="admin-avatar-upload-help">PNG or JPEG, 10 MB maximum, from 64×64 through 4096×4096 pixels. Images are center-cropped and resized to a 512×512 PNG with metadata removed. If this seat has a claimed badge, uploading a custom image releases it so another team can use it.</p>
+					</details>
 					<If cond={data.identity_available == false}>
 						<p class="error-message" id="admin-identity-status" role="status">{data.identity_error}</p>
 					</If>
@@ -966,11 +1135,17 @@ func Page() Node {
 				<section id="admin-invites" aria-labelledby="admin-invites-heading" tabindex="-1" data-admin-section="invites" class={"player-pool" + data.section_class_invites}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">02 // INVITES</span>
-							<h2 id="admin-invites-heading">Who may claim a seat</h2>
+							<span class="section-index">06 // INVITES</span>
+							<h2 id="admin-invites-heading">Invites</h2>
 							<If cond={data.invite_count > 0}>
+								{/* J2 F21 (gap-audit): this card's own count used to read
+								    "N seated" beside a league-status badge that reads "M / M
+								    SEATS" — two different counts (admitted addresses vs
+								    claimed seats) with no label saying so, so a commissioner
+								    reading both on the same page got two contradictory
+								    answers. This now names what it counts. */}
 								<p class="scoring-note invite-progress" aria-label="Invitation progress">
-									<strong>{data.invite_seated_count} seated</strong>
+									<strong>{data.invite_seated_count} of {data.invite_count} admitted addresses hold a seat</strong>
 									<span>{data.invite_ready_count} ready</span>
 									<If cond={data.invite_seatless_count > 0}>
 										<span>{data.invite_seatless_count} signed in without a seat</span>
@@ -1001,7 +1176,7 @@ func Page() Node {
 					<If cond={data.has_unclaimed_seats == false}>
 						<p class="demo-message">
 							<strong>SEATS FULL:</strong>
-							every seat is claimed; a new Google sign-in has no seat left to claim. Release a seat in 01 // SEATS to open one, or assign an admitted, seatless member below.
+							every seat is claimed; a new Google sign-in has no seat left to claim. Release a seat in 05 // SEATS to open one, or assign an admitted, seatless member below.
 						</p>
 					</If>
 					<form class="invite-form" method="post" action={actionPath("invite-add")} data-gosx-managed="true">
@@ -1080,7 +1255,7 @@ func Page() Node {
 											<TextBlock as="b" class="mono" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={2} overflow="ellipsis" text={member.email} />
 											<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" text={member.name} />
 										</div>
-										<small class="mono">Assign a seat in 01 // SEATS, or release a claimed one to make room.</small>
+										<small class="mono">Assign a seat in 05 // SEATS, or release a claimed one to make room.</small>
 									</article>
 								</Each>
 							</div>
@@ -1094,8 +1269,8 @@ func Page() Node {
 				<section id="admin-draft-order" aria-labelledby="admin-draft-order-heading" tabindex="-1" data-admin-section="draft-order" class={"player-pool" + data.section_class_draft_order}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">03 // DRAFT ORDER</span>
-							<h2 id="admin-draft-order-heading">Snake order</h2>
+							<span class="section-index">07 // DRAFT ORDER</span>
+							<h2 id="admin-draft-order-heading">Draft order</h2>
 						</div>
 						<If cond={data.order_randomized}>
 							<span class="position-chip">RANDOMIZED</span>
@@ -1194,8 +1369,8 @@ func Page() Node {
 				<section id="admin-data" aria-labelledby="admin-data-heading" tabindex="-1" data-admin-section="data" class={"player-pool" + data.section_class_data}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">04 // PLAYER DATA</span>
-							<h2 id="admin-data-heading">Player list update</h2>
+							<span class="section-index">08 // PLAYER DATA</span>
+							<h2 id="admin-data-heading">Data</h2>
 						</div>
 					</div>
 					<If cond={data.pool.error != ""}>
@@ -1257,8 +1432,8 @@ func Page() Node {
 				<section id="admin-clock" aria-labelledby="admin-clock-heading" tabindex="-1" data-admin-section="clock" class={"player-pool" + data.section_class_clock}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">05 // DRAFT CLOCK</span>
-							<h2 id="admin-clock-heading">Pick clock controls</h2>
+							<span class="section-index">09 // DRAFT CLOCK</span>
+							<h2 id="admin-clock-heading">Clock</h2>
 						</div>
 						<span class="position-chip">{data.clock.state}</span>
 					</div>
@@ -1283,15 +1458,16 @@ func Page() Node {
 								<b class="mono"><time datetime={data.clock.deadline}>{data.clock.deadline_display}<If cond={data.clock.deadline_relative != ""}> · {data.clock.deadline_relative}</If></time></b>
 							</If>
 							<If cond={data.clock.deadline == ""}>
-								<b class="mono"></b>
+								<b class="mono">— no pick is armed</b>
 							</If>
 						</div>
 						<div class="pool-stat">
+							{/* J2 F32 (gap-audit): the raw-seconds form ("120 S") never
+							    matched the room's own mm:ss clock ("2:00") for the same
+							    quantity — duration_label/remaining_label (service.go)
+							    already carry that mm:ss form; this just prints them. */}
 							<span>Duration</span>
-							<b class="mono">
-								{data.clock.duration_seconds}
-								S
-							</b>
+							<b class="mono">{data.clock.duration_label}</b>
 						</div>
 						<div class="pool-stat">
 							<span>Duration source</span>
@@ -1304,10 +1480,7 @@ func Page() Node {
 						</div>
 						<div class="pool-stat">
 							<span>Remaining</span>
-							<b class="mono">
-								{data.clock.remaining_seconds}
-								S
-							</b>
+							<b class="mono">{data.clock.remaining_label}</b>
 						</div>
 					</div>
 					<div class="clock-controls">
@@ -1391,8 +1564,8 @@ func Page() Node {
 				<section id="admin-roster" aria-labelledby="admin-roster-heading" tabindex="-1" data-admin-section="roster" class={"player-pool" + data.section_class_roster}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">06 // ROSTER SHAPE</span>
-							<h2 id="admin-roster-heading">Starting lineup and bench</h2>
+							<span class="section-index">10 // ROSTER SHAPE</span>
+							<h2 id="admin-roster-heading">Roster</h2>
 						</div>
 						<If cond={data.roster_shape.has_override}>
 							<span class="position-chip">CUSTOM</span>
@@ -1496,7 +1669,7 @@ func Page() Node {
 					</If>
 					<div class="pool-toolbar" id="roster-correction">
 						<div>
-							<span class="section-index">06B // ROSTER CORRECTION</span>
+							<span class="section-index">10B // ROSTER CORRECTION</span>
 							<h2 id="admin-roster-correction-heading">Correct a team's roster</h2>
 							<p class="scoring-note">
 								Corrects one named team's roster on its own behalf — for example, undoing a bad autopick right after the draft. This applies immediately, with no waiver period. Review the change, then confirm; the reason is recorded in the audit trail and activity feed, and the team's manager sees a one-time notice on their next visit to Team.
@@ -1601,8 +1774,8 @@ func Page() Node {
 				<section id="admin-announcements" aria-labelledby="admin-announcements-heading" tabindex="-1" data-admin-section="announcements" class={"player-pool" + data.section_class_announcements}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">07 // ANNOUNCEMENTS</span>
-							<h2 id="admin-announcements-heading">League notes</h2>
+							<span class="section-index">11 // ANNOUNCEMENTS</span>
+							<h2 id="admin-announcements-heading">Notes</h2>
 						</div>
 					</div>
 					<form method="post" action={actionPath("announcement-post")} data-gosx-managed="true">
@@ -1661,25 +1834,41 @@ func Page() Node {
 				<section id="admin-backup" aria-labelledby="admin-backup-heading" tabindex="-1" data-admin-section="backup" class={"player-pool" + data.section_class_backup}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">08 // BACKUP</span>
-							<h2 id="admin-backup-heading">League backup</h2>
+							<span class="section-index">12 // BACKUP</span>
+							<h2 id="admin-backup-heading">Backup</h2>
 						</div>
 					</div>
+					{/* J4 F30 (gap-audit): this section used to speak to an
+					    operator — internal file formats, a checksum,
+					    repository paths, shell commands. It now speaks to a
+					    commissioner: what is backed up, when the last one
+					    ran, and what to do if it fails. Downloading and its
+					    consequences are unchanged. */}
 					<p class="scoring-note">
-						This downloads one archive: a consistent database snapshot, the loaded
-						league.json, and a manifest. The manifest records both schema versions,
-						the app version, the timestamp, and the database's SHA-256.
+						One file with your whole league. Keep it somewhere safe.
 					</p>
 					<p class="scoring-note">
-						Downloading is read-only and reversible. It changes nothing in the league.
-						The archive holds no secrets and no environment values. It also excludes
-						the Signal Wire and Open Stats caches; both refetch automatically.
+						Downloading changes nothing in the league — do it as often as you like.
+						The file holds no passwords or sign-in secrets.
 					</p>
 					<a class="button button--primary" href="/admin/backup.tar.gz">Download league backup</a>
+					<If cond={data.admin_backup.has_last_run}>
+						<p class="scoring-note">
+							Gridiron also keeps its own copy automatically, once a night. The last one saved
+							<b class="mono"> {data.admin_backup.last_run}</b>. The most recent
+							{data.admin_backup.keep} nights are kept.
+						</p>
+					</If>
+					<If cond={data.admin_backup.has_last_run == false}>
+						<p class="scoring-note">
+							Gridiron also keeps its own copy automatically, once a night — no local copy has
+							saved yet. The most recent {data.admin_backup.keep} nights are kept.
+						</p>
+					</If>
 					<p class="scoring-note">
-						Gridiron also saves a nightly local snapshot to data/backups/ and keeps the
-						most recent copies. Restoring is a separate, offline step; see
-						docs/backup-restore.md for the exact commands.
+						<strong>If a backup ever fails to open:</strong> download a fresh copy above and try
+						that one first. If neither opens, see docs/backup-restore.md, or ask for help before
+						you reset anything in 99 // DANGER ZONE.
 					</p>
 				</section>
 				<section id="admin-danger" aria-labelledby="admin-danger-heading" tabindex="-1" data-admin-section="danger" class={"player-pool admin-danger" + data.section_class_danger}>
@@ -1689,6 +1878,10 @@ func Page() Node {
 							<h2 id="admin-danger-heading">Danger zone</h2>
 						</div>
 					</div>
+					{/* F33 (J4 console gap-audit): every reset here is recorded in
+					    the league log, but nothing on this page — the one most
+					    worth checking after an irreversible action — linked to it. */}
+					<p class="scoring-note">Every action on this page is recorded in <a href="/activity" data-gosx-link>the league log</a>.</p>
 					<div class="danger-grid">
 						<form method="post" action={actionPath("draft-reset")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
@@ -1697,8 +1890,16 @@ func Page() Node {
 								<li><TextBlock as="span" font="400 13px Plus Jakarta Sans" lineHeight={18}><strong>Destroyed:</strong> every draft pick, ready status for every seat, the draft clock and autopick settings, the transaction log, every set lineup, pending waiver claims, the waiver claim history, the waiver processing clock, pending and past trade offers, reserve/IR roster assignments, and draft-related notification history.</TextBlock></li>
 								<li><TextBlock as="span" font="400 13px Plus Jakarta Sans" lineHeight={18}><strong>Preserved:</strong> team seats and managers, pending co-manager invites, draft boards, the invite list, custom team names, the draft order, the regular-season schedule, the playoff bracket, the season phase, the custom roster shape, the trimmed-seat list, the scheduled meeting time, scoring rules, pick'em picks, blitz contest entries, claimed badges, custom avatar images, league announcements, notification preferences, and unrelated sent-notification history.</TextBlock></li>
 							</ul>
-							<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18}>This cannot be undone from this screen; only a restored backup can bring {data.league.name}'s destroyed draft data back.</TextBlock>
-							<label>Type <span class="mono">RESET DRAFT</span> to confirm.<input type="text" name="confirm" placeholder="RESET DRAFT" autocomplete="off"></input></label>
+							{/* F4 (J4 console gap-audit): empty before the season starts
+							    (draft_reset_consequence, admin.go); once it renders, it is
+							    the only line on this card that names what a reset does to
+							    a season already under way. */}
+							<If cond={data.draft_reset_consequence != ""}>
+								<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18}>{data.draft_reset_consequence}</TextBlock>
+							</If>
+							<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18}>This cannot be undone from this screen; only a restored backup can bring {data.league.name}'s destroyed draft data back. <a href="#admin-backup" class="board-button">Back up first →</a></TextBlock>
+							<label for="admin-draft-reset-confirm">Type <span class="mono">{data.draft_reset_confirm}</span> to confirm.</label>
+							<input id="admin-draft-reset-confirm" class="typed-confirm-input" type="text" name="confirm" autocomplete="off" enterkeyhint="done" placeholder={data.draft_reset_confirm} required="required"></input>
 							<button class="button button--danger" type="submit">Reset {data.league.name}'s draft</button>
 						</form>
 						<form method="post" action={actionPath("draft-undo")} data-gosx-managed="true">
@@ -1717,8 +1918,9 @@ func Page() Node {
 								<li><TextBlock as="span" font="400 13px Plus Jakarta Sans" lineHeight={18}><strong>Destroyed:</strong> every team seat and manager, pending co-manager invites, every draft pick, ready status for every seat, draft boards, pick'em picks and markets, blitz contest entries, the draft order, the regular-season schedule, the playoff bracket, the season phase, the custom roster shape, the trimmed-seat list, the draft clock and autopick settings, the transaction log, every set lineup, pending waiver claims, the waiver claim history, the waiver processing clock, pending and past trade offers, reserve/IR roster assignments, claimed badges, custom avatar images, the scheduled meeting time, and league notification history.</TextBlock></li>
 								<li><TextBlock as="span" font="400 13px Plus Jakarta Sans" lineHeight={18}><strong>Preserved:</strong> the invite list, custom team names, scoring rules, league announcements, notification preferences, and unrelated sent-notification history.</TextBlock></li>
 							</ul>
-							<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18}>This cannot be undone from this screen; only a restored backup can bring {data.league.name}'s destroyed data back.</TextBlock>
-							<label>Type <span class="mono">RESET LEAGUE</span> to confirm.<input type="text" name="confirm" placeholder="RESET LEAGUE" autocomplete="off"></input></label>
+							<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18}>This cannot be undone from this screen; only a restored backup can bring {data.league.name}'s destroyed data back. <a href="#admin-backup" class="board-button">Back up first →</a></TextBlock>
+							<label for="admin-league-reset-confirm">Type <span class="mono">{data.league_reset_confirm}</span> to confirm.</label>
+							<input id="admin-league-reset-confirm" class="typed-confirm-input" type="text" name="confirm" autocomplete="off" enterkeyhint="done" placeholder={data.league_reset_confirm} required="required"></input>
 							<button class="button button--danger" type="submit">Reset {data.league.name} to a blank league</button>
 						</form>
 					</div>

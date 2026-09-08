@@ -29,12 +29,13 @@ const (
 	// same way tradeAcceptConfirmation already is.
 	boardClearConfirmation   = "clear-board"
 	lockerRemoveConfirmation = "remove-locker-item"
-	// ResetDraftConfirmation and ResetLeagueConfirmation are intentionally
-	// distinct, human-readable phrases. They are part of the destructive
-	// action contract: a browser cannot accidentally invoke one reset with the
-	// confirmation meant for the other.
-	ResetDraftConfirmation  = "RESET DRAFT"
-	ResetLeagueConfirmation = "RESET LEAGUE"
+	// resetDraftConfirmationSuffix and resetLeagueConfirmationSuffix build
+	// the two reset phrases around the league's own configured name (see
+	// resetDraftConfirmation/resetLeagueConfirmation below), so a browser
+	// cannot copy the danger-zone phrase from one league into another
+	// (gap-audit F16), and so the two reset phrases stay distinct from each
+	// other even when both are named after the same league.
+	resetDraftConfirmationSuffix = " DRAFT"
 	// ForceCurrentPickConfirmation is the exact typed acknowledgement for
 	// the commissioner's destructive current-pick action. The action may
 	// consume the on-clock seat's Big Board target (or best available
@@ -51,6 +52,27 @@ const (
 )
 
 var errAdminActionStale = errors.New("this commissioner action is stale; reload and review the current state")
+
+// resetDraftConfirmation and resetLeagueConfirmation are the typed
+// confirmation phrases for the two danger-zone resets. They name the
+// league, the same target-specific pattern seatReleaseConfirmation already
+// uses below, so a phrase copied from another league's danger zone never
+// authorizes a reset here (gap-audit F16).
+func resetDraftConfirmation(leagueName string) string {
+	return "RESET " + strings.ToUpper(strings.TrimSpace(leagueName)) + resetDraftConfirmationSuffix
+}
+
+func resetLeagueConfirmation(leagueName string) string {
+	return "RESET " + strings.ToUpper(strings.TrimSpace(leagueName))
+}
+
+// resetScoringConfirmation is the /scoring page's own danger-zone phrase,
+// the same league-named pattern as the two above (J6 gap-audit F33: the
+// typed confirmation on Reset scoring had no label and was not required,
+// and named no league at all).
+func resetScoringConfirmation(leagueName string) string {
+	return "RESET " + strings.ToUpper(strings.TrimSpace(leagueName)) + " SCORING"
+}
 
 // seatReleaseConfirmation is deliberately human-readable and target-specific.
 // The stable seat ID prevents two similarly named franchises from sharing a

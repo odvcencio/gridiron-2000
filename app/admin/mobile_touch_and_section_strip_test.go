@@ -31,20 +31,25 @@ func TestAdminSectionStripCoversEveryConsoleSection(t *testing.T) {
 		t.Fatal("admin-section-strip nav never closes")
 	}
 	strip := source[stripStart : stripStart+stripEnd]
+	// F25 (J4 console gap-audit): these used to be full "/admin?section=X"
+	// navigations — a full reload of a ~14,000px document for an in-page
+	// jump. Plain #anchor hrefs (no ?section= query) are an instant
+	// same-document scroll instead; ?section= now only round-trips through
+	// a POST action's own return target (adminSectionTarget, page.server.go).
 	for _, want := range []string{
-		"section=draft-control#admin-draft-control",
-		"section=schedule#admin-schedule",
-		"section=week-close#admin-week-close",
-		"section=playoffs#admin-playoffs",
-		"section=seats#admin-seats",
-		"section=invites#admin-invites",
-		"section=draft-order#admin-draft-order",
-		"section=data#admin-data",
-		"section=clock#admin-clock",
-		"section=roster#admin-roster",
-		"section=announcements#admin-announcements",
-		"section=backup#admin-backup",
-		"section=danger#admin-danger",
+		`href="#admin-draft-control"`,
+		`href="#admin-schedule"`,
+		`href="#admin-week-close"`,
+		`href="#admin-playoffs"`,
+		`href="#admin-seats"`,
+		`href="#admin-invites"`,
+		`href="#admin-draft-order"`,
+		`href="#admin-data"`,
+		`href="#admin-clock"`,
+		`href="#admin-roster"`,
+		`href="#admin-announcements"`,
+		`href="#admin-backup"`,
+		`href="#admin-danger"`,
 	} {
 		if !strings.Contains(strip, want) {
 			t.Errorf("admin-section-strip missing jump target %q", want)

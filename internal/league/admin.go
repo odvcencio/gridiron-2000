@@ -194,8 +194,11 @@ func (s *Service) CommissionerAttentionDataReadOnly(_ *http.Request) map[string]
 			// display name, empty for an unclaimed seat.
 			"manager": member.Name,
 			"claimed": isClaimed, "ready": isReady, "presence": presence,
-			"presence_label":  presenceReadableLabel(presence),
-			"presence_detail": detail, "presence_seen_at": formatClockInstant(seenAt),
+			"presence_label": presenceReadableLabel(presence),
+			// F24 (J4 console gap-audit): same rewrite as AdminData's own
+			// seats list above — the raw not-seen detail is a server-uptime
+			// fact, not a room fact.
+			"presence_detail": FriendlyPresenceDetail(detail), "presence_seen_at": formatClockInstant(seenAt),
 			"board_count": boardCount, "board_gap": boardGap,
 		})
 	}
@@ -288,10 +291,19 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		item["managed"] = claimed
 		item["ready"] = state.Ready[team.ID]
 		item["autopick"] = claimed && state.Autopick[team.ID]
+		// draft_complete (F24, J4 console gap-audit): gates the board-target
+		// count and its "no board" warning — draft-era facts a seat row
+		// keeps showing well into the season otherwise.
+		item["draft_complete"] = draftComplete(state)
 		presence, presenceDetail, presenceSeenAt := s.teamPresence(state, team.ID, s.clock())
 		item["presence"] = presence
 		item["presence_label"] = strings.ToUpper(strings.ReplaceAll(presence, "_", " "))
-		item["presence_detail"] = presenceDetail
+		// F24 (J4 console gap-audit): the raw not-seen detail ("No room
+		// heartbeat since this server started.") is a server-uptime fact,
+		// not a room fact, and reads as an operator error message. This
+		// is the same rewrite the draft room's own commissioner drawer
+		// already applies (FriendlyPresenceDetail's own doc comment).
+		item["presence_detail"] = FriendlyPresenceDetail(presenceDetail)
 		item["presence_seen_at"] = formatClockInstant(presenceSeenAt)
 		item["operator_count"] = len(s.presenceKeysForTeam(state, team.ID))
 		item["board_count"] = len(state.Boards[commissionerV1BoardOwnerKey(state, team.ID)])
@@ -531,6 +543,17 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// control ever called. run_token binds the confirmation form to
 		// this exact render — see waiverRunToken.
 		"waivers": s.adminWaiversMap(state, now),
+		// Danger zone typed confirmations (F16, J4 console gap-audit): both
+		// reset phrases name the league itself, the same target-specific
+		// pattern seatReleaseConfirmation already gives seat release, so a
+		// phrase copied from another league's danger zone can never
+		// authorize a reset here.
+		"draft_reset_confirm":  resetDraftConfirmation(s.cfg.Name),
+		"league_reset_confirm": resetLeagueConfirmation(s.cfg.Name),
+		// draft_reset_consequence (F4, J4 console gap-audit): empty before
+		// the season starts; once the season is under way it names the
+		// in-season cost a draft reset does not otherwise state.
+		"draft_reset_consequence": s.SeasonDraftResetConsequence(),
 	}
 }
 
@@ -541,13 +564,34 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 func (s *Service) adminWaiversMap(state PersistedState, now time.Time) map[string]any {
 	processedThrough := "never run"
 	if !state.WaiversProcessedThrough.IsZero() {
-		processedThrough = formatResolvesAt(s.cfg, state.WaiversProcessedThrough)
+		// F22 (J4 console gap-audit): LAST PROCESSED was the only time on
+		// this page with a zone and no relative phrase — every other
+		// timestamp on the console pairs both.
+		processedThrough = formatResolvesAt(s.cfg, state.WaiversProcessedThrough) + " · " + relativeTime(now, state.WaiversProcessedThrough)
+	}
+	openClaims := len(state.WaiverClaims)
+	// runState (F22, J4 console gap-audit): commissionerV1WaiverRunState
+	// is a calendar signal alone — it read "overdue" whenever a run cycle
+	// was missed, even with zero claims waiting, so the tile read as a
+	// fault the very next sentence said there was nothing to fix. With no
+	// open claims there is nothing a run could resolve, so this panel's
+	// own tile reads "Idle — no claims due" instead; the HQ card that
+	// also reads commissionerV1WaiverRunState keeps the calendar-only
+	// signal, which is exactly what alerts an operator to a stuck ticker
+	// even between claims. The other two states are title-cased here too
+	// ("overdue" was the console's only lower-case status value).
+	runState := "Scheduled"
+	switch {
+	case openClaims == 0:
+		runState = "Idle — no claims due"
+	case commissionerV1WaiverRunState(s.cfg, state, now) == "overdue":
+		runState = "Overdue"
 	}
 	return map[string]any{
-		"open_claim_count":  len(state.WaiverClaims),
-		"has_open_claims":   len(state.WaiverClaims) > 0,
+		"open_claim_count":  openClaims,
+		"has_open_claims":   openClaims > 0,
 		"processed_through": processedThrough,
-		"run_state":         commissionerV1WaiverRunState(s.cfg, state, now),
+		"run_state":         runState,
 		"run_token":         waiverRunToken(state),
 	}
 }
@@ -582,7 +626,7 @@ func (s *Service) adminScheduleMap(state PersistedState, now time.Time) map[stri
 	base["playoffs_status"] = truth["status_label"]
 	base["playoffs_recovery"] = truth["recovery"]
 	if state.Schedule == nil {
-		base["close"] = adminWeekCloseMap(s.AdminWeekCloseInfo(1, now), s.matchupLocation())
+		base["close"] = s.adminWeekCloseMapWithKickoff(1, now)
 		return base
 	}
 	schedule := state.Schedule
@@ -644,8 +688,29 @@ func (s *Service) adminScheduleMap(state PersistedState, now time.Time) map[stri
 			nextWeek = schedule.StartWeek
 		}
 	}
-	base["close"] = adminWeekCloseMap(s.AdminWeekCloseInfo(nextWeek, now), s.matchupLocation())
+	base["close"] = s.adminWeekCloseMapWithKickoff(nextWeek, now)
 	return base
+}
+
+// adminWeekCloseMapWithKickoff is adminWeekCloseMap plus the week's own
+// first kickoff (coordinator follow-up, wave C, 2026-09-08): the console
+// masthead needs "the week and its first kickoff" once the draft is
+// complete, and earliestKickoffForWeek (schedule.go) is already the one
+// lookup /matchups' weekly masthead and /scoring's season-start
+// derivation both share — reusing it here keeps the masthead's kickoff
+// fact the same one those pages would show, not a second computation.
+func (s *Service) adminWeekCloseMapWithKickoff(week int, now time.Time) map[string]any {
+	out := adminWeekCloseMap(s.AdminWeekCloseInfo(week, now), s.matchupLocation())
+	if kickoff, ok := s.earliestKickoffForWeek(week); ok {
+		out["has_first_kickoff"] = true
+		out["first_kickoff_display"] = s.leagueAbsoluteTimeStamp(kickoff)
+		out["first_kickoff_iso"] = kickoff.UTC().Format(time.RFC3339)
+	} else {
+		out["has_first_kickoff"] = false
+		out["first_kickoff_display"] = ""
+		out["first_kickoff_iso"] = ""
+	}
+	return out
 }
 
 // adminWeekCloseMap renders the week-close readiness tiles (gap-audit item
@@ -676,6 +741,10 @@ func adminWeekCloseMap(info WeekCloseInfo, location *time.Location) map[string]a
 		"stats_updated": statsUpdated,
 		"stats_fresh":   info.StatsFresh,
 		"reason":        info.Reason,
+		// stale_feed_notice (F21, J4 console gap-audit): empty unless the
+		// stat feed's last fetch predates this week's own last kickoff.
+		"stale_feed_notice":     info.StaleFeedNotice,
+		"has_stale_feed_notice": info.StaleFeedNotice != "",
 	}
 }
 
@@ -705,6 +774,20 @@ func (s *Service) adminInviteMap(state PersistedState, r *http.Request, email, s
 
 	member, ok := memberByEmail(state.Members, email)
 	if !ok {
+		// F9 (J4 console gap-audit): releaseSeat (store.go) deletes the
+		// Members entry outright, so memberByEmail alone cannot tell
+		// "never signed in" from "signed in, then released" — the console
+		// read the second case as the first and told the commissioner a
+		// person who drafted a full roster had never signed in.
+		// SeatReleaseNotices (SetSeatReleaseNotices, store.go) already
+		// survives the same release for the released manager's own arrival
+		// page (SeatReleaseNotice, public_entry.go); this reads that same
+		// durable record instead of inventing a second one.
+		if teamName, releasedAt, released := s.SeatReleaseNotice(email); released {
+			item["signed_in"] = true
+			item["status"] = "SIGNED IN"
+			item["status_detail"] = "Signed in · seat released " + releasedAt.In(s.matchupLocation()).Format("Jan 2") + " (" + teamName + ")"
+		}
 		return item
 	}
 	item["signed_in"] = true
@@ -1514,6 +1597,22 @@ func (s *Service) SeatReleaseNotice(email string) (teamName string, at time.Time
 	return s.TeamLabel(notice.TeamID), notice.At, true
 }
 
+// SeasonDraftResetConsequence names the in-season cost of a draft reset
+// (F4, J4 console gap-audit): the card's own "Destroyed"/"Preserved" lists
+// already name every collection a reset clears, but neither says what that
+// means once the season has started. ResetDraft (store.go) clears
+// PersistedState.Lineups for every week including closed ones, and a
+// closed week's score is always computed live from that same map
+// (Store.TeamWeekScore), so a closed week stays FINAL but its score reads
+// zero the moment the lineup behind it is gone. Empty before the season
+// starts: a pre-draft reset has no drafted roster or set lineup yet.
+func (s *Service) SeasonDraftResetConsequence() string {
+	if s.SeasonPhase(s.clock()) == "preseason" {
+		return ""
+	}
+	return "The season is under way. This empties every drafted roster and every set lineup. Closed weeks stay final, but their scores read zero."
+}
+
 // AdminResetDraft clears the draft-scoped state after an exact confirmation.
 // Seats, boards, league configuration, and the persisted season topology
 // survive; see Store.ResetDraft for the complete collection contract.
@@ -1521,8 +1620,9 @@ func (s *Service) AdminResetDraft(r *http.Request, confirmation string) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
-	if err := requireMutationConfirmation(ResetDraftConfirmation, confirmation); err != nil {
-		return err
+	expected := resetDraftConfirmation(s.cfg.Name)
+	if strings.TrimSpace(confirmation) != expected {
+		return fmt.Errorf("type %s exactly to confirm", expected)
 	}
 	if err := s.store.ResetDraft(); err != nil {
 		return err
@@ -1576,8 +1676,9 @@ func (s *Service) AdminResetLeague(r *http.Request, confirmation string) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
-	if err := requireMutationConfirmation(ResetLeagueConfirmation, confirmation); err != nil {
-		return err
+	expected := resetLeagueConfirmation(s.cfg.Name)
+	if strings.TrimSpace(confirmation) != expected {
+		return fmt.Errorf("type %s exactly to confirm", expected)
 	}
 	topologyMutationMu.Lock()
 	defer topologyMutationMu.Unlock()
@@ -1746,6 +1847,14 @@ func (s *Service) AdminSetScoring(r *http.Request, key, rawValue string) (Scorin
 
 // AdminResetScoring clears every scoring override, restoring the default
 // rules. It requires commissioner access and fails once scoring locks.
+// ResetScoringConfirmationPhrase is the exported form of
+// resetScoringConfirmation, for the /scoring action handler's own
+// pre-check (app/scoring/page.server.go), which sits outside this package
+// (J6 gap-audit F33).
+func (s *Service) ResetScoringConfirmationPhrase() string {
+	return resetScoringConfirmation(s.cfg.Name)
+}
+
 func (s *Service) AdminResetScoring(r *http.Request) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err

@@ -96,20 +96,32 @@ func PickemRow(props PickemRowProps) Node {
 	return <article class="pickem-row" id={"game-" + props.Game.ID} data-game-id={props.Game.ID} data-picked={props.Game.Picked}>
 		<small class="mono">{props.Game.KickoffDisplay}</small>
 		<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Game.Label} />
-		<div class="pickem-market" data-state={props.Game.SpreadState}>
-			<div class="pickem-market__head mono">
+		{/* J3 F26: the row used to give five lines (state, lock time, both
+		    spread numbers — already repeated on the pick buttons below —
+		    an as-of stamp, and a source line) to provenance and an
+		    auto-sized track to the pick itself, the smallest thing on the
+		    action page. Provenance is now one compact state-and-lock line
+		    plus a closed-by-default Details disclosure for the as-of/
+		    source attribution; .pickem-buttons .filter-button (styles.css,
+		    "comb — birch") grows the pick buttons to read as the row's
+		    primary control. */}
+		<div class="pickem-market pickem-market--compact" data-state={props.Game.SpreadState}>
+			<span class="pickem-market__state mono">
 				<b>{props.Game.SpreadState}</b>
-				<span>{props.Game.SpreadLock}</span>
-			</div>
-			<div class="pickem-market__line mono">
-				<strong>{props.Game.AwayLine}</strong>
-				<span>/</span>
-				<strong>{props.Game.HomeLine}</strong>
-			</div>
-			<small class="mono">
-				{props.Game.SpreadAsOf}
-				{props.Game.SpreadSource}
-			</small>
+				{props.Game.SpreadLock}
+			</span>
+			<details class="pickem-market__provenance">
+				<summary class="mono">Line details</summary>
+				<div class="pickem-market__line mono">
+					<strong>{props.Game.AwayLine}</strong>
+					<span>/</span>
+					<strong>{props.Game.HomeLine}</strong>
+				</div>
+				<small class="mono">
+					{props.Game.SpreadAsOf}
+					{props.Game.SpreadSource}
+				</small>
+			</details>
 		</div>
 		<div class="pickem-buttons">
 			<If cond={props.Game.MarketUnavailable}>

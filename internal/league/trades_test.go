@@ -198,6 +198,160 @@ func TestTradesDataCarriesSectionIndexes(t *testing.T) {
 	}
 }
 
+// TestTradesDataRosterOptionsCarryJudgingDetail is J3 F31's own
+// regression test (2026-09-04 audit): every composer checkbox used to
+// show only a name and a position, with nothing to judge the deal by. The
+// composer, the counter-offer form, and both use the same rosterOptions
+// builder, so asserting on my_options covers all three render sites.
+func TestTradesDataRosterOptionsCarryJudgingDetail(t *testing.T) {
+	svc, _ := newTradesTestService(t, "")
+	svc.SetPlayerSource(func() ([]Player, int64, string) {
+		pool := tradeAssetsFixturePool()
+		p := pool["t1-a"]
+		p.ByeWeek, p.Projection = 9, 14.2
+		pool["t1-a"] = p
+		out := make([]Player, 0, len(pool))
+		for _, player := range pool {
+			out = append(out, player)
+		}
+		return out, 2, "test"
+	})
+
+	var options []TradeRosterOption
+	var optionsOK bool
+	if err := tradeActionAs(t, "team-1@example.com", func(r *http.Request) error {
+		options, optionsOK = svc.TradesData(r)["my_options"].([]TradeRosterOption)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !optionsOK {
+		t.Fatal("my_options is not a []TradeRosterOption")
+	}
+	var opt TradeRosterOption
+	found := false
+	for _, o := range options {
+		if o.ID == "t1-a" {
+			opt, found = o, true
+		}
+	}
+	if !found {
+		t.Fatalf("t1-a missing from my_options: %#v", options)
+	}
+	if opt.Position != "RB" || opt.NFLTeam != "PIT" || opt.ByeLabel != "Bye 9" {
+		t.Errorf("t1-a option = %+v, want Position RB, NFLTeam PIT, ByeLabel \"Bye 9\"", opt)
+	}
+	// SeasonPoints reads the same weekly-ledger truth /team has used
+	// since rev 108 (weeklyPlayerPointsText, matchup_ledger.go): honest
+	// "—" before the week's ledger has posted, never a claimed "0.0".
+	// This fixture attaches no stats source, so nothing has posted yet.
+	if opt.Projection != "14.2" || opt.SeasonPoints != "—" {
+		t.Errorf("t1-a option = %+v, want Projection 14.2, SeasonPoints \"—\"", opt)
+	}
+	for _, want := range []string{"PIT", "Bye 9", "PROJ 14.2", "PTS —"} {
+		if !strings.Contains(opt.Detail, want) {
+			t.Errorf("t1-a Detail = %q, missing %q", opt.Detail, want)
+		}
+	}
+}
+
+// TestTradesDataRosterOptionPointsMatchesPostedWeeklyLedger is the
+// coordinator's own follow-up regression test (2026-09-08): once the
+// weekly ledger actually posts a stat line for a player, the composer
+// must show the real scored number, matching /team's own ledger-truth
+// rule, not stay stuck on the honest-but-now-stale "—".
+func TestTradesDataRosterOptionPointsMatchesPostedWeeklyLedger(t *testing.T) {
+	svc, _ := newTradesTestService(t, "")
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
+		if week != 1 {
+			return nil
+		}
+		return []WeekStatLine{{Key: normalizePlayerKey("Team1 A", "RB"), Stats: map[string]float64{"rushTD": 1}}}
+	})
+
+	var options []TradeRosterOption
+	var optionsOK bool
+	if err := tradeActionAs(t, "team-1@example.com", func(r *http.Request) error {
+		options, optionsOK = svc.TradesData(r)["my_options"].([]TradeRosterOption)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !optionsOK {
+		t.Fatal("my_options is not a []TradeRosterOption")
+	}
+	var opt TradeRosterOption
+	found := false
+	for _, o := range options {
+		if o.ID == "t1-a" {
+			opt, found = o, true
+		}
+	}
+	if !found {
+		t.Fatalf("t1-a missing from my_options: %#v", options)
+	}
+	if opt.SeasonPoints != "6.0" {
+		t.Errorf("t1-a SeasonPoints = %q, want \"6.0\" (one rushing TD at the default 6 points/TD)", opt.SeasonPoints)
+	}
+	if !strings.Contains(opt.Detail, "PTS 6.0") {
+		t.Errorf("t1-a Detail = %q, missing %q", opt.Detail, "PTS 6.0")
+	}
+}
+
+// TestTradesDataNamesARecentlyExecutedTrade is J3 F32's own regression
+// test for the trade desk's own half (2026-09-04 audit): a trade could
+// execute while the manager was away, and nothing on /trades said so. It
+// must not carry the notice once the window elapses, and must never carry
+// it for a team with no executed trade at all.
+func TestTradesDataNamesARecentlyExecutedTrade(t *testing.T) {
+	svc, now := newTradesTestService(t, "")
+	svc.store.state.TradeOffers = append(svc.store.state.TradeOffers, TradeOffer{
+		ID: "trd-executed", FromTeamID: "team-1", ToTeamID: "team-2",
+		Give: []string{"t1-a"}, Get: []string{"t2-a"},
+		Status: TradeStatusExecuted, CreatedAt: now.Add(-48 * time.Hour), ResolvedAt: now.Add(-24 * time.Hour),
+	})
+
+	assertVisible := func(t *testing.T, email string, wantTeam string) {
+		t.Helper()
+		if err := tradeActionAs(t, email, func(r *http.Request) error {
+			data := svc.TradesData(r)
+			if data["recent_execution_visible"] != true {
+				t.Fatalf("recent_execution_visible = %v, want true", data["recent_execution_visible"])
+			}
+			if data["recent_execution_team"] != wantTeam {
+				t.Fatalf("recent_execution_team = %v, want %q", data["recent_execution_team"], wantTeam)
+			}
+			if at, _ := data["recent_execution_at"].(string); at == "" {
+				t.Fatal("recent_execution_at is empty")
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertVisible(t, "team-1@example.com", svc.teamByID("team-2").Name)
+	assertVisible(t, "team-2@example.com", svc.teamByID("team-1").Name)
+
+	if err := tradeActionAs(t, "team-3@example.com", func(r *http.Request) error {
+		if data := svc.TradesData(r); data["recent_execution_visible"] != false {
+			t.Fatalf("uninvolved team recent_execution_visible = %v, want false", data["recent_execution_visible"])
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	svc.now = func() time.Time { return now.Add(tradeRecentExecutionWindow + time.Hour) }
+	if err := tradeActionAs(t, "team-1@example.com", func(r *http.Request) error {
+		if data := svc.TradesData(r); data["recent_execution_visible"] != false {
+			t.Fatalf("expired-window recent_execution_visible = %v, want false", data["recent_execution_visible"])
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTradesDataRequiresSeatAndOnlyListsManagedPartners(t *testing.T) {
 	seatless := newTestService(t, false)
 	request, _ := http.NewRequest(http.MethodGet, "/trades?counterparty=team-2", nil)
