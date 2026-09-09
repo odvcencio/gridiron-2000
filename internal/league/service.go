@@ -2526,6 +2526,7 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	// showed a bigger number than the matchup card for the same team and
 	// week.
 	projected := TeamStartersProjectedTotal(lineup)
+	benchProjected, benchHasProjection := TeamBenchProjectedTotal(lineup)
 	scoringValues := s.currentScoringValues()
 	matchupLabel, hasMatchupLabel := s.MatchupSourceLabel()
 	filled := 0
@@ -2803,6 +2804,13 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		// dangling form id.
 		"primary_action": teamPrimaryAction(lifecycle.Phase == TeamTerminalRosterComplete),
 	}
+	// bench_projected is intentionally a separate, display-only forecast:
+	// matchup scoring never reads this field and continues to consume the
+	// resolved starters. Keep the same em-dash treatment as the rest of the
+	// projection UI when the feed has no known bench value, rather than
+	// implying that an unknown forecast is a confirmed 0.0.
+	data["bench_projected"] = projectedText(benchProjected, benchHasProjection)
+	data["bench_has_projection"] = benchHasProjection
 	for key, value := range terminalData {
 		data[key] = value
 	}

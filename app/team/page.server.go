@@ -603,13 +603,15 @@ func init() {
 			data["has_lineup_error"] = false
 			data["lineup_error"] = ""
 			for _, name := range []string{
-				"lineup-set", "lineup-auto", "player-drop",
+				"lineup-set", "lineup-move", "lineup-move-to", "lineup-auto", "player-drop",
 				"reserve-place", "reserve-activate", "ir-place", "ir-activate",
 			} {
 				if view, ok := ctx.ActionState(name); ok {
-					message := view.Error("player_id")
-					if message == "" {
-						message = view.Error("week")
+					message := ""
+					for _, field := range []string{"player_id", "week", "from_slot", "to_slot", "item_id"} {
+						if message = view.Error(field); message != "" {
+							break
+						}
 					}
 					if message != "" {
 						data["has_lineup_error"] = true
@@ -692,6 +694,42 @@ func init() {
 					return lineupValidation(ctx, "player_id", err)
 				}
 				return lineupMutationSuccess(ctx, message)
+			},
+			// lineup-move swaps the resolved occupants of two starter slots. It is a real
+			// native POST form (rather than a JS-only fallback), so the same
+			// movement remains available to a manager using touch, a keyboard,
+			// or a browser with the GoSX gesture runtime disabled.
+			"lineup-move": func(ctx *action.Context) error {
+				week, err := strconv.Atoi(ctx.FormData["week"])
+				if err != nil {
+					return lineupValidation(ctx, "week", fmt.Errorf("choose a valid week"))
+				}
+				message, err := league.Default().LineupMove(ctx.Request, ctx.FormData["team_id"], week, ctx.FormData["from_slot"], ctx.FormData["to_slot"])
+				if err != nil {
+					return lineupValidation(ctx, "from_slot", err)
+				}
+				return lineupMutationSuccess(ctx, message)
+			},
+			// lineup-move-to is the lean background action used by GoSX's
+			// declarative reorder primitive. GoSX intentionally submits only
+			// item_id/index; the selected team and week live in this same-origin
+			// action URL and LineupMoveTo maps the index through the active
+			// roster shape before enforcing locks and eligibility.
+			"lineup-move-to": func(ctx *action.Context) error {
+				index, err := strconv.Atoi(ctx.FormData["index"])
+				if err != nil {
+					return action.Validation("invalid lineup position", map[string]string{"item_id": "invalid lineup position"}, ctx.FormData)
+				}
+				week, err := strconv.Atoi(ctx.Request.URL.Query().Get("week"))
+				if err != nil {
+					return action.Validation("choose a valid week", map[string]string{"item_id": "choose a valid week"}, ctx.FormData)
+				}
+				teamID := ctx.Request.URL.Query().Get("team_id")
+				message, err := league.Default().LineupMoveTo(ctx.Request, teamID, week, ctx.FormData["item_id"], index)
+				if err != nil {
+					return actionui.Validation(ctx, "team", "item_id", err)
+				}
+				return ctx.Success(message, nil)
 			},
 			// player-drop (section-B item 4) is the bench row's own Drop
 			// action, behind the same review-confirm gate /players' own
