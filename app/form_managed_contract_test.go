@@ -52,7 +52,16 @@ func managedFormTag(tag string) bool {
 
 func intentionalNativeTeamForm(path, tag string) bool {
 	switch filepath.ToSlash(path) {
-	case "admin/page.gsx", "team/page.gsx":
+	case "admin/page.gsx":
+		// Roster correction is a deliberate two-step native flow: the
+		// review redirect must repaint the conditional confirm panel, while
+		// the final confirmation form remains managed.
+		if regexp.MustCompile("(?i)\\bdata-gosx-managed\\s*=\\s*[\"']false[\"']").MatchString(tag) &&
+			regexp.MustCompile(`(?i)\baction\s*=\s*\{actionPath\("roster-correction"\)\}`).MatchString(tag) &&
+			regexp.MustCompile(`(?i)\bclass\s*=\s*["']season-control-form["']`).MatchString(tag) {
+			return true
+		}
+	case "team/page.gsx":
 	case "draft/page.gsx", "draft/practice/page.gsx":
 		// Practice draft (internal/league/practice.go): Leave practice must
 		// navigate the whole document back to the real room (the practice
