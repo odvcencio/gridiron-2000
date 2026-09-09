@@ -244,13 +244,70 @@ func TestStateGuidanceCarriesEveryRecoveryField(t *testing.T) {
 	for _, state := range StateNames() {
 		got := Guidance("data-state-and-freshness", state)
 		for name, value := range map[string]string{
-			"why": got.Why, "impact": got.Impact, "remaining": got.Remaining,
-			"context": got.PreservedContext, "next": got.NextAction, "retry": got.Retry, "topic": got.TopicID,
+			"state": got.State, "why": got.Why, "impact": got.Impact, "remaining": got.Remaining,
+			"context": got.PreservedContext, "next": got.NextAction, "retry": got.Retry,
+			"last success": got.LastSuccess, "topic": got.TopicID,
 		} {
 			if strings.TrimSpace(value) == "" {
 				t.Errorf("state %q omitted %s", state, name)
 			}
 		}
+	}
+}
+
+func TestStateGuidanceUsesStateSpecificLastSuccessSemantics(t *testing.T) {
+	expected := map[string]string{
+		"loading":           "not applicable",
+		"empty":             "empty read",
+		"no-results":        "filtered read",
+		"pending":           "accepted for processing",
+		"saved":             "latest successful mutation",
+		"locked":            "locked boundary",
+		"disabled":          "disabled submission",
+		"stale":             "last-success time and age",
+		"degraded":          "retained source",
+		"offline":           "fallback-source label",
+		"unavailable":       "no last-success value",
+		"failed":            "outcome remains unknown",
+		"permission-denied": "protected details stay hidden",
+		"not-applicable":    "no last-success value is implied",
+	}
+	for state, needle := range expected {
+		got := strings.ToLower(Guidance("data-state-and-freshness", state).LastSuccess)
+		if !strings.Contains(got, strings.ToLower(needle)) {
+			t.Errorf("state %q last-success semantics = %q, want %q", state, got, needle)
+		}
+	}
+}
+
+func TestContextualFieldHelpValidationUsesSelectedTopicContract(t *testing.T) {
+	topic, ok := FindTopic("big-board-and-autopick")
+	if !ok {
+		t.Fatal("Big Board topic missing")
+	}
+	got := ContextualFieldHelp(topic.ID, "validation")
+	if got["field"] != "validation" || got["topic_id"] != topic.ID {
+		t.Fatalf("validation field projection = %#v, want field validation and topic %q", got, topic.ID)
+	}
+	for name, want := range map[string]string{
+		"help/failure":   topic.Failure,
+		"help/recovery":  topic.Recovery,
+		"runtime source": topic.RuntimeSource,
+		"next action":    topic.ActionRoute,
+	} {
+		value := got["help"]
+		if name == "runtime source" {
+			value = got["runtime_source"]
+		}
+		if name == "next action" {
+			value = got["next_action"]
+		}
+		if !strings.Contains(value, want) {
+			t.Errorf("validation %s = %q, want selected topic metadata %q", name, value, want)
+		}
+	}
+	if got["action_label"] != ActionRouteLabel(topic.ActionRoute) {
+		t.Errorf("validation action label = %q, want %q", got["action_label"], ActionRouteLabel(topic.ActionRoute))
 	}
 }
 

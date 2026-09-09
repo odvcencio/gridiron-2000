@@ -22,6 +22,12 @@ surface. Every result has a stable topic route at `/help/{topic_id}`.
 - Topic routes accept optional `state` and `field` query context. They render
   a recovery panel or field/action explanation from the same topic metadata;
   they never copy the current mutable value into documentation.
+- The state panel labels the owning topic ID and last-success semantics. A
+  last-success phrase describes what the runtime may supply (or says when it
+  is not applicable); help never invents a timestamp or health fact.
+- `field=validation` uses the selected topic's failure, recovery, runtime
+  source, and action metadata, so validation copy remains specific to the
+  owning workflow rather than a generic error.
 - The public projection contains no email address, invitation, manager name,
   credential, provider session, or other personal data.
 
@@ -75,7 +81,10 @@ when safe. It distinguishes `loading`, `empty`, `no-results`, `pending`,
 `failed`, `permission-denied`, and `not-applicable`. A failed mutation is not
 described as saved. If transport leaves the outcome unknown, recovery tells
 the user to refresh/reread the owning route and activity before retrying rather
-than replaying a stale request.
+than replaying a stale request. Every registered state supplies why, impact,
+remaining capability, preserved context, next action, retry rule, last-success
+semantics, and its stable owning topic ID; `not-applicable` explicitly says
+that no last-success value is implied.
 
 The index intentionally links to [`docs/season-operations.md`](season-operations.md)
 for the detailed commissioner restart and correction runbooks. The help page
