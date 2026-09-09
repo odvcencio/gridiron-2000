@@ -51,9 +51,10 @@ func renderMatchupProjectionStatus(t *testing.T, projectionNote any) string {
 // TestMatchupProjectionHelpStaysTruthfulAcrossLiveProjectionStates covers
 // the projection-note seam's three render shapes: an available note, an
 // unavailable/mismatch note, and a missing note. The note is live-bound text,
-// while GoSX has no live-bound href; a state=unavailable URL would therefore
-// become stale after a poll changes the note. The stable owning topic link
-// remains truthful in every state and keeps the live status line intact.
+// but this endpoint exposes no guidance href projection for GoSX to bind. A
+// state=unavailable URL would therefore become stale after a poll changes the
+// note. The stable owning topic link remains truthful in every state and keeps
+// the live status line intact.
 func TestMatchupProjectionHelpStaysTruthfulAcrossLiveProjectionStates(t *testing.T) {
 	for _, test := range []struct {
 		name string
