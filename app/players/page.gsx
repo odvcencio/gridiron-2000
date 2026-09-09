@@ -107,7 +107,10 @@ func Page() Node {
 				<p class="flash-message">{data.notice}</p>
 			</If>
 			<If cond={data.has_players_error && (data.notice_count < 2 || data.notice_first_kind == "error")}>
-				<p class="error-message">{data.players_error}</p>
+				<p class="error-message">
+					{data.players_error}
+					<a class="access-link" href="/help/players-free-agents-waivers-and-faab?field=validation" data-gosx-link>Why was this rejected? →</a>
+				</p>
 			</If>
 			<If cond={data.viewer.demo}>
 				<If cond={data.notice_count < 2 || data.notice_first_kind == "demo"}>
@@ -135,6 +138,7 @@ func Page() Node {
 				<p class="demo-message">
 					<strong>FREE AGENCY OPENS AFTER THE DRAFT:</strong>
 					every undrafted player becomes a free agent the moment the draft completes.
+					<a class="access-link" href="/help/players-free-agents-waivers-and-faab?state=locked" data-gosx-link>Why are roster moves locked? →</a>
 				</p>
 			</If>
 			<If cond={data.pool_status.has_notice && (data.notice_count < 2 || data.notice_first_kind == "pool_status")}>
@@ -160,7 +164,10 @@ func Page() Node {
 						<p class="flash-message">{data.notice}</p>
 					</If>
 					<If cond={data.has_players_error && data.notice_first_kind != "error"}>
-						<p class="error-message">{data.players_error}</p>
+						<p class="error-message">
+							{data.players_error}
+							<a class="access-link" href="/help/players-free-agents-waivers-and-faab?field=validation" data-gosx-link>Why was this rejected? →</a>
+						</p>
 					</If>
 					<If cond={data.viewer.demo && data.notice_first_kind != "demo"}>
 						<p class="demo-message">
@@ -186,6 +193,7 @@ func Page() Node {
 						<p class="demo-message">
 							<strong>FREE AGENCY OPENS AFTER THE DRAFT:</strong>
 							every undrafted player becomes a free agent the moment the draft completes.
+							<a class="access-link" href="/help/players-free-agents-waivers-and-faab?state=locked" data-gosx-link>Why are roster moves locked? →</a>
 						</p>
 					</If>
 					<If cond={data.pool_status.has_notice && data.notice_first_kind != "pool_status"}>
@@ -307,6 +315,7 @@ func PlayerPoolRegion() Node {
 				<strong>NO PLAYERS MATCH</strong>
 				<p>
 					Try a different position filter or clear your search.
+					<a class="access-link" href="/help/players-free-agents-waivers-and-faab?state=no-results" data-gosx-link>How do I broaden this search? →</a>
 				</p>
 			</div>
 		</If>
@@ -315,6 +324,7 @@ func PlayerPoolRegion() Node {
 				<strong>PLAYER DATA UNAVAILABLE</strong>
 				<p>
 					The authoritative player list is temporarily unavailable. Browsing and roster/waiver actions resume after the source recovers.
+					<a class="access-link" href="/help/players-free-agents-waivers-and-faab?state=unavailable" data-gosx-link>Why is player data unavailable? →</a>
 				</p>
 			</div>
 		</If>
@@ -603,7 +613,10 @@ func WaiverDeskRegion() Node {
 		<If cond={data.pool_unavailable}>
 			<div class="empty-tape">
 				<strong>WAIVER ACTIONS PAUSED</strong>
-				<p>Claims and roster changes are blocked until the authoritative player list is available again.</p>
+				<p>
+					Claims and roster changes are blocked until the authoritative player list is available again.
+					<a class="access-link" href="/help/players-free-agents-waivers-and-faab?state=unavailable" data-gosx-link>Why is player data unavailable? →</a>
+				</p>
 			</div>
 		</If>
 		<If cond={data.pool_unavailable == false && data.can_edit == false}>
