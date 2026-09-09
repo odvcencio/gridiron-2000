@@ -20096,3 +20096,23 @@ body.is-on-clock .draft-command__pill-sentence {
     width: 7rem;
   }
 }
+
+/* Keep the completed draft's board inside the history pane on phone and
+   tablet widths. The board owns both-axis scrolling, but its 70dvh cap
+   can be taller than the pane body after the command/tab chrome takes
+   its share of the viewport (especially in short landscape). A definite
+   history wrapper lets the board's percentage cap resolve to the pane's
+   available content height, preserving the board's own vertical and
+   horizontal scroll while leaving the final ledger below it on the
+   pane's established outer vertical scroll. Tape and Teams views keep
+   their existing sizing because the wrapper rule is board-gated. */
+@media (width <= 56.1875rem) {
+	.draft-pane--history .draft-history:has(> .draft-history__view--board) {
+		height: 100%;
+		min-height: 0;
+	}
+
+	.draft-pane--history .draft-history__view--board {
+		max-height: min(70dvh, 100%);
+	}
+}
