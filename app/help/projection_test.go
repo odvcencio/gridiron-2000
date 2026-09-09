@@ -57,7 +57,7 @@ func TestStaticHelpDocsUseLiteralHelpRoute(t *testing.T) {
 }
 
 func TestVerifiedSourceSHARecordsReviewedOriginSnapshot(t *testing.T) {
-	const reviewedOrigin = "e666554818c82410fb651ac88236441dc9ac275c"
+	const reviewedOrigin = "43c1c50dfbd493b01368d2c74959eb23de098749"
 	if VerifiedSourceSHA != reviewedOrigin {
 		t.Fatalf("VerifiedSourceSHA = %q, want reviewed origin/main snapshot %q", VerifiedSourceSHA, reviewedOrigin)
 	}

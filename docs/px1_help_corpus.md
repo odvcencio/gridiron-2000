@@ -10,8 +10,10 @@ surface. Every result has a stable topic route at `/help/{topic_id}`.
 
 - `CorpusVersion` is the content version; `VerifiedSourceSHA` identifies the
   source snapshot used when the corpus was reviewed. This slice records
-  `e666554818c82410fb651ac88236441dc9ac275c`, the `origin/main` snapshot
-  reviewed on 2026-09-09; it is provenance, not a deployment or release claim.
+  `43c1c50dfbd493b01368d2c74959eb23de098749`, the `origin/main` snapshot
+  reviewed on 2026-09-09 for matching-week projections, starter-only totals,
+  bench coverage, and lineup movement; unrelated topic prose is not reaudited
+  here. It is provenance, not a deployment or release claim.
 - `Search` normalizes Unicode letters/numbers, case, punctuation, apostrophes,
   and hyphens before ranking. Exact topic IDs/titles win, followed by aliases,
   synonyms, keywords, and body text. Ties resolve by category order, title,

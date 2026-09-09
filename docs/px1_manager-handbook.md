@@ -12,7 +12,7 @@ Start with the active league context, then follow the owning route for the task.
 2. **Teams, team seats, and rosters** (`teams-team-seats-and-rosters`) — A team is the durable football object; a team seat is the responsibility shared by its managers. Read the current owning route `/team` before acting.
 3. **Draft order, readiness, and clock** (`draft-order-readiness-and-clock`) — The scheduled meeting is not an automatic start; the commissioner intentionally opens pick one. Read the current owning route `/draft` before acting.
 4. **Big Board and autopick** (`big-board-and-autopick`) — Rank private draft targets for the shared team seat and understand exactly which order AUTO consumes. Read the current owning route `/board` before acting.
-5. **Lineups, locks, matchups, and scoring** (`lineups-locks-matchups-and-scoring`) — Set the effective lineup before kickoff and read AWAITING RELEASE versus final scoring honestly. Read the current owning route `/team` before acting.
+5. **Lineups, locks, matchups, and scoring** (`lineups-locks-matchups-and-scoring`) — Set the effective lineup before kickoff and read starter-only projections, AWAITING RELEASE, and final scoring honestly. Read the current owning route `/team` before acting.
 6. **Players, free agents, and waivers** (`players-free-agents-waivers-and-faab`) — Acquire an eligible player using this league's own configured claim rule — priority order or FAAB bid — and preserve filter context. Read the current owning route `/players` before acting.
 7. **Trades, review, and processing** (`trades-review-and-processing`) — Compose, respond to, and track a trade without guessing its boundary. Read the current owning route `/trades` before acting.
 
@@ -355,34 +355,36 @@ See what a live draft looks like before the real one: take picks on the clock in
 
 `lineups-locks-matchups-and-scoring` · category `team` · owning route `/team`
 
-Set the effective lineup before kickoff and read AWAITING RELEASE versus final scoring honestly.
+Set the effective lineup before kickoff and read starter-only projections, AWAITING RELEASE, and final scoring honestly.
 
 - Audiences: `admitted member`, `primary manager`, `co-manager`, `seatless member`, `commissioner`
 - Actor: Admitted viewers read matchups; an authorized manager changes only unlocked slots.
-- Prerequisites: Team association and current week/slot lock state control mutations.
-- Supported mode/phase: Configured regular-season or applicable phase; unavailable phases are explained.
-- States: Upcoming, lineup-editable, lineup-locked, live-provisional, source-stale, degraded, final, corrected, bye, unavailable.
+- Prerequisites: Team association, selected week, and current week/slot lock state control mutations; the matching projection source controls forecast visibility.
+- Supported mode/phase: Configured regular-season or applicable phase; a selected week without a matching projection source keeps forecasts unavailable.
+- States: Upcoming, lineup-editable, lineup-locked, live-provisional, source-stale, degraded, final, corrected, bye, unavailable; a source-week mismatch or partial forecast is not a zero.
 - Deadline source: Each player's kickoff and league timezone govern that slot.
 - Modes: `dynasty`, `redraft`, `configured`
 - Phases: `pre-draft`, `draft`, `preseason`, `regular-season`, `post-season`, `complete`, `unknown`
 - Data states: `loading`, `empty`, `no-results`, `pending`, `saved`, `locked`, `disabled`, `stale`, `degraded`, `offline`, `unavailable`, `failed`, `permission-denied`, `not-applicable`
 - Privacy: Roster visibility follows league policy; projections are not private authority.
-- Consequence: Locked slots cannot be changed normally; closed weeks pin effective starters/results.
-- Reversibility: Unlocked edits can be revised; locked/final outcomes use commissioner correction.
-- Result: Local result names saved slot/player state and preserves week/team context.
-- Failure: Cross-week, lock, invalid-slot, stale, and source failures reject the mutation.
-- Recovery: Return to Team, inspect lock reason/last-success age, retry only when available.
-- Runtime source: Roster config, schedule, lineup persistence, stats ledger, matchup/correction state.
-- Example: A late stat correction can change provisional scoring without unlocking a lineup.
+- Consequence: Only configured starters contribute to matchup/team scoring; bench projections are comparison context and never inflate the starter total. Locked slots cannot be changed normally; closed weeks pin effective starters/results.
+- Reversibility: Unlocked Move / change and Start / replace controls can revise eligible destinations; kickoff locks the affected slot, and locked/final outcomes use commissioner correction.
+- Result: Local result names saved slot/player state and preserves week/team context; a projected total is numeric only when the selected week's required starter forecasts are known.
+- Failure: Authorization, cross-week, lock, invalid-slot, and stale-state failures reject a lineup mutation; a projection-source failure, source-week mismatch, or missing forecast suppresses only the forecast, so a legal edit can still be saved, and unknown is never rendered as zero.
+- Recovery: Return to Team or Matchups, inspect selected week, source week, lock reason, and last-success age, then retry only when available; use an eligible Move / change or Start / replace control before kickoff.
+- Runtime source: Roster config, schedule, lineup persistence, matching-week projection pool, stats ledger, matchup/correction state, and lineup movement processor.
+- Example: A selected week whose projection source names another week keeps projected totals unavailable, while a missing forecast for one starter leaves the total unknown and a bench forecast never adds to team score.
 - Source refs: `spec.gridiron.manager-onboarding.v0.1`, `plan.gridiron.v0.1.product-clarity-foundation`
 
 ### Steps
 
-1. Open Team and select current week.
-2. Fill valid starters and review source state.
-3. Save before kickoff.
-4. Use Matchups for provisional/final labels.
-5. Reread after source change.
+1. Open Team or Matchups and select the week you mean to inspect.
+2. Read the projection source/week label before treating a forecast as current; a mismatch leaves it unavailable.
+3. Read the starters-only projected total; the Bench disclosure is comparison context and never contributes to team score.
+4. Treat an em dash or partial/unavailable coverage as unknown, not zero; reread after the source refreshes.
+5. Before kickoff, use Team's Move / change or Start / replace control (or the transfer affordance when available) to place an eligible player in a starter slot.
+6. Save before kickoff and reread the saved lineup, lock, and scoring state.
+7. Use Matchups for provisional/final labels and reread after source change.
 
 ## Players, free agents, and waivers
 
@@ -912,14 +914,14 @@ The matrix covers 14 manager workflow topics from the corpus; each topic's own m
 ### Projection receipt
 
 - Corpus version: `0.1`.
-- Verified source SHA: `e666554818c82410fb651ac88236441dc9ac275c`. This is a reviewed source snapshot, not a deployment identity.
+- Verified source SHA: `43c1c50dfbd493b01368d2c74959eb23de098749`. This is a reviewed source snapshot, not a deployment identity.
 - Corpus source owner: `app/help` (`app/help/content.go`).
 - Owner: the `getting-started` topic and the manager workflow topics.
 - Audience: managers and support reviewers validating the manager projection; runtime pages remain authoritative for current league state.
 - Topic ID: `getting-started`.
 - Topic audiences: `admitted member`, `primary manager`, `co-manager`, `seatless member`, `commissioner`
 - Introduced version: `0.1`.
-- Last verified topic SHA: `e666554818c82410fb651ac88236441dc9ac275c`.
+- Last verified topic SHA: `43c1c50dfbd493b01368d2c74959eb23de098749`.
 - Runtime source: Runtime league configuration, membership, authorization, phase, and source status.
 - Source refs: `spec.gridiron.manager-onboarding.v0.1`, `plan.gridiron.v0.1.product-clarity-foundation`
 - Selection axes (runtime filters these; this projection freezes no league value):

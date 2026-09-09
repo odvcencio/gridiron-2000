@@ -7,14 +7,14 @@ Use the `commissioner-operations` topic as the short decision card, then follow 
 ## Projection receipt
 
 - Corpus version: `0.1`.
-- Verified source SHA: `e666554818c82410fb651ac88236441dc9ac275c`. This is a reviewed source snapshot, not a deployment identity.
+- Verified source SHA: `43c1c50dfbd493b01368d2c74959eb23de098749`. This is a reviewed source snapshot, not a deployment identity.
 - Corpus source owner: `app/help` (`app/help/content.go`).
 - Owner: the `commissioner-operations` topic and owning `/admin` route.
 - Audience: the commissioner with configured capability; the corpus also serves admitted members, managers, and seatless viewers when the runtime makes the topic applicable.
 - Topic ID: `commissioner-operations`.
 - Topic audiences: `admitted member`, `primary manager`, `co-manager`, `seatless member`, `commissioner`
 - Introduced version: `0.1`.
-- Last verified topic SHA: `e666554818c82410fb651ac88236441dc9ac275c`.
+- Last verified topic SHA: `43c1c50dfbd493b01368d2c74959eb23de098749`.
 - Runtime source: League state/config, postseason truth/provenance, final scoring ledger, authorization, processors, health, activity, peer summaries.
 - Source refs: `spec.gridiron.manager-onboarding.v0.1`, `plan.gridiron.v0.1.product-clarity-foundation`
 - Selection axes (runtime filters these; this projection freezes no league value):
