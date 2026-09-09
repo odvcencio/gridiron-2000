@@ -633,6 +633,7 @@ const (
 	kvSeatReleaseNotices      = "seat_release_notices"
 	kvRosterCorrectionNotices = "roster_correction_notices"
 	kvLockerCommissionerNotes = "locker_commissioner_notes"
+	kvLineupAutoFilled        = "lineup_auto_filled"
 )
 
 // scheduleHeader is the SeasonSchedule minus its weeks: the part that has
@@ -704,6 +705,9 @@ var collectionSpecs = [collectionCount]collectionSpec{
 			// currentSchemaVersion move.
 			if len(st.LockerCommissionerNotes) > 0 {
 				put(kvLockerCommissionerNotes, sink.jsonValue(st.LockerCommissionerNotes))
+			}
+			if len(st.LineupAutoFilled) > 0 {
+				put(kvLineupAutoFilled, sink.jsonValue(st.LineupAutoFilled))
 			}
 		},
 	},
@@ -1493,6 +1497,13 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 			return state, fmt.Errorf("kv %s: %w", kvLockerCommissionerNotes, err)
 		}
 		state.LockerCommissionerNotes = notes
+	}
+	if raw, ok := scalars[kvLineupAutoFilled]; ok {
+		var autoFilled map[string]map[int]map[string]bool
+		if err := json.Unmarshal([]byte(raw), &autoFilled); err != nil {
+			return state, fmt.Errorf("kv %s: %w", kvLineupAutoFilled, err)
+		}
+		state.LineupAutoFilled = autoFilled
 	}
 
 	if err := queryRows(db, `SELECT "number", "round", "team_id", "player_id", "made_at", "made_by" FROM picks ORDER BY "number"`,
@@ -2331,6 +2342,9 @@ func normalizeState(state *PersistedState) {
 	}
 	if state.Lineups == nil {
 		state.Lineups = map[string]map[int]map[string]string{}
+	}
+	if state.LineupAutoFilled == nil {
+		state.LineupAutoFilled = map[string]map[int]map[string]bool{}
 	}
 	if state.Transactions == nil {
 		state.Transactions = []Transaction{}

@@ -754,6 +754,12 @@ func lineupUnknownSlotMessage(slot string) string {
 
 const lineupNotOnRosterMessage = "that player is not on your roster"
 
+// lineupChangedWhileMovingMessage is returned when a lineup mutation's
+// snapshot is stale at the guarded Store write. Keeping the recovery copy
+// shared by native and gesture callers makes the write-side contract clear:
+// refresh the Team view before trying the move again.
+const lineupChangedWhileMovingMessage = "lineup changed while you were moving; refresh and try again"
+
 func lineupPositionMessage(position, slotID string) string {
 	return fmt.Sprintf("%s does not fit the %s slot", position, slotID)
 }
@@ -784,9 +790,8 @@ func (s *Service) lineupActingTeam(r *http.Request, requestedTeam string) (strin
 // SetLineup applies one lineup-set(week, slot, player_id) action
 // (roster-ops spec section 4.4): validates L1-L8 in order and, on success,
 // persists the assignment. An empty playerID clears the slot (L8); a
-// non-empty playerID that already holds another explicit slot this week
-// displaces from it in the same store write (Store.SetLineupSlot) — a
-// player occupies at most one slot.
+// non-empty playerID that already holds another resolved slot displaces it
+// in the same guarded whole-week write — a player occupies at most one slot.
 func (s *Service) SetLineup(r *http.Request, requestedTeam string, week int, slotID, playerID string) (string, error) {
 	teamID, err := s.lineupActingTeam(r, requestedTeam) // L1
 	if err != nil {
@@ -813,15 +818,39 @@ func (s *Service) SetLineup(r *http.Request, requestedTeam string, week int, slo
 	for _, p := range general {
 		byID[p.ID] = p
 	}
-	current := effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
+	current := effectiveLineupWithState(preset, general, state, teamID, week, games, now)
 	occupant, _ := current.slotAssignment(slot.ID)
+	expected := storedLineupWeek(state, teamID, week)
+	expectedAutoFilled := storedLineupAutoFilledWeek(state, teamID, week)
+	expectedSourceWeek, expectedSource := storedLineupSource(state, teamID, week)
+	expectedSourceAutoFilled := storedLineupSourceAutoFilled(state, teamID, week)
 
 	playerID = strings.TrimSpace(playerID)
 	if playerID == "" {
 		if occupant.HasPlayer && occupant.Locked { // L8
 			return "", fmt.Errorf("%s", lineupLockedMessage(occupant.Player.Name, week, occupant.Player.NFLTeam))
 		}
-		if err := s.store.SetLineupSlot(teamID, week, slot.ID, "", now); err != nil {
+		// Keep only the explicit inheritance base here. Other resolved
+		// slots may be auto-filled; materializing those as explicit would
+		// erase their AutoFilled provenance and change native clear
+		// semantics. The source-aware CAS still protects this base while
+		// the target edit is committed atomically.
+		resolved := copyLineupMap(expectedSource)
+		resolvedAutoFilled := copyLineupFlags(expectedSourceAutoFilled)
+		for _, assignment := range current.Slots {
+			if assignment.HasPlayer && assignment.AutoFilled && assignment.Locked {
+				resolved[assignment.Slot.ID] = assignment.Player.ID
+				resolvedAutoFilled[assignment.Slot.ID] = true
+			}
+		}
+		delete(resolved, slot.ID)
+		delete(resolvedAutoFilled, slot.ID)
+		if err := s.store.SetLineupWeekIfUnchanged(teamID, week, expected, expectedSourceWeek, expectedSource, resolved,
+			lineupWriteOptions{
+				expectedAutoFilled:       expectedAutoFilled,
+				expectedSourceAutoFilled: expectedSourceAutoFilled,
+				autoFilled:               resolvedAutoFilled,
+			}); err != nil {
 			return "", err
 		}
 		s.recordLineupInterventionEvent(r, teamID, week, "", "lineup.intervention_set",
@@ -842,12 +871,166 @@ func (s *Service) SetLineup(r *http.Request, requestedTeam string, week int, slo
 	if occupant.HasPlayer && occupant.Player.ID != player.ID && occupant.Locked { // L7
 		return "", fmt.Errorf("%s", lineupLockedMessage(occupant.Player.Name, week, occupant.Player.NFLTeam))
 	}
-	if err := s.store.SetLineupSlot(teamID, week, slot.ID, player.ID, now); err != nil {
+	// Keep auto-filled slots implicit so SetLineup changes only the
+	// requested assignment while inherited explicit slots survive a new
+	// week's first write.
+	resolved := copyLineupMap(expectedSource)
+	resolvedAutoFilled := copyLineupFlags(expectedSourceAutoFilled)
+	for _, assignment := range current.Slots {
+		if assignment.HasPlayer && assignment.AutoFilled && assignment.Locked {
+			resolved[assignment.Slot.ID] = assignment.Player.ID
+			resolvedAutoFilled[assignment.Slot.ID] = true
+		}
+	}
+	for otherSlot, occupantID := range resolved {
+		if otherSlot != slot.ID && occupantID == player.ID {
+			delete(resolved, otherSlot)
+			delete(resolvedAutoFilled, otherSlot)
+		}
+	}
+	resolved[slot.ID] = player.ID
+	delete(resolvedAutoFilled, slot.ID)
+	if err := s.store.SetLineupWeekIfUnchanged(teamID, week, expected, expectedSourceWeek, expectedSource, resolved,
+		lineupWriteOptions{
+			expectedAutoFilled:       expectedAutoFilled,
+			expectedSourceAutoFilled: expectedSourceAutoFilled,
+			autoFilled:               resolvedAutoFilled,
+		}); err != nil {
 		return "", err
 	}
 	s.recordLineupInterventionEvent(r, teamID, week, player.ID, "lineup.intervention_set",
 		fmt.Sprintf("set %s to start %s for %s in week %d", slot.ID, player.Name, s.TeamLabel(teamID), week))
 	return s.lineupChangeResultMessage(teamID, week, general, games, now, current, slot.ID, fmt.Sprintf("%s starts at %s.", player.Name, slot.ID)), nil
+}
+
+func storedLineupWeek(state PersistedState, teamID string, week int) map[string]string {
+	byWeek := state.Lineups[teamID]
+	if byWeek == nil {
+		return nil
+	}
+	stored := byWeek[week]
+	if stored == nil {
+		return nil
+	}
+	return copyLineupMap(stored)
+}
+
+// storedLineupSource returns the exact explicit week and map that
+// effectiveLineup will use as its base for teamID/week. A present empty map
+// is intentionally different from an absent week: the former stops
+// inheritance and lets the resolver auto-fill, while the latter carries the
+// nearest earlier week forward. The source week and map are part of the
+// lineup write CAS so a stale future-week resolution cannot overwrite a
+// concurrent edit to its inherited base.
+func storedLineupSource(state PersistedState, teamID string, week int) (int, map[string]string) {
+	byWeek := state.Lineups[teamID]
+	if byWeek == nil {
+		return 0, nil
+	}
+	for candidateWeek := week; candidateWeek >= 1; candidateWeek-- {
+		stored, ok := byWeek[candidateWeek]
+		if !ok {
+			continue
+		}
+		if stored == nil {
+			return candidateWeek, nil
+		}
+		return candidateWeek, copyLineupMap(stored)
+	}
+	return 0, nil
+}
+
+func copyLineupMap(slots map[string]string) map[string]string {
+	copied := make(map[string]string, len(slots))
+	for slot, playerID := range slots {
+		copied[slot] = playerID
+	}
+	return copied
+}
+
+func storedLineupAutoFilledWeek(state PersistedState, teamID string, week int) map[string]bool {
+	byWeek := state.LineupAutoFilled[teamID]
+	if byWeek == nil {
+		return copyLineupFlags(nil)
+	}
+	return copyLineupFlags(byWeek[week])
+}
+
+func storedLineupSourceAutoFilled(state PersistedState, teamID string, week int) map[string]bool {
+	sourceWeek, _ := storedLineupSource(state, teamID, week)
+	if sourceWeek == 0 {
+		return copyLineupFlags(nil)
+	}
+	return storedLineupAutoFilledWeek(state, teamID, sourceWeek)
+}
+
+func copyLineupFlags(flags map[string]bool) map[string]bool {
+	copied := make(map[string]bool, len(flags))
+	for slot, autoFilled := range flags {
+		copied[slot] = autoFilled
+	}
+	return copied
+}
+
+func clearLineupAutoFilledSlot(state *PersistedState, teamID string, week int, slot string) {
+	byWeek := state.LineupAutoFilled[teamID]
+	if byWeek == nil {
+		return
+	}
+	slots := byWeek[week]
+	if slots == nil {
+		return
+	}
+	delete(slots, slot)
+	if len(slots) == 0 {
+		delete(byWeek, week)
+	}
+	if len(byWeek) == 0 {
+		delete(state.LineupAutoFilled, teamID)
+	}
+}
+
+func clearLineupAutoFilledWeek(state *PersistedState, teamID string, week int) {
+	byWeek := state.LineupAutoFilled[teamID]
+	if byWeek == nil {
+		return
+	}
+	delete(byWeek, week)
+	if len(byWeek) == 0 {
+		delete(state.LineupAutoFilled, teamID)
+	}
+}
+
+func setLineupAutoFilledWeek(state *PersistedState, teamID string, week int, flags map[string]bool) {
+	clearLineupAutoFilledWeek(state, teamID, week)
+	if len(flags) == 0 {
+		return
+	}
+	if state.LineupAutoFilled == nil {
+		state.LineupAutoFilled = map[string]map[int]map[string]bool{}
+	}
+	byWeek := state.LineupAutoFilled[teamID]
+	if byWeek == nil {
+		byWeek = map[int]map[string]bool{}
+		state.LineupAutoFilled[teamID] = byWeek
+	}
+	byWeek[week] = copyLineupFlags(flags)
+}
+
+func effectiveLineupWithState(preset RosterPreset, roster []Player, state PersistedState, teamID string, week int, games []GameInfo, now time.Time) EffectiveLineup {
+	lineup := effectiveLineup(preset, roster, state.Lineups[teamID], week, games, now)
+	sourceWeek, source := storedLineupSource(state, teamID, week)
+	if sourceWeek == 0 {
+		return lineup
+	}
+	markers := storedLineupAutoFilledWeek(state, teamID, sourceWeek)
+	for i := range lineup.Slots {
+		assignment := &lineup.Slots[i]
+		if assignment.HasPlayer && markers[assignment.Slot.ID] && source[assignment.Slot.ID] == assignment.Player.ID {
+			assignment.AutoFilled = true
+		}
+	}
+	return lineup
 }
 
 // lineupChangeResultMessage re-resolves teamID's week-`week` effective
@@ -864,7 +1047,7 @@ func (s *Service) SetLineup(r *http.Request, requestedTeam string, week int, slo
 // confirmation.
 func (s *Service) lineupChangeResultMessage(teamID string, week int, general []Player, games []GameInfo, now time.Time, before EffectiveLineup, primarySlotID, fallback string) string {
 	after := s.store.Snapshot()
-	resolved := effectiveLineup(CurrentRoster(), general, after.Lineups[teamID], week, games, now)
+	resolved := effectiveLineupWithState(CurrentRoster(), general, after, teamID, week, games, now)
 	messages := lineupChangeMessages(before, resolved, primarySlotID)
 	if len(messages) == 0 {
 		return fallback
@@ -940,7 +1123,7 @@ func (s *Service) LineupAuto(r *http.Request, requestedTeam string, week int) (s
 	preset := CurrentRoster()
 	roster, _ := s.rosterForTeam(state, teamID)
 	general, _, _ := splitRosterZones(state, teamID, roster)
-	current := effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
+	current := effectiveLineupWithState(preset, general, state, teamID, week, games, now)
 	resolved := autoFillWeek(preset, general, current, week, games, now)
 	if err := s.store.SetLineupWeek(teamID, week, resolved); err != nil {
 		return "", err
@@ -1073,7 +1256,7 @@ func (s *Service) effectiveLineupForTeam(state PersistedState, teamID string, we
 	general, _, _ := splitRosterZones(state, teamID, roster)
 	games := s.schedule()
 	now := s.clock()
-	return effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
+	return effectiveLineupWithState(preset, general, state, teamID, week, games, now)
 }
 
 // ---------------------------------------------------------------------

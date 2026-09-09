@@ -231,6 +231,7 @@ func NewStoreWithIdentity(filePath string, resolver identity.Resolver) *Store {
 			AvatarRefs:              map[string]string{},
 			Announcements:           []Announcement{},
 			Lineups:                 map[string]map[int]map[string]string{},
+			LineupAutoFilled:        map[string]map[int]map[string]bool{},
 			Transactions:            []Transaction{},
 			WaiverClaims:            []WaiverClaim{},
 			WaiverReceipts:          []WaiverReceipt{},
@@ -1625,6 +1626,7 @@ func (s *Store) ResetDraft() error {
 	// clears Picks must clear them too (roster-ops spec section 7.3 —
 	// a WP-R1 omission this closes).
 	s.state.Lineups = map[string]map[int]map[string]string{}
+	s.state.LineupAutoFilled = map[string]map[int]map[string]bool{}
 	// WaiverClaims name add/drop players that only exist against the
 	// current roster; a redrawn draft orphans them, same rationale as
 	// Transactions and Lineups above (roster-ops spec section 7.3).
@@ -1693,6 +1695,7 @@ func (s *Store) ResetLeague() error {
 	// clears Picks must clear them too (roster-ops spec section 7.3 —
 	// a WP-R1 omission this closes).
 	s.state.Lineups = map[string]map[int]map[string]string{}
+	s.state.LineupAutoFilled = map[string]map[int]map[string]bool{}
 	// See ResetDraft's WaiverClaims comment; same rationale.
 	s.state.WaiverClaims = []WaiverClaim{}
 	s.state.WaiverReceipts = []WaiverReceipt{}
@@ -3246,15 +3249,18 @@ func (s *Store) SetLineupSlot(teamID string, week int, slot, playerID string, no
 	playerID = strings.TrimSpace(playerID)
 	if playerID == "" {
 		delete(slots, slot)
-		return s.persistLocked(colLineups)
+		clearLineupAutoFilledSlot(&s.state, teamID, week, slot)
+		return s.persistLocked(colLineups, colScalars)
 	}
 	for otherSlot, occupant := range slots {
 		if otherSlot != slot && occupant == playerID {
 			delete(slots, otherSlot)
+			clearLineupAutoFilledSlot(&s.state, teamID, week, otherSlot)
 		}
 	}
 	slots[slot] = playerID
-	return s.persistLocked(colLineups)
+	clearLineupAutoFilledSlot(&s.state, teamID, week, slot)
+	return s.persistLocked(colLineups, colScalars)
 }
 
 // SetLineupWeek replaces teamID's entire explicit lineup for week with
@@ -3291,7 +3297,88 @@ func (s *Store) SetLineupWeek(teamID string, week int, slots map[string]string) 
 		copied[slot] = playerID
 	}
 	byWeek[week] = copied
-	return s.persistLocked(colLineups)
+	clearLineupAutoFilledWeek(&s.state, teamID, week)
+	return s.persistLocked(colLineups, colScalars)
+}
+
+type lineupWriteOptions struct {
+	expectedAutoFilled       map[string]bool
+	expectedSourceAutoFilled map[string]bool
+	autoFilled               map[string]bool
+}
+
+// SetLineupWeekIfUnchanged is SetLineupWeek's guarded form. expected is the
+// target week's explicit map; expectedSourceWeek/expectedSource identify the
+// exact explicit map effectiveLineup used as that week's inheritance base.
+// Both are compared while holding the Store write lock, then the replacement
+// is persisted under that same lock. This keeps a first write in a future
+// week from committing a resolved map based on a stale earlier-week edit.
+// The optional provenance argument lets native edits pin a locked auto-filled
+// assignment without changing its AutoFilled presentation flag.
+func (s *Store) SetLineupWeekIfUnchanged(teamID string, week int, expected map[string]string, expectedSourceWeek int, expectedSource, slots map[string]string, options ...lineupWriteOptions) error {
+	var option lineupWriteOptions
+	if len(options) > 0 {
+		option = options[0]
+	}
+	if !knownTeam(teamID) {
+		return fmt.Errorf("unknown team %q", teamID)
+	}
+	if week < 1 {
+		return fmt.Errorf("unknown lineup week %d", week)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
+	byWeek := s.state.Lineups[teamID]
+	var current map[string]string
+	if byWeek != nil {
+		current = byWeek[week]
+	}
+	currentSourceWeek, currentSource := storedLineupSource(s.state, teamID, week)
+	if !lineupMapsEqual(current, expected) || currentSourceWeek != expectedSourceWeek || !lineupMapsEqual(currentSource, expectedSource) ||
+		(option.expectedAutoFilled != nil && !lineupFlagsEqual(storedLineupAutoFilledWeek(s.state, teamID, week), option.expectedAutoFilled)) ||
+		(option.expectedSourceAutoFilled != nil && !lineupFlagsEqual(storedLineupSourceAutoFilled(s.state, teamID, week), option.expectedSourceAutoFilled)) {
+		return fmt.Errorf("%s", lineupChangedWhileMovingMessage)
+	}
+	if lineupWeekFinalLocked(s.state, week) {
+		return fmt.Errorf("%s", lineupWeekClosedMessage(week))
+	}
+	if s.state.Lineups == nil {
+		s.state.Lineups = map[string]map[int]map[string]string{}
+	}
+	if byWeek == nil {
+		byWeek = map[int]map[string]string{}
+		s.state.Lineups[teamID] = byWeek
+	}
+	byWeek[week] = copyLineupMap(slots)
+	setLineupAutoFilledWeek(&s.state, teamID, week, option.autoFilled)
+	return s.persistLocked(colLineups, colScalars)
+}
+
+func lineupMapsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for slot, playerID := range a {
+		if b[slot] != playerID {
+			return false
+		}
+	}
+	return true
+}
+
+func lineupFlagsEqual(a, b map[string]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for slot, autoFilled := range a {
+		if b[slot] != autoFilled {
+			return false
+		}
+	}
+	return true
 }
 
 // RecordTransaction appends one add/drop transaction (roster-ops spec
@@ -4476,6 +4563,7 @@ func cloneState(in PersistedState) PersistedState {
 		RosterOverride:          cloneRosterOverride(in.RosterOverride),
 		Announcements:           append([]Announcement(nil), in.Announcements...),
 		Lineups:                 make(map[string]map[int]map[string]string, len(in.Lineups)),
+		LineupAutoFilled:        make(map[string]map[int]map[string]bool, len(in.LineupAutoFilled)),
 		Transactions:            make([]Transaction, len(in.Transactions)),
 		WaiverClaims:            make([]WaiverClaim, len(in.WaiverClaims)),
 		WaiverReceipts:          make([]WaiverReceipt, len(in.WaiverReceipts)),
@@ -4558,6 +4646,17 @@ func cloneState(in PersistedState) PersistedState {
 			innerByWeek[week] = innerSlots
 		}
 		out.Lineups[teamID] = innerByWeek
+	}
+	for teamID, byWeek := range in.LineupAutoFilled {
+		innerByWeek := make(map[int]map[string]bool, len(byWeek))
+		for week, slots := range byWeek {
+			innerSlots := make(map[string]bool, len(slots))
+			for slot, autoFilled := range slots {
+				innerSlots[slot] = autoFilled
+			}
+			innerByWeek[week] = innerSlots
+		}
+		out.LineupAutoFilled[teamID] = innerByWeek
 	}
 	for index, txn := range in.Transactions {
 		out.Transactions[index] = Transaction{

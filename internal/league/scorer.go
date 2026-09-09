@@ -317,7 +317,7 @@ func (s *Service) lineupStarters(state PersistedState, teamID string, week int) 
 	general, _, _ := splitRosterZones(state, teamID, roster)
 	games := s.schedule()
 	now := s.clock()
-	lineup := effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
+	lineup := effectiveLineupWithState(preset, general, state, teamID, week, games, now)
 	starters := make([]Player, 0, len(lineup.Slots))
 	for _, assignment := range lineup.Slots {
 		if assignment.HasPlayer {

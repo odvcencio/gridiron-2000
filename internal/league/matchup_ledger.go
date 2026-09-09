@@ -67,7 +67,7 @@ func (s *Service) matchupLineup(state PersistedState, teamID string, week int) (
 	preset := CurrentRoster()
 	roster, _ := s.rosterForTeam(state, teamID)
 	general, _, _ := splitRosterZones(state, teamID, roster)
-	return effectiveLineup(preset, general, state.Lineups[teamID], week, s.schedule(), s.clock()), false
+	return effectiveLineupWithState(preset, general, state, teamID, week, s.schedule(), s.clock()), false
 }
 
 // explicitLineupForWeek returns the stored map that effectiveLineup walks
