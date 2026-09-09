@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -127,7 +126,6 @@ func TestSettingsSelectedChoiceKeepsSolidInteractionContrast(t *testing.T) {
 }
 
 func TestSettingsPageRendersDeliveryTruthAndCurrentMarkers(t *testing.T) {
-	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
 	t.Setenv("DEMO_MODE", "false")
 	t.Setenv("GOOGLE_CLIENT_ID", "")
 
@@ -182,7 +180,6 @@ func TestSettingsPageRendersDeliveryTruthAndCurrentMarkers(t *testing.T) {
 // with the truthful "will not send, even after email is set up" — this
 // test's row assertions were updated with it.
 func TestSettingsPageNoTransportRowsAndSectionNoticeMatchDeliveryTruth(t *testing.T) {
-	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
 	t.Setenv("DEMO_MODE", "false")
 	t.Setenv("GOOGLE_CLIENT_ID", "")
 
