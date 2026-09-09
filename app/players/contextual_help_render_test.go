@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -88,7 +90,30 @@ func requirePlayersContextualLink(t *testing.T, body, query, label string) {
 	}
 }
 
+func runPlayersContextualHelpFixture(t *testing.T) {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestPlayersContextualHelpLinksRenderAndReachOwningTopicFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"PLAYERS_CONTEXTUAL_HELP_RENDER_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "players-contextual-state.json"),
+		"DEMO_MODE=false",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=test",
+		"LEAGUE_FILE=",
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("Players contextual-help fixture process: %v\n%s", err, output)
+	}
+}
+
 func TestPlayersContextualHelpLinksRenderAndReachOwningTopic(t *testing.T) {
+	runPlayersContextualHelpFixture(t)
+}
+
+func TestPlayersContextualHelpLinksRenderAndReachOwningTopicFixtureProcess(t *testing.T) {
+	if os.Getenv("PLAYERS_CONTEXTUAL_HELP_RENDER_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
 	t.Setenv("APP_ENV", "test")
 	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "players-contextual-state.json"))
 	t.Setenv("DEMO_MODE", "false")
