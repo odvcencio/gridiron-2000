@@ -860,9 +860,10 @@ func (s *Service) SetLineup(r *http.Request, requestedTeam string, week int, slo
 // destination. The source is identified by player ID rather than by a DOM
 // index, and the source snapshot is carried through the guarded Store write:
 // a concurrent lineup edit therefore fails closed instead of moving whoever
-// happens to occupy the old row. Starter sources use an atomic fixed-slot
-// swap; bench sources use the guarded single-slot write, which preserves the
-// existing effective-lineup auto-fill behavior for the vacated occupant.
+// happens to occupy the old row. Both starter and bench sources persist the
+// full resolved lineup through one guarded whole-week write, so a first edit
+// in a future week cannot turn inherited assignments into a partial map that
+// the effective-lineup auto-fill is then free to reshuffle.
 func (s *Service) LineupMovePlayerTo(r *http.Request, requestedTeam string, week int, playerID, toSlotID string) (string, error) {
 	teamID, err := s.lineupActingTeam(r, requestedTeam) // L1
 	if err != nil {
@@ -943,7 +944,17 @@ func (s *Service) LineupMovePlayerTo(r *http.Request, requestedTeam string, week
 			if to.HasPlayer && to.Locked {
 				return "", fmt.Errorf("%s", lineupLockedMessage(to.Player.Name, week, to.Player.NFLTeam))
 			}
-			if err := s.store.SetLineupSlotIfUnchanged(teamID, week, to.Slot.ID, player.ID, expected, now); err != nil {
+			// Week may not have an explicit map yet. Persist every resolved
+			// assignment, not only the target, so the first move in a future
+			// week preserves the prior week's explicit and auto-filled slots.
+			resolved := make(map[string]string, len(current.Slots))
+			for _, assignment := range current.Slots {
+				if assignment.HasPlayer {
+					resolved[assignment.Slot.ID] = assignment.Player.ID
+				}
+			}
+			resolved[to.Slot.ID] = player.ID
+			if err := s.store.SetLineupWeekIfUnchanged(teamID, week, expected, resolved); err != nil {
 				return "", err
 			}
 			s.recordLineupInterventionEvent(r, teamID, week, player.ID, "lineup.intervention_move",
