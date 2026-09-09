@@ -3837,7 +3837,15 @@ button.badge-option:hover {
 }
 
 .player-avatar--photo {
+  display: block;
+  width: 2.6rem;
+  height: 2.6rem;
+  min-width: 2.6rem;
+  min-height: 2.6rem;
+  flex: 0 0 2.6rem;
   object-fit: cover;
+  object-position: center;
+  transform: none;
   border-radius: var(--radius-sm);
 }
 
