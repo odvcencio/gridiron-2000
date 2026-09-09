@@ -1,7 +1,7 @@
 # Gridiron glossary
 
-The interactive glossary at [`/help`](../help) is generated from the same
-versioned corpus as the topic pages. This projection is useful for operators,
+The interactive glossary at `/help` is generated from the same versioned
+corpus as the topic pages. This projection is useful for operators,
 support, and migration notes; if a term's current state differs, the runtime
 page wins.
 

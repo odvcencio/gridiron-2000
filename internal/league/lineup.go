@@ -903,6 +903,271 @@ func (s *Service) SetLineup(r *http.Request, requestedTeam string, week int, slo
 	return s.lineupChangeResultMessage(teamID, week, general, games, now, current, slot.ID, fmt.Sprintf("%s starts at %s.", player.Name, slot.ID)), nil
 }
 
+// LineupMovePlayerTo moves a named roster player to an eligible starter
+// destination. The source is identified by player ID rather than by a DOM
+// index, and the source snapshot is carried through the guarded Store write:
+// a concurrent lineup edit therefore fails closed instead of moving whoever
+// happens to occupy the old row. Inherited explicit assignments are kept,
+// locked auto-filled assignments are pinned with their provenance marker,
+// and unlocked auto-filled assignments remain implicit.
+func (s *Service) LineupMovePlayerTo(r *http.Request, requestedTeam string, week int, playerID, toSlotID string) (string, error) {
+	teamID, err := s.lineupActingTeam(r, requestedTeam) // L1
+	if err != nil {
+		return "", err
+	}
+	now := s.clock()
+	state := s.store.Snapshot()
+	games := s.schedule()
+	if err := s.lineupWeekForAction(week, games, now); err != nil { // L2
+		return "", err
+	}
+	preset := CurrentRoster()
+	targetID := strings.TrimSpace(toSlotID)
+	toSlot, ok := lineupSlotByID(preset, targetID) // L3
+	if !ok {
+		return "", fmt.Errorf("%s", lineupUnknownSlotMessage(toSlotID))
+	}
+	roster, _ := s.rosterForTeam(state, teamID)
+	general, _, _ := splitRosterZones(state, teamID, roster)
+	current := effectiveLineupWithState(preset, general, state, teamID, week, games, now)
+	snapshot := newLineupTransferSnapshot(state, teamID, week, current)
+	playerID = strings.TrimSpace(playerID)
+
+	for _, assignment := range current.Slots {
+		if !assignment.HasPlayer || assignment.Player.ID != playerID {
+			continue
+		}
+		if assignment.Slot.ID == toSlot.ID {
+			return "No lineup change.", nil
+		}
+		to, ok := current.slotAssignment(toSlot.ID)
+		if !ok {
+			return "", fmt.Errorf("%s", lineupUnknownSlotMessage(toSlot.ID))
+		}
+		if assignment.Locked {
+			return "", fmt.Errorf("%s", lineupLockedMessage(assignment.Player.Name, week, assignment.Player.NFLTeam))
+		}
+		if to.HasPlayer && to.Locked {
+			return "", fmt.Errorf("%s", lineupLockedMessage(to.Player.Name, week, to.Player.NFLTeam))
+		}
+		if !toSlot.Def.Fits(assignment.Player.Position) {
+			return "", fmt.Errorf("%s", lineupPositionMessage(assignment.Player.Position, toSlot.ID))
+		}
+		if to.HasPlayer && !assignment.Slot.Def.Fits(to.Player.Position) {
+			return "", fmt.Errorf("%s", lineupPositionMessage(to.Player.Position, assignment.Slot.ID))
+		}
+
+		// Remove any existing entries for both occupants before applying the
+		// fixed-source/target transfer. This clears markers for moved,
+		// replaced, or malformed duplicate entries in the same snapshot.
+		deleteLineupPlayer(snapshot.resolved, snapshot.resolvedAutoFilled, assignment.Player.ID)
+		if to.HasPlayer {
+			deleteLineupPlayer(snapshot.resolved, snapshot.resolvedAutoFilled, to.Player.ID)
+			snapshot.resolved[assignment.Slot.ID] = to.Player.ID
+		} else {
+			delete(snapshot.resolved, assignment.Slot.ID)
+		}
+		delete(snapshot.resolvedAutoFilled, assignment.Slot.ID)
+		delete(snapshot.resolvedAutoFilled, to.Slot.ID)
+		snapshot.resolved[to.Slot.ID] = assignment.Player.ID
+
+		if err := s.store.SetLineupWeekIfUnchanged(teamID, week, snapshot.expected, snapshot.expectedSourceWeek, snapshot.expectedSource, snapshot.resolved,
+			lineupWriteOptions{
+				expectedAutoFilled:       snapshot.expectedAutoFilled,
+				expectedSourceAutoFilled: snapshot.expectedSourceAutoFilled,
+				autoFilled:               snapshot.resolvedAutoFilled,
+			}); err != nil {
+			return "", err
+		}
+		s.recordLineupInterventionEvent(r, teamID, week, assignment.Player.ID, "lineup.intervention_move",
+			fmt.Sprintf("moved %s from %s to %s for %s in week %d", assignment.Player.Name, assignment.Slot.ID, to.Slot.ID, s.TeamLabel(teamID), week))
+		fallback := fmt.Sprintf("%s moved from %s to %s.", assignment.Player.Name, assignment.Slot.ID, to.Slot.ID)
+		return s.lineupChangeResultMessage(teamID, week, general, games, now, current, to.Slot.ID, fallback), nil
+	}
+
+	for _, player := range current.Bench {
+		if player.ID != playerID {
+			continue
+		}
+		if playerLocked(games, week, player.NFLTeam, now) {
+			return "", fmt.Errorf("%s", lineupLockedMessage(player.Name, week, player.NFLTeam))
+		}
+		if !toSlot.Def.Fits(player.Position) {
+			return "", fmt.Errorf("%s", lineupPositionMessage(player.Position, toSlot.ID))
+		}
+		to, ok := current.slotAssignment(toSlot.ID)
+		if !ok {
+			return "", fmt.Errorf("%s", lineupUnknownSlotMessage(toSlot.ID))
+		}
+		if to.HasPlayer && to.Locked {
+			return "", fmt.Errorf("%s", lineupLockedMessage(to.Player.Name, week, to.Player.NFLTeam))
+		}
+
+		deleteLineupPlayer(snapshot.resolved, snapshot.resolvedAutoFilled, player.ID)
+		if to.HasPlayer {
+			deleteLineupPlayer(snapshot.resolved, snapshot.resolvedAutoFilled, to.Player.ID)
+		}
+		delete(snapshot.resolvedAutoFilled, to.Slot.ID)
+		snapshot.resolved[to.Slot.ID] = player.ID
+		if err := s.store.SetLineupWeekIfUnchanged(teamID, week, snapshot.expected, snapshot.expectedSourceWeek, snapshot.expectedSource, snapshot.resolved,
+			lineupWriteOptions{
+				expectedAutoFilled:       snapshot.expectedAutoFilled,
+				expectedSourceAutoFilled: snapshot.expectedSourceAutoFilled,
+				autoFilled:               snapshot.resolvedAutoFilled,
+			}); err != nil {
+			return "", err
+		}
+		s.recordLineupInterventionEvent(r, teamID, week, player.ID, "lineup.intervention_move",
+			fmt.Sprintf("moved %s from the bench to %s for %s in week %d", player.Name, to.Slot.ID, s.TeamLabel(teamID), week))
+		fallback := fmt.Sprintf("%s starts at %s.", player.Name, to.Slot.ID)
+		return s.lineupChangeResultMessage(teamID, week, general, games, now, current, to.Slot.ID, fallback), nil
+	}
+	return "", fmt.Errorf("%s", lineupNotOnRosterMessage)
+}
+
+// LineupMove swaps the resolved occupants of two starter slots. It remains
+// available for older integrations, while the Team view's fixed-target
+// transfer gesture and native all-destination form use LineupMovePlayerTo.
+// Every write goes through the same acting-team, week, position, and lock
+// checks as SetLineup; client-side movement is only an affordance and is
+// never treated as authority.
+func (s *Service) LineupMove(r *http.Request, requestedTeam string, week int, fromSlotID, toSlotID string) (string, error) {
+	teamID, err := s.lineupActingTeam(r, requestedTeam) // L1
+	if err != nil {
+		return "", err
+	}
+	now := s.clock()
+	state := s.store.Snapshot()
+	games := s.schedule()
+	if err := s.lineupWeekForAction(week, games, now); err != nil { // L2
+		return "", err
+	}
+	preset := CurrentRoster()
+	fromSlot, ok := lineupSlotByID(preset, strings.TrimSpace(fromSlotID)) // L3
+	if !ok {
+		return "", fmt.Errorf("%s", lineupUnknownSlotMessage(fromSlotID))
+	}
+	toSlot, ok := lineupSlotByID(preset, strings.TrimSpace(toSlotID))
+	if !ok {
+		return "", fmt.Errorf("%s", lineupUnknownSlotMessage(toSlotID))
+	}
+	if fromSlot.ID == toSlot.ID {
+		return "No lineup change.", nil
+	}
+
+	roster, _ := s.rosterForTeam(state, teamID)
+	general, _, _ := splitRosterZones(state, teamID, roster)
+	current := effectiveLineupWithState(preset, general, state, teamID, week, games, now)
+	from, fromOK := current.slotAssignment(fromSlot.ID)
+	to, toOK := current.slotAssignment(toSlot.ID)
+	if !fromOK || !from.HasPlayer {
+		return "", fmt.Errorf("%s is empty", fromSlot.ID)
+	}
+	if from.Locked {
+		return "", fmt.Errorf("%s", lineupLockedMessage(from.Player.Name, week, from.Player.NFLTeam))
+	}
+	if !toOK {
+		return "", fmt.Errorf("%s", lineupUnknownSlotMessage(toSlot.ID))
+	}
+	if to.HasPlayer && to.Locked {
+		return "", fmt.Errorf("%s", lineupLockedMessage(to.Player.Name, week, to.Player.NFLTeam))
+	}
+	if !toSlot.Def.Fits(from.Player.Position) {
+		return "", fmt.Errorf("%s", lineupPositionMessage(from.Player.Position, toSlot.ID))
+	}
+	if to.HasPlayer && !fromSlot.Def.Fits(to.Player.Position) {
+		return "", fmt.Errorf("%s", lineupPositionMessage(to.Player.Position, fromSlot.ID))
+	}
+
+	snapshot := newLineupTransferSnapshot(state, teamID, week, current)
+	deleteLineupPlayer(snapshot.resolved, snapshot.resolvedAutoFilled, from.Player.ID)
+	if to.HasPlayer {
+		deleteLineupPlayer(snapshot.resolved, snapshot.resolvedAutoFilled, to.Player.ID)
+		snapshot.resolved[from.Slot.ID] = to.Player.ID
+	} else {
+		delete(snapshot.resolved, from.Slot.ID)
+	}
+	delete(snapshot.resolvedAutoFilled, from.Slot.ID)
+	delete(snapshot.resolvedAutoFilled, to.Slot.ID)
+	snapshot.resolved[to.Slot.ID] = from.Player.ID
+	if err := s.store.SetLineupWeekIfUnchanged(teamID, week, snapshot.expected, snapshot.expectedSourceWeek, snapshot.expectedSource, snapshot.resolved,
+		lineupWriteOptions{
+			expectedAutoFilled:       snapshot.expectedAutoFilled,
+			expectedSourceAutoFilled: snapshot.expectedSourceAutoFilled,
+			autoFilled:               snapshot.resolvedAutoFilled,
+		}); err != nil {
+		return "", err
+	}
+	s.recordLineupInterventionEvent(r, teamID, week, from.Player.ID, "lineup.intervention_move",
+		fmt.Sprintf("moved %s from %s to %s for %s in week %d", from.Player.Name, from.Slot.ID, to.Slot.ID, s.TeamLabel(teamID), week))
+	fallback := fmt.Sprintf("%s moved from %s to %s.", from.Player.Name, from.Slot.ID, to.Slot.ID)
+	return s.lineupChangeResultMessage(teamID, week, general, games, now, current, to.Slot.ID, fallback), nil
+}
+
+// LineupMoveTo is the legacy index adapter: it translates a caller's list
+// index into the authoritative roster-shape slot ID before calling
+// LineupMove. The Team page no longer renders this path; fixed source/target
+// callers should use LineupMovePlayerTo so a stale row cannot select a new
+// occupant by position.
+func (s *Service) LineupMoveTo(r *http.Request, requestedTeam string, week int, fromSlotID string, targetIndex int) (string, error) {
+	slots := lineupSlots(CurrentRoster())
+	if targetIndex < 0 || targetIndex >= len(slots) {
+		return "", fmt.Errorf("invalid lineup position %d", targetIndex)
+	}
+	return s.LineupMove(r, requestedTeam, week, fromSlotID, slots[targetIndex].ID)
+}
+
+// lineupTransferSnapshot returns the exact target/source maps and provenance
+// expected by a guarded lineup write, plus the minimal explicit replacement
+// map for a native transfer. Inherited explicit assignments are copied; an
+// unlocked auto-filled slot stays implicit so the resolver can keep its
+// ordinary deterministic auto-fill behavior. Locked auto-filled occupants
+// are the exception: they are pinned in the replacement map and retain a
+// separate marker so their resolved provenance survives the write.
+type lineupTransferSnapshot struct {
+	expected                 map[string]string
+	expectedAutoFilled       map[string]bool
+	expectedSourceWeek       int
+	expectedSource           map[string]string
+	expectedSourceAutoFilled map[string]bool
+	resolved                 map[string]string
+	resolvedAutoFilled       map[string]bool
+}
+
+func newLineupTransferSnapshot(state PersistedState, teamID string, week int, current EffectiveLineup) lineupTransferSnapshot {
+	expected := storedLineupWeek(state, teamID, week)
+	expectedAutoFilled := storedLineupAutoFilledWeek(state, teamID, week)
+	expectedSourceWeek, expectedSource := storedLineupSource(state, teamID, week)
+	expectedSourceAutoFilled := storedLineupSourceAutoFilled(state, teamID, week)
+	resolved := copyLineupMap(expectedSource)
+	resolvedAutoFilled := copyLineupFlags(expectedSourceAutoFilled)
+	for _, assignment := range current.Slots {
+		if assignment.HasPlayer && assignment.AutoFilled && assignment.Locked {
+			resolved[assignment.Slot.ID] = assignment.Player.ID
+			resolvedAutoFilled[assignment.Slot.ID] = true
+		}
+	}
+	return lineupTransferSnapshot{
+		expected:                 expected,
+		expectedAutoFilled:       expectedAutoFilled,
+		expectedSourceWeek:       expectedSourceWeek,
+		expectedSource:           expectedSource,
+		expectedSourceAutoFilled: expectedSourceAutoFilled,
+		resolved:                 resolved,
+		resolvedAutoFilled:       resolvedAutoFilled,
+	}
+}
+
+func deleteLineupPlayer(slots map[string]string, markers map[string]bool, playerID string) {
+	for slotID, occupantID := range slots {
+		if occupantID != playerID {
+			continue
+		}
+		delete(slots, slotID)
+		delete(markers, slotID)
+	}
+}
+
 func storedLineupWeek(state PersistedState, teamID string, week int) map[string]string {
 	byWeek := state.Lineups[teamID]
 	if byWeek == nil {
@@ -1327,13 +1592,14 @@ func slotWarningLabel(a SlotAssignment) (label string, warns bool) {
 }
 
 // starterRowMaps renders lineup's starting slots as view-model maps for
-// app/team's per-slot assignment forms: each row carries the assigned
-// player (playerMap's shape, merged in) or an empty state, plus the
-// lock/warning/auto-fill chips and, when unlocked, the eligible-player
-// <select> options (lineupSlotOptions). drafted is playerMap's own
-// optional league-wide playerID->DraftPick lookup (draftedByPlayerID,
-// draft_history.go) — a nil map renders every row's is_drafted false,
-// the same honest empty state playerMap's own doc comment promises.
+// app/team's per-slot assignment forms and fixed-target transfer gesture:
+// each row carries the assigned player (playerMap's shape, merged in) or an
+// empty state, plus the lock/warning/auto-fill chips, eligible-player
+// <select> options, and the server-computed source IDs allowed to transfer
+// into this target. drafted is playerMap's own optional league-wide
+// playerID->DraftPick lookup (draftedByPlayerID, draft_history.go) — a nil
+// map renders every row's is_drafted false, the same honest empty state
+// playerMap's own doc comment promises.
 func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games []GameInfo, now time.Time, scoringValues map[string]float64, drafted map[string]DraftPick) []map[string]any {
 	location := s.draftTZ
 	if location == nil {
@@ -1345,13 +1611,15 @@ func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games 
 	// matchupStatsSnapshot's own live/hasLive pair follows.
 	live, hasLive := s.liveStatus()
 	out := make([]map[string]any, 0, len(lineup.Slots))
+	transferEligibility := lineupTransferEligibilityByTarget(lineup, games, now)
 	for _, a := range lineup.Slots {
 		row := map[string]any{
-			"slot_id":     a.Slot.ID,
-			"has_player":  a.HasPlayer,
-			"auto_filled": a.AutoFilled,
-			"locked":      a.Locked,
-			"lock_label":  "",
+			"slot_id":               a.Slot.ID,
+			"has_player":            a.HasPlayer,
+			"auto_filled":           a.AutoFilled,
+			"locked":                a.Locked,
+			"lock_label":            "",
+			"transfer_eligible_for": transferEligibility[a.Slot.ID],
 		}
 		currentID := ""
 		if a.HasPlayer {
@@ -1397,7 +1665,97 @@ func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games 
 		row["has_warning"] = warns
 		row["warning_label"] = label
 		row["options"] = lineupSlotOptions(roster, a.Slot, lineup.Week, games, now, currentID)
+		moveOptions := lineupMoveTargetOptions(a, lineup.Slots)
+		row["move_options"] = moveOptions
+		row["has_move_options"] = len(moveOptions) > 0
 		out = append(out, row)
 	}
 	return out
+}
+
+// lineupMoveTargetOptions lists every eligible fixed-slot destination for a
+// starter, not only the adjacent pair. The native select is the equivalent
+// keyboard/touch path for a manager who cannot use the optional GoSX gesture;
+// LineupMove still repeats these eligibility and lock checks on submit.
+func lineupMoveTargetOptions(from SlotAssignment, slots []SlotAssignment) []map[string]any {
+	if !from.HasPlayer || from.Locked {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(slots))
+	for _, to := range slots {
+		if to.Slot.ID == from.Slot.ID || !lineupMoveAllowed(from, to) {
+			continue
+		}
+		label := to.Slot.ID + " — open"
+		if to.HasPlayer {
+			label = fmt.Sprintf("%s — swaps with %s", to.Slot.ID, to.Player.Name)
+		}
+		out = append(out, map[string]any{"id": to.Slot.ID, "label": label})
+	}
+	return out
+}
+
+// lineupTransferEligibilityByTarget inverts the same server-side movement
+// matrix used by the native move_options. A starter source is allowed only
+// when LineupMove's pairwise fit/lock rules permit the fixed-slot swap; a
+// bench source is allowed when it fits the target and the target occupant is
+// not locked (the displaced player returns to bench). The browser uses this
+// allowlist only to highlight legal targets; LineupMovePlayerTo repeats every
+// check inside the authoritative mutation path.
+func lineupTransferEligibilityByTarget(lineup EffectiveLineup, games []GameInfo, now time.Time) map[string]string {
+	byTarget := make(map[string][]string, len(lineup.Slots))
+	appendSource := func(targetID, sourceID string) {
+		if targetID == "" || sourceID == "" {
+			return
+		}
+		for _, existing := range byTarget[targetID] {
+			if existing == sourceID {
+				return
+			}
+		}
+		byTarget[targetID] = append(byTarget[targetID], sourceID)
+	}
+
+	for _, from := range lineup.Slots {
+		if !from.HasPlayer || from.Player.ID == "" || from.Locked {
+			continue
+		}
+		for _, option := range lineupMoveTargetOptions(from, lineup.Slots) {
+			targetID, _ := option["id"].(string)
+			appendSource(targetID, from.Player.ID)
+		}
+	}
+
+	for _, player := range lineup.Bench {
+		if player.ID == "" || playerLocked(games, lineup.Week, player.NFLTeam, now) {
+			continue
+		}
+		for _, target := range lineup.Slots {
+			if target.Locked || !target.Slot.Def.Fits(player.Position) {
+				continue
+			}
+			appendSource(target.Slot.ID, player.ID)
+		}
+	}
+
+	out := make(map[string]string, len(byTarget))
+	for targetID, sourceIDs := range byTarget {
+		out[targetID] = strings.Join(sourceIDs, " ")
+	}
+	return out
+}
+
+// lineupMoveAllowed is the view model's conservative gate for showing a
+// one-step native move control. It mirrors LineupMove's pairwise eligibility
+// and lock checks without replacing that service-level validation: a page may
+// be stale by the time a manager presses a button, so the server remains the
+// authority for every mutation.
+func lineupMoveAllowed(from, to SlotAssignment) bool {
+	if !from.HasPlayer || from.Locked || (to.HasPlayer && to.Locked) {
+		return false
+	}
+	if !to.Slot.Def.Fits(from.Player.Position) {
+		return false
+	}
+	return !to.HasPlayer || from.Slot.Def.Fits(to.Player.Position)
 }
