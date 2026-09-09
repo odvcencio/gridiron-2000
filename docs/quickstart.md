@@ -17,6 +17,9 @@ for one commissioner running one league.
 - No data hostage. Your league lives in one SQLite file on your own
   volume. Export it at any time with the JSON, NDJSON, and CSV endpoints
   under `DATA_API_TOKEN` (see the root [`README.md`](../README.md)).
+  `DATA_FILE` names only the legacy JSON import anchor (by default
+  `data/league-state.json`); the authoritative database is its sibling
+  `data/league.db`. Never set `DATA_FILE=league.db`.
 
 ## Prerequisites
 
@@ -67,19 +70,37 @@ openssl rand -base64 48
 
 ### Option A: try it now, no domain
 
-Leave `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` empty in `.env`, and
-start the localhost profile:
+For a real first install on localhost, leave `LEAGUE_FILE` empty, set
+`DEMO_MODE=false` in `.env`, and start the localhost profile:
 
 ```bash
 docker compose --profile localhost up -d
 ```
 
-Open [http://localhost:8080](http://localhost:8080). With no Google
-credentials configured, the app runs in **demo mode**: every visitor gets
-an open session with commissioner powers, and there is no sign-in wall.
-That is expected, and it is fine for a private trial on your own
-machine. Demo mode is never fine for anything another person can reach.
-Finish option B before you invite real managers.
+Open [http://localhost:8080/setup](http://localhost:8080/setup). A fresh data
+volume with no `league.json` always enters tokenized first-boot setup; the
+server prints the one-time token to its container log. Enter it in the wizard
+to create the league, then restart the app when the wizard says to. Follow
+the token in the log with:
+
+```bash
+docker compose logs -f app
+```
+
+Empty Google credentials do not turn this path into demo mode.
+
+For a local-only reference demo, edit `.env` before starting and select the
+shipped config explicitly:
+
+```dotenv
+LEAGUE_FILE=config/league.json.example
+DEMO_MODE=true
+APP_ENV=development
+```
+
+That valid config opens the placeholder league without `/setup`. Demo mode is
+never a production or first-boot bypass; `DEMO_MODE=true` alone still enters
+`/setup` when no config resolves.
 
 Skip to [step 5](#5-first-sign-in-and-seat-claiming) once the app is up.
 
@@ -92,14 +113,17 @@ at your server first, then edit `.env`:
 DOMAIN=league.example.com
 APP_ENV=production
 DEMO_MODE=false
+LEAGUE_FILE=
 GOOGLE_REDIRECT_URL=https://league.example.com/auth/google/callback
 COMMISSIONER_EMAILS=commissioner@example.com
 LEAGUE_ALLOWED_EMAILS=alex@example.com,maya@example.com
 ```
 
-Setting `APP_ENV=production` disables demo mode outright, even if
-`GOOGLE_CLIENT_ID` stays empty. Finish step 4 first, or sign-in will not
-work at all once you start this profile:
+Setting `APP_ENV=production` disables demo mode outright. With
+`LEAGUE_FILE` empty and a fresh volume, this profile serves tokenized
+`/setup`; complete that wizard before managers sign in. After setup commits
+the league config and the server restarts, Google sign-in uses the credentials
+from step 4:
 
 ```bash
 docker compose --profile domain up -d
@@ -125,11 +149,14 @@ Ports 80 and 443 must be open on your server's firewall.
 
 ## 5. First sign-in and seat claiming
 
-1. Open the app in a browser.
-2. Sign in with a Google account listed in `LEAGUE_ALLOWED_EMAILS` or
-   `COMMISSIONER_EMAILS`.
-3. Follow the **Claim your seat** prompt to pick a team name and badge.
-4. Repeat sign-in and seat claiming for each manager.
+1. If this is a first install, finish `/setup` and restart the app first.
+2. Open the configured app in a browser.
+3. Sign in with either a single-use invite link printed by the setup wizard,
+   or a Google account listed in `LEAGUE_ALLOWED_EMAILS` or
+   `COMMISSIONER_EMAILS` when Google sign-in is configured.
+4. Follow the **Claim your seat** prompt to pick a team name and badge.
+5. Repeat sign-in and seat claiming for each manager. A reference demo is
+   already open locally and does not need a sign-in step.
 
 The commissioner account reaches `/admin` for runtime invites, seat
 release, and draft or league resets.
@@ -153,12 +180,18 @@ refuses to tag a build with the published digest:
 GRIDIRON_IMAGE=gridiron-2000:local
 ```
 
-Then build before starting either profile:
+The Dockerfile then compiles the real Go server and generates matching client
+assets with the exact GoSX version selected by `go.mod`, using the `--dev`
+asset tier:
 
 ```bash
 docker compose build app
 docker compose --profile localhost up -d
 ```
+
+Do not substitute `gosx build --prod .` for this image build. That is an
+optional TinyGo/prerender artifact path, separate from the canonical server
+image, and it requires an explicit valid `LEAGUE_FILE`.
 
 ## Optional: a shared Tank01 relay
 
