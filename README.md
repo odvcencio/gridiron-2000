@@ -459,6 +459,8 @@ Every file under `docs/`, indexed at [`docs/README.md`](docs/README.md):
 | [`docs/px1_help_corpus.md`](docs/px1_help_corpus.md) | The `/help` corpus contract: topics, search, and recovery guidance |
 | [`docs/px1_glossary.md`](docs/px1_glossary.md) | A projection of the in-app glossary |
 | [`docs/px1_concept-transition.md`](docs/px1_concept-transition.md) | A vocabulary map for managers migrating from another platform |
+| [`docs/px1_comprehension-gate.md`](docs/px1_comprehension-gate.md) | Scripted PX-1 participant comprehension worksheet; remains open until human review |
+| [`docs/px1_evidence-packet.md`](docs/px1_evidence-packet.md) | PX-1 evidence inventory, source reconciliation, and unresolved acceptance receipts |
 | [`docs/decisions/0001-seat-scoped-big-board.md`](docs/decisions/0001-seat-scoped-big-board.md) | Seat-scoped Big Board ownership decision record |
 
 ## Upstream references
