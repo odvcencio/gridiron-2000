@@ -1,6 +1,7 @@
 package topic
 
 import (
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -181,7 +182,7 @@ func TestTopicRouteRendersStateSemanticsValidationAndOwningTopic(t *testing.T) {
 		"recovery":       topic.Recovery,
 		"runtime source": topic.RuntimeSource,
 	} {
-		if !strings.Contains(stale, want) {
+		if !strings.Contains(stale, html.EscapeString(want)) {
 			t.Errorf("stale validation render omitted selected topic %s %q", name, want)
 		}
 	}
