@@ -3348,11 +3348,13 @@ func (s *Store) SetLineupWeek(teamID string, week int, slots map[string]string) 
 	return s.persistLocked(colLineups)
 }
 
-// SetLineupWeekIfUnchanged is SetLineupWeek's guarded form. expected is
-// compared while holding the Store write lock, then the replacement is
-// persisted under that same lock. It is used by multi-slot moves so a
-// concurrent unrelated lineup edit fails closed instead of being lost.
-func (s *Store) SetLineupWeekIfUnchanged(teamID string, week int, expected, slots map[string]string) error {
+// SetLineupWeekIfUnchanged is SetLineupWeek's guarded form. expected is the
+// target week's explicit map; expectedSourceWeek/expectedSource identify the
+// exact explicit map effectiveLineup used as that week's inheritance base.
+// Both are compared while holding the Store write lock, then the replacement
+// is persisted under that same lock. This keeps a first write in a future
+// week from committing a resolved map based on a stale earlier-week edit.
+func (s *Store) SetLineupWeekIfUnchanged(teamID string, week int, expected map[string]string, expectedSourceWeek int, expectedSource, slots map[string]string) error {
 	if !knownTeam(teamID) {
 		return fmt.Errorf("unknown team %q", teamID)
 	}
@@ -3369,7 +3371,8 @@ func (s *Store) SetLineupWeekIfUnchanged(teamID string, week int, expected, slot
 	if byWeek != nil {
 		current = byWeek[week]
 	}
-	if !lineupMapsEqual(current, expected) {
+	currentSourceWeek, currentSource := storedLineupSource(s.state, teamID, week)
+	if !lineupMapsEqual(current, expected) || currentSourceWeek != expectedSourceWeek || !lineupMapsEqual(currentSource, expectedSource) {
 		return fmt.Errorf("%s", lineupChangedWhileMovingMessage)
 	}
 	if lineupWeekFinalLocked(s.state, week) {

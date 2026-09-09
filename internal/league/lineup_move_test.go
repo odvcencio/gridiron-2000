@@ -159,14 +159,16 @@ func TestLineupMoveGuardRejectsStaleSourceSnapshot(t *testing.T) {
 	if err := svc.store.SetLineupWeek("team-1", 1, initial); err != nil {
 		t.Fatalf("seed lineup: %v", err)
 	}
-	expected := storedLineupWeek(svc.store.Snapshot(), "team-1", 1)
+	state := svc.store.Snapshot()
+	expected := storedLineupWeek(state, "team-1", 1)
+	expectedSourceWeek, expectedSource := storedLineupSource(state, "team-1", 1)
 
 	concurrent := map[string]string{"WR1": "wr-bench", "WR2": "wr-open"}
 	if err := svc.store.SetLineupWeek("team-1", 1, concurrent); err != nil {
 		t.Fatalf("concurrent lineup change: %v", err)
 	}
 	staleAttempt := map[string]string{"WR1": "wr-open", "WR2": "wr-bench"}
-	if err := svc.store.SetLineupWeekIfUnchanged("team-1", 1, expected, staleAttempt); err == nil || err.Error() != lineupChangedWhileMovingMessage {
+	if err := svc.store.SetLineupWeekIfUnchanged("team-1", 1, expected, expectedSourceWeek, expectedSource, staleAttempt); err == nil || err.Error() != lineupChangedWhileMovingMessage {
 		t.Fatalf("stale move error = %v, want %q", err, lineupChangedWhileMovingMessage)
 	}
 

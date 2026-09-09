@@ -790,9 +790,8 @@ func (s *Service) lineupActingTeam(r *http.Request, requestedTeam string) (strin
 // SetLineup applies one lineup-set(week, slot, player_id) action
 // (roster-ops spec section 4.4): validates L1-L8 in order and, on success,
 // persists the assignment. An empty playerID clears the slot (L8); a
-// non-empty playerID that already holds another explicit slot this week
-// displaces from it in the same store write (Store.SetLineupSlot) — a
-// player occupies at most one slot.
+// non-empty playerID that already holds another resolved slot displaces it
+// in the same guarded whole-week write — a player occupies at most one slot.
 func (s *Service) SetLineup(r *http.Request, requestedTeam string, week int, slotID, playerID string) (string, error) {
 	teamID, err := s.lineupActingTeam(r, requestedTeam) // L1
 	if err != nil {
@@ -821,13 +820,22 @@ func (s *Service) SetLineup(r *http.Request, requestedTeam string, week int, slo
 	}
 	current := effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
 	occupant, _ := current.slotAssignment(slot.ID)
+	expected := storedLineupWeek(state, teamID, week)
+	expectedSourceWeek, expectedSource := storedLineupSource(state, teamID, week)
 
 	playerID = strings.TrimSpace(playerID)
 	if playerID == "" {
 		if occupant.HasPlayer && occupant.Locked { // L8
 			return "", fmt.Errorf("%s", lineupLockedMessage(occupant.Player.Name, week, occupant.Player.NFLTeam))
 		}
-		if err := s.store.SetLineupSlot(teamID, week, slot.ID, "", now); err != nil {
+		// Keep only the explicit inheritance base here. Other resolved
+		// slots may be auto-filled; materializing those as explicit would
+		// erase their AutoFilled provenance and change native clear
+		// semantics. The source-aware CAS still protects this base while
+		// the target edit is committed atomically.
+		resolved := copyLineupMap(expectedSource)
+		delete(resolved, slot.ID)
+		if err := s.store.SetLineupWeekIfUnchanged(teamID, week, expected, expectedSourceWeek, expectedSource, resolved); err != nil {
 			return "", err
 		}
 		s.recordLineupInterventionEvent(r, teamID, week, "", "lineup.intervention_set",
@@ -848,7 +856,17 @@ func (s *Service) SetLineup(r *http.Request, requestedTeam string, week int, slo
 	if occupant.HasPlayer && occupant.Player.ID != player.ID && occupant.Locked { // L7
 		return "", fmt.Errorf("%s", lineupLockedMessage(occupant.Player.Name, week, occupant.Player.NFLTeam))
 	}
-	if err := s.store.SetLineupSlot(teamID, week, slot.ID, player.ID, now); err != nil {
+	// Keep auto-filled slots implicit so SetLineup changes only the
+	// requested assignment while inherited explicit slots survive a new
+	// week's first write.
+	resolved := copyLineupMap(expectedSource)
+	for otherSlot, occupantID := range resolved {
+		if otherSlot != slot.ID && occupantID == player.ID {
+			delete(resolved, otherSlot)
+		}
+	}
+	resolved[slot.ID] = player.ID
+	if err := s.store.SetLineupWeekIfUnchanged(teamID, week, expected, expectedSourceWeek, expectedSource, resolved); err != nil {
 		return "", err
 	}
 	s.recordLineupInterventionEvent(r, teamID, week, player.ID, "lineup.intervention_set",
@@ -884,6 +902,7 @@ func (s *Service) LineupMovePlayerTo(r *http.Request, requestedTeam string, week
 	roster, _ := s.rosterForTeam(state, teamID)
 	general, _, _ := splitRosterZones(state, teamID, roster)
 	expected := storedLineupWeek(state, teamID, week)
+	expectedSourceWeek, expectedSource := storedLineupSource(state, teamID, week)
 	current := effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
 	playerID = strings.TrimSpace(playerID)
 	for _, assignment := range current.Slots {
@@ -920,7 +939,7 @@ func (s *Service) LineupMovePlayerTo(r *http.Request, requestedTeam string, week
 				delete(resolved, assignment.Slot.ID)
 			}
 			resolved[to.Slot.ID] = assignment.Player.ID
-			if err := s.store.SetLineupWeekIfUnchanged(teamID, week, expected, resolved); err != nil {
+			if err := s.store.SetLineupWeekIfUnchanged(teamID, week, expected, expectedSourceWeek, expectedSource, resolved); err != nil {
 				return "", err
 			}
 			s.recordLineupInterventionEvent(r, teamID, week, assignment.Player.ID, "lineup.intervention_move",
@@ -954,7 +973,7 @@ func (s *Service) LineupMovePlayerTo(r *http.Request, requestedTeam string, week
 				}
 			}
 			resolved[to.Slot.ID] = player.ID
-			if err := s.store.SetLineupWeekIfUnchanged(teamID, week, expected, resolved); err != nil {
+			if err := s.store.SetLineupWeekIfUnchanged(teamID, week, expected, expectedSourceWeek, expectedSource, resolved); err != nil {
 				return "", err
 			}
 			s.recordLineupInterventionEvent(r, teamID, week, player.ID, "lineup.intervention_move",
@@ -1002,6 +1021,7 @@ func (s *Service) LineupMove(r *http.Request, requestedTeam string, week int, fr
 	// player by inventing a client-side row.
 	general, _, _ := splitRosterZones(state, teamID, roster)
 	expected := storedLineupWeek(state, teamID, week)
+	expectedSourceWeek, expectedSource := storedLineupSource(state, teamID, week)
 	current := effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
 	from, fromOK := current.slotAssignment(fromSlot.ID)
 	to, toOK := current.slotAssignment(toSlot.ID)
@@ -1028,19 +1048,14 @@ func (s *Service) LineupMove(r *http.Request, requestedTeam string, week int, fr
 	// swap atomic, preserves the other auto-filled assignments, and lets the
 	// existing effectiveLineup reconciliation continue to fill an emptied
 	// slot when a move targets an open slot.
-	resolved := make(map[string]string, len(current.Slots))
-	for _, assignment := range current.Slots {
-		if assignment.HasPlayer {
-			resolved[assignment.Slot.ID] = assignment.Player.ID
-		}
-	}
+	resolved := resolvedLineupIDs(current)
 	if to.HasPlayer {
 		resolved[from.Slot.ID] = to.Player.ID
 	} else {
 		delete(resolved, from.Slot.ID)
 	}
 	resolved[to.Slot.ID] = from.Player.ID
-	if err := s.store.SetLineupWeekIfUnchanged(teamID, week, expected, resolved); err != nil {
+	if err := s.store.SetLineupWeekIfUnchanged(teamID, week, expected, expectedSourceWeek, expectedSource, resolved); err != nil {
 		return "", err
 	}
 	s.recordLineupInterventionEvent(r, teamID, week, from.Player.ID, "lineup.intervention_move",
@@ -1063,6 +1078,49 @@ func storedLineupWeek(state PersistedState, teamID string, week int) map[string]
 		out[slot] = playerID
 	}
 	return out
+}
+
+// storedLineupSource returns the exact explicit week and map that
+// effectiveLineup will use as its base for teamID/week. A present empty map
+// is intentionally different from an absent week: the former stops
+// inheritance and lets the resolver auto-fill, while the latter carries the
+// nearest earlier week forward. The source week and map are part of the
+// lineup write CAS so a stale future-week resolution cannot overwrite a
+// concurrent edit to its inherited base.
+func storedLineupSource(state PersistedState, teamID string, week int) (int, map[string]string) {
+	byWeek := state.Lineups[teamID]
+	if byWeek == nil {
+		return 0, nil
+	}
+	for candidateWeek := week; candidateWeek >= 1; candidateWeek-- {
+		stored, ok := byWeek[candidateWeek]
+		if !ok {
+			continue
+		}
+		if stored == nil {
+			return candidateWeek, nil
+		}
+		return candidateWeek, copyLineupMap(stored)
+	}
+	return 0, nil
+}
+
+func resolvedLineupIDs(lineup EffectiveLineup) map[string]string {
+	resolved := make(map[string]string, len(lineup.Slots))
+	for _, assignment := range lineup.Slots {
+		if assignment.HasPlayer {
+			resolved[assignment.Slot.ID] = assignment.Player.ID
+		}
+	}
+	return resolved
+}
+
+func copyLineupMap(slots map[string]string) map[string]string {
+	copied := make(map[string]string, len(slots))
+	for slot, playerID := range slots {
+		copied[slot] = playerID
+	}
+	return copied
 }
 
 // LineupMoveTo is the legacy index adapter: it translates a caller's list
