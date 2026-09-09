@@ -20128,3 +20128,172 @@ body.is-on-clock .draft-command__pill-sentence {
 		max-height: min(70dvh, 100%);
 	}
 }
+/* comb — team-lineup (2026-09-08): make the starter movement affordance
+   visible while keeping GoSX's declarative reorder runtime in charge of the
+   gesture. The same source-rendered Move buttons remain usable when a
+   pointer/keyboard runtime is unavailable, and all server rejection states
+   stay textual rather than color-only. */
+.team-command-strip__hint {
+  color: var(--color-text-muted);
+  font-size: var(--type-2xs);
+  line-height: 1.35;
+}
+
+.lineup-bench-title__projection {
+  margin-left: var(--space-sm);
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  font-weight: 400;
+  text-transform: none;
+}
+
+.lineup-reorder-help {
+  margin: 0 0 var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-left: 2px solid var(--color-accent-cyan);
+  color: var(--color-text-secondary);
+  font-size: var(--type-xs);
+}
+
+.lineup-reorder-help:empty {
+  display: none;
+}
+
+.lineup-slot-list[data-gosx-reorder] {
+  position: relative;
+}
+
+.lineup-slot-list.gosx-reorder--dragging {
+  outline: 1px dashed var(--color-border-strong);
+  outline-offset: 0.25rem;
+  border-radius: var(--radius-sm);
+}
+
+.lineup-slot__handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.65rem;
+  min-height: 1.65rem;
+  color: var(--color-text-muted);
+  cursor: grab;
+  user-select: none;
+  border-radius: var(--radius-sm);
+}
+
+.lineup-slot__handle:hover,
+.lineup-slot__handle:focus-visible {
+  color: var(--color-accent);
+  background: var(--color-accent-haze);
+}
+
+.lineup-slot__handle:active {
+  cursor: grabbing;
+}
+
+.lineup-slot.gosx-reorder-item--lifted {
+  position: absolute;
+  z-index: 42;
+  width: 100%;
+  border-color: var(--color-accent);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-panel), 0 0 1.5rem var(--color-accent-haze);
+  cursor: grabbing;
+}
+
+.lineup-slot.gosx-reorder-item--placeholder {
+  border: 1px dashed var(--color-border-strong);
+  background: transparent;
+  box-shadow: none;
+  opacity: 0.5;
+}
+
+.lineup-slot.gosx-reorder-item--placeholder > * {
+  visibility: hidden;
+}
+
+.lineup-slot.gosx-reorder-item--grabbed {
+  border-color: var(--color-accent);
+  background: var(--color-surface-raised);
+}
+
+.lineup-slot.gosx-reorder-item--grabbed .lineup-slot__handle {
+  color: var(--color-accent);
+}
+
+.lineup-slot-list[data-gosx-reorder][data-gosx-pending="true"] .lineup-reorder-status--pending {
+  display: block;
+  color: var(--color-text-muted);
+}
+
+.lineup-slot-list[data-gosx-reorder][data-gosx-form-state="error"] .lineup-reorder-status--error {
+  display: block;
+  border: 1px solid var(--color-danger);
+  color: var(--color-text-primary);
+  background: var(--color-hot-haze);
+}
+
+.lineup-reorder-status {
+  margin: 0;
+}
+
+.lineup-move-form {
+  display: inline-flex;
+}
+
+.lineup-move-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  margin-top: 0.2rem;
+}
+
+.lineup-move-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+  padding: 0 var(--space-xs);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: var(--type-sm);
+  line-height: 1;
+}
+
+.lineup-move-button:hover,
+.lineup-move-button:focus-visible {
+  border-color: var(--color-accent-cyan);
+  color: var(--color-accent-cyan);
+  background: var(--color-cyan-haze);
+}
+
+@media (width > 899px) {
+  .team-command-strip {
+    grid-template-columns: repeat(6, minmax(0, 1fr)) auto;
+  }
+}
+
+@media (width <= 899px) {
+  .lineup-slot__handle {
+    min-width: 2.75rem;
+    min-inline-size: 2.75rem;
+    min-height: 2.75rem;
+    min-block-size: 2.75rem;
+  }
+
+  .lineup-bench-title__projection {
+    display: block;
+    margin: 0.2rem 0 0;
+  }
+
+  .lineup-move-button {
+    min-width: 2.75rem;
+    min-inline-size: 2.75rem;
+    min-height: 2.75rem;
+    min-block-size: 2.75rem;
+  }
+}

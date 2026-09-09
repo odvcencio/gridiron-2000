@@ -853,6 +853,12 @@ func TestTeamDataProjectedSumsStartersOnly(t *testing.T) {
 	if got := data["projected"]; got != want {
 		t.Fatalf("projected = %#v, want %q (starters only; the whole-roster sum would read 85.5)", got, want)
 	}
+	if got := data["bench_projected"]; got != "0.5" {
+		t.Fatalf("bench_projected = %#v, want 0.5 for the excluded bench player", got)
+	}
+	if got := data["bench_has_projection"]; got != true {
+		t.Fatalf("bench_has_projection = %#v, want true", got)
+	}
 }
 
 // TestTeamDataBenchPointsReadDashUntilLedgerPosts pins J3 F12: /team's

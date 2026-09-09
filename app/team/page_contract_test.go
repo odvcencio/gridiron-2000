@@ -1207,6 +1207,74 @@ func TestTeamPrimaryActionFeedsPhoneActionBar(t *testing.T) {
 	}
 }
 
+// TestTeamLineupMovementAndProjectionContracts pins the manager-facing part
+// of the weekly lineup improvement: the two forecast scopes are named in
+// the command strip, GoSX's existing declarative reorder primitive has a
+// visible handle and same-origin action, and native Move buttons remain in
+// the row markup as the no-script/touch/keyboard fallback.
+func TestTeamLineupMovementAndProjectionContracts(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	for _, want := range []string{
+		`<span>Starting projection</span>`,
+		`{data.projected}`,
+		`<span>Bench projection</span>`,
+		`{data.bench_projected}`,
+		`Not included in team score`,
+		`<p class="lineup-reorder-help" id="lineup-reorder-help">`,
+		`Drag the grip to move a starter to another eligible slot.`,
+		`data-gosx-reorder`,
+		`data-gosx-reorder-action={"POST " + actionPath("lineup-move-to")`,
+		`data-gosx-csrf-token={csrf.token}`,
+		`data-gosx-reorder-item={slot.slot_id}`,
+		`data-gosx-reorder-handle`,
+		`action={actionPath("lineup-move")}`,
+		`class="lineup-move-form"`,
+		`name="from_slot"`,
+		`name="to_slot"`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("Team lineup movement/projection markup missing %q", want)
+		}
+	}
+
+	serverBytes, err := os.ReadFile("page.server.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := string(serverBytes)
+	for _, want := range []string{
+		`"lineup-move": func(ctx *action.Context) error {`,
+		`"lineup-move-to": func(ctx *action.Context) error {`,
+		`LineupMoveTo(ctx.Request, teamID, week, ctx.FormData["item_id"], index)`,
+		`ctx.Request.URL.Query().Get("week")`,
+	} {
+		if !strings.Contains(server, want) {
+			t.Errorf("Team lineup movement server contract missing %q", want)
+		}
+	}
+
+	stylesBytes, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	styles := string(stylesBytes)
+	for _, want := range []string{
+		`.lineup-slot__handle`,
+		`.lineup-slot-list[data-gosx-reorder]`,
+		`.lineup-move-button`,
+		`@media (width <= 899px)`,
+		`min-inline-size: 2.75rem`,
+	} {
+		if !strings.Contains(styles, want) {
+			t.Errorf("Team lineup movement styles missing %q", want)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------
 // Team lineup and bench redesign (2026-09-07, section-B)
 // ---------------------------------------------------------------------

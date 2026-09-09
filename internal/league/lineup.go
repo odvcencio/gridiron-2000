@@ -850,6 +850,100 @@ func (s *Service) SetLineup(r *http.Request, requestedTeam string, week int, slo
 	return s.lineupChangeResultMessage(teamID, week, general, games, now, current, slot.ID, fmt.Sprintf("%s starts at %s.", player.Name, slot.ID)), nil
 }
 
+// LineupMove swaps the resolved occupants of two starter slots. It is the
+// server-side target for the Team view's native Move buttons and is also the
+// common validation path used by the GoSX drag/keyboard reorder endpoint.
+// Every write goes through the same acting-team, week, position, and lock
+// checks as SetLineup; the client-side reorder is only an affordance and is
+// never treated as authority.
+func (s *Service) LineupMove(r *http.Request, requestedTeam string, week int, fromSlotID, toSlotID string) (string, error) {
+	teamID, err := s.lineupActingTeam(r, requestedTeam) // L1
+	if err != nil {
+		return "", err
+	}
+	now := s.clock()
+	state := s.store.Snapshot()
+	games := s.schedule()
+	if err := s.lineupWeekForAction(week, games, now); err != nil { // L2
+		return "", err
+	}
+	preset := CurrentRoster()
+	fromSlot, ok := lineupSlotByID(preset, strings.TrimSpace(fromSlotID)) // L3
+	if !ok {
+		return "", fmt.Errorf("%s", lineupUnknownSlotMessage(fromSlotID))
+	}
+	toSlot, ok := lineupSlotByID(preset, strings.TrimSpace(toSlotID))
+	if !ok {
+		return "", fmt.Errorf("%s", lineupUnknownSlotMessage(toSlotID))
+	}
+	if fromSlot.ID == toSlot.ID {
+		return "No lineup change.", nil
+	}
+
+	roster, _ := s.rosterForTeam(state, teamID)
+	// Reserve/IR occupants are excluded by splitRosterZones, just as they
+	// are for SetLineup. A drag gesture must not be able to promote a zoned
+	// player by inventing a client-side row.
+	general, _, _ := splitRosterZones(state, teamID, roster)
+	current := effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
+	from, fromOK := current.slotAssignment(fromSlot.ID)
+	to, toOK := current.slotAssignment(toSlot.ID)
+	if !fromOK || !from.HasPlayer {
+		return "", fmt.Errorf("%s is empty", fromSlot.ID)
+	}
+	if from.Locked {
+		return "", fmt.Errorf("%s", lineupLockedMessage(from.Player.Name, week, from.Player.NFLTeam))
+	}
+	if !toOK {
+		return "", fmt.Errorf("%s", lineupUnknownSlotMessage(toSlot.ID))
+	}
+	if to.HasPlayer && to.Locked {
+		return "", fmt.Errorf("%s", lineupLockedMessage(to.Player.Name, week, to.Player.NFLTeam))
+	}
+	if !toSlot.Def.Fits(from.Player.Position) {
+		return "", fmt.Errorf("%s", lineupPositionMessage(from.Player.Position, toSlot.ID))
+	}
+	if to.HasPlayer && !fromSlot.Def.Fits(to.Player.Position) {
+		return "", fmt.Errorf("%s", lineupPositionMessage(to.Player.Position, fromSlot.ID))
+	}
+
+	// Persist the entire resolved lineup in one store write. This keeps the
+	// swap atomic, preserves the other auto-filled assignments, and lets the
+	// existing effectiveLineup reconciliation continue to fill an emptied
+	// slot when a move targets an open slot.
+	resolved := make(map[string]string, len(current.Slots))
+	for _, assignment := range current.Slots {
+		if assignment.HasPlayer {
+			resolved[assignment.Slot.ID] = assignment.Player.ID
+		}
+	}
+	if to.HasPlayer {
+		resolved[from.Slot.ID] = to.Player.ID
+	} else {
+		delete(resolved, from.Slot.ID)
+	}
+	resolved[to.Slot.ID] = from.Player.ID
+	if err := s.store.SetLineupWeek(teamID, week, resolved); err != nil {
+		return "", err
+	}
+	s.recordLineupInterventionEvent(r, teamID, week, from.Player.ID, "lineup.intervention_move",
+		fmt.Sprintf("moved %s from %s to %s for %s in week %d", from.Player.Name, from.Slot.ID, to.Slot.ID, s.TeamLabel(teamID), week))
+	fallback := fmt.Sprintf("%s moved from %s to %s.", from.Player.Name, from.Slot.ID, to.Slot.ID)
+	return s.lineupChangeResultMessage(teamID, week, general, games, now, current, to.Slot.ID, fallback), nil
+}
+
+// LineupMoveTo translates the GoSX reorder primitive's list index into the
+// authoritative roster-shape slot ID before calling LineupMove. GoSX sends
+// only item_id and index, so keeping this translation on the server prevents
+// a forged index or stale row from bypassing slot eligibility and lock checks.
+func (s *Service) LineupMoveTo(r *http.Request, requestedTeam string, week int, fromSlotID string, targetIndex int) (string, error) {
+	slots := lineupSlots(CurrentRoster())
+	if targetIndex < 0 || targetIndex >= len(slots) {
+		return "", fmt.Errorf("invalid lineup position %d", targetIndex)
+	}
+	return s.LineupMove(r, requestedTeam, week, fromSlotID, slots[targetIndex].ID)
+}
+
 // lineupChangeResultMessage re-resolves teamID's week-`week` effective
 // lineup after a lineup write and names every slot the write actually
 // changed (J3 F4), not just the one slot SetLineup directly touched:
@@ -1162,13 +1256,18 @@ func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games 
 	// matchupStatsSnapshot's own live/hasLive pair follows.
 	live, hasLive := s.liveStatus()
 	out := make([]map[string]any, 0, len(lineup.Slots))
-	for _, a := range lineup.Slots {
+	for i, a := range lineup.Slots {
 		row := map[string]any{
-			"slot_id":     a.Slot.ID,
-			"has_player":  a.HasPlayer,
-			"auto_filled": a.AutoFilled,
-			"locked":      a.Locked,
-			"lock_label":  "",
+			"slot_id":        a.Slot.ID,
+			"has_player":     a.HasPlayer,
+			"auto_filled":    a.AutoFilled,
+			"locked":         a.Locked,
+			"lock_label":     "",
+			"can_move_up":    false,
+			"move_up_slot":   "",
+			"can_move_down":  false,
+			"move_down_slot": "",
+			"can_move":       false,
 		}
 		currentID := ""
 		if a.HasPlayer {
@@ -1214,7 +1313,37 @@ func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games 
 		row["has_warning"] = warns
 		row["warning_label"] = label
 		row["options"] = lineupSlotOptions(roster, a.Slot, lineup.Week, games, now, currentID)
+		// Native Move buttons are the no-script fallback for touch devices and
+		// keyboards that do not use the optional GoSX reorder gesture. Only
+		// expose a direction when the adjacent swap is already legal; the
+		// service still re-checks every condition at submit time for stale
+		// markup, locks, and commissioner intervention requests.
+		if i > 0 && lineupMoveAllowed(a, lineup.Slots[i-1]) {
+			row["can_move_up"] = true
+			row["move_up_slot"] = lineup.Slots[i-1].Slot.ID
+			row["can_move"] = true
+		}
+		if i+1 < len(lineup.Slots) && lineupMoveAllowed(a, lineup.Slots[i+1]) {
+			row["can_move_down"] = true
+			row["move_down_slot"] = lineup.Slots[i+1].Slot.ID
+			row["can_move"] = true
+		}
 		out = append(out, row)
 	}
 	return out
+}
+
+// lineupMoveAllowed is the view model's conservative gate for showing a
+// one-step native move control. It mirrors LineupMove's pairwise eligibility
+// and lock checks without replacing that service-level validation: a page may
+// be stale by the time a manager presses a button, so the server remains the
+// authority for every mutation.
+func lineupMoveAllowed(from, to SlotAssignment) bool {
+	if !from.HasPlayer || from.Locked || (to.HasPlayer && to.Locked) {
+		return false
+	}
+	if !to.Slot.Def.Fits(from.Player.Position) {
+		return false
+	}
+	return !to.HasPlayer || from.Slot.Def.Fits(to.Player.Position)
 }
