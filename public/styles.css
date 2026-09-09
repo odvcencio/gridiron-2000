@@ -20191,6 +20191,12 @@ body.is-on-clock .draft-command__pill-sentence {
   cursor: grabbing;
 }
 
+.lineup-slot__handle--disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 .lineup-slot.gosx-reorder-item--lifted {
   position: absolute;
   z-index: 42;
