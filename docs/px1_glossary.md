@@ -15,8 +15,8 @@ page wins.
 | team seat | The durable league association that owns a roster, lineup, and team-scoped actions. | `teams-team-seats-and-rosters` |
 | roster | Players assigned to configured slots/zones. | `teams-team-seats-and-rosters` |
 | lineup lock | The kickoff/state boundary that prevents ordinary slot edits. | `lineups-locks-matchups-and-scoring` |
-| Big Board | The current account's ordered draft targets used by AUTO first. | `big-board-and-autopick` |
-| autopick / AUTO | Selection authority that uses the current account's available board, then the authoritative fallback shown by Draft. | `big-board-and-autopick` |
+| Big Board | One private ordered list belongs to a team seat; its primary manager and co-manager use the same draft targets. | `big-board-and-autopick` |
+| autopick / AUTO | Selection authority that uses the team seat's available board, then the authoritative fallback shown by Draft. | `big-board-and-autopick` |
 | free agent | An eligible unrostered player available when the active rules permit immediate acquisition. | `players-free-agents-waivers-and-faab` |
 | waiver | A delayed acquisition process for a player not immediately addable. | `players-free-agents-waivers-and-faab` |
 | FAAB units | Non-currency units used by a configured claim processor; the runtime owns budget and processing. | `players-free-agents-waivers-and-faab` |

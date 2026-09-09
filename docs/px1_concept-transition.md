@@ -12,7 +12,7 @@ ETL promise.
 | Account, login, invited email | Identity and admission | Sign in, inspect the admission state, then confirm the team seat. Never put an email in public help content. |
 | League, club, franchise | League and team seat | Recreate public identity and stable team IDs in config; verify `/team` and `/scoring`. |
 | Roster and starting lineup | Roster and lineup | Recreate slot shape, then set the effective lineup at `/team`; kickoff locks are runtime-owned. |
-| Draft rankings, queue, watch list | Big Board | Rebuild the current account's ordered board at `/board`; AUTO uses the current board contract. |
+| Draft rankings, queue, watch list | Big Board | Rebuild the team seat's private ordered board at `/board`; the primary manager and co-manager share it, and AUTO consumes the shared order first. |
 | Free agency, waiver wire, add/drop | Players, free agents, waivers | Read the current acquisition capability, priority/FAAB mode, units, and processing state at `/players`. |
 | FAAB budget / bid | Non-currency FAAB units | Enter the displayed units; do not treat them as money or assume another provider's budget transfers. |
 | Trade offer, veto, review | Trade and review workflow | Recreate policy, then verify involved seats and current review/deadline state at `/trades`. |

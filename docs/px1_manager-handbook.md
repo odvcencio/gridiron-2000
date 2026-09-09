@@ -12,10 +12,10 @@ without inventing a second source of truth.
    ownership are separate predicates.
 3. Read the current `/scoring` configuration for roster slots, scoring,
    waivers, trades, schedule, and locks.
-4. Build the current account's Big Board at
-   [`/help/big-board-and-autopick`](../help/big-board-and-autopick). A
-   co-manager's account and the primary manager's account are not described as
-   sharing board state unless the runtime contract explicitly says so.
+4. Build the team seat's private Big Board at
+   [`/help/big-board-and-autopick`](../help/big-board-and-autopick). The
+   primary manager and co-manager use the same durable order, and AUTO consumes
+   that shared order before the best-available fallback.
 5. Read the displayed draft or lineup state before acting. Use the owning
    route's current deadline, capability, freshness, and permission label.
 
@@ -32,7 +32,9 @@ without inventing a second source of truth.
   label and source capability. Do not convert an approximate snapshot into a
   final score or claim.
 - `failed` or `permission-denied`: preserve context, use the recovery link,
-  and ask the commissioner when the operation is authority-gated.
+  and ask the commissioner when the operation is authority-gated. If a
+  transport response leaves the outcome unknown, refresh/reread the owning
+  route and activity before retrying; do not replay the stale submission.
 
 If a refresh or another manager changes the page, reread the persisted object,
 current actor, and current state before retrying. The server's latest result

@@ -143,8 +143,12 @@ func migrationView(mappings []MigrationMapping) []map[string]any {
 func helpIndexData(ctx *route.RouteContext) map[string]any {
 	data := league.Default().StaticPageData(ctx.Request)
 	query := strings.TrimSpace(ctx.Query("q"))
-	phase := strings.ToLower(runtimeProjection()["phase"].(string))
-	mode := strings.ToLower(runtimeProjection()["mode"].(string))
+	runtime := runtimeProjection()
+	phase := strings.ToLower(runtime["phase"].(string))
+	mode := strings.ToLower(runtime["mode"].(string))
+	viewer, _ := data["viewer"].(map[string]any)
+	entry := league.Default().PublicEntryDataForViewer(ctx.Request, viewer)
+	checklist := checklistProjectionForViewer(viewer, entry, mode, phase)
 	if query == "" {
 		query = ""
 	}
@@ -184,12 +188,17 @@ func helpIndexData(ctx *route.RouteContext) map[string]any {
 	data["categories"] = categoryViews
 	data["topics"] = topics
 	data["search_results"] = searchResults
-	data["runtime"] = runtimeProjection()
+	data["runtime"] = runtime
 	data["corpus_version"] = CorpusVersion
 	data["source_sha"] = VerifiedSourceSHA
 	data["source_sha_short"] = ShortSHA(VerifiedSourceSHA)
-	data["checklist"] = checklistView(ChecklistFor("primary", mode, phase, false))
-	data["commissioner_checklist"] = checklistView(ChecklistFor("seatless", mode, phase, true))
+	data["checklist"] = checklistView(checklist.Items)
+	data["commissioner_checklist"] = checklistView(checklist.CommissionerItems)
+	data["checklist_role_label"] = checklist.RoleLabel
+	data["checklist_heading"] = checklist.Heading
+	data["checklist_empty_message"] = checklist.EmptyMessage
+	data["has_checklist"] = checklist.HasChecklist
+	data["has_commissioner"] = checklist.HasCommissioner
 	data["migration"] = migrationView(MigrationMappings())
 	data["glossary"] = glossaryView(Glossary())
 	return data

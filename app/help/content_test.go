@@ -14,12 +14,12 @@ import (
 // unmapped route still names the actual path, never a field name.
 func TestActionRouteLabelNamesTheDestinationNeverASchemaField(t *testing.T) {
 	cases := map[string]string{
-		"/":                                             "Go to the league home →",
-		"/login":                                         "Open sign-in →",
-		"/team":                                          "Open the Team terminal →",
-		"/board":                                         "Open the Big Board →",
-		"/players":                                       "Open the Player pool →",
-		"/draft":                                         "Open the Draft room →",
+		"/":        "Go to the league home →",
+		"/login":   "Open sign-in →",
+		"/team":    "Open the Team terminal →",
+		"/board":   "Open the Big Board →",
+		"/players": "Open the Player pool →",
+		"/draft":   "Open the Draft room →",
 		"/help/roles-primary-co-manager-and-commissioner": "Open the roles topic →",
 	}
 	for route, want := range cases {
@@ -170,8 +170,8 @@ func TestRoleChecklistComposesCommissionerOverlay(t *testing.T) {
 	for _, item := range items {
 		if item.Role == "co-manager" {
 			coManager = true
-			if item.ID == "board-truth" && !strings.Contains(strings.ToLower(item.Detail), "per-account") {
-				t.Errorf("co-manager checklist omitted per-account board truth: %q", item.Detail)
+			if item.ID == "board-truth" && !strings.Contains(strings.ToLower(item.Detail), "private team-seat order") {
+				t.Errorf("co-manager checklist omitted shared team-seat board truth: %q", item.Detail)
 			}
 		}
 		if item.Role == "commissioner-overlay" {

@@ -84,10 +84,10 @@ func Page() Node {
 		<section class="guide-section guide-section--accent" id="checklists" aria-labelledby="checklists-heading">
 			<header class="guide-section__heading"><span class="section-index">03 // ROLE + PHASE</span><h2 id="checklists-heading">The checklist follows the person.</h2><p>Base admitted-member guidance composes with primary, co-manager, seatless, and commissioner-overlay predicates. Unsupported capabilities are not dead obligations.</p></header>
 			<div class="guide-card-grid guide-card-grid--two">
-				<article class="guide-card"><span class="section-index">PRIMARY MANAGER</span><h3>Before the next action</h3><ol class="guide-checklist"><Each of={data.checklist} as="item"><If cond={item.applicable}><li><strong>{item.title}</strong><span>{item.detail} <a href={item.action_route} data-gosx-link>{item.action_label}</a></span></li></If></Each></ol></article>
-				<article class="guide-card"><span class="section-index">COMMISSIONER OVERLAY</span><h3>Operate the owning room</h3><ol class="guide-checklist"><Each of={data.commissioner_checklist} as="item"><If cond={item.applicable}><li><strong>{item.title}</strong><span>{item.detail} <a href={item.action_route} data-gosx-link>{item.action_label}</a></span></li></If></Each></ol></article>
+				<article class="guide-card"><span class="section-index">{data.checklist_role_label}</span><h3>{data.checklist_heading}</h3><If cond={data.has_checklist}><ol class="guide-checklist"><Each of={data.checklist} as="item"><If cond={item.applicable}><li><strong>{item.title}</strong><span>{item.detail} <a href={item.action_route} data-gosx-link>{item.action_label}</a></span></li></If></Each></ol></If><If cond={data.has_checklist == false}><p>{data.checklist_empty_message}</p></If></article>
+				<If cond={data.has_commissioner}><article class="guide-card"><span class="section-index">COMMISSIONER OVERLAY</span><h3>Operate the owning room</h3><ol class="guide-checklist"><Each of={data.commissioner_checklist} as="item"><If cond={item.applicable}><li><strong>{item.title}</strong><span>{item.detail} <a href={item.action_route} data-gosx-link>{item.action_label}</a></span></li></If></Each></ol></article></If>
 			</div>
-			<div class="guide-callout" role="note"><strong>Co-manager truth:</strong> a current Big Board is keyed per account. This help center does not promise shared visibility, merged ordering, attribution, detach migration, or shared autopick before the owner decision and implementation gate.</div>
+			<div class="guide-callout" role="note"><strong>Big Board truth:</strong> one private ordered board belongs to each team seat. The primary manager and co-manager use the same order, and AUTO consumes it before best available. A commissioner who is not a member of that seat sees only seat-level readiness, presence, and board gap/count.</div>
 		</section>
 
 		<section class="guide-section" id="migration" aria-labelledby="migration-heading">
@@ -109,7 +109,7 @@ func Page() Node {
 			<div class="guide-card-grid guide-card-grid--three">
 				<article class="guide-card"><span class="section-index">STALE / DEGRADED</span><h3>Keep the last good read</h3><p>Show source and last-success age. Preserve unaffected content. Unknown is not zero and a cached snapshot is not live.</p><a href="/help/data-state-and-freshness" data-gosx-link>Data-state topic →</a></article>
 				<article class="guide-card"><span class="section-index">LOCKED / DISABLED</span><h3>Name the boundary</h3><p>Explain the role, prerequisite, kickoff, review, or final-state boundary and link to the adjacent valid action.</p><a href="/help/lineups-locks-matchups-and-scoring" data-gosx-link>Workflow topic →</a></article>
-				<article class="guide-card"><span class="section-index">FAILED / DENIED</span><h3>Do not replay blindly</h3><p>Say whether any effect occurred, preserve safe return context, and retry from freshly rendered state or escalate to the owner.</p><a href="/help/commissioner-operations" data-gosx-link>Recovery topic →</a></article>
+				<article class="guide-card"><span class="section-index">FAILED / DENIED</span><h3>Do not replay blindly</h3><p>If transport leaves the outcome unknown, refresh/reread the owning route and activity before retrying; preserve safe return context or escalate to the owner.</p><a href="/help/commissioner-operations" data-gosx-link>Recovery topic →</a></article>
 			</div>
 		</section>
 

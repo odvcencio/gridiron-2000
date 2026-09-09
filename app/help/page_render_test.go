@@ -124,8 +124,11 @@ func TestHelpChecklistLinksNameTheirDestination(t *testing.T) {
 	if strings.Contains(body, "Open help/action") {
 		t.Error("help checklist still renders the generic \"Open help/action\" link text")
 	}
-	if !strings.Contains(body, "Open the Team terminal") {
-		t.Error("help checklist did not name a real destination (Open the Team terminal)")
+	if !strings.Contains(body, "SIGN-IN REQUIRED") {
+		t.Error("anonymous help index did not render the sign-in-gated checklist label")
+	}
+	if strings.Contains(body, "Open the Team terminal") {
+		t.Error("anonymous help index rendered a seated-manager action")
 	}
 }
 
