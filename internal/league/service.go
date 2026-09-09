@@ -2518,7 +2518,7 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	// from (roster-ops SK spec: "effectiveLineup/lineupStarters NEVER
 	// include zone occupants").
 	general, reserveOccupants, irOccupants := splitRosterZones(state, teamID, roster)
-	lineup := effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
+	lineup := effectiveLineupWithState(preset, general, state, teamID, week, games, now)
 	// projected (item 8, 2026-09-07 truth pass): starters only, from the
 	// one TeamStartersProjectedTotal helper /matchups' own featured-card
 	// projection agrees with pre-kickoff (TestTeamProjectedTotalHelpersAgreePreKickoff)
@@ -7055,7 +7055,7 @@ func (s *Service) actionCenterDataForSnapshot(r *http.Request, state PersistedSt
 		if complete {
 			roster, _ := s.rosterForTeam(state, teamID)
 			general, _, _ := splitRosterZones(state, teamID, roster)
-			lineup := effectiveLineup(CurrentRoster(), general, state.Lineups[teamID], week, games, now)
+			lineup := effectiveLineupWithState(CurrentRoster(), general, state, teamID, week, games, now)
 			problems := lineupProblems(lineup, games, now)
 			first, ok := firstKickoff(games, week)
 			facts.Lineup = ActionCenterLineupFacts{Week: week, Problems: len(problems), FirstKickoff: first, HasFirstKickoff: ok}

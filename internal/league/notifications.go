@@ -2013,7 +2013,7 @@ func (s *Service) evalLineupWarnings(state PersistedState, now time.Time) {
 		// this function directly with a fake clock (spec section 6.4).
 		roster, _ := s.rosterForTeam(state, member.TeamID)
 		general, _, _ := splitRosterZones(state, member.TeamID, roster)
-		lineup := effectiveLineup(preset, general, state.Lineups[member.TeamID], week, games, now)
+		lineup := effectiveLineupWithState(preset, general, state, member.TeamID, week, games, now)
 		problems := lineupProblems(lineup, games, now)
 		if len(problems) == 0 {
 			continue

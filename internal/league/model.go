@@ -344,6 +344,13 @@ type PersistedState struct {
 	// BadgeClaims precedent above: a nil map decodes safely on an old file,
 	// and the store normalizes it in load/NewStore/cloneState.
 	Lineups map[string]map[int]map[string]string `json:"lineups,omitempty"`
+	// LineupAutoFilled records the slots that were auto-filled but had to be
+	// pinned alongside a native edit because their resolved occupant was
+	// already locked. It is kept separate from Lineups so those pins retain
+	// their AutoFilled presentation/provenance when the week is rendered.
+	// The map is additive and round-trips through the kv-backed scalar store;
+	// old state files and databases simply have no entries.
+	LineupAutoFilled map[string]map[int]map[string]bool `json:"lineupAutoFilled,omitempty"`
 
 	// Transactions is the append-only roster-mutation log (roster-ops spec
 	// section 7.1): one entry per add/drop move (WP-R3), with claim

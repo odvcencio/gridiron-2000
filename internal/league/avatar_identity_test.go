@@ -134,7 +134,7 @@ func expectedStorePersistMutators() map[persistCallerID]struct{} {
 		"PruneSentLog", "SetNotifyPref", "SetUIPreference", "SetSchedule", "SetScheduleWeek",
 		"SetScheduleWeekWithLineups", "SetPhase", "SetPlayoffs",
 		"SetRosterOverride", "ClearRosterOverride", "SetLineupSlot",
-		"SetLineupWeek", "recordTransactionWithAuthority", "BaselineWaiversProcessedThrough",
+		"SetLineupWeek", "SetLineupWeekIfUnchanged", "recordTransactionWithAuthority", "BaselineWaiversProcessedThrough",
 		"fileClaimWithAuthority", "CancelClaim", "MoveClaim", "ProcessWaivers", "ProposeTradeOffer",
 		"CounterTradeOffer", "DeclineTradeOffer", "WithdrawTradeOffer",
 		"AcceptTradeOffer", "ExecuteTradeOffer", "CommissionerVetoTradeOffer",
