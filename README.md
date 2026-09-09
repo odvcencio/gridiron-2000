@@ -2,13 +2,13 @@
 
 A private, self-hostable fantasy-football league room built with GoSX. It uses Google OAuth for league identity, keeps draft and data state on the machine you operate, listens to a commissioner-curated public signal wire, and mirrors open NFL datasets. An optional Tank01 connection adds live ADP, projections, and fantasy news to the draft room; multi-instance deployments can route every league through one shared relay so the upstream key and request budget have one owner.
 
-Every league-specific fact — name, team count, divisions, draft date, and invite copy — lives in `league.json` (see `config/league.json.example`), not in the code. A fresh checkout with no `league.json` runs a neutral, clearly-placeholder reference league; copy the example file, edit it, and restart to run your own. `DRAFT_AT` and `DRAFT_TZ` still override the file's draft date/timezone for a quick change without touching the file.
+Every league-specific fact — name, team count, divisions, draft date, and invite copy — lives in `league.json` (see `config/league.json.example`), not in the code. A normal server boot with no `league.json` does not silently open a league: a fresh data volume serves the tokenized `/setup` wizard, while a previously initialized volume without its config fails closed. To preview the shipped reference league, opt in explicitly with `LEAGUE_FILE=config/league.json.example`, `DEMO_MODE=true`, and a local `APP_ENV` such as `development`. To run your own, copy the example file, edit it, and restart. `DRAFT_AT` and `DRAFT_TZ` still override the file's draft date/timezone for a quick change without touching the file.
 
 ## What is included
 
 - Neo-Retro “Stadium OS, year 2000” league HQ, matchup simulator, team terminal, draft room, Signal Wire, and mobile layouts.
 - Google OAuth with PKCE, encrypted HTTP-only sessions, CSRF protection, an optional email allowlist, and a configurable seat count (4 to 14 teams; see `config/league.json.example`).
-- Persistent manager assignments, draft readiness, and snake-draft picks in the league database, `data/league.db` (SQLite, write-ahead logging, one transaction per mutation). A pre-existing `data/league-state.json` imports itself into the database on the first start; the file survives as `data/league-state.json.imported`.
+- Persistent manager assignments, draft readiness, and snake-draft picks in the league database, `data/league.db` (SQLite, write-ahead logging, one transaction per mutation). A pre-existing `data/league-state.json` is imported once when no database exists; the original bytes survive as `data/league-state.json.imported`.
 - A no-key RSS/Atom mesh with ESPN NFL, CBS Sports NFL, r/fantasyfootball, and Mastodon hashtag feeds enabled by default, plus optional curated Bluesky Jetstream identities.
 - A signed-in league form for tips, shared news, and human-entered market sightings—including observations from PrizePicks—without account automation or scraping.
 - Editable Arbiter classification and provenance rules, exact-link clustering, corroboration counts, conditional feed requests, source health, and a metadata-only audit journal.
@@ -25,7 +25,7 @@ Every league-specific fact — name, team count, divisions, draft date, and invi
 - `/settings`: per-manager notification preferences for delivery channels and category.
 - Honest empty states: seats show `UNCLAIMED` until a manager signs in, records start `0–0`, and rosters stay empty until picks are made.
 - Same-origin league APIs plus token-protected JSON, NDJSON, and CSV exports for future applications.
-- A complete demo experience while Google credentials and trusted social sources are being configured.
+- An explicit local-only reference demo when `LEAGUE_FILE=config/league.json.example`, `DEMO_MODE=true`, and a local `APP_ENV` are set; a first install uses the tokenized `/setup` wizard instead.
 - A public /guide for managers arriving from another fantasy provider, with a five-minute start, commissioner checklist, draft controls, data states, and a manual migration checklist.
 - An explicit [season operations handbook](docs/season-operations.md) for draft night, weekly lineup locks, waivers, trades, week close, degraded data, and fleet-scale commissioner operations.
 
@@ -52,12 +52,45 @@ Every page in Gridiron follows the same product contract:
 
 Requirements: Go 1.26 and GoSX v0.56.1.
 
+For a real first install, copy the environment example, keep `LEAGUE_FILE` empty,
+set `DEMO_MODE=false`, and start the server:
+
 ```bash
 cp .env.example .env
+```
+
+Set these values in `.env` for the first-install path:
+
+```dotenv
+LEAGUE_FILE=
+DEMO_MODE=false
+APP_ENV=development
+```
+
+Then start the server:
+
+```bash
 go run .
 ```
 
-Open [http://localhost:8080](http://localhost:8080), then visit `/wire` for source health and league submissions. On first start, the public feeds and 2026 schedule synchronize immediately. The 2026 injury and player-stat files correctly report `awaiting_release` until nflverse publishes them.
+Open [http://localhost:8080/setup](http://localhost:8080/setup). The server
+prints a one-time setup token to its console and log; enter that token to
+create the league, then restart when the wizard tells you to. Only after the
+server is configured do the normal pages, feeds, and schedule run. Each
+mirrored data source reports its actual publication state, such as
+`AWAITING_RELEASE`, rather than a hard-coded season assumption.
+
+For a local reference demo, use the shipped example explicitly instead:
+
+```dotenv
+LEAGUE_FILE=config/league.json.example
+DEMO_MODE=true
+APP_ENV=development
+```
+
+With that valid config selected, the app opens the placeholder league locally
+without the setup wizard. Demo mode is not a first-boot bypass: `DEMO_MODE=true`
+alone still leads to `/setup` when no config resolves.
 
 Useful checks:
 
@@ -77,7 +110,16 @@ the exact sorted package set.
 
 ## Configure your league
 
-Copy `config/league.json.example` to `league.json` (or `config/league.json`) and edit the public league configuration. [`docs/configuration.md`](docs/configuration.md) documents every supported field, validation boundary, membership posture, file lookup rule, and environment override. The example remains strict, valid JSON; comments belong in the documentation, not in the config file.
+For a real first install, leave `LEAGUE_FILE` empty and set `DEMO_MODE=false`.
+Start the server and complete the tokenized `/setup` wizard; it writes the
+league configuration beside `DATA_FILE` and explains when to restart. For a
+file-based league instead, copy `config/league.json.example` to `league.json`
+(or `config/league.json`) and edit the public configuration. Do not use the
+tracked example as a live league unless you intentionally want the local
+reference demo described above. [`docs/configuration.md`](docs/configuration.md)
+documents every supported field, validation boundary, membership posture,
+file lookup rule, and environment override. The example remains strict, valid
+JSON; comments belong in the documentation, not in the config file.
 
 Then create a Google OAuth client with application type **Web application**, and register the exact callback URI:
 
@@ -102,7 +144,14 @@ An authenticated manager claims the first open seat. The allowlist should contai
 
 ## Run with Docker Compose
 
-Self-hosters who want a running league without a Kubernetes cluster can use [`deploy/compose/compose.yaml`](deploy/compose/compose.yaml). It runs the app container, a data volume, and a Caddy sidecar for automatic HTTPS. An HTTP-only profile also runs a domain-free local trial. Follow [`docs/quickstart.md`](docs/quickstart.md) for the full ten-minute walkthrough, including OAuth client registration and first sign-in.
+Self-hosters who want a running league without a Kubernetes cluster can use [`deploy/compose/compose.yaml`](deploy/compose/compose.yaml). It runs the app container, a data volume, and a Caddy sidecar for automatic HTTPS. An HTTP-only profile also runs a domain-free local trial. Follow [`docs/quickstart.md`](docs/quickstart.md) for the full ten-minute walkthrough, including the first-boot `/setup` path, OAuth client registration, and first sign-in.
+
+The canonical image build compiles the real Go server and then generates its
+matching client assets with the exact GoSX module selected by `go.mod`, using
+`GOSX_SKIP_VERSION_CHECK=1 gosx build --dev .` inside the Dockerfile. The
+standalone `gosx build --prod .` path is an optional TinyGo/prerender artifact,
+not the server image's release build; use it only with an explicit valid
+`LEAGUE_FILE` and do not treat it as a substitute for the Docker build.
 
 ## Author and publish a fleet
 
@@ -257,6 +306,7 @@ Every league instance behind one shared `statrelay` (see [Fantasy draft pool and
 data/
   league.db                    authoritative league state (SQLite)
   league.db.bak                rolling snapshot, written before every draft pick
+  league-state.json             legacy JSON import anchor named by DATA_FILE (if present)
   league-state.json.imported   the JSON state file the database was built from
   backups/
     gridiron-snapshot-*.tar.gz   nightly local snapshots, rotated to BACKUP_KEEP (default 7)
@@ -348,7 +398,7 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | `AVATAR_DURABLE_ROOT` | `data` (`/app/data` in the container) | Pre-existing PVC/storage anchor. Avatar writes never create or fsync outside this directory; custom roots require an existing matching anchor |
 | `AVATAR_DEFAULTS_ROOT` | `public/avatars/defaults` | Commissioner-supplied default tone badges; see [Default team badges](docs/avatar-default-badges.md) |
 | `AVATAR_MOTIFS_ROOT` | `public/avatars/motifs` | Source art for generated badge motifs |
-| `DATA_FILE` | `data/league-state.json` | Names the data directory, and the JSON state file to import once. The league database is `league.db` beside it |
+| `DATA_FILE` | `data/league-state.json` | Path to the legacy JSON state-file anchor imported once; authoritative SQLite is `league.db` in the same directory. Never set `DATA_FILE` to `league.db` |
 | `WIRE_ENABLED` | `true` | Enable the public signal listener |
 | `WIRE_FEEDS_ENABLED` | `true` | Enable the RSS/Atom source mesh |
 | `WIRE_SOURCES_FILE` | embedded defaults | Replacement feed-source JSON |

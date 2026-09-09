@@ -22,9 +22,20 @@ The first existing config wins, in this order:
 1. `LEAGUE_FILE`, when set;
 2. `./league.json`;
 3. `./config/league.json`;
-4. `league.json` beside `DATA_FILE`.
+4. `league.json` in the directory containing `DATA_FILE`.
 
-If none exists, Gridiron starts with a neutral reference configuration whose dates are deliberately far in the future. Precedence is built-in defaults, then the selected JSON file, then the limited environment overrides listed below. The active source is visible in `/api/health` and commissioner diagnostics.
+When the configuration library is called directly and no file exists,
+`LoadConfig` returns its neutral reference defaults. The normal server boot
+has a stricter boundary: `main` runs the boot-state machine before building
+that configured application, so a fresh data volume with no `league.json`
+serves tokenized `/setup` rather than silently serving the reference league.
+A volume with prior setup state or league data but no config fails closed.
+To intentionally run the shipped reference demo, select it explicitly with
+`LEAGUE_FILE=config/league.json.example`, `DEMO_MODE=true`, and a local
+`APP_ENV` such as `development`. In all cases, precedence is built-in
+defaults, then the selected JSON file, then the limited environment overrides
+listed below. The active source is visible in `/api/health` and commissioner
+diagnostics once the configured application is running.
 
 ## First-boot setup and boot states
 
@@ -37,6 +48,20 @@ At every start, Gridiron resolves into exactly one of three boot states before i
 The setup token is single-session bound: the first correct claim wins, later attempts see a truthful "already claimed" page, and 60 minutes of wizard inactivity mints a fresh token. A container restart during SETUP always prints a new token; non-secret wizard progress survives the restart.
 
 Confirming the wizard's final review step commits atomically: it writes `runtime.env` (`COMMISSIONER_EMAILS`, `IDENTITY_ALIASES`, a generated `SESSION_SECRET`; 0600, beside the state database), mints the membership step's Tier 0 invite links, writes `league.json` beside `DATA_FILE`, then a durable completion marker. `runtime.env` is loaded automatically at boot, beside the state database; a real environment variable of the same name always wins. Set `GRIDIRON_SUPERVISED=1` when a supervisor (for example, a compose `restart:` policy) will restart the container after commit; the process then exits so the supervisor can restart it into CONFIGURED. Without it, the completion page instructs a manual restart and the process keeps serving that page.
+
+`DEMO_MODE` is evaluated only after the boot state is CONFIGURED. Setting
+`DEMO_MODE=true` without a resolvable config never bypasses `/setup`; the
+reference demo requires the explicit example `LEAGUE_FILE` above.
+
+## Runtime state path
+
+`DATA_FILE` names the legacy JSON state-file anchor, defaulting to
+`data/league-state.json`. The authoritative store is SQLite at `league.db`
+in the same directory, so the default pair is `data/league-state.json` and
+`data/league.db`. When a legacy JSON file is imported successfully, it is
+renamed to `league-state.json.imported` and the SQLite database remains the
+source of truth. Never set `DATA_FILE` to `league.db`: the importer expects
+the `DATA_FILE` path to be JSON and would collide with the database.
 
 ## Tier 0: invite-link sign-in
 
@@ -374,7 +399,16 @@ scripts/go-check.sh test -run 'Test.*Config'
 scripts/go-check.sh test -count=1
 scripts/go-check.sh vet
 gosx check app/guide/page.gsx
-gosx build --prod .
+docker build --tag gridiron-2000:local .
 ```
 
-Startup fails closed on invalid config. `/guide` projects only public config facts—league name/mode, team and roster capacity, draft meeting/timezone, membership posture, and player-pool target math—and never exposes member, invite, seat, pick, or board state.
+The canonical Dockerfile compiles the real Go server and generates matching
+client assets with the exact GoSX module selected by `go.mod`, using
+`GOSX_SKIP_VERSION_CHECK=1 gosx build --dev .`. The standalone
+`gosx build --prod .` command is an optional TinyGo/prerender artifact, not
+the server image's release build; it needs an explicit valid `LEAGUE_FILE` and
+must not be used as a substitute for the Docker build. Startup fails closed on
+invalid config. `/guide` projects only public config facts—league name/mode,
+team and roster capacity, draft meeting/timezone, membership posture, and
+player-pool target math—and never exposes member, invite, seat, pick, or board
+state.
