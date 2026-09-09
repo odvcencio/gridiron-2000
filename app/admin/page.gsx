@@ -512,6 +512,7 @@ func Page() Node {
 			</If>
 			<If cond={data.has_admin_error}>
 				<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.admin_error} />
+				<a class="access-link" href="/help/commissioner-operations?field=validation" data-gosx-link>Why was this rejected? →</a>
 			</If>
 			<If cond={data.has_avatar_error}>
 				<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.avatar_error} />
@@ -1026,7 +1027,7 @@ func Page() Node {
 						    reason line above never named a stale feed as the real
 						    cause of "waiting for games to go final". */}
 						<If cond={data.schedule.close.has_stale_feed_notice}>
-							<p class="scoring-note"><strong>STALE FEED:</strong> {data.schedule.close.stale_feed_notice}</p>
+							<p class="scoring-note"><strong>STALE FEED:</strong> {data.schedule.close.stale_feed_notice} <a class="access-link" href="/help/data-state-and-freshness?state=stale" data-gosx-link>How should I read stale data? →</a></p>
 						</If>
 						<If cond={data.schedule.close.final}>
 							<p class="flash-message"><strong>ALREADY FINAL:</strong> Closing the week again changes nothing.</p>
@@ -1041,6 +1042,7 @@ func Page() Node {
 								</If>
 								<If cond={data.schedule.close.ready == false}>
 									<button class="button" type="submit" disabled="disabled">Normal close waits for readiness</button>
+									<a class="access-link" href="/help/commissioner-operations?field=deadline" data-gosx-link>Why is normal close blocked? →</a>
 								</If>
 							</form>
 							{/* F3 (J4 console gap-audit): a forced close used to report bare
