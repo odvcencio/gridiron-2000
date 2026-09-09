@@ -81,18 +81,17 @@ func TestMatchupStatusBlockRendersClosedEarlyBadge(t *testing.T) {
 	}
 }
 
-// TestStarterCellDataProjDefaultsToHonestZero covers A2: a raw ledger row
-// with no "proj" key (a source map this wave has not decorated, or a nil
-// row for an unresolved slot) still reads the honest zero PROJ 0.0
-// rather than a blank cell.
+// TestStarterCellDataProjDefaultsToHonestZero covers A2's two honest
+// fallbacks: a filled player with no source forecast is unavailable, while
+// an empty slot remains the honest zero PROJ 0.0 rather than a blank cell.
 func TestStarterCellDataProjDefaultsToHonestZero(t *testing.T) {
 	withProj := starterCellData(map[string]any{"player_id": "p-09", "proj": "14.2"}, false)
 	if withProj.Proj != "14.2" {
 		t.Fatalf("Proj with a source value = %q, want %q", withProj.Proj, "14.2")
 	}
 	withoutProj := starterCellData(map[string]any{"player_id": "p-09"}, false)
-	if withoutProj.Proj != "0.0" {
-		t.Fatalf("Proj with no source value = %q, want the honest zero %q", withoutProj.Proj, "0.0")
+	if withoutProj.Proj != "—" {
+		t.Fatalf("Proj with no source value = %q, want unavailable %q", withoutProj.Proj, "—")
 	}
 	emptySlot := starterCellData(nil, false)
 	if emptySlot.Proj != "0.0" {
@@ -222,5 +221,30 @@ func TestRedesignedHeaderRetiresStillToPlayJargon(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q: %s", want, body)
 		}
+	}
+}
+
+func TestProjectionWeekNoticeIsVisibleAndScoped(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(source)
+	for _, want := range []string{
+		`data-gosx-live-bind="projectionNote"`,
+	} {
+		if !strings.Contains(markup, want) {
+			t.Fatalf("MatchupStatusBlock missing projection-week disclosure %q", want)
+		}
+	}
+	styles, err := os.ReadFile("../../public/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(styles), ".matchups-page .matchup-status-line__projection") {
+		t.Fatal("projection-week disclosure style is not scoped to the Matchups page")
+	}
+	if !strings.Contains(string(styles), ".matchups-page .matchup-status-line__projection:empty") {
+		t.Fatal("empty projection-week disclosure must not reserve a status-line row")
 	}
 }

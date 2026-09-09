@@ -18594,6 +18594,18 @@ a.skip-link {
    the new markup page.gsx renders, plus the two breakpoint overrides at
    the end of this block. */
 
+.matchups-page .matchup-status-line__projection {
+  flex: 1 1 100%;
+  color: var(--color-accent-hot);
+  font-size: var(--type-xs);
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.matchups-page .matchup-status-line__projection:empty {
+  display: none;
+}
+
 .matchup-pairs-totals {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 3.25rem minmax(0, 1fr);

@@ -149,7 +149,11 @@ func starterCellData(raw any, right bool) StarterCellData {
 	// that has not been decorated with it.
 	proj := stringField(row, "proj")
 	if proj == "" {
-		proj = "0.0"
+		if stringField(row, "player_id") == "" {
+			proj = "0.0"
+		} else {
+			proj = "—"
+		}
 	}
 	return StarterCellData{
 		HasPlayer:       stringField(row, "player_id") != "",

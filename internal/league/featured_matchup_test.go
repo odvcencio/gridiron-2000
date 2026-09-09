@@ -251,3 +251,59 @@ func TestFeaturedMatchupMapShowsProjectionBeforeKickoff(t *testing.T) {
 		t.Fatalf("pre-kickoff win_prob_width = %#v, want a non-zero bar width with a projection present", myMatchup["win_prob_width"])
 	}
 }
+
+func TestMatchupsSuppressProjectionWhenSourceWeekDiffers(t *testing.T) {
+	svc, _ := featuredMatchupFixture(t)
+	svc.SetPoolStatus(func() PlayerPoolStatus {
+		return PlayerPoolStatus{Mode: "cache", State: "cached", ProjectionWeek: 2}
+	})
+
+	view := svc.LiveScoresView(context.Background())
+	projected, ok := view["projected"].(map[string]string)
+	if !ok {
+		t.Fatalf("projected = %#v, want team-keyed strings", view["projected"])
+	}
+	if got := projected["team-1"]; got != winProbabilityDashText {
+		t.Fatalf("live team projection for source-week mismatch = %q, want unavailable dash", got)
+	}
+
+	scores, ok := view["scores"].(map[string]string)
+	if !ok {
+		t.Fatalf("scores = %#v, want team-keyed strings", view["scores"])
+	}
+	if got := scores["team-1"]; got == "" || got == winProbabilityDashText {
+		t.Fatalf("actual team score was blanked with source-week mismatch: %q", got)
+	}
+	starterProj, ok := view["starterProj"].(map[string]string)
+	if !ok {
+		t.Fatalf("starterProj = %#v, want live starter projection map", view["starterProj"])
+	}
+	for key, got := range starterProj {
+		if got != winProbabilityDashText && got != "0.0" {
+			t.Fatalf("starterProj[%q] = %q, want unavailable dash or empty-slot zero", key, got)
+		}
+	}
+	if got := view["projectionNote"]; got != " · Projections unavailable for Week 1; latest source snapshot is Week 2." {
+		t.Fatalf("live projection note = %#v, want explicit source-week mismatch", got)
+	}
+
+	data := svc.MatchupsData(context.Background(), matchupDataRequest(t, "/matchups"))
+	live, ok := data["live"].(map[string]any)
+	if !ok {
+		t.Fatalf("data.live = %#v, want map", data["live"])
+	}
+	if got := live["projection_note"]; got != " · Projections unavailable for Week 1; latest source snapshot is Week 2." {
+		t.Fatalf("initial projection note = %#v, want explicit source-week mismatch", got)
+	}
+	myMatchup, ok := data["my_matchup"].(map[string]any)
+	if !ok {
+		t.Fatalf("my_matchup = %#v, want map", data["my_matchup"])
+	}
+	mine, ok := myMatchup["mine"].(map[string]any)
+	if !ok {
+		t.Fatalf("my_matchup.mine = %#v, want map", myMatchup["mine"])
+	}
+	if got := mine["projected"]; got != winProbabilityDashText {
+		t.Fatalf("featured team projection for source-week mismatch = %#v, want unavailable dash", got)
+	}
+}

@@ -2236,10 +2236,14 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 	// "Set lineup for Week N" CTA at whichever week is actually
 	// editable — see that function's own doc comment.
 	lockWeek := lineupCurrentWeekAt(s.schedule(), s.clock())
-	myMatchup, otherMatchups := s.featuredMatchupViews(state, live, matchups, teamID, selectedWeek, lockWeek)
+	pool := s.pool()
+	projectionByID, projectionAvailable, projectionNote := s.projectionPoolForWeek(pool, selectedWeek)
+	myMatchup, otherMatchups := s.featuredMatchupViews(state, live, matchups, teamID, selectedWeek, lockWeek, projectionByID, projectionAvailable)
+	liveView := s.liveMapForWeek(live, isCurrentWeek, currentWeek)
+	liveView["projection_note"] = projectionNote
 	return map[string]any{
 		"viewer":             viewer,
-		"live":               s.liveMapForWeek(live, isCurrentWeek),
+		"live":               liveView,
 		"playoff_truth":      s.playoffTruthMap(state, s.clock(), s.IsCommissioner(r)),
 		"matchups":           matchups,
 		"matchups_empty":     len(matchups) == 0,
@@ -4001,6 +4005,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	stillToPlaySentenceBind := make(map[string]string, len(live.Matchups))
 	liveStatusValue, hasLive := s.liveStatus()
 	pool := s.pool()
+	projectionByID, _, projectionNote := s.projectionPoolForWeek(pool, live.Week)
 	addStarterRow := func(row StarterLedgerRow) {
 		// Keep every visible starter field in a stable, one-level map keyed by
 		// the slot. The page binds all of these fields to the same live key so
@@ -4024,7 +4029,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		starterSourceText[row.LiveKey] = ledgerSourceText(row.Source)
 		starterGameStateBind[row.LiveKey] = row.GameState
 		starterPossessionBind[row.LiveKey] = row.Possession
-		starterProjBind[row.LiveKey] = starterProjectedText(row, pool.byID, liveStatusValue, hasLive)
+		starterProjBind[row.LiveKey] = starterProjectedText(row, projectionByID, liveStatusValue, hasLive)
 	}
 	for _, matchup := range live.Matchups {
 		scores[matchup.Away.ID] = matchupScoreText(matchup.Away)
@@ -4043,13 +4048,13 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		matchupClock[matchup.ID] = matchupClockLabel(matchup.Clock)
 		matchupIndicator[matchup.ID] = liveIndicatorToken(matchup.State)
 		matchupLiveStateBind[matchup.ID] = matchup.LiveState
-		awayProjected := projectedTotal(matchup.Away.StarterLedger, starterProjections(matchup.Away.StarterLedger, pool.byID), liveStatusValue, hasLive)
-		homeProjected := projectedTotal(matchup.Home.StarterLedger, starterProjections(matchup.Home.StarterLedger, pool.byID), liveStatusValue, hasLive)
+		awayProjected := projectedTotal(matchup.Away.StarterLedger, starterProjections(matchup.Away.StarterLedger, projectionByID), liveStatusValue, hasLive)
+		homeProjected := projectedTotal(matchup.Home.StarterLedger, starterProjections(matchup.Home.StarterLedger, projectionByID), liveStatusValue, hasLive)
 		// hasProjectableStarters, not ScoreKnown: a pre-kickoff lineup still
 		// has a real projection to show, even while the current score cell
 		// itself reads "—" (wave-8 audit item 2).
-		awayHasProjection := hasProjectableStarters(matchup.Away.StarterLedger)
-		homeHasProjection := hasProjectableStarters(matchup.Home.StarterLedger)
+		awayHasProjection := hasKnownStarterProjections(matchup.Away.StarterLedger, projectionByID)
+		homeHasProjection := hasKnownStarterProjections(matchup.Home.StarterLedger, projectionByID)
 		projected[matchup.Away.ID] = projectedText(awayProjected, awayHasProjection)
 		projected[matchup.Home.ID] = projectedText(homeProjected, homeHasProjection)
 		winProb[matchup.Home.ID] = winProbabilityText(homeProjected, awayProjected, homeHasProjection, awayHasProjection)
@@ -4114,6 +4119,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"headlineTop":           presentation["headline_top"],
 		"headlineBottom":        presentation["headline_bottom"],
 		"refreshLabel":          presentation["refresh_label"],
+		"projectionNote":        projectionNote,
 		"noteTitle":             presentation["note_title"],
 		"noteBody":              presentation["note_body"],
 	}
@@ -5377,19 +5383,44 @@ func (s *Service) pickMaps(state PersistedState, players map[string]Player, scor
 	return out
 }
 
+// projectionPoolForWeek gates the runtime player pool by its source
+// projection week. An explicit PoolStatus ProjectionWeek is authoritative:
+// reusing it for another selected week would make a stale forecast look
+// current. A configured status source without a projection week also fails
+// closed, because an unknown source week cannot be represented as the
+// requested week. Only a service with no status seam at all (the legacy
+// fixture-only PlayerSource tests) keeps its fixture projections usable.
+func (s *Service) projectionPoolForWeek(pool playerPool, week int) (map[string]Player, bool, string) {
+	status := s.poolSourceStatus(pool)
+	s.poolMu.Lock()
+	statusSourceConfigured := s.poolStatusFn != nil
+	s.poolMu.Unlock()
+	if !statusSourceConfigured && status.ProjectionWeek <= 0 {
+		return pool.byID, true, ""
+	}
+	if !projectionWeekMatches(week, status.ProjectionWeek) {
+		return nil, false, projectionWeekNote(week, status.ProjectionWeek)
+	}
+	return pool.byID, true, ""
+}
+
 // liveMapForWeek keeps the current week on the existing live/degraded
 // presentation contract, while a historical or future selection is an
 // explicitly static view. A non-current snapshot must not claim it will
 // refresh itself or show a live indicator the page cannot update in place.
 // Final results remain unchanged because their existing presentation is
 // already static and authoritative.
-func (s *Service) liveMapForWeek(live LiveSnapshot, isCurrentWeek bool) map[string]any {
+func (s *Service) liveMapForWeek(live LiveSnapshot, isCurrentWeek bool, currentWeek int) map[string]any {
 	view := s.liveMap(live)
 	if isCurrentWeek || live.State == MatchupStateFinal || live.State == MatchupStatePreseason {
 		return view
 	}
 	for key, value := range matchupStaticPresentation(live.State) {
 		view[key] = value
+	}
+	if live.Week > currentWeek {
+		view["refresh_label"] = "Future week"
+		view["note_body"] = "This is a static future-week schedule view; current-week scoring updates are shown on the current week."
 	}
 	view["show_live_indicator"] = false
 	view["live_indicator"] = ""
@@ -5730,9 +5761,8 @@ func otherMatchupsCountLabel(count int) string {
 // threaded down to every starterProjections call this function and
 // featuredMatchupMap make, rather than each call taking the pool itself
 // (round-2 review of commit 133d1d7, finding 3).
-func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, matchups []map[string]any, teamID string, viewedWeek, lockWeek int) (map[string]any, []map[string]any) {
+func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, matchups []map[string]any, teamID string, viewedWeek, lockWeek int, projectionByID map[string]Player, projectionAvailable bool) (map[string]any, []map[string]any) {
 	status, hasLive := s.liveStatus()
-	pool := s.pool()
 	index, isViewer := featuredMatchupIndex(live.Matchups, teamID)
 	other := make([]map[string]any, 0, len(matchups))
 	for i, entry := range matchups {
@@ -5741,12 +5771,12 @@ func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, 
 		}
 		if i < len(live.Matchups) {
 			m := live.Matchups[i]
-			awayProjected := projectedTotal(m.Away.StarterLedger, starterProjections(m.Away.StarterLedger, pool.byID), status, hasLive)
-			homeProjected := projectedTotal(m.Home.StarterLedger, starterProjections(m.Home.StarterLedger, pool.byID), status, hasLive)
+			awayProjected := projectedTotal(m.Away.StarterLedger, starterProjections(m.Away.StarterLedger, projectionByID), status, hasLive)
+			homeProjected := projectedTotal(m.Home.StarterLedger, starterProjections(m.Home.StarterLedger, projectionByID), status, hasLive)
 			// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2):
 			// see the LiveScoresView call site above.
-			awayHasProjection := hasProjectableStarters(m.Away.StarterLedger)
-			homeHasProjection := hasProjectableStarters(m.Home.StarterLedger)
+			awayHasProjection := hasKnownStarterProjections(m.Away.StarterLedger, projectionByID)
+			homeHasProjection := hasKnownStarterProjections(m.Home.StarterLedger, projectionByID)
 			entry["projected_away"] = projectedText(awayProjected, awayHasProjection)
 			entry["projected_home"] = projectedText(homeProjected, homeHasProjection)
 			// win_prob_home/win_prob_home_width give every around-the-league
@@ -5779,14 +5809,14 @@ func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, 
 			// per-slot starter pairs the featured card renders (Task 11b's
 			// Scorebug body is a ul.matchup-pairs of StarterCell, same as
 			// FeaturedMatchup's), now with each row's own PROJ cell (A2).
-			entry["pairs"] = featuredStarterPairs(m.Away.StarterLedger, m.Home.StarterLedger, pool.byID, status, hasLive)
+			entry["pairs"] = featuredStarterPairs(m.Away.StarterLedger, m.Home.StarterLedger, projectionByID, status, hasLive)
 		}
 		other = append(other, entry)
 	}
 	if index < 0 {
 		return emptyFeaturedMatchup(), other
 	}
-	return s.featuredMatchupMap(state, live.Matchups[index], isViewer, teamID, viewedWeek, lockWeek, status, hasLive, pool.byID), other
+	return s.featuredMatchupMap(state, live.Matchups[index], isViewer, teamID, viewedWeek, lockWeek, status, hasLive, projectionByID, projectionAvailable), other
 }
 
 // emptyFeaturedMatchup is my_matchup's shape when the week has no
@@ -5809,7 +5839,7 @@ func emptyFeaturedMatchup() map[string]any {
 // nothing distinguishes the two sides for a spectator. byID is the
 // caller's single s.pool().byID read for the whole render (see
 // featuredMatchupViews).
-func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isViewer bool, teamID string, viewedWeek, lockWeek int, status LiveStatus, hasLive bool, byID map[string]Player) map[string]any {
+func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isViewer bool, teamID string, viewedWeek, lockWeek int, status LiveStatus, hasLive bool, byID map[string]Player, projectionAvailable bool) map[string]any {
 	mine, theirs := m.Home, m.Away
 	if isViewer && m.Away.ID == teamID {
 		mine, theirs = m.Away, m.Home
@@ -5818,7 +5848,7 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 	theirsProjected := projectedTotal(theirs.StarterLedger, starterProjections(theirs.StarterLedger, byID), status, hasLive)
 	// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2): see the
 	// LiveScoresView call site above.
-	winProbText := winProbabilityText(mineProjected, theirsProjected, hasProjectableStarters(mine.StarterLedger), hasProjectableStarters(theirs.StarterLedger))
+	winProbText := winProbabilityText(mineProjected, theirsProjected, hasKnownStarterProjections(mine.StarterLedger, byID), hasKnownStarterProjections(theirs.StarterLedger, byID))
 	// win_prob_width is a literal CSS width set once at render (not
 	// live-bound, page.gsx's comment beside the bar), so it can never hold
 	// the "—" placeholder winProbText renders for an unknown side; "0%"
@@ -5868,8 +5898,8 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 	// viewedWeek; a closed week's historical bench composition is not
 	// separately pinned the way its starting lineup is, so this is an
 	// informational best-effort read for past weeks, not a scored value.
-	mineBench := benchRowMaps(s.effectiveLineupForTeam(state, mine.ID, viewedWeek).Bench)
-	theirsBench := benchRowMaps(s.effectiveLineupForTeam(state, theirs.ID, viewedWeek).Bench)
+	mineBench := benchRowMapsWithProjection(s.effectiveLineupForTeam(state, mine.ID, viewedWeek).Bench, projectionAvailable)
+	theirsBench := benchRowMapsWithProjection(s.effectiveLineupForTeam(state, theirs.ID, viewedWeek).Bench, projectionAvailable)
 	return map[string]any{
 		"has_matchup":            true,
 		"is_viewer":              isViewer,
@@ -5885,8 +5915,8 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 		"next_lineup_href":       fmt.Sprintf("/team?week=%d#lineup", nextWeek),
 		"next_week":              nextWeek,
 		"has_next_week":          hasNextWeek,
-		"mine":                   s.featuredTeamMap(state, mine, mineProjected),
-		"theirs":                 s.featuredTeamMap(state, theirs, theirsProjected),
+		"mine":                   s.featuredTeamMap(state, mine, mineProjected, hasKnownStarterProjections(mine.StarterLedger, byID)),
+		"theirs":                 s.featuredTeamMap(state, theirs, theirsProjected, hasKnownStarterProjections(theirs.StarterLedger, byID)),
 		"pairs":                  featuredStarterPairs(mine.StarterLedger, theirs.StarterLedger, byID, status, hasLive),
 		"mine_bench":             mineBench,
 		"theirs_bench":           theirsBench,
@@ -5900,20 +5930,24 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 // no live-bind, since the bench never plays in this matchup and its
 // weekly projection never changes mid-game.
 func benchRowMaps(bench []Player) []map[string]any {
+	return benchRowMapsWithProjection(bench, true)
+}
+
+func benchRowMapsWithProjection(bench []Player, projectionAvailable bool) []map[string]any {
 	out := make([]map[string]any, 0, len(bench))
 	for _, player := range bench {
 		out = append(out, map[string]any{
 			"player_name": player.Name,
 			"position":    player.Position,
 			"nfl_team":    player.NFLTeam,
-			"proj":        fmt.Sprintf("%.1f", player.Projection),
+			"proj":        map[bool]string{true: playerProjectionText(player), false: winProbabilityDashText}[projectionAvailable],
 		})
 	}
 	return out
 }
 
 // featuredTeamMap is my_matchup's mine/theirs team shape.
-func (s *Service) featuredTeamMap(state PersistedState, side ScoreTeam, projected float64) map[string]any {
+func (s *Service) featuredTeamMap(state PersistedState, side ScoreTeam, projected float64, hasProjection bool) map[string]any {
 	team := s.teamView(state, side.ID)
 	_, hasImage, avatarURL := s.avatarView(team.ID, team.Tone)
 	return map[string]any{
@@ -5926,7 +5960,7 @@ func (s *Service) featuredTeamMap(state PersistedState, side ScoreTeam, projecte
 		"id": side.ID, "name": side.Name, "manager": team.Manager, "record": s.currentTeamRecord(state, side.ID),
 		// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2): see
 		// the LiveScoresView call site above.
-		"score": matchupScoreText(side), "projected": projectedText(projected, hasProjectableStarters(side.StarterLedger)),
+		"score": matchupScoreText(side), "projected": projectedText(projected, hasProjection),
 		"tone": team.Tone, "abbreviation": side.Abbreviation,
 		"has_avatar_image": hasImage, "avatar_image_url": avatarURL,
 	}

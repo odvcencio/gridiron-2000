@@ -90,6 +90,60 @@ func hasProjectableStarters(rows []StarterLedgerRow) bool {
 	return false
 }
 
+// playerHasProjection is the projection-presence rule shared by the
+// matchup render and the starter-only team total. Tank01's parser only
+// admits a positive projection into the fantasy pool, and the fantasy
+// service's WithProj status uses the same rule; a zero here therefore means
+// the source did not provide a forecast, not that a filled starter is
+// forecast to score zero. Empty slots are handled by the row/lineup callers
+// and remain honest zeroes.
+func playerHasProjection(player Player) bool {
+	return player.ID != "" && projectionValueKnown(player.Projection)
+}
+
+func projectionValueKnown(value float64) bool {
+	return value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
+// hasKnownStarterProjections reports whether every filled starter row has a
+// matching positive source projection. It deliberately returns false for an
+// empty lineup, and also for a partially known lineup: a team total based on
+// only the known subset would masquerade as a complete forecast.
+func hasKnownStarterProjections(rows []StarterLedgerRow, byID map[string]Player) bool {
+	hasStarter := false
+	for _, row := range rows {
+		if row.PlayerID == "" {
+			continue
+		}
+		hasStarter = true
+		player, ok := byID[row.PlayerID]
+		if !ok || !playerHasProjection(player) {
+			return false
+		}
+	}
+	return hasStarter
+}
+
+// projectionWeekMatches reports whether an explicit pool source week can be
+// used for the requested matchup week. A missing source week is not a match;
+// callers without a status seam handle that test-only absence explicitly.
+func projectionWeekMatches(requestedWeek, sourceWeek int) bool {
+	return requestedWeek <= 0 || requestedWeek == sourceWeek
+}
+
+// projectionWeekNote explains why a requested week has no projection. The
+// source week is an observed PoolStatus fact; this function deliberately does
+// not speculate about an upstream future-week feed.
+func projectionWeekNote(requestedWeek, sourceWeek int) string {
+	if requestedWeek <= 0 || sourceWeek == requestedWeek {
+		return ""
+	}
+	if sourceWeek <= 0 {
+		return fmt.Sprintf(" · Projections unavailable for Week %d; source projection week is unavailable.", requestedWeek)
+	}
+	return fmt.Sprintf(" · Projections unavailable for Week %d; latest source snapshot is Week %d.", requestedWeek, sourceWeek)
+}
+
 // winProbabilityText renders A6's win-probability percentage, but only
 // once both sides have at least one projectable starter (mineHasProjection,
 // theirsHasProjection — see hasProjectableStarters): a side with no
@@ -167,7 +221,11 @@ func projectedTotal(rows []StarterLedgerRow, projections map[string]float64, sta
 	for _, row := range rows {
 		total += row.Points
 		game, ok := status.Games[row.NFLTeam]
-		total += projections[row.PlayerID] * remainingFraction(game, hasLive && ok)
+		projection := projections[row.PlayerID]
+		if !projectionValueKnown(projection) {
+			continue
+		}
+		total += projection * remainingFraction(game, hasLive && ok)
 	}
 	return total
 }
@@ -209,11 +267,30 @@ func stillToPlay(rows []StarterLedgerRow, status LiveStatus) int {
 func TeamStartersProjectedTotal(lineup EffectiveLineup) float64 {
 	total := 0.0
 	for _, slot := range lineup.Slots {
-		if slot.HasPlayer {
+		if slot.HasPlayer && playerHasProjection(slot.Player) {
 			total += slot.Player.Projection
 		}
 	}
 	return total
+}
+
+// TeamStartersProjectionKnown is the presence gate paired with
+// TeamStartersProjectedTotal. A filled starter whose source projection is
+// absent cannot make a complete team forecast, so callers should render the
+// total as unavailable until every filled starter is known. Empty slots do
+// not count as missing forecasts.
+func TeamStartersProjectionKnown(lineup EffectiveLineup) bool {
+	hasStarter := false
+	for _, slot := range lineup.Slots {
+		if !slot.HasPlayer {
+			continue
+		}
+		hasStarter = true
+		if !playerHasProjection(slot.Player) {
+			return false
+		}
+	}
+	return hasStarter
 }
 
 // starterProjections reads each row's player's weekly Tank01 projection
@@ -232,7 +309,7 @@ func starterProjections(rows []StarterLedgerRow, byID map[string]Player) map[str
 		if row.PlayerID == "" {
 			continue
 		}
-		if player, ok := byID[row.PlayerID]; ok {
+		if player, ok := byID[row.PlayerID]; ok && playerHasProjection(player) {
 			out[row.PlayerID] = player.Projection
 		}
 	}
@@ -252,16 +329,27 @@ func starterProjectedTotal(row StarterLedgerRow, byID map[string]Player, status 
 	if row.PlayerID == "" {
 		return 0
 	}
+	player, ok := byID[row.PlayerID]
+	if !ok || !playerHasProjection(player) {
+		return row.Points
+	}
 	game, ok := status.Games[row.NFLTeam]
-	return row.Points + byID[row.PlayerID].Projection*remainingFraction(game, hasLive && ok)
+	return row.Points + player.Projection*remainingFraction(game, hasLive && ok)
 }
 
 // starterProjectedText renders starterProjectedTotal for the slot table's
-// PROJ cell: always a plain number, never the winProbabilityDashText dash
-// a team-level total falls back to for a side with no projectable
-// starters at all — one starter row's own honest projection is 0.0, not
-// unknown, even for an empty slot.
+// PROJ cell. An empty slot is an honest 0.0, while a filled slot without a
+// source forecast is unavailable; a numeric partial projection would make
+// the row look like a zero forecast and would not reconcile with a gated
+// team total.
 func starterProjectedText(row StarterLedgerRow, byID map[string]Player, status LiveStatus, hasLive bool) string {
+	if row.PlayerID == "" {
+		return "0.0"
+	}
+	player, ok := byID[row.PlayerID]
+	if !ok || !playerHasProjection(player) {
+		return winProbabilityDashText
+	}
 	return fmt.Sprintf("%.1f", starterProjectedTotal(row, byID, status, hasLive))
 }
 
@@ -281,4 +369,14 @@ func stillToPlaySentence(stillToPlay, total int) string {
 	default:
 		return fmt.Sprintf("%d of %d starters still to play", stillToPlay, total)
 	}
+}
+
+// playerProjectionText renders a bench player's source weekly forecast.
+// Bench rows do not participate in the matchup total, but an omitted source
+// forecast still must not look like a real 0.0 projection.
+func playerProjectionText(player Player) string {
+	if !playerHasProjection(player) {
+		return winProbabilityDashText
+	}
+	return fmt.Sprintf("%.1f", player.Projection)
 }

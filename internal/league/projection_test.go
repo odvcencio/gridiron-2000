@@ -203,12 +203,10 @@ func TestStarterProjectedTotalSumsToTheSameTeamTotal(t *testing.T) {
 	}
 }
 
-// TestStarterProjectedTextRendersANumberNeverADash covers A2: unlike a
-// team-level total (projectedText), which honestly renders "—" for a
-// side with no projectable starters at all, one starter row's own PROJ
-// cell always renders a plain number — an empty slot's honest projection
-// is 0.0, not unknown.
-func TestStarterProjectedTextRendersANumberNeverADash(t *testing.T) {
+// TestStarterProjectedTextRendersKnownOrEmpty covers A2: a known filled
+// starter renders its projected finish, an empty slot renders honest 0.0,
+// and an unavailable filled forecast renders the dash rather than zero.
+func TestStarterProjectedTextRendersKnownOrEmpty(t *testing.T) {
 	byID := map[string]Player{"p-1": {ID: "p-1", NFLTeam: "BUF", Projection: 18}}
 	filled := StarterLedgerRow{Slot: "QB", PlayerID: "p-1", NFLTeam: "BUF"}
 	if got := starterProjectedText(filled, byID, LiveStatus{}, false); got != "18.0" {
@@ -273,5 +271,86 @@ func TestTeamProjectedTotalHelpersAgreePreKickoff(t *testing.T) {
 	}
 	if strip != 34.7 {
 		t.Fatalf("strip total = %v, want 34.7 (20.5 + 14.2, the two filled slots only)", strip)
+	}
+}
+
+func TestMissingStarterProjectionRendersUnavailable(t *testing.T) {
+	byID := map[string]Player{
+		"known":   {ID: "known", NFLTeam: "BUF", Projection: 18},
+		"missing": {ID: "missing", NFLTeam: "BUF"},
+	}
+	rows := []StarterLedgerRow{
+		{Slot: "QB", PlayerID: "missing", NFLTeam: "BUF"},
+		{Slot: "RB1", PlayerID: "known", NFLTeam: "BUF"},
+		{Slot: "RB2"},
+	}
+	if got := starterProjectedText(rows[0], byID, LiveStatus{}, false); got != "—" {
+		t.Fatalf("missing starter projection = %q, want unavailable dash", got)
+	}
+	if got := starterProjectedText(rows[2], byID, LiveStatus{}, false); got != "0.0" {
+		t.Fatalf("empty starter slot projection = %q, want honest zero", got)
+	}
+	if got := starterProjections(rows, byID); len(got) != 1 || got["known"] != 18 {
+		t.Fatalf("starterProjections = %#v, want only known projection", got)
+	}
+	if hasKnownStarterProjections(rows, byID) {
+		t.Fatal("partially known starter rows must not be treated as a complete forecast")
+	}
+	if !hasKnownStarterProjections(rows[1:], byID) {
+		t.Fatal("known starter row should be projectable")
+	}
+}
+
+func TestTeamStartersProjectionKnownRequiresEveryFilledStarter(t *testing.T) {
+	known := EffectiveLineup{Slots: []SlotAssignment{
+		{Slot: SlotInstance{ID: "QB"}, HasPlayer: true, Player: Player{ID: "qb", Projection: 20}},
+		{Slot: SlotInstance{ID: "RB1"}, HasPlayer: false},
+	}}
+	if !TeamStartersProjectionKnown(known) {
+		t.Fatal("all filled starters with forecasts should be known")
+	}
+	missing := known
+	missing.Slots[0].Player.Projection = 0
+	if TeamStartersProjectionKnown(missing) {
+		t.Fatal("a filled starter without a forecast must be unavailable")
+	}
+	empty := EffectiveLineup{Slots: []SlotAssignment{{Slot: SlotInstance{ID: "QB"}, HasPlayer: false}}}
+	if TeamStartersProjectionKnown(empty) {
+		t.Fatal("an empty lineup must not claim a projection")
+	}
+}
+
+func TestProjectionPoolForWeekRejectsExplicitMismatch(t *testing.T) {
+	svc := newTestService(t, true)
+	svc.SetPoolStatus(func() PlayerPoolStatus {
+		return PlayerPoolStatus{Mode: "cache", State: "cached", ProjectionWeek: 1}
+	})
+	pool := playerPool{byID: map[string]Player{"p": {ID: "p", Projection: 20}}}
+	if got, available, note := svc.projectionPoolForWeek(pool, 2); got != nil || available || note != " · Projections unavailable for Week 2; latest source snapshot is Week 1." {
+		t.Fatalf("mismatched projection context = (%#v, %v, %q), want unavailable with source-week note", got, available, note)
+	}
+	if got, available, note := svc.projectionPoolForWeek(pool, 1); got["p"].Projection != 20 || !available || note != "" {
+		t.Fatalf("matching projection context = (%#v, %v, %q), want source pool", got, available, note)
+	}
+	svc.SetPoolStatus(func() PlayerPoolStatus {
+		return PlayerPoolStatus{Mode: "cache", State: "cached"}
+	})
+	if got, available, note := svc.projectionPoolForWeek(pool, 1); got != nil || available || note != " · Projections unavailable for Week 1; source projection week is unavailable." {
+		t.Fatalf("unknown projection context = (%#v, %v, %q), want unavailable with missing-source-week note", got, available, note)
+	}
+}
+
+func TestLiveMapForWeekLabelsFutureAsFuture(t *testing.T) {
+	svc := newTestService(t, true)
+	future := svc.liveMapForWeek(LiveSnapshot{Week: 2, State: MatchupStateScheduled}, false, 1)
+	if future["refresh_label"] != "Future week" {
+		t.Fatalf("future refresh_label = %#v, want Future week", future["refresh_label"])
+	}
+	if future["note_body"] != "This is a static future-week schedule view; current-week scoring updates are shown on the current week." {
+		t.Fatalf("future note_body = %#v, want future-week explanation", future["note_body"])
+	}
+	past := svc.liveMapForWeek(LiveSnapshot{Week: 1, State: MatchupStateScheduled}, false, 2)
+	if past["refresh_label"] != "Past week" {
+		t.Fatalf("historical refresh_label = %#v, want Past week", past["refresh_label"])
 	}
 }
