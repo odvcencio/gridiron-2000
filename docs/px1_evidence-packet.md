@@ -9,7 +9,7 @@ the other. It contains no participant identity, email address, invite link,
 credential, mutable league value, or private deployment path.
 
 Provenance for this preparation is the isolated Gridiron source snapshot
-68966ea41dff0656437e7406a49a64e2a8e3264b. The help corpus declares version
+35ed7f8b92fce272b8ad88f7990df5cf7102fe58. The help corpus declares version
 0.1 and records its own reviewed source receipt in
 docs/px1_help_corpus.md. A source snapshot is evidence provenance, not a
 production or release claim.
@@ -64,9 +64,41 @@ conflicting copy produces a P0 mismatch record, not a coached answer.
 
 The corpus documents record reviewed source SHA
 43c1c50dfbd493b01368d2c74959eb23de098749, while this preparation starts from
-68966ea41dff0656437e7406a49a64e2a8e3264b. That older receipt is retained by
+35ed7f8b92fce272b8ad88f7990df5cf7102fe58. That older receipt is retained by
 the existing projection contract and is not presented here as a fresh human
 or deployment verification.
+
+## GoSX v0.56.1 framework assessment
+
+Assessment status: REVIEWED against the m31labs.dev/gosx v0.56.1 module
+required by this snapshot's go.mod and go.sum. The source and framework
+contract tests named below were read at that pinned version. This is a
+compatibility and ownership receipt for the PX-1 help surfaces; it is not a
+GoSX release sign-off, an accessibility receipt, or a participant/owner
+comprehension receipt.
+
+Pin receipt: go.mod requires m31labs.dev/gosx v0.56.1; go.sum records module
+checksum h1:uVG0qWVzMiGWpagWoJyunJKChcJFT1dDKJCnN8BafXY= and go.mod checksum
+h1:Ug3rYHb8JX3agdTwc55OgGsKgHZ1U+qflXrFsN9Prbg=. The assessment is tied to
+that exact dependency, not to an unpinned or locally replaced framework.
+
+| Surface | Reviewed GoSX contract | Gridiron use and explicit local boundary |
+| --- | --- | --- |
+| Route, query, and render | route/route.go exposes RouteContext.Param, Query, ActionPath, ActionState, and ActionStates. route/filesystem.go provides AddDir and DefaultFileRenderer; route/fileprogram.go lowers file-based components, including TextBlock. | app/help/page.server.go and app/help/_topic_id/page.server.go own topic lookup, runtime data, state guidance, and field projections. The app supplies league/help data to the framework route and renderer; it does not reimplement URL parsing or file rendering. |
+| data-gosx-link and runtime handles | server/navigation_contract.go defines NavigationLinkAttr. client/runtime/host/navigation.ts resolves managed links through isManagedNavigationLink, shouldHandleLink, and closestLink, with same-origin checks and native opt-out behavior. route/filesystem_test.go covers file-rendered link lowering and managed-link state. | Help templates use data-gosx-link for same-origin topic and owning-action links. GoSX owns the managed navigation lifecycle and handle discovery; Gridiron does not duplicate a client navigation registry or soft-navigation implementation. |
+| TextBlock and semantic as values | server/textblock.go provides TextBlockProps, TextBlock, TextBlockAttrs, and bootstrap/native modes. route/fileprogram.go maps the GSX as or tag attribute to TextBlockProps.Tag. server/textblock_test.go covers source, hints, native mode, and bootstrap attributes. | app/help/page.gsx and app/help/_topic_id/page.gsx use TextBlock, including TextBlock as="dfn" for glossary terms. app/help textflow tests verify the rendered contract. Text measurement, text-layout bootstrap, and semantic tag lowering remain framework-owned; no local text-layout clone is claimed. |
+| Action validation, feedback, and return targets | action/action.go provides Result, Validation, View, ReturnTargetField, and Context.RedirectBackWithMessage; route.RouteContext exposes ActionState and ActionStates. action/return_target_test.go covers native and managed POST-redirect/JSON behavior, fallback/root safety, and explicit redirects. | Gridiron maps domain failures to safe topic/field wording and uses internal/navigation.SafeActionReturnPath for contextual help. That validator additionally enforces UTF-8 validity, decoded leading-slash checks, double-encoded ambiguity rejection, authentication/action-route denial, fragment rules, and a 1024-byte cap. GoSX rootRelativeTarget is an internal helper, not a public drop-in for this policy; a generic public sanitizer is only a candidate and is not implemented or counted here. |
+| Action and component registries | action/action.go provides action.Registry with Register, Invoke, Has, List, and ServeHTTP. components/registry.go provides registry-backed component Register, Lookup, Render, and Bindings with stable names. | Gridiron uses GoSX action registration/dispatch for route actions. The help TopicCorpus, Search, ChecklistFor, and ContextualFieldHelp values are league-domain data and intentionally remain in app/help/content.go rather than being misrepresented as framework registry entries. |
+| App-domain generator | GoSX does not own Gridiron's topic corpus or PX-1 projections. | cmd/helpdocs/main.go projects app/help/content.go into the tracked manager, commissioner, and operator documents. Those outputs retain the generated “do not edit by hand” contract; the generator and its domain vocabulary are an explicit app-local exception, not a framework gap. |
+
+The reviewed split is therefore: GoSX owns route/query/render primitives,
+managed same-origin link handles, text-flow lowering, and action/result
+transport; Gridiron owns league-specific topics, search, role/checklist
+predicates, safe contextual-help policy, domain validation wording, and the
+helpdocs projection. The source review found no reason to duplicate a GoSX
+runtime primitive in the PX-1 corpus. Required accessibility, route/link
+completeness, release/source-image, remote-relay, human-comprehension, and
+owner-review receipts remain separately open below.
 
 ## Automated evidence inventory
 
@@ -87,7 +119,7 @@ that an owner reviewed the result.
 | A-09 | README.md and docs/README.md documentation tables; docs/px1_help_corpus.md and docs/px1_operator-help-projection.md local references | Locator, corpus, projection, and owning-route links are discoverable; generated projection links can be checked with the helpdocs command | Static/link evidence only; the complete Acceptance route/link report is NOT RUN |
 | A-10 | app/help/content.go and app/help/content_test.go; app/help/projection_test.go; app/help/_topic_id/page_render_test.go | Workflow/state vocabulary, role predicates, privacy, recovery, topic routes, and static projection checks | Automated source evidence only; the complete mode/phase/workflow-state matrix is NOT RUN |
 | A-11 | help_return_context_browser_test.go: TestBrowserContextualHelpReturnsToTeamAndMatchupsTask at 390x844 and 1440x900 | Existing authenticated browser trace for contextual help return and task context | Existing contextual trace only; the required full desktop/mobile accessibility trace for the comprehension packet is NOT RUN |
-| A-12 | docs/px1_operator-help-projection.md projection checks; GoSX help/field/glossary surfaces named by app/help/content.go | Identifies the upstream projection owner and the framework-shaped surfaces that require an upstream receipt or reviewed local exception | OPEN — no dedicated released/pinned GoSX assessment receipt or local-exception record is attached to this packet |
+| A-12 | docs/px1_operator-help-projection.md projection checks; “GoSX v0.56.1 framework assessment” above; GoSX action, route, navigation, TextBlock, and registry surfaces named there | Identifies the upstream projection owner, records the pinned framework contract, and names the reviewed app-local exceptions for domain corpus, contextual return policy, validation wording, and helpdocs generation | REVIEWED against the go.mod/go.sum v0.56.1 pin; this does not close PX-1, accessibility, participant, owner, or release gates |
 | A-13 | cmd/statrelay/relay_test.go; deploy/k8s/http-redirect.yaml; deploy/k8s/sk/http-redirect.yaml; docs/launch-checklist.md; app/commissioner/release_metadata_test.go | Exact source locations for relay behavior, HTTP redirects, release/image identity, and deployment drift evidence | OPEN — no fresh relay/redirect/source-image drift reconciliation is claimed in this PX-1 packet |
 
 Recommended focused commands for a fresh automated receipt are:
