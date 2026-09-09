@@ -1231,6 +1231,7 @@ func TestTeamLineupMovementAndProjectionContracts(t *testing.T) {
 		`data-gosx-csrf-token={csrf.token}`,
 		`data-gosx-reorder-item={slot.slot_id}`,
 		`data-gosx-reorder-handle`,
+		`lineup-slot__handle--disabled`,
 		`action={actionPath("lineup-move")}`,
 		`class="lineup-move-form"`,
 		`name="from_slot"`,
