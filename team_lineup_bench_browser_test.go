@@ -53,9 +53,12 @@ func startFullRosterDraftedChild(t *testing.T) (*simChild, *simLeague) {
 // TestBrowserTeamLineupAndBenchFullRosterLayout is section-B's own
 // browser evidence for the lineup/bench redesign: with a fully-drafted
 // roster, at both a phone and a desktop width, the grid header legend,
-// starter PROJ/PTS, the closed-by-default Swap disclosure (which must
-// open inline, not navigate away), the bench row's Start/Swap-with/Drop
-// actions, column alignment, and the page-height budget all hold.
+// starter PROJ/PTS, the closed-by-default Move disclosure (which must
+// open inline, not navigate away), the bench row's Move/Drop actions,
+// column alignment, touch target sizing, footer clearance, and horizontal
+// overflow all hold. Natural text flow is intentional here: content may
+// add a line when a name needs it, so this test does not impose an
+// arbitrary page-height cap.
 func TestBrowserTeamLineupAndBenchFullRosterLayout(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
@@ -64,19 +67,13 @@ func TestBrowserTeamLineupAndBenchFullRosterLayout(t *testing.T) {
 	bot := league.bots[1] // team-2, the second claimed seat
 
 	for _, viewport := range []struct {
-		name             string
-		width, height    int64
-		maxScreens       float64
-		minNameChars     int
-		checkPageBudgets bool
+		name          string
+		width, height int64
+		minNameChars  int
 	}{
-		{"phone", 390, 844, 6, 14, true},
-		{"desktop-1280", 1280, 900, 0, 14, false},
-		// 3.6 screens, not 3.5 (sequoia, 2026-09-08): before week 1 kicks off
-		// the "Your draft class" callout still renders (it retires at the first
-		// kickoff), and the harness fixture is pre-kickoff. Measured 3223 px on
-		// integration with the callout, under 3150 px without it.
-		{"desktop", 1440, 900, 3.6, 18, true},
+		{"phone", 390, 844, 14},
+		{"desktop-1280", 1280, 900, 14},
+		{"desktop", 1440, 900, 18},
 	} {
 		t.Run(viewport.name, func(t *testing.T) {
 			ctx := newBrowserContext(t, chromePath(t))
@@ -97,10 +94,6 @@ func TestBrowserTeamLineupAndBenchFullRosterLayout(t *testing.T) {
 			// attributes rather than guessing a pixel-per-character
 			// ratio.
 			assertNoStarterNameClamped(t, ctx, viewport.name, viewport.minNameChars)
-
-			if !viewport.checkPageBudgets {
-				return
-			}
 
 			// Grid header legend (item 3): all eight columns present at
 			// desktop, where the row reads as a table. Hidden at phone
@@ -151,7 +144,7 @@ func TestBrowserTeamLineupAndBenchFullRosterLayout(t *testing.T) {
 				t.Errorf("%s: %d Swap disclosure(s) open by default, want 0", viewport.name, openDisclosures)
 			}
 
-			// Bench rows carry Start/Swap-with/Drop.
+			// Bench rows carry the all-destination Move/Drop fallback.
 			var benchActionText string
 			if err := chromedp.Run(ctx, chromedp.Evaluate(
 				`(function(){var a=document.querySelector('.roster-row .lineup-slot__action');return a?a.innerText:'';})()`, &benchActionText)); err != nil {
@@ -159,8 +152,8 @@ func TestBrowserTeamLineupAndBenchFullRosterLayout(t *testing.T) {
 			}
 			if benchActionText == "" {
 				t.Errorf("%s: no bench row ACTION cell found", viewport.name)
-			} else if !strings.Contains(benchActionText, "Start") && !strings.Contains(benchActionText, "Swap") {
-				t.Errorf("%s: bench ACTION cell %q carries neither Start nor Swap with…", viewport.name, benchActionText)
+			} else if !strings.Contains(benchActionText, "Move") {
+				t.Errorf("%s: bench ACTION cell %q carries no Move action", viewport.name, benchActionText)
 			}
 			var dropSummaries int
 			if err := chromedp.Run(ctx, chromedp.Evaluate(
@@ -177,13 +170,12 @@ func TestBrowserTeamLineupAndBenchFullRosterLayout(t *testing.T) {
 			assertColumnAligned(t, ctx, viewport.name, ".lineup-slot .lineup-slot__id")
 			assertColumnAligned(t, ctx, viewport.name, ".lineup-slot .lineup-slot__proj")
 
-			// Row height budget: starter and bench rows alike.
-			maxRowHeight := 72.0
+			// Keep the controls comfortable as the names flow. This is a
+			// minimum target contract, not a row-height cap: a legitimate
+			// multiline identity is allowed to make its row taller.
 			if viewport.width <= 899 {
-				maxRowHeight = 120.0
+				assertLineupTouchTargets(t, ctx, viewport.name)
 			}
-			assertRowHeightBudget(t, ctx, viewport.name, ".lineup-slot", maxRowHeight)
-			assertRowHeightBudget(t, ctx, viewport.name, ".roster-row", maxRowHeight)
 
 			// No horizontal overflow.
 			scrollWidth, innerWidth := documentOverflowPx(t, ctx)
@@ -191,17 +183,11 @@ func TestBrowserTeamLineupAndBenchFullRosterLayout(t *testing.T) {
 				t.Errorf("%s: document overflows horizontally: scrollWidth=%d innerWidth=%d", viewport.name, scrollWidth, innerWidth)
 			}
 
-			// Page height budget: <= maxScreens x the viewport height for a
-			// full 17-player roster.
-			var scrollHeight int64
-			if err := chromedp.Run(ctx, chromedp.Evaluate(`document.documentElement.scrollHeight`, &scrollHeight)); err != nil {
-				t.Fatalf("read document.documentElement.scrollHeight: %v", err)
-			}
-			budget := float64(viewport.height) * viewport.maxScreens
-			if float64(scrollHeight) > budget {
-				t.Errorf("%s: page height %dpx exceeds the %.1f-screen budget (%.0fpx at %dpx tall)",
-					viewport.name, scrollHeight, viewport.maxScreens, budget, viewport.height)
-			}
+			// The final lineup/bench content must remain reachable above the
+			// fixed mobile action/tab bars. This measures actual occlusion after
+			// scrolling the content into view instead of treating total page
+			// height as a proxy for accessibility.
+			assertLineupFooterClearance(t, ctx, viewport.name)
 
 			// Swap opens inline (no navigation, no reload): click the first
 			// starter row's own Swap summary and confirm its <details>
@@ -268,14 +254,11 @@ func assertColumnAligned(t *testing.T, ctx context.Context, label, selector stri
 }
 
 // assertNoStarterNameClamped reads GoSX's own per-element text-layout
-// attributes (data-gosx-text-layout-truncated/-source, already present
-// on every maxLines=1 TextBlock name) for every starter and bench row
-// name: a source name minChars characters long or shorter must never be
-// the truncated one — the cherry re-audit's own regression (a real name
-// clamped to "Te…"/"Ja'…" because the PLAYER column, and the "DETAILS +"
-// affordance sharing it, left it only 6-7 characters of room). Reading
-// the runtime's own truncation verdict is more honest than guessing a
-// pixel-per-character ratio for a proportional font.
+// attributes (data-gosx-text-layout-truncated/-source) for every starter
+// and bench row name. Names now flow naturally; the runtime's own verdict
+// remains useful for catching a regression that reintroduces an accidental
+// clamp, without guessing a pixel-per-character ratio for a proportional
+// font.
 func assertNoStarterNameClamped(t *testing.T, ctx context.Context, label string, minChars int) {
 	t.Helper()
 	type nameState struct {
@@ -299,34 +282,90 @@ func assertNoStarterNameClamped(t *testing.T, ctx context.Context, label string,
 	}
 }
 
-// assertRowHeightBudget fails if any element matching selector exceeds
-// maxHeight — item 1/2's own per-row height budget (<=72px desktop,
-// <=120px phone), checked directly rather than inferred from the page
-// total alone.
-func assertRowHeightBudget(t *testing.T, ctx context.Context, label, selector string, maxHeight float64) {
+// assertLineupTouchTargets verifies the visible movement/drop controls use
+// the app's 44px minimum touch target. Hidden controls inside a closed
+// disclosure are ignored; they become visible and are measured by the same
+// check after the disclosure is opened by an interaction test.
+func assertLineupTouchTargets(t *testing.T, ctx context.Context, label string) {
 	t.Helper()
-	var heights []float64
-	expression := `Array.from(document.querySelectorAll(` + "`" + selector + "`" + `)).map(function(e){return e.getBoundingClientRect().height;})`
-	if err := chromedp.Run(ctx, chromedp.Evaluate(expression, &heights)); err != nil {
-		t.Fatalf("%s: read %s heights: %v", label, selector, err)
+	type target struct {
+		Width  float64 `json:"width"`
+		Height float64 `json:"height"`
+		Text   string  `json:"text"`
 	}
-	for i, h := range heights {
-		if h > maxHeight {
-			t.Errorf("%s: %s row %d height %.0fpx exceeds the %.0fpx budget", label, selector, i, h, maxHeight)
+	var targets []target
+	const expression = `(function(){
+		return Array.from(document.querySelectorAll('.lineup-slot__handle, .lineup-slot__action summary, .lineup-slot__action button')).map(function(e){
+			var r=e.getBoundingClientRect();
+			if (r.width <= 0 || r.height <= 0) return null;
+			return {width:r.width, height:r.height, text:(e.innerText || e.getAttribute('aria-label') || '').trim()};
+		}).filter(Boolean);
+	})()`
+	if err := chromedp.Run(ctx, chromedp.Evaluate(expression, &targets)); err != nil {
+		t.Fatalf("%s: read visible lineup touch targets: %v", label, err)
+	}
+	if len(targets) == 0 {
+		t.Fatalf("%s: no visible lineup movement/drop touch targets", label)
+	}
+	for _, target := range targets {
+		if target.Width < 44 || target.Height < 44 {
+			t.Errorf("%s: visible lineup control %q is %.1fx%.1fpx, want at least 44x44px", label, target.Text, target.Width, target.Height)
 		}
 	}
 }
 
-// waitLineupTextLayoutSettled polls until no clamped text block inside a
-// lineup or bench row still reports data-gosx-text-layout-ready="false",
-// or five seconds pass. Rows are measured only after this returns.
+// assertLineupFooterClearance scrolls the final roster content to the
+// document's reachable end and verifies that fixed mobile bars do not cover
+// it. This is intentionally a content-occlusion check, not a total page
+// height budget: natural TextBlock wrapping and breathing room may make a
+// page longer while remaining fully reachable.
+func assertLineupFooterClearance(t *testing.T, ctx context.Context, label string) {
+	t.Helper()
+	var state struct {
+		Bottom    float64 `json:"bottom"`
+		FooterTop float64 `json:"footerTop"`
+		Found     bool    `json:"found"`
+	}
+	const expression = `(function(){
+		var items=Array.from(document.querySelectorAll('.lineup-slot, .roster-list .roster-row')).filter(function(e){
+			var r=e.getBoundingClientRect(); return r.width > 0 && r.height > 0;
+		});
+		if (!items.length) return {found:false};
+		var root=document.documentElement;
+		var previous=root.style.scrollBehavior;
+		root.style.scrollBehavior='auto';
+		window.scrollTo(0, Math.max(0, root.scrollHeight - window.innerHeight));
+		var last=items[items.length-1];
+		var rect=last.getBoundingClientRect();
+		var footerTop=window.innerHeight;
+		Array.from(document.querySelectorAll('.app-tabbar, .page-action-bar')).forEach(function(e){
+			var style=getComputedStyle(e), r=e.getBoundingClientRect();
+			if (style.position === 'fixed' && r.width > 0 && r.height > 0) footerTop=Math.min(footerTop, r.top);
+		});
+		root.style.scrollBehavior=previous;
+		return {found:true, bottom:rect.bottom, footerTop:footerTop};
+	})()`
+	if err := chromedp.Run(ctx, chromedp.Evaluate(expression, &state)); err != nil {
+		t.Fatalf("%s: measure lineup footer clearance: %v", label, err)
+	}
+	if !state.Found {
+		t.Fatalf("%s: no visible lineup/bench content to measure for footer clearance", label)
+	}
+	if state.Bottom > state.FooterTop+1 {
+		t.Errorf("%s: final lineup content reaches %.1fpx, below fixed footer top %.1fpx", label, state.Bottom, state.FooterTop)
+	}
+}
+
+// waitLineupTextLayoutSettled polls until any remaining managed text layout
+// work and self-hosted font loading inside the lineup settle, or five
+// seconds pass. Rows are measured only after this returns.
 func waitLineupTextLayoutSettled(t *testing.T, ctx context.Context) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	// Two things move a row after first paint: the self-hosted web fonts
 	// (the fallback face is wider, so a name that fits in Plus Jakarta Sans
 	// wraps in Arial until the font arrives) and the text-layout runtime's
-	// clamp. Wait for both; under load the fonts alone can take seconds.
+	// measurement. Wait for both; under load the fonts alone can take seconds.
 	const pending = `(function(){
 		var blocks = document.querySelectorAll('.lineup-slot [data-gosx-text-layout][data-gosx-text-layout-max-lines][data-gosx-text-layout-ready="false"], .roster-row [data-gosx-text-layout][data-gosx-text-layout-max-lines][data-gosx-text-layout-ready="false"]').length;
 		var fonts = (document.fonts && document.fonts.status === 'loaded') ? 0 : 1;

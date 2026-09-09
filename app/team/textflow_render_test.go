@@ -13,10 +13,10 @@ import (
 )
 
 // TestTeamHeroNameAndOperatedByRenderThroughTextBlock is the text-flow
-// wave's render check (2026-09-05) for the hero team name (h1, clamped
-// at maxLines=2, a headline) and the "Operated by" manager name (flow,
-// no maxLines — an inline name mid-sentence, not a standalone row),
-// both through the GoSX TextBlock substrate instead of a plain element.
+// wave's render check (2026-09-05) for the hero team name (h1) and the
+// "Operated by" manager name (flow, no maxLines — an inline name
+// mid-sentence, not a standalone row), both through the GoSX TextBlock
+// substrate instead of a plain element.
 func TestTeamHeroNameAndOperatedByRenderThroughTextBlock(t *testing.T) {
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
@@ -40,8 +40,15 @@ func TestTeamHeroNameAndOperatedByRenderThroughTextBlock(t *testing.T) {
 	if !strings.Contains(body, `id="team-identity-hero"`) {
 		t.Fatalf("team page rendered no hero to check: %s", body)
 	}
-	if !strings.Contains(body, `data-gosx-text-layout-max-lines="2"`) {
-		t.Errorf("hero team name missing the maxLines=2 TextBlock clamp: %s", body)
+	hero := body[strings.Index(body, `id="team-identity-hero"`):]
+	if end := strings.Index(hero, "</section>"); end >= 0 {
+		hero = hero[:end]
+	}
+	if strings.Contains(hero, `data-gosx-text-layout-max-lines=`) {
+		t.Errorf("hero team name still carries a maxLines clamp; important identity should flow naturally: %s", hero)
+	}
+	if !strings.Contains(hero, `data-gosx-text-layout`) {
+		t.Errorf("hero team name did not render through the TextBlock layout substrate: %s", hero)
 	}
 	if !strings.Contains(body, `Operated by`) {
 		t.Fatalf("team page rendered no claimed manager to check: %s", body)

@@ -95,6 +95,7 @@ func TestPoolFreezesDuringAnInProgressDraft(t *testing.T) {
 func TestBuildPoolCarriesForwardDroppedRosteredPlayer(t *testing.T) {
 	service := newTestService(t, false)
 	original := testPool(5)
+	original[0].ProjStats = map[string]float64{"rushYds": 120, "rushTD": 1}
 	shrunk := append([]Player{}, original[1:]...) // drops original[0]
 	current, version := original, int64(1)
 	service.SetPlayerSource(func() ([]Player, int64, string) { return current, version, "live" })
@@ -129,9 +130,70 @@ func TestBuildPoolCarriesForwardDroppedRosteredPlayer(t *testing.T) {
 	if got.Name != rostered.Name || got.Position != rostered.Position {
 		t.Fatalf("carried-forward player fields drifted: got %+v, want name %q position %q", got, rostered.Name, rostered.Position)
 	}
+	if got.Projection != 0 || got.ProjStats != nil {
+		t.Fatalf("carried-forward player retained stale forecast: projection=%v projStats=%v, want unknown forecast with identity preserved", got.Projection, got.ProjStats)
+	}
 	for _, p := range second.players {
 		if p.ID == original[0].ID {
 			t.Fatalf("carried-forward player %s must not reappear as an available board candidate", original[0].ID)
 		}
+	}
+}
+
+// TestBuildPoolCarryForwardDoesNotReusePriorWeekProjection covers the
+// projection provenance edge where a Week 2 source refresh omits a player
+// that was rostered with a Week 1 forecast. The player must stay addressable
+// for roster actions, while projectionPoolForWeek must see that the carried
+// identity has no current-week forecast to overlay.
+func TestBuildPoolCarryForwardDoesNotReusePriorWeekProjection(t *testing.T) {
+	service := newTestService(t, true)
+	week := 1
+	weekOne := []Player{{
+		ID:         "rostered-omitted-week-2",
+		Name:       "Rostered Omitted",
+		Position:   "RB",
+		NFLTeam:    "CIN",
+		Projection: 18.4,
+		ProjStats:  map[string]float64{"rushYds": 120},
+	}}
+	weekTwo := []Player{{
+		ID:         "new-week-2-player",
+		Name:       "New Week Two",
+		Position:   "WR",
+		NFLTeam:    "CIN",
+		Projection: 12.1,
+	}}
+	players := weekOne
+	version := int64(1)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return players, version, "live" })
+	service.SetPoolStatus(func() PlayerPoolStatus {
+		return PlayerPoolStatus{Mode: "cache", State: "cached", ProjectionWeek: week}
+	})
+	first := service.pool()
+	if got := first.byID[weekOne[0].ID]; got.Projection != 18.4 || got.ProjStats == nil {
+		t.Fatalf("Week 1 source setup lost forecast: %+v", got)
+	}
+	service.store.state.Picks = append(service.store.state.Picks, DraftPick{
+		Number: 1, Round: 1, TeamID: defaultTeams()[0].ID, PlayerID: weekOne[0].ID,
+	})
+
+	players, version, week = weekTwo, 2, 2
+	second := service.pool()
+	carried, ok := second.byID[weekOne[0].ID]
+	if !ok {
+		t.Fatalf("Week 2 source omission must preserve rostered player identity")
+	}
+	if carried.Name != weekOne[0].Name || carried.Position != weekOne[0].Position {
+		t.Fatalf("carried identity changed across source refresh: %+v", carried)
+	}
+	if carried.Projection != 0 || carried.ProjStats != nil {
+		t.Fatalf("Week 1 forecast leaked into carried Week 2 identity: projection=%v projStats=%v", carried.Projection, carried.ProjStats)
+	}
+	projectionByID, available, note := service.projectionPoolForWeek(second, 2)
+	if !available || note != "" {
+		t.Fatalf("Week 2 projection source should remain available for current rows: available=%v note=%q", available, note)
+	}
+	if playerHasProjection(projectionByID[weekOne[0].ID]) {
+		t.Fatal("omitted carried player must remain unknown in the matching Week 2 projection pool")
 	}
 }

@@ -30,17 +30,17 @@ import (
 // name would collide with page.gsx's own RosterRowProps.Breakdown element
 // type if declared again in this package.
 type RosterCard struct {
-	ID              string
-	Position        string
-	HasHeadshot     bool
-	Headshot        string
-	Name            string
-	NFLTeam         string
-	Opponent        string
-	HasOpponent     bool
-	HasMatchup      bool
-	MatchupTier     string
-	MatchupChip     string
+	ID          string
+	Position    string
+	HasHeadshot bool
+	Headshot    string
+	Name        string
+	NFLTeam     string
+	Opponent    string
+	HasOpponent bool
+	HasMatchup  bool
+	MatchupTier string
+	MatchupChip string
 	// MatchupOrdinal (J5 F26 team lineup residue) is MatchupChip with its
 	// "-toughest" suffix trimmed — see matchupOrdinal's own doc comment.
 	MatchupOrdinal  string
@@ -78,6 +78,8 @@ type RosterCard struct {
 	OpenSlotID           string
 	HasSwapOptions       bool
 	SwapOptions          []league.SlotOption
+	HasMoveOptions       bool
+	MoveOptions          []league.SlotOption
 	RosterComplete       bool
 	CSRF                 string
 	TeamID               string
@@ -180,6 +182,7 @@ func rosterRowProps(raw []map[string]any, csrfToken, teamID, week string, roster
 	for _, player := range raw {
 		breakdown, _ := player["breakdown"].([]map[string]any)
 		swapOptions, _ := player["swap_options"].([]map[string]any)
+		moveOptions, _ := player["move_options"].([]map[string]any)
 		out = append(out, RosterCard{
 			ID:             stringField(player, "id"),
 			Position:       stringField(player, "position"),
@@ -241,6 +244,8 @@ func rosterRowProps(raw []map[string]any, csrfToken, teamID, week string, roster
 			OpenSlotID:           stringField(player, "open_slot_id"),
 			HasSwapOptions:       boolField(player, "has_swap_options"),
 			SwapOptions:          slotOptionsFromMaps(swapOptions),
+			HasMoveOptions:       boolField(player, "has_move_options"),
+			MoveOptions:          slotOptionsFromMaps(moveOptions),
 			RosterComplete:       rosterComplete,
 			CSRF:                 csrfToken,
 			TeamID:               teamID,
@@ -397,6 +402,14 @@ func teamLineupTarget(ctx *action.Context) string {
 		week = strings.TrimSpace(ctx.FormData["week"])
 		target = strings.TrimSpace(ctx.FormData["team_id"])
 		slot = strings.TrimSpace(ctx.FormData["slot"])
+		if slot == "" {
+			// The all-destination Move player form names its destination
+			// to_slot so the source remains a stable player ID. Reuse that
+			// value for the post-action focus target instead of landing at
+			// the top of the lineup after a bench promotion or fixed-slot
+			// swap.
+			slot = strings.TrimSpace(ctx.FormData["to_slot"])
+		}
 	}
 	week = strconv.Itoa(league.Default().NormalizeLineupWeek(week))
 	// J3 F8: a lineup-set names the one slot it changed (slot, above); a
@@ -486,7 +499,17 @@ func lineupValidation(ctx *action.Context, field string, err error) error {
 // the previous RedirectWithNotice/"#lineup" behavior unchanged.
 func lineupMutationSuccess(ctx *action.Context, message string) error {
 	target := teamLineupTarget(ctx)
-	if ctx != nil && strings.TrimSpace(ctx.FormData["slot"]) != "" {
+	// Native SET and quick-move forms submit `slot`; the stable-player
+	// destination form submits `to_slot`. Both identify the fixed row whose
+	// authoritative fragment should remain in view after the redirect.
+	rowSlot := ""
+	if ctx != nil {
+		rowSlot = strings.TrimSpace(ctx.FormData["slot"])
+		if rowSlot == "" {
+			rowSlot = strings.TrimSpace(ctx.FormData["to_slot"])
+		}
+	}
+	if rowSlot != "" {
 		actionui.RedirectWithScopedNoticeToRow(ctx, NoticeRoute, target, message)
 		return nil
 	}
@@ -603,13 +626,15 @@ func init() {
 			data["has_lineup_error"] = false
 			data["lineup_error"] = ""
 			for _, name := range []string{
-				"lineup-set", "lineup-auto", "player-drop",
+				"lineup-set", "lineup-move", "lineup-move-player", "lineup-move-to", "lineup-auto", "player-drop",
 				"reserve-place", "reserve-activate", "ir-place", "ir-activate",
 			} {
 				if view, ok := ctx.ActionState(name); ok {
-					message := view.Error("player_id")
-					if message == "" {
-						message = view.Error("week")
+					message := ""
+					for _, field := range []string{"player_id", "week", "from_slot", "to_slot", "item_id"} {
+						if message = view.Error(field); message != "" {
+							break
+						}
 					}
 					if message != "" {
 						data["has_lineup_error"] = true
@@ -692,6 +717,57 @@ func init() {
 					return lineupValidation(ctx, "player_id", err)
 				}
 				return lineupMutationSuccess(ctx, message)
+			},
+			// lineup-move swaps the resolved occupants of two starter slots. It is a real
+			// native POST form (rather than a JS-only fallback), so the same
+			// movement remains available to a manager using touch, a keyboard,
+			// or a browser with the GoSX gesture runtime disabled.
+			"lineup-move": func(ctx *action.Context) error {
+				week, err := strconv.Atoi(ctx.FormData["week"])
+				if err != nil {
+					return lineupValidation(ctx, "week", fmt.Errorf("choose a valid week"))
+				}
+				message, err := league.Default().LineupMove(ctx.Request, ctx.FormData["team_id"], week, ctx.FormData["from_slot"], ctx.FormData["to_slot"])
+				if err != nil {
+					return lineupValidation(ctx, "from_slot", err)
+				}
+				return lineupMutationSuccess(ctx, message)
+			},
+			// lineup-move-player is the all-destination native fallback for
+			// both starter and bench rows. The service resolves the source by
+			// stable player ID, delegates bench writes through SetLineup, and
+			// repeats every eligibility/lock guard at submit time.
+			"lineup-move-player": func(ctx *action.Context) error {
+				week, err := strconv.Atoi(ctx.FormData["week"])
+				if err != nil {
+					return lineupValidation(ctx, "week", fmt.Errorf("choose a valid week"))
+				}
+				message, err := league.Default().LineupMovePlayerTo(ctx.Request, ctx.FormData["team_id"], week, ctx.FormData["player_id"], ctx.FormData["to_slot"])
+				if err != nil {
+					return lineupValidation(ctx, "to_slot", err)
+				}
+				return lineupMutationSuccess(ctx, message)
+			},
+			// lineup-move-to is the lean background action used by GoSX's
+			// declarative reorder primitive. GoSX intentionally submits only
+			// item_id/index; the selected team and week live in this same-origin
+			// action URL and LineupMoveTo maps the index through the active
+			// roster shape before enforcing locks and eligibility.
+			"lineup-move-to": func(ctx *action.Context) error {
+				index, err := strconv.Atoi(ctx.FormData["index"])
+				if err != nil {
+					return action.Validation("invalid lineup position", map[string]string{"item_id": "invalid lineup position"}, ctx.FormData)
+				}
+				week, err := strconv.Atoi(ctx.Request.URL.Query().Get("week"))
+				if err != nil {
+					return action.Validation("choose a valid week", map[string]string{"item_id": "choose a valid week"}, ctx.FormData)
+				}
+				teamID := ctx.Request.URL.Query().Get("team_id")
+				message, err := league.Default().LineupMoveTo(ctx.Request, teamID, week, ctx.FormData["item_id"], index)
+				if err != nil {
+					return actionui.Validation(ctx, "team", "item_id", err)
+				}
+				return ctx.Success(message, nil)
 			},
 			// player-drop (section-B item 4) is the bench row's own Drop
 			// action, behind the same review-confirm gate /players' own

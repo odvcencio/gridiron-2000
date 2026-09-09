@@ -588,7 +588,7 @@ func lineupHasProjectableStarter(lineup EffectiveLineup) bool {
 // schedule, a bye, or an unpaired team returns has_matchup=false with a
 // plain-language schedule_fact instead of a projection nobody can back
 // yet.
-func (s *Service) teamCurrentMatchupCard(state PersistedState, teamID string, week int, deadline LineupDeadlineView) map[string]any {
+func (s *Service) teamCurrentMatchupCard(state PersistedState, teamID string, week int, deadline LineupDeadlineView, projectionByID map[string]Player, projectionAvailable bool) map[string]any {
 	out := map[string]any{
 		"has_matchup":      false,
 		"is_bye":           false,
@@ -629,10 +629,17 @@ func (s *Service) teamCurrentMatchupCard(state PersistedState, teamID string, we
 		opponent := s.teamView(state, opponentID)
 		mineLineup, _ := s.matchupLineup(state, teamID, week)
 		theirsLineup, _ := s.matchupLineup(state, opponentID, week)
+		// Keep the scorebug's projected values on the same matching-week
+		// source as the Team stat strip. A raw roster snapshot can carry a
+		// prior pool forecast after the source week changes; overlaying the
+		// already-gated pool and requiring every filled starter to be known
+		// prevents a stale or partial card total from contradicting the strip.
+		mineLineup = lineupWithProjectionPool(mineLineup, projectionByID)
+		theirsLineup = lineupWithProjectionPool(theirsLineup, projectionByID)
 		mineProjected := TeamStartersProjectedTotal(mineLineup)
 		theirsProjected := TeamStartersProjectedTotal(theirsLineup)
-		mineHasProjection := lineupHasProjectableStarter(mineLineup)
-		theirsHasProjection := lineupHasProjectableStarter(theirsLineup)
+		mineHasProjection := projectionAvailable && TeamStartersProjectionKnown(mineLineup)
+		theirsHasProjection := projectionAvailable && TeamStartersProjectionKnown(theirsLineup)
 		out["has_matchup"] = true
 		out["opponent"] = s.teamMap(opponent)
 		// record (F27, J4 console gap-audit): teamMap's default "record"
