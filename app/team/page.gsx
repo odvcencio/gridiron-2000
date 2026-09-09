@@ -682,8 +682,14 @@ func TeamLineupRegion() Node {
 	return <div class="team-lineup-region">
 				<div class="team-command-strip">
 				<div>
-					<span>Projected</span>
+					<span>Starting projection</span>
 					<strong class="mono">{data.projected}</strong>
+					<small class="team-command-strip__hint">Counts toward team score</small>
+				</div>
+				<div class="team-command-strip__projection team-command-strip__projection--bench">
+					<span>Bench projection</span>
+					<strong class="mono">{data.bench_projected}</strong>
+					<small class="team-command-strip__hint">Not included in team score</small>
 				</div>
 				<div>
 					<span>Starters</span>
@@ -972,7 +978,7 @@ func TeamLineupRegion() Node {
 							</p>
 						</details>
 					</If>
-					<div class="lineup-slot-labels" aria-hidden="true">
+						<div class="lineup-slot-labels" aria-hidden="true">
 						<span>SLOT</span>
 						<span>PLAYER</span>
 						<span>OPPONENT</span>
@@ -982,11 +988,27 @@ func TeamLineupRegion() Node {
 						<span>PTS</span>
 						<span>ACTION</span>
 					</div>
-					<div class="lineup-slot-list">
-							<Each of={data.starters} as="slot">
-								<div class="lineup-slot" id={"slot-" + slot.slot_id}>
-									<div class="lineup-slot__id mono">
-										{slot.slot_id}
+						<p class="lineup-reorder-help" id="lineup-reorder-help">
+							<If cond={data.team_terminal_roster_complete}>
+								Drag the grip to move a starter to another eligible slot. Keyboard: focus a grip, press Space, use the arrow keys, then press Space to drop. The Move buttons remain available as a native touch/keyboard fallback; locked games stay put.
+							</If>
+						</p>
+						<div class="lineup-slot-list">
+						<div
+							class="lineup-slot-list lineup-slot-list--reorder"
+							data-gosx-reorder
+							data-gosx-reorder-action={"POST " + actionPath("lineup-move-to") + "?team_id=" + data.team.id + "&week=" + data.week}
+							data-gosx-csrf-token={csrf.token}
+							aria-describedby="lineup-reorder-help"
+							aria-label="Starting lineup movement"
+						>
+								<Each of={data.starters} as="slot">
+									<div class="lineup-slot" id={"slot-" + slot.slot_id} data-gosx-reorder-item={slot.slot_id}>
+										<div class="lineup-slot__id mono">
+											<If cond={data.team_terminal_roster_complete && slot.has_player && slot.locked == false}>
+												<span class="lineup-slot__handle" data-gosx-reorder-handle aria-label={"Move " + slot.slot_id + " starter"}>⠿</span>
+											</If>
+											{slot.slot_id}
 										<If cond={slot.has_house_rank}>
 											<small class="house-rank">{slot.house_rank}</small>
 										</If>
@@ -1105,10 +1127,39 @@ func TeamLineupRegion() Node {
 												<span class="possession-chip">{slot.possession_label}</span>
 											</If>
 										</div>
-										<div class="lineup-slot__action">
-											<If cond={data.team_terminal_roster_complete && slot.locked == false}>
-												<details class="action-disclosure">
-													<summary>Swap</summary>
+																	<div class="lineup-slot__action">
+																		<If cond={data.team_terminal_roster_complete && slot.locked == false}>
+																			<If cond={slot.can_move}>
+																			<details class="action-disclosure lineup-move-disclosure">
+																				<summary aria-label={"Move " + slot.slot_id}>Move</summary>
+																				<div class="lineup-move-options">
+																					<If cond={slot.can_move_up}>
+																						<form method="post" action={actionPath("lineup-move")} data-gosx-managed="true" class="lineup-move-form">
+																							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+																							<input type="hidden" name="team_id" value={data.team.id}></input>
+																							<input type="hidden" name="week" value={data.week}></input>
+																							<input type="hidden" name="from_slot" value={slot.slot_id}></input>
+																							<input type="hidden" name="to_slot" value={slot.move_up_slot}></input>
+																							<input type="hidden" name="slot" value={slot.move_up_slot}></input>
+																							<button class="lineup-move-button" type="submit" aria-label={"Move " + slot.slot_id + " up to " + slot.move_up_slot}>↑ <span class="visually-hidden">Move up</span></button>
+																						</form>
+																					</If>
+																					<If cond={slot.can_move_down}>
+																						<form method="post" action={actionPath("lineup-move")} data-gosx-managed="true" class="lineup-move-form">
+																							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+																							<input type="hidden" name="team_id" value={data.team.id}></input>
+																							<input type="hidden" name="week" value={data.week}></input>
+																							<input type="hidden" name="from_slot" value={slot.slot_id}></input>
+																							<input type="hidden" name="to_slot" value={slot.move_down_slot}></input>
+																							<input type="hidden" name="slot" value={slot.move_down_slot}></input>
+																							<button class="lineup-move-button" type="submit" aria-label={"Move " + slot.slot_id + " down to " + slot.move_down_slot}>↓ <span class="visually-hidden">Move down</span></button>
+																						</form>
+																					</If>
+																				</div>
+																			</details>
+																			</If>
+																			<details class="action-disclosure">
+													<summary aria-label={"Choose a player for " + slot.slot_id}>Change player</summary>
 													<form method="post" action={actionPath("lineup-set")} data-gosx-managed="true" class="lineup-slot__form">
 														<input type="hidden" name="csrf_token" value={csrf.token}></input>
 														<input type="hidden" name="team_id" value={data.team.id}></input>
@@ -1125,10 +1176,15 @@ func TeamLineupRegion() Node {
 											</If>
 										</div>
 									</div>
-								</div>
-							</Each>
+								</Each>
+								<p class="reorder-status lineup-reorder-status lineup-reorder-status--pending">Saving starter placement…</p>
+								<p class="reorder-status lineup-reorder-status lineup-reorder-status--error" role="alert">Starter movement failed. The previous placement was restored.</p>
+							</div>
 						</div>
-						<h3 class="lineup-bench-title">Bench</h3>
+						<h3 class="lineup-bench-title">
+								Bench
+								<small class="lineup-bench-title__projection mono">Projected {data.bench_projected} · excluded from team score</small>
+							</h3>
 						<If cond={data.bench_empty}>
 							<If cond={data.team_terminal_roster_complete}>
 								<p class="stat-tip__empty">No bench players.</p>
