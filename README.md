@@ -62,11 +62,18 @@ Open [http://localhost:8080](http://localhost:8080), then visit `/wire` for sour
 Useful checks:
 
 ```bash
-go test ./...
+scripts/go-check.sh test -count=1
+scripts/go-check.sh vet
 arbiter check internal/wire/signal_rules.arb
 gosx check app/wire/page.gsx
 gosx build --dev .
 ```
+
+`scripts/go-check.sh` discovers package directories from tracked Go source and
+resolves each directory explicitly with `go list`, so the suite includes
+underscore-prefixed routes such as `app/help/_topic_id` that Go's recursive
+wildcard pattern does not traverse. Use `scripts/go-check.sh list` to inspect
+the exact sorted package set.
 
 ## Configure your league
 

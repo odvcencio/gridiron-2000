@@ -370,8 +370,9 @@ or backups from the bundle.
 Use the same checks as the application build:
 
 ```bash
-go test ./internal/league -run 'Test.*Config'
-go test ./...
+scripts/go-check.sh test -run 'Test.*Config'
+scripts/go-check.sh test -count=1
+scripts/go-check.sh vet
 gosx check app/guide/page.gsx
 gosx build --prod .
 ```

@@ -55,8 +55,14 @@ rm -rf dist
 Run the full suite:
 
 ```bash
-go test ./...
+scripts/go-check.sh test -count=1
+scripts/go-check.sh vet
 ```
+
+The harness derives its sorted package set from tracked `.go` files and calls
+`go list` once per directory, including underscore-prefixed route packages
+that Go's recursive wildcard pattern omits. Test and vet flags after the
+subcommand are forwarded to the corresponding Go tool.
 
 Most tests need no browser and no built client runtime. A smaller set of
 browser tests drives headed Chrome or Chromium through `chromedp` (see
@@ -69,7 +75,7 @@ browser tests drives headed Chrome or Chromium through `chromedp` (see
   `GOSX_APP_ROOT` is set in your own shell environment — in that case a
   missing build fails loudly instead of skipping, since that combination
   means a release gate ran without building the client first.
-- Skip under `go test -short ./...`, along with the longer simulated-draft
+- Skip under `scripts/go-check.sh test -short`, along with the longer simulated-draft
   scenarios (see `wave6_browser_helpers_test.go` and the other
   `*_browser_test.go` files).
 
@@ -82,7 +88,7 @@ Other useful checks, from the root [`README.md`](README.md#run-locally):
 arbiter check internal/wire/signal_rules.arb
 gosx check app/wire/page.gsx
 gofmt -l .
-go vet ./...
+scripts/go-check.sh vet
 ```
 
 ## The test harness
