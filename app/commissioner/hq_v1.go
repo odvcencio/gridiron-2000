@@ -9,6 +9,8 @@ import (
 	"gridiron-2000/internal/commissionerhq/v1fleet"
 )
 
+const hqV1NotReported = "Not reported by this league"
+
 type hqV1PortfolioProps struct {
 	GeneratedAt string
 	Total       int
@@ -42,23 +44,23 @@ type hqV1RowView struct {
 	DeadlineAt     string
 	DeadlineHref   string
 	HasDeadline    bool
-	Seats          int
-	ClaimedSeats   int
-	OpenSeats      int
-	PendingInvites int
-	ReadyTeams     int
-	BoardGaps      int
+	Seats          string
+	ClaimedSeats   string
+	OpenSeats      string
+	PendingInvites string
+	ReadyTeams     string
+	BoardGaps      string
 	Readiness      string
 
-	LineupIssues   int
+	LineupIssues   string
 	LineupLock     string
 	WaiverMode     string
-	OpenClaims     int
+	OpenClaims     string
 	WaiverRun      string
-	TradePending   int
-	TradeDecisions int
-	PickemWeek     int
-	PickemUnpicked int
+	TradePending   string
+	TradeDecisions string
+	PickemWeek     string
+	PickemUnpicked string
 	PickemDeadline string
 
 	ReleaseSHA       string
@@ -175,8 +177,12 @@ func hqV1Row(row v1fleet.Row, name string) hqV1RowView {
 	view.ClaimedSeats = intPointer(summary.Membership.ClaimedTeams)
 	view.OpenSeats = intPointer(summary.Membership.OpenTeams)
 	view.PendingInvites = intPointer(summary.Membership.PendingInvites)
-	view.ReadyTeams = intPointer(summary.Draft.ReadyTeams)
-	view.BoardGaps = intPointer(summary.Draft.BoardGapCount)
+	view.ReadyTeams = hqV1NotReported
+	view.BoardGaps = hqV1NotReported
+	if summary.Draft != nil {
+		view.ReadyTeams = intPointer(summary.Draft.ReadyTeams)
+		view.BoardGaps = intPointer(summary.Draft.BoardGapCount)
+	}
 	view.Readiness = readinessText(summary.Readiness)
 	view.LineupIssues = intPointer(summary.Lineup.IssueCount)
 	view.LineupLock = stringPointer(summary.Lineup.NextLockAt)
@@ -191,6 +197,7 @@ func hqV1Row(row v1fleet.Row, name string) hqV1RowView {
 	view.ReleaseSHA = summary.Release.GitSHA
 	view.ReleaseBuiltAt = summary.Release.BuiltAt
 	view.DataAsOf = stringPointer(summary.DataHealth.AsOf)
+	view.SourceState = stringPointer(summary.DataHealth.SourceState)
 	view.ProviderProduced = summary.ProducedAt
 	view.LeagueURL = qualifiedHQV1URL(view.PublicURL, summary.Links.League)
 	view.CommissionerURL = qualifiedHQV1URL(view.PublicURL, summary.Links.Commissioner)
@@ -240,7 +247,10 @@ func hqV1Activity(item v1fleet.FleetActivity, names, origins map[string]string) 
 }
 
 func readinessText(readiness *hqv1.Readiness) string {
-	if readiness == nil || len(readiness.Items) == 0 {
+	if readiness == nil {
+		return hqV1NotReported
+	}
+	if len(readiness.Items) == 0 {
 		return "CLEAR"
 	}
 	parts := make([]string, 0, len(readiness.Items))
@@ -264,16 +274,16 @@ func hqV1Time(value *time.Time) string {
 	return value.UTC().Format(time.RFC3339)
 }
 
-func intPointer(value *int) int {
+func intPointer(value *int) string {
 	if value == nil {
-		return 0
+		return hqV1NotReported
 	}
-	return *value
+	return fmt.Sprintf("%d", *value)
 }
 
 func stringPointer(value *string) string {
 	if value == nil || strings.TrimSpace(*value) == "" {
-		return "UNKNOWN"
+		return hqV1NotReported
 	}
 	return *value
 }

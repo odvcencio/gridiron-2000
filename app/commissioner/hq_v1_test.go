@@ -1,6 +1,8 @@
 package commissioner
 
 import (
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +71,116 @@ func TestHQV1PortfolioViewRendersOperationsAndSafeOwningLinks(t *testing.T) {
 	for _, forbidden := range []string{"service.internal", "bearer", "secret", "operator@example.com"} {
 		if strings.Contains(strings.ToLower(rendered), strings.ToLower(forbidden)) {
 			t.Errorf("HQ v1 render leaked %q: %s", forbidden, rendered)
+		}
+	}
+}
+
+func TestHQV1RowProjectsMissingOptionalFactsWithoutFabricatingZero(t *testing.T) {
+	data, err := os.ReadFile("../../internal/commissionerhq/v1/testdata/minimal_capabilities.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary, err := hqv1.Decode(data)
+	if err != nil {
+		t.Fatalf("minimal capabilities fixture must remain valid: %v", err)
+	}
+	view := hqV1Row(v1fleet.Row{Snapshot: &summary}, "Minimal League")
+	const missing = "Not reported by this league"
+	for _, test := range []struct {
+		name string
+		got  any
+	}{
+		{"seats", view.Seats},
+		{"claimed seats", view.ClaimedSeats},
+		{"open seats", view.OpenSeats},
+		{"pending invites", view.PendingInvites},
+		{"ready teams", view.ReadyTeams},
+		{"board gaps", view.BoardGaps},
+		{"lineup issues", view.LineupIssues},
+		{"open claims", view.OpenClaims},
+		{"pending trades", view.TradePending},
+		{"trade decisions", view.TradeDecisions},
+		{"pick'em week", view.PickemWeek},
+		{"pick'em unpicked", view.PickemUnpicked},
+		{"lineup lock", view.LineupLock},
+		{"waiver mode", view.WaiverMode},
+		{"waiver run", view.WaiverRun},
+		{"pick'em deadline", view.PickemDeadline},
+		{"data as of", view.DataAsOf},
+		{"source state", view.SourceState},
+		{"readiness", view.Readiness},
+	} {
+		if got := fmt.Sprint(test.got); got != missing {
+			t.Errorf("%s = %q, want %q", test.name, got, missing)
+		}
+	}
+}
+
+func TestHQV1RowPreservesGenuineZeroAndLiveSourceState(t *testing.T) {
+	zero := 0
+	zeroAt := "2026-08-30T16:00:00Z"
+	summary := hqv1.Summary{
+		Competition: hqv1.Competition{Teams: hqv1.TeamCounts{Total: &zero}},
+		Draft:       &hqv1.Draft{ReadyTeams: &zero, BoardGapCount: &zero},
+		Readiness:   &hqv1.Readiness{},
+		Membership:  hqv1.Membership{ClaimedTeams: &zero, OpenTeams: &zero, PendingInvites: &zero},
+		Lineup:      hqv1.Lineup{IssueCount: &zero, NextLockAt: &zeroAt},
+		Waivers:     hqv1.Waivers{OpenClaims: &zero},
+		Trades:      hqv1.Trades{PendingCount: &zero, CommissionerDecisions: &zero},
+		Pickem:      hqv1.Pickem{Week: &zero, Unpicked: &zero},
+		DataHealth:  hqv1.DataHealth{SourceState: stringPtr("live")},
+	}
+	view := hqV1Row(v1fleet.Row{Snapshot: &summary}, "Zero League")
+	for _, test := range []struct {
+		name string
+		got  any
+	}{
+		{"seats", view.Seats},
+		{"claimed seats", view.ClaimedSeats},
+		{"open seats", view.OpenSeats},
+		{"pending invites", view.PendingInvites},
+		{"ready teams", view.ReadyTeams},
+		{"board gaps", view.BoardGaps},
+		{"lineup issues", view.LineupIssues},
+		{"open claims", view.OpenClaims},
+		{"pending trades", view.TradePending},
+		{"trade decisions", view.TradeDecisions},
+		{"pick'em week", view.PickemWeek},
+		{"pick'em unpicked", view.PickemUnpicked},
+	} {
+		if got := fmt.Sprint(test.got); got != "0" {
+			t.Errorf("%s = %q, want genuine zero", test.name, got)
+		}
+	}
+	if view.Readiness != "CLEAR" {
+		t.Errorf("empty readiness = %q, want CLEAR", view.Readiness)
+	}
+	if view.SourceState != "live" {
+		t.Errorf("source state = %q, want live", view.SourceState)
+	}
+}
+
+func TestHQV1UnavailableRowHidesDetailFacts(t *testing.T) {
+	props := hqV1PortfolioView(v1fleet.Portfolio{Rows: []v1fleet.Row{{
+		ConnectionKey: "offline", LeagueID: "offline-league", ShortCode: "OFF", DisplayName: "Offline League",
+		PublicOrigin: "https://offline.example", ConnectionResult: v1fleet.Unreachable,
+		SnapshotFreshness: v1fleet.Unavailable, ProviderDataQuality: v1fleet.NotReported,
+		DiagnosticCode: v1fleet.DiagnosticUnreachable,
+	}}}, time.Date(2026, time.August, 25, 15, 0, 0, 0, time.UTC))
+	program, err := route.LoadFileProgramHere("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := route.RenderProgramComponent(program, "HQV1Portfolio", route.ProgramRenderEnv{Values: map[string]any{"props": props}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered, "This league snapshot is unavailable") {
+		t.Fatalf("unavailable row missing availability message: %s", rendered)
+	}
+	for _, detail := range []string{"PHASE / DEADLINE", "SEATS / READINESS", "LINEUP / WAIVERS", "TRADES / PICK'EM", "RELEASE / HEALTH"} {
+		if strings.Contains(rendered, detail) {
+			t.Errorf("unavailable row rendered detail section %q: %s", detail, rendered)
 		}
 	}
 }
