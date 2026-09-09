@@ -67,7 +67,6 @@ func TestDocumentationPinsCurrentFrameworkAndScoringTruth(t *testing.T) {
 func TestFrameworkReleasePinsStayExact(t *testing.T) {
 	moduleVersion := "m31labs.dev/gosx " + currentGoSXVersion
 	moduleSum := moduleVersion + " " + currentGoSXSum
-	cliVersion := "m31labs.dev/gosx/cmd/gosx@" + currentGoSXVersion
 
 	goMod := readDocumentationFile(t, "go.mod")
 	if !strings.Contains(goMod, moduleVersion) {
@@ -79,8 +78,8 @@ func TestFrameworkReleasePinsStayExact(t *testing.T) {
 	}
 	dockerfile := readDocumentationFile(t, "Dockerfile")
 	for _, want := range []string{
-		cliVersion,
-		"# " + currentGoSXVersion + " includes",
+		`awk '$1 == "m31labs.dev/gosx"`,
+		`m31labs.dev/gosx/cmd/gosx@$gosx_version`,
 		"last good declarative-region DOM across HTTP failures",
 		"GOSX_SKIP_VERSION_CHECK=1 /go/bin/gosx build --dev .",
 	} {
