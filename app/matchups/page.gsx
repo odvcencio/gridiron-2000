@@ -355,7 +355,8 @@ func MatchupStatusBlock() Node {
 			<span class="mono muted matchup-status-line__games" data-gosx-live-bind="gamesFinal">{data.status_line.games_final}</span>
 			<span class="mono muted matchup-status-line__freshness">· <span data-gosx-live-bind="liveStatus">{data.live.live_status}</span> · Checked <span data-gosx-live-bind="checkedAt">{data.status_line.checked_at}</span> · <span data-gosx-live-bind="refreshLabel">{data.live.refresh_label}</span></span>
 			<span class="mono muted matchup-status-line__projection" data-gosx-live-bind="projectionNote">{data.live.projection_note}</span>
-			<a class="access-link matchup-status-line__projection-help" href="/help/lineups-locks-matchups-and-scoring" data-gosx-link>Read projection guidance →</a>
+			<If cond={data.projection_help_href != ""}><a class="access-link matchup-status-line__projection-help" href={data.projection_help_href} data-gosx-link>Read projection guidance →</a></If>
+			<If cond={data.projection_help_href == ""}><a class="access-link matchup-status-line__projection-help" href="/help/lineups-locks-matchups-and-scoring" data-gosx-link>Read projection guidance →</a></If>
 		</p>
 		<If cond={data.status_line.closed_early}>
 			<p class="matchup-week-notice matchup-week-notice--warning" role="status">Week {data.week} closed early: {data.status_line.games_final} at close. Scores may not reflect the final box score.</p>

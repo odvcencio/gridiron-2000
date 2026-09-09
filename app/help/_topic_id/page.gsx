@@ -18,6 +18,7 @@ func Page() Node {
 					    (ActionRouteLabel, app/help/content.go) names the
 					    real destination instead. */}
 					<a href={data.topic.action_route} data-gosx-link class="button button--primary">{data.topic.action_label}</a>
+					<If cond={data.has_return_target}><a href={data.return_target} data-gosx-link class="button button--ghost">{data.return_target_label}</a></If>
 					<a href="/help" data-gosx-link class="button button--ghost">Back to help center</a>
 				</nav>
 			</div>
@@ -44,10 +45,10 @@ func Page() Node {
 				<header class="guide-section__heading"><span class="section-index">CONTEXTUAL HELP</span><h2 id="context-heading">Read this field or state before acting.</h2><p>This panel is derived from the same topic record and keeps mutable values with the owning runtime page.</p></header>
 				<div class="guide-card-grid guide-card-grid--two">
 					<If cond={data.has_state}>
-						<article class="guide-card"><span class="section-index">STATE // {data.state_help.state}</span><h3>{data.state_help.why}</h3><p><strong>Impact:</strong> {data.state_help.impact}</p><p><strong>Still available:</strong> {data.state_help.remaining}</p><p><strong>Keep:</strong> {data.state_help.context}</p><p><strong>Next:</strong> {data.state_help.next_action}</p><p><strong>Retry:</strong> {data.state_help.retry}</p><p><strong>Last success:</strong> {data.state_help.last_success}</p><a href={"/help/" + data.state_help.topic_id + "?state=" + data.state_help.state} data-gosx-link class="guide-card__link">Owning topic ID: {data.state_help.topic_id} →</a></article>
+						<article class="guide-card"><span class="section-index">STATE // {data.state_help.state}</span><h3>{data.state_help.why}</h3><p><strong>Impact:</strong> {data.state_help.impact}</p><p><strong>Still available:</strong> {data.state_help.remaining}</p><p><strong>Keep:</strong> {data.state_help.context}</p><p><strong>Next:</strong> {data.state_help.next_action}</p><p><strong>Retry:</strong> {data.state_help.retry}</p><p><strong>Last success:</strong> {data.state_help.last_success}</p><a href={data.state_help_href} data-gosx-link class="guide-card__link">Owning topic ID: {data.state_help.topic_id} →</a></article>
 					</If>
 					<If cond={data.has_field}>
-						<article class="guide-card"><span class="section-index">FIELD // {data.field_help.label}</span><h3>Runtime-owned field help</h3><p>{data.field_help.help}</p><p><strong>Source:</strong> {data.field_help.runtime_source}</p><a href={data.field_help.next_action} data-gosx-link class="guide-card__link">{data.field_help.action_label}</a><a href={"/help/" + data.field_help.topic_id} data-gosx-link class="guide-card__link">Owning topic ID: {data.field_help.topic_id} →</a></article>
+						<article class="guide-card"><span class="section-index">FIELD // {data.field_help.label}</span><h3>Runtime-owned field help</h3><p>{data.field_help.help}</p><p><strong>Source:</strong> {data.field_help.runtime_source}</p><a href={data.field_help.next_action} data-gosx-link class="guide-card__link">{data.field_help.action_label}</a><a href={data.field_help_href} data-gosx-link class="guide-card__link">Owning topic ID: {data.field_help.topic_id} →</a></article>
 					</If>
 				</div>
 			</section>
