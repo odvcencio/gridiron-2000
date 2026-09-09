@@ -82,7 +82,7 @@ RUN go install m31labs.dev/gosx/cmd/gosx@v0.55.2 && GOSX_SKIP_VERSION_CHECK=1 /g
 #
 # Removed ONLY when dist/build.json proves no island program shipped
 # ("islands": null): the WASM runtime variants, both wasm_exec JS shims, and
-# the scene3d/hls/stripe-bridge/relay/textlayout feature bundles. If islands
+# the scene3d/hls/stripe-bridge/relay feature bundles. If islands
 # is ever non-null, a live island program may load one of these assets by
 # URL, so the guard below fails the build loudly instead of silently
 # shipping a broken chunk. bootstrap.js and its .gz/.br sidecars are always
@@ -107,7 +107,7 @@ RUN set -eu; \
     case "$islands_line" in \
         *'"islands": null'*) \
             guarded_bytes=0; \
-            for pattern in 'gosx-runtime*.wasm' 'wasm_exec.*' 'standard-go-wasm_exec.*' 'bootstrap-feature-scene3d*' 'hls.min.*' 'stripe-bridge*' 'relay*' 'bootstrap-feature-textlayout*'; do \
+            for pattern in 'gosx-runtime*.wasm' 'wasm_exec.*' 'standard-go-wasm_exec.*' 'bootstrap-feature-scene3d*' 'hls.min.*' 'stripe-bridge*' 'relay*'; do \
                 for f in "$RUNTIME_DIR"/$pattern; do \
                     [ -e "$f" ] || continue; \
                     guarded_bytes=$((guarded_bytes + $(stat -c%s "$f"))); \
