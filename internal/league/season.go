@@ -134,6 +134,12 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 		)
 	}
 	info.Ready = WeekCloseReady(games, week, info.StatsUpdatedAt, now)
+	if info.Ready {
+		// A ready week has no blocking reason. Keep the panel's WHY line
+		// from retaining the constructor's "generate a schedule first"
+		// placeholder, which otherwise contradicts the READY state.
+		info.Reason = ""
+	}
 	switch {
 	case !info.GamesKnown:
 		info.Reason = "Waiting for the NFL schedule."
