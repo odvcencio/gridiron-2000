@@ -76,3 +76,102 @@ func TestLineupMoveToUsesRosterShapeOrder(t *testing.T) {
 		t.Fatal("LineupMoveTo accepted a negative target index")
 	}
 }
+
+func TestLineupMovePlayerToMovesBenchPlayerToEligibleStarter(t *testing.T) {
+	setRosterShape(RosterPreset{
+		Name:  "bench-move-fixture",
+		Slots: map[string]int{"QB": 1, "RB": 1, "WR": 1},
+		Bench: 2,
+	})
+	t.Cleanup(clearRosterShape)
+	svc, _, _ := newLineupTestService(t)
+	request, _ := http.NewRequest(http.MethodPost, "/team", nil)
+
+	lineup := svc.effectiveLineupForTeam(svc.store.Snapshot(), "team-1", 1)
+	wrBench, _ := lineup.slotAssignment("WR")
+	if !wrBench.HasPlayer || wrBench.Player.ID != "wr-open" {
+		t.Fatalf("WR = %+v, want wr-open before the bench move", wrBench)
+	}
+	foundBench := false
+	for _, player := range lineup.Bench {
+		if player.ID == "wr-bench" {
+			foundBench = true
+		}
+	}
+	if !foundBench {
+		t.Fatalf("bench = %+v, want wr-bench available for the move", lineup.Bench)
+	}
+
+	message, err := svc.LineupMovePlayerTo(request, "team-1", 1, "wr-bench", "WR")
+	if err != nil {
+		t.Fatalf("LineupMovePlayerTo: %v", err)
+	}
+	if message == "" {
+		t.Fatal("LineupMovePlayerTo returned an empty confirmation")
+	}
+	after := svc.effectiveLineupForTeam(svc.store.Snapshot(), "team-1", 1)
+	started, _ := after.slotAssignment("WR")
+	if !started.HasPlayer || started.Player.ID != "wr-bench" {
+		t.Fatalf("WR after bench move = %+v, want wr-bench", started)
+	}
+	for _, player := range after.Bench {
+		if player.ID == "wr-bench" {
+			t.Fatal("wr-bench remained on the bench after being started")
+		}
+	}
+}
+
+func TestLineupMovePlayerToKeepsSetLineupEligibilityAndLocks(t *testing.T) {
+	setRosterShape(RosterPreset{
+		Name:  "bench-move-fixture",
+		Slots: map[string]int{"QB": 1, "RB": 1, "WR": 1},
+		Bench: 2,
+	})
+	t.Cleanup(clearRosterShape)
+	request, _ := http.NewRequest(http.MethodPost, "/team", nil)
+
+	t.Run("position", func(t *testing.T) {
+		svc, _, _ := newLineupTestService(t)
+		_, err := svc.LineupMovePlayerTo(request, "team-1", 1, "wr-bench", "RB")
+		if err == nil || err.Error() != "WR does not fit the RB slot" {
+			t.Fatalf("err = %v, want the SetLineup position guard", err)
+		}
+	})
+
+	t.Run("locked target", func(t *testing.T) {
+		svc, _, _ := newLineupTestService(t)
+		_, err := svc.LineupMovePlayerTo(request, "team-1", 1, "rb-open", "RB")
+		want := "Locked Rusher is locked for week 1; the TB game has kicked off"
+		if err == nil || err.Error() != want {
+			t.Fatalf("err = %v, want %q", err, want)
+		}
+	})
+}
+
+// TestLineupMoveGuardRejectsStaleSourceSnapshot pins the write-side
+// concurrency guard used by both fixed-slot swaps and player-to-slot moves.
+// The second write simulates another manager changing the lineup after the
+// first request took its snapshot; the stale request must fail without
+// restoring its old source occupant over that newer change.
+func TestLineupMoveGuardRejectsStaleSourceSnapshot(t *testing.T) {
+	svc, _, _ := newLineupTestService(t)
+	initial := map[string]string{"WR1": "wr-open", "WR2": "wr-bench"}
+	if err := svc.store.SetLineupWeek("team-1", 1, initial); err != nil {
+		t.Fatalf("seed lineup: %v", err)
+	}
+	expected := storedLineupWeek(svc.store.Snapshot(), "team-1", 1)
+
+	concurrent := map[string]string{"WR1": "wr-bench", "WR2": "wr-open"}
+	if err := svc.store.SetLineupWeek("team-1", 1, concurrent); err != nil {
+		t.Fatalf("concurrent lineup change: %v", err)
+	}
+	staleAttempt := map[string]string{"WR1": "wr-open", "WR2": "wr-bench"}
+	if err := svc.store.SetLineupWeekIfUnchanged("team-1", 1, expected, staleAttempt); err == nil || err.Error() != lineupChangedWhileMovingMessage {
+		t.Fatalf("stale move error = %v, want %q", err, lineupChangedWhileMovingMessage)
+	}
+
+	got := storedLineupWeek(svc.store.Snapshot(), "team-1", 1)
+	if !lineupMapsEqual(got, concurrent) {
+		t.Fatalf("stale move changed current lineup to %+v, want concurrent %+v", got, concurrent)
+	}
+}

@@ -78,6 +78,8 @@ type RosterCard struct {
 	OpenSlotID           string
 	HasSwapOptions       bool
 	SwapOptions          []league.SlotOption
+	HasMoveOptions       bool
+	MoveOptions          []league.SlotOption
 	RosterComplete       bool
 	CSRF                 string
 	TeamID               string
@@ -180,6 +182,7 @@ func rosterRowProps(raw []map[string]any, csrfToken, teamID, week string, roster
 	for _, player := range raw {
 		breakdown, _ := player["breakdown"].([]map[string]any)
 		swapOptions, _ := player["swap_options"].([]map[string]any)
+		moveOptions, _ := player["move_options"].([]map[string]any)
 		out = append(out, RosterCard{
 			ID:             stringField(player, "id"),
 			Position:       stringField(player, "position"),
@@ -241,6 +244,8 @@ func rosterRowProps(raw []map[string]any, csrfToken, teamID, week string, roster
 			OpenSlotID:           stringField(player, "open_slot_id"),
 			HasSwapOptions:       boolField(player, "has_swap_options"),
 			SwapOptions:          slotOptionsFromMaps(swapOptions),
+			HasMoveOptions:       boolField(player, "has_move_options"),
+			MoveOptions:          slotOptionsFromMaps(moveOptions),
 			RosterComplete:       rosterComplete,
 			CSRF:                 csrfToken,
 			TeamID:               teamID,
@@ -397,6 +402,14 @@ func teamLineupTarget(ctx *action.Context) string {
 		week = strings.TrimSpace(ctx.FormData["week"])
 		target = strings.TrimSpace(ctx.FormData["team_id"])
 		slot = strings.TrimSpace(ctx.FormData["slot"])
+		if slot == "" {
+			// The all-destination Move player form names its destination
+			// to_slot so the source remains a stable player ID. Reuse that
+			// value for the post-action focus target instead of landing at
+			// the top of the lineup after a bench promotion or fixed-slot
+			// swap.
+			slot = strings.TrimSpace(ctx.FormData["to_slot"])
+		}
 	}
 	week = strconv.Itoa(league.Default().NormalizeLineupWeek(week))
 	// J3 F8: a lineup-set names the one slot it changed (slot, above); a
@@ -486,7 +499,17 @@ func lineupValidation(ctx *action.Context, field string, err error) error {
 // the previous RedirectWithNotice/"#lineup" behavior unchanged.
 func lineupMutationSuccess(ctx *action.Context, message string) error {
 	target := teamLineupTarget(ctx)
-	if ctx != nil && strings.TrimSpace(ctx.FormData["slot"]) != "" {
+	// Native SET and quick-move forms submit `slot`; the stable-player
+	// destination form submits `to_slot`. Both identify the fixed row whose
+	// authoritative fragment should remain in view after the redirect.
+	rowSlot := ""
+	if ctx != nil {
+		rowSlot = strings.TrimSpace(ctx.FormData["slot"])
+		if rowSlot == "" {
+			rowSlot = strings.TrimSpace(ctx.FormData["to_slot"])
+		}
+	}
+	if rowSlot != "" {
 		actionui.RedirectWithScopedNoticeToRow(ctx, NoticeRoute, target, message)
 		return nil
 	}
@@ -603,7 +626,7 @@ func init() {
 			data["has_lineup_error"] = false
 			data["lineup_error"] = ""
 			for _, name := range []string{
-				"lineup-set", "lineup-move", "lineup-move-to", "lineup-auto", "player-drop",
+				"lineup-set", "lineup-move", "lineup-move-player", "lineup-move-to", "lineup-auto", "player-drop",
 				"reserve-place", "reserve-activate", "ir-place", "ir-activate",
 			} {
 				if view, ok := ctx.ActionState(name); ok {
@@ -707,6 +730,21 @@ func init() {
 				message, err := league.Default().LineupMove(ctx.Request, ctx.FormData["team_id"], week, ctx.FormData["from_slot"], ctx.FormData["to_slot"])
 				if err != nil {
 					return lineupValidation(ctx, "from_slot", err)
+				}
+				return lineupMutationSuccess(ctx, message)
+			},
+			// lineup-move-player is the all-destination native fallback for
+			// both starter and bench rows. The service resolves the source by
+			// stable player ID, delegates bench writes through SetLineup, and
+			// repeats every eligibility/lock guard at submit time.
+			"lineup-move-player": func(ctx *action.Context) error {
+				week, err := strconv.Atoi(ctx.FormData["week"])
+				if err != nil {
+					return lineupValidation(ctx, "week", fmt.Errorf("choose a valid week"))
+				}
+				message, err := league.Default().LineupMovePlayerTo(ctx.Request, ctx.FormData["team_id"], week, ctx.FormData["player_id"], ctx.FormData["to_slot"])
+				if err != nil {
+					return lineupValidation(ctx, "to_slot", err)
 				}
 				return lineupMutationSuccess(ctx, message)
 			},

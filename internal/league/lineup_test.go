@@ -861,6 +861,58 @@ func TestTeamDataProjectedSumsStartersOnly(t *testing.T) {
 	}
 }
 
+func TestTeamDataBenchProjectionLabelsPartialAndWeekMismatch(t *testing.T) {
+	setRosterShape(RosterPreset{
+		Name:  "bench-projection-fixture",
+		Slots: map[string]int{"QB": 1, "RB": 1, "WR": 1},
+		Bench: 2,
+	})
+	t.Cleanup(clearRosterShape)
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: 1, Kickoff: now.Add(time.Hour), Away: "PIT", Home: "NYJ"}}
+	})
+	players := []Player{
+		{ID: "qb1", Name: "QB One", Position: "QB", NFLTeam: "PIT", Projection: 10},
+		{ID: "rb1", Name: "RB One", Position: "RB", NFLTeam: "PIT", Projection: 20},
+		{ID: "wr1", Name: "WR One", Position: "WR", NFLTeam: "PIT", Projection: 15},
+		{ID: "rb2", Name: "RB Two", Position: "RB", NFLTeam: "PIT", Projection: 5},
+		{ID: "te1", Name: "TE Unknown", Position: "TE", NFLTeam: "PIT", Projection: 0},
+	}
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return players, 1, "test" })
+	draftFixtureOntoTeam1(t, svc, now, []string{"qb1", "rb1", "wr1", "rb2", "te1"})
+
+	data := svc.TeamData(httptestNewGET("/team?week=1"))
+	if got := data["bench_projected"]; got != "—" {
+		t.Fatalf("partial bench projected = %#v, want em dash", got)
+	}
+	if got := data["bench_projection_coverage"]; got != "partial" {
+		t.Fatalf("partial bench coverage = %#v, want partial", got)
+	}
+	if got := data["bench_projection_coverage_label"]; got != "Partial forecast" {
+		t.Fatalf("partial bench coverage label = %#v, want Partial forecast", got)
+	}
+	if data["bench_has_projection"] != false {
+		t.Fatalf("partial bench has projection = %#v, want false", data["bench_has_projection"])
+	}
+
+	svc.SetPoolStatus(func() PlayerPoolStatus {
+		return PlayerPoolStatus{Mode: "cache", State: "cached", Players: len(players), ProjectionWeek: 2}
+	})
+	mismatch := svc.TeamData(httptestNewGET("/team?week=1"))
+	if mismatch["projected"] != "—" || mismatch["bench_projected"] != "—" {
+		t.Fatalf("week-mismatched projections = starter:%#v bench:%#v, want dashes", mismatch["projected"], mismatch["bench_projected"])
+	}
+	if mismatch["bench_projection_coverage"] != "unavailable" {
+		t.Fatalf("week-mismatched bench coverage = %#v, want unavailable", mismatch["bench_projection_coverage"])
+	}
+	if note, _ := mismatch["bench_projection_note"].(string); !strings.Contains(note, "latest source snapshot is Week 2") {
+		t.Fatalf("week-mismatch note = %q, want source-week explanation", note)
+	}
+}
+
 // TestTeamDataBenchPointsReadDashUntilLedgerPosts pins J3 F12: /team's
 // bench rows used to format player.Points directly — a field nothing in
 // this codebase ever populates from a real source, so a bench row read
@@ -1424,6 +1476,58 @@ func TestStarterRowMapsCarriesUnconditionalKickoffAndByeLabels(t *testing.T) {
 	}
 	if rows[1]["has_bye_label"] != true || rows[1]["bye_label"] != "bye wk 1" {
 		t.Fatalf("bye QB2 row has_bye_label/bye_label = %v/%q, want true/\"bye wk 1\"", rows[1]["has_bye_label"], rows[1]["bye_label"])
+	}
+}
+
+// TestLineupTransferEligibilityByTargetUsesFixedSlotMatrix keeps the
+// declarative transfer highlight list aligned with the native movement
+// chooser. Starter sources may enter only a pairwise-legal target (including
+// a real starter swap), while bench sources may enter every unlocked slot
+// whose position they fit.
+func TestLineupTransferEligibilityByTargetUsesFixedSlotMatrix(t *testing.T) {
+	lineup := EffectiveLineup{
+		Week: 1,
+		Slots: []SlotAssignment{
+			{
+				Slot:      SlotInstance{ID: "QB", Def: SlotDef{Eligible: []string{"QB"}}},
+				HasPlayer: true,
+				Player:    Player{ID: "qb-start", Position: "QB"},
+			},
+			{
+				Slot:      SlotInstance{ID: "WR1", Def: SlotDef{Eligible: []string{"WR"}}},
+				HasPlayer: true,
+				Player:    Player{ID: "wr-one", Position: "WR"},
+			},
+			{
+				Slot:      SlotInstance{ID: "WR2", Def: SlotDef{Eligible: []string{"WR"}}},
+				HasPlayer: true,
+				Player:    Player{ID: "wr-two", Position: "WR"},
+			},
+			{
+				Slot:      SlotInstance{ID: "RB", Def: SlotDef{Eligible: []string{"RB"}}},
+				HasPlayer: true,
+				Locked:    true,
+				Player:    Player{ID: "rb-start", Position: "RB"},
+			},
+		},
+		Bench: []Player{
+			{ID: "bench-wr", Position: "WR"},
+			{ID: "bench-qb", Position: "QB"},
+		},
+	}
+
+	got := lineupTransferEligibilityByTarget(lineup, nil, time.Now())
+	if !strings.Contains(got["WR1"], "wr-two") || !strings.Contains(got["WR1"], "bench-wr") {
+		t.Fatalf("WR1 eligible sources = %q, want wr-two and bench-wr", got["WR1"])
+	}
+	if strings.Contains(got["WR1"], "bench-qb") || strings.Contains(got["WR1"], "qb-start") {
+		t.Fatalf("WR1 eligible sources = %q, must exclude QB sources", got["WR1"])
+	}
+	if got["QB"] != "bench-qb" {
+		t.Fatalf("QB eligible sources = %q, want only bench-qb", got["QB"])
+	}
+	if _, ok := got["RB"]; ok {
+		t.Fatalf("locked RB target unexpectedly has transfer sources: %v", got["RB"])
 	}
 }
 

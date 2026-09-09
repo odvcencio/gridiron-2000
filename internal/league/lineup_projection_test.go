@@ -15,8 +15,12 @@ func TestTeamBenchProjectedTotalSeparatesUnknownFromZero(t *testing.T) {
 	if math.Abs(total-23.3) > 1e-9 {
 		t.Fatalf("bench total = %v, want 23.3", total)
 	}
-	if !known {
-		t.Fatal("bench total known = false, want true when a bench player has a projection")
+	if known {
+		t.Fatal("bench total known = true, want false when any bench projection is unknown")
+	}
+	summary := TeamBenchProjection(lineup)
+	if summary.Coverage != "partial" || summary.KnownPlayers != 2 || summary.PlayerCount != 3 {
+		t.Fatalf("bench projection summary = %+v, want partial 2/3", summary)
 	}
 
 	total, known = TeamBenchProjectedTotal(EffectiveLineup{Bench: []Player{{ID: "unknown", Projection: 0}}})
@@ -25,5 +29,11 @@ func TestTeamBenchProjectedTotalSeparatesUnknownFromZero(t *testing.T) {
 	}
 	if known {
 		t.Fatal("unknown-only bench total known = true, want false so the UI can render an em dash")
+	}
+	if summary := TeamBenchProjection(EffectiveLineup{Bench: []Player{{ID: "unknown", Projection: 0}}}); summary.Coverage != "unavailable" {
+		t.Fatalf("unknown-only coverage = %q, want unavailable", summary.Coverage)
+	}
+	if summary := TeamBenchProjection(EffectiveLineup{Bench: []Player{{ID: "known", Projection: 11.6}}}); summary.Coverage != "complete" {
+		t.Fatalf("all-known coverage = %q, want complete", summary.Coverage)
 	}
 }

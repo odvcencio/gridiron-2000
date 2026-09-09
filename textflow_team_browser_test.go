@@ -1,18 +1,19 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/chromedp/chromedp"
 )
 
 // TestBrowserTeamHeroAndOperatedByClampCleanly is the text-flow wave's
-// browser check (2026-09-05) for the team hero name (maxLines=2) and
-// the "Operated by" manager name (flow, no maxLines — an inline
-// mid-sentence name, not a standalone row): a long fixture name
-// injected into the real, server-rendered TextBlock elements must
-// clamp/wrap with no mid-glyph clip, and the document must never
-// overflow horizontally, at both a phone and a desktop width.
+// browser check (2026-09-05) for the team hero name and the "Operated by"
+// manager name (both natural flow, no maxLines — the manager is an inline
+// mid-sentence name, not a standalone row): a long fixture name injected
+// into the real, server-rendered TextBlock elements must remain readable
+// without a mid-glyph clip, and the document must never overflow
+// horizontally, at both a phone and a desktop width.
 func TestBrowserTeamHeroAndOperatedByClampCleanly(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
@@ -43,9 +44,25 @@ func TestBrowserTeamHeroAndOperatedByClampCleanly(t *testing.T) {
 		if !found.Hero {
 			t.Fatalf("team hero name not found at %dpx: %+v", width, found)
 		}
-		assertTextflowClamp(t, ctx, "#team-identity-hero h1[data-gosx-text-layout]", 2, int(width))
+		heroSelector := "#team-identity-hero h1[data-gosx-text-layout]"
+		assertTextflowClamp(t, ctx, heroSelector, 0, int(width))
+		heroProbe := waitTextLayoutReady(t, ctx, heroSelector, 0)
+		if heroProbe.MaxLinesAttr != "" {
+			t.Errorf("hero team name at %dpx still has max-lines=%q; important identity should flow naturally", width, heroProbe.MaxLinesAttr)
+		}
+		if !strings.Contains(heroProbe.Text, textflowLongTeamName) {
+			t.Errorf("hero team name at %dpx lost the full natural-flow source text: %q", width, heroProbe.Text)
+		}
 		if found.Operated {
-			assertTextflowClamp(t, ctx, ".team-hero__identity p span[data-gosx-text-layout]", 0, int(width))
+			operatedSelector := ".team-hero__identity p span[data-gosx-text-layout]"
+			assertTextflowClamp(t, ctx, operatedSelector, 0, int(width))
+			operatedProbe := waitTextLayoutReady(t, ctx, operatedSelector, 0)
+			if operatedProbe.MaxLinesAttr != "" {
+				t.Errorf("operated-by manager at %dpx still has max-lines=%q; inline identity should flow naturally", width, operatedProbe.MaxLinesAttr)
+			}
+			if !strings.Contains(operatedProbe.Text, textflowLongTeamName) {
+				t.Errorf("operated-by manager at %dpx lost the full natural-flow source text: %q", width, operatedProbe.Text)
+			}
 		}
 		scrollWidth, innerWidth := documentOverflowPx(t, ctx)
 		if scrollWidth > innerWidth {

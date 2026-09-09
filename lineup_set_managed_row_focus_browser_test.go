@@ -40,7 +40,7 @@ func TestBrowserLineupSetLandsOnChangedRowAt1440(t *testing.T) {
 	findScript := `(function(){
 		var slots = Array.from(document.querySelectorAll('.lineup-slot'));
 		for (var i = slots.length - 1; i >= 0; i--) {
-			var select = slots[i].querySelector('.lineup-slot__form select');
+			var select = slots[i].querySelector('.lineup-slot__form[action*="lineup-set"] select');
 			if (!select) continue;
 			var options = Array.from(select.options);
 			for (var j = 0; j < options.length; j++) {
@@ -69,17 +69,22 @@ func TestBrowserLineupSetLandsOnChangedRowAt1440(t *testing.T) {
 	}
 
 	rowSelector := "#" + found.SlotID
-	// The Swap control now opens in place behind a closed-by-default
-	// <details class="action-disclosure"> (section-B item 1, cherry
-	// re-audit follow-up) instead of an always-visible form; its own
-	// select/button stay display:none until a manager opens the
-	// disclosure, so this must click the row's own Swap summary first
-	// or chromedp's SetValue/Click hang waiting on a hidden element.
+	// The change-player control opens in place behind a closed-by-default
+	// <details class="action-disclosure">; select/button stay display:none
+	// until a manager opens the disclosure. The row now also has a separate
+	// fixed-destination movement form, so target the legacy lineup-set form
+	// explicitly rather than accidentally selecting its to_slot control.
 	if err := chromedp.Run(ctx,
-		chromedp.Click(rowSelector+" .lineup-slot__action .action-disclosure summary", chromedp.ByQuery),
-		chromedp.WaitVisible(rowSelector+" .lineup-slot__form select", chromedp.ByQuery),
-		chromedp.SetValue(rowSelector+" .lineup-slot__form select", found.OptionID, chromedp.ByQuery),
-		chromedp.Click(rowSelector+" .lineup-slot__form button.board-button", chromedp.ByQuery),
+		chromedp.Evaluate(`(function(){
+			var form = document.querySelector('`+rowSelector+` form[action*="lineup-set"]');
+			if (!form) throw new Error('lineup-set form not found');
+			var disclosure = form.closest('details');
+			if (!disclosure) throw new Error('lineup-set disclosure not found');
+			disclosure.open = true;
+		})()`, nil),
+		chromedp.WaitVisible(rowSelector+" .lineup-slot__form[action*='lineup-set'] select", chromedp.ByQuery),
+		chromedp.SetValue(rowSelector+" .lineup-slot__form[action*='lineup-set'] select", found.OptionID, chromedp.ByQuery),
+		chromedp.Click(rowSelector+" .lineup-slot__form[action*='lineup-set'] button.board-button", chromedp.ByQuery),
 	); err != nil {
 		t.Fatalf("submit the lineup-set form for %s: %v", found.SlotID, err)
 	}

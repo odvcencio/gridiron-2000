@@ -1588,6 +1588,17 @@ func (s *Service) carryForwardReferencedPlayers(byID map[string]Player) {
 			return
 		}
 		if player, ok := s.poolCache.byID[playerID]; ok {
+			// A carried player remains resolvable for roster and draft
+			// mutations, but the previous source snapshot's forecast must
+			// not masquerade as a forecast from this rebuild's week. The
+			// source may have omitted the player because its current-week
+			// projection is unavailable; preserve identity metadata while
+			// failing closed for weekly projection fields. A zero projection
+			// is intentionally distinct from a known zero: the shared
+			// projection helpers treat it as unknown, just like an absent
+			// source row.
+			player.Projection = 0
+			player.ProjStats = nil
 			byID[playerID] = player
 		}
 	}
@@ -2519,6 +2530,12 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	// include zone occupants").
 	general, reserveOccupants, irOccupants := splitRosterZones(state, teamID, roster)
 	lineup := effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
+	// Team projections must come from the same source-week gate as
+	// /matchups. The roster can outlive a cached pool snapshot, so overlay
+	// only the matching source's forecast fields and clear stale values when
+	// the source is unavailable or for another week.
+	projectionByID, projectionAvailable, projectionNote := s.projectionPoolForWeek(s.pool(), week)
+	lineup = lineupWithProjectionPool(lineup, projectionByID)
 	// projected (item 8, 2026-09-07 truth pass): starters only, from the
 	// one TeamStartersProjectedTotal helper /matchups' own featured-card
 	// projection agrees with pre-kickoff (TestTeamProjectedTotalHelpersAgreePreKickoff)
@@ -2526,7 +2543,8 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	// showed a bigger number than the matchup card for the same team and
 	// week.
 	projected := TeamStartersProjectedTotal(lineup)
-	benchProjected, benchHasProjection := TeamBenchProjectedTotal(lineup)
+	benchProjection := TeamBenchProjection(lineup)
+	benchProjected := benchProjection.Total
 	scoringValues := s.currentScoringValues()
 	matchupLabel, hasMatchupLabel := s.MatchupSourceLabel()
 	filled := 0
@@ -2574,8 +2592,8 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	// below, and /matchups all agree on for this team and week; filled
 	// (already computed above) is the same "at least one starter" gate
 	// hasProjectableStarters uses elsewhere.
-	startersHasProjection := filled > 0
-	currentMatchupCard := s.teamCurrentMatchupCard(state, teamID, week, lineupDeadline)
+	startersHasProjection := projectionAvailable && TeamStartersProjectionKnown(lineup)
+	currentMatchupCard := s.teamCurrentMatchupCard(state, teamID, week, lineupDeadline, projectionByID, projectionAvailable)
 	seasonPhase := s.SeasonPhase(now)
 
 	placeOptions := make([]map[string]any, 0, len(general))
@@ -2809,8 +2827,16 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	// resolved starters. Keep the same em-dash treatment as the rest of the
 	// projection UI when the feed has no known bench value, rather than
 	// implying that an unknown forecast is a confirmed 0.0.
+	benchCoverage := benchProjection.Coverage
+	if !projectionAvailable {
+		benchCoverage = "unavailable"
+	}
+	benchHasProjection := projectionAvailable && benchCoverage == "complete"
 	data["bench_projected"] = projectedText(benchProjected, benchHasProjection)
 	data["bench_has_projection"] = benchHasProjection
+	data["bench_projection_coverage"] = benchCoverage
+	data["bench_projection_coverage_label"] = benchProjectionLabel(benchCoverage)
+	data["bench_projection_note"] = projectionNote
 	for key, value := range terminalData {
 		data[key] = value
 	}
@@ -3099,6 +3125,21 @@ func addScheduleLabels(rows []map[string]any, players []Player, games []GameInfo
 	}
 }
 
+// benchProjectionLabel turns the coverage token used by the service into a
+// short, visible explanation for the Team strip and Bench heading. Keeping
+// this server-rendered makes the partial/unavailable distinction available to
+// keyboard and no-script clients as well as the visual tile.
+func benchProjectionLabel(coverage string) string {
+	switch coverage {
+	case "complete":
+		return "Complete forecast"
+	case "partial":
+		return "Partial forecast"
+	default:
+		return "Forecast unavailable"
+	}
+}
+
 // addBenchActionOptions decorates rows (already-rendered playerMap output,
 // in the same order as bench) with the /team bench row's ACTION column
 // (section-B item 4): "Start" posts into the best legal open slot,
@@ -3134,6 +3175,21 @@ func addBenchActionOptions(rows []map[string]any, bench []Player, lineup Effecti
 		}
 		row["has_open_slot"] = hasOpenSlot
 		row["open_slot_id"] = openSlotID
+		moveOptions := make([]map[string]any, 0, len(lineup.Slots))
+		if !row["locked"].(bool) {
+			for _, a := range lineup.Slots {
+				if !a.Slot.Def.Fits(player.Position) || (a.HasPlayer && a.Locked) {
+					continue
+				}
+				label := a.Slot.ID + " — open"
+				if a.HasPlayer {
+					label = fmt.Sprintf("%s — replaces %s", a.Slot.ID, a.Player.Name)
+				}
+				moveOptions = append(moveOptions, map[string]any{"id": a.Slot.ID, "label": label})
+			}
+		}
+		row["move_options"] = moveOptions
+		row["has_move_options"] = len(moveOptions) > 0
 		swapOptions := make([]map[string]any, 0)
 		if !hasOpenSlot {
 			for _, a := range lineup.Slots {

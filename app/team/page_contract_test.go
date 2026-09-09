@@ -1209,9 +1209,9 @@ func TestTeamPrimaryActionFeedsPhoneActionBar(t *testing.T) {
 
 // TestTeamLineupMovementAndProjectionContracts pins the manager-facing part
 // of the weekly lineup improvement: the two forecast scopes are named in
-// the command strip, GoSX's existing declarative reorder primitive has a
-// visible handle and same-origin action, and native Move buttons remain in
-// the row markup as the no-script/touch/keyboard fallback.
+// the command strip, GoSX's fixed-target transfer primitive has a visible
+// handle and same-origin action, and native destination forms remain in the
+// row markup as the no-script/touch/keyboard fallback.
 func TestTeamLineupMovementAndProjectionContracts(t *testing.T) {
 	pageBytes, err := os.ReadFile("page.gsx")
 	if err != nil {
@@ -1224,21 +1224,36 @@ func TestTeamLineupMovementAndProjectionContracts(t *testing.T) {
 		`<span>Bench projection</span>`,
 		`{data.bench_projected}`,
 		`Not included in team score`,
-		`<p class="lineup-reorder-help" id="lineup-reorder-help">`,
-		`Drag the grip to move a starter to another eligible slot.`,
-		`data-gosx-reorder`,
-		`data-gosx-reorder-action={"POST " + actionPath("lineup-move-to")`,
+		`{data.bench_projection_coverage_label}`,
+		`{data.bench_projection_note}`,
+		`<p class="lineup-transfer-help" id="lineup-transfer-help">`,
+		`Drag a grip to assign that player to a highlighted eligible starter slot.`,
+		`data-gosx-transfer`,
+		`data-gosx-transfer-action={"POST " + actionPath("lineup-move-player")}`,
+		`data-gosx-transfer-context={"team_id=" + data.team.id + "&week=" + data.week}`,
+		`data-gosx-transfer-target-field="to_slot"`,
 		`data-gosx-csrf-token={csrf.token}`,
-		`data-gosx-reorder-item={slot.slot_id}`,
-		`data-gosx-reorder-handle`,
-		`lineup-slot__handle--disabled`,
-		`action={actionPath("lineup-move")}`,
-		`class="lineup-move-form"`,
-		`name="from_slot"`,
+		`data-gosx-transfer-source={slot.id}`,
+		`data-gosx-transfer-target={slot.slot_id}`,
+		`data-gosx-transfer-eligible-for={slot.transfer_eligible_for}`,
+		`data-gosx-transfer-handle`,
 		`name="to_slot"`,
+		`actionPath("lineup-move-player")`,
+		`Choose a starter destination`,
+		`Start / replace`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("Team lineup movement/projection markup missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		`data-gosx-reorder`,
+		`Quick swap`,
+		`action={actionPath("lineup-move")}`,
+		`name="from_slot"`,
+	} {
+		if strings.Contains(page, unwanted) {
+			t.Errorf("obsolete Team lineup movement markup still contains %q", unwanted)
 		}
 	}
 
@@ -1249,7 +1264,9 @@ func TestTeamLineupMovementAndProjectionContracts(t *testing.T) {
 	server := string(serverBytes)
 	for _, want := range []string{
 		`"lineup-move": func(ctx *action.Context) error {`,
+		`"lineup-move-player": func(ctx *action.Context) error {`,
 		`"lineup-move-to": func(ctx *action.Context) error {`,
+		`LineupMovePlayerTo(ctx.Request, ctx.FormData["team_id"], week, ctx.FormData["player_id"], ctx.FormData["to_slot"])`,
 		`LineupMoveTo(ctx.Request, teamID, week, ctx.FormData["item_id"], index)`,
 		`ctx.Request.URL.Query().Get("week")`,
 	} {
@@ -1265,8 +1282,8 @@ func TestTeamLineupMovementAndProjectionContracts(t *testing.T) {
 	styles := string(stylesBytes)
 	for _, want := range []string{
 		`.lineup-slot__handle`,
-		`.lineup-slot-list[data-gosx-reorder]`,
-		`.lineup-move-button`,
+		`.team-lineup-region[data-gosx-transfer]`,
+		`.gosx-transfer-target--over`,
 		`@media (width <= 899px)`,
 		`min-inline-size: 2.75rem`,
 	} {
@@ -1342,32 +1359,31 @@ func TestStarterRowRendersProjAndPts(t *testing.T) {
 	}
 }
 
-// TestSwapDisclosureClosedByDefaultOnStarterAndBenchRows covers item 3's
+// TestMoveDisclosureClosedByDefaultOnStarterAndBenchRows covers item 3's
 // "closed by default so the row reads as a lineup" requirement: neither
-// the starter row's nor the bench row's Swap disclosure carries an
-// "open" attribute — a plain <details>, unopened, works with no
+// the starter row's nor the bench row's fixed-destination movement disclosure
+// carries an "open" attribute. A plain <details>, unopened, works with no
 // JavaScript and keeps the grid from reading as a form dump.
-func TestSwapDisclosureClosedByDefaultOnStarterAndBenchRows(t *testing.T) {
+func TestMoveDisclosureClosedByDefaultOnStarterAndBenchRows(t *testing.T) {
 	pageBytes, err := os.ReadFile("page.gsx")
 	if err != nil {
 		t.Fatal(err)
 	}
 	page := string(pageBytes)
-	count := strings.Count(page, `<details class="action-disclosure">`)
+	count := strings.Count(page, `<details class="action-disclosure lineup-move-disclosure">`)
 	if count < 2 {
-		t.Fatalf("action-disclosure count = %d, want at least 2 (starter Swap + bench Swap with…)", count)
+		t.Fatalf("lineup-move-disclosure count = %d, want at least 2 (starter + bench destination forms)", count)
 	}
-	if strings.Contains(page, `<details class="action-disclosure" open`) {
-		t.Fatal("an action-disclosure carries open= — Swap must be closed by default")
+	if strings.Contains(page, `<details class="action-disclosure lineup-move-disclosure" open`) {
+		t.Fatal("a lineup-move-disclosure carries open= — movement must be closed by default")
 	}
 }
 
-// TestBenchRowRendersStartSwapAndDropActions covers item 4: the bench
-// row's ACTION cell offers Start (the server-chosen open slot, posted
-// straight to lineup-set), a Swap-with… disclosure when no slot is open,
-// and Drop behind the same review-confirm gate /players' own player-drop
-// control uses, returning to /team#bench.
-func TestBenchRowRendersStartSwapAndDropActions(t *testing.T) {
+// TestBenchRowRendersMoveAndDropActions covers item 4: the bench row's
+// ACTION cell offers every server-authorized starter destination through a
+// stable player_id/to_slot form, and Drop behind the same review-confirm
+// gate /players' own player-drop control uses, returning to /team#bench.
+func TestBenchRowRendersMoveAndDropActions(t *testing.T) {
 	pageBytes, err := os.ReadFile("page.gsx")
 	if err != nil {
 		t.Fatal(err)
@@ -1380,10 +1396,12 @@ func TestBenchRowRendersStartSwapAndDropActions(t *testing.T) {
 	block := page[rosterRowAt:]
 	for _, want := range []string{
 		`<div class="lineup-slot__action">`,
-		`<If cond={props.HasOpenSlot}>`,
-		`{"Start at " + props.OpenSlotID}`,
-		`<If cond={props.HasOpenSlot == false && props.HasSwapOptions}>`,
-		`<summary aria-label={"Swap with… " + props.Name}>Swap</summary>`,
+		`<If cond={props.HasMoveOptions}>`,
+		`<summary aria-label={"Choose a starter destination for " + props.Name}>`,
+		`action={actionPath("lineup-move-player")}`,
+		`name="player_id" value={props.ID}`,
+		`name="to_slot"`,
+		`Start / replace`,
 		`action={actionPath("player-drop")}`,
 		`<details class="action-confirmation">`,
 		`<summary aria-label={"Drop " + props.Name}>Drop</summary>`,
@@ -1489,6 +1507,83 @@ func TestInSeasonHeroBandCarriesTheFourCoreFacts(t *testing.T) {
 	} {
 		if !strings.Contains(block, want) {
 			t.Errorf("team-identity-hero missing %q (name/division/record/badge)", want)
+		}
+	}
+}
+
+// TestTeamLineupTransferSeparatesIncomingTargetFromOutgoingSource protects
+// the fixed-target transfer contract for an empty or single-position slot:
+// target eligibility is an incoming, source-ID-specific decision, while the
+// grip is the only element that may be disabled when its player has no legal
+// outgoing move. Keeping those attributes on the same starter node made
+// valid bench promotions disappear whenever that slot had no outgoing move.
+func TestTeamLineupTransferSeparatesIncomingTargetFromOutgoingSource(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+
+	targetAttr := `data-gosx-transfer-target={slot.slot_id}`
+	targetAt := strings.Index(page, targetAttr)
+	if targetAt < 0 {
+		t.Fatal("starter transfer target is missing")
+	}
+	targetStart := strings.LastIndex(page[:targetAt], "<div")
+	if targetStart < 0 {
+		t.Fatal("could not locate starter transfer target opening")
+	}
+	label := `aria-label={"Assign a player to " + slot.slot_id}`
+	labelAt := strings.Index(page[targetAt:], label)
+	if labelAt < 0 {
+		t.Fatal("starter transfer target has no accessible assignment label")
+	}
+	targetOpening := page[targetStart : targetAt+labelAt+len(label)]
+	if strings.Contains(targetOpening, `data-gosx-transfer-source`) || strings.Contains(targetOpening, `data-gosx-transfer-disabled`) {
+		t.Fatalf("starter target must not register a disabled/source fallback: %s", targetOpening)
+	}
+	if !strings.Contains(targetOpening, `data-player-id={slot.id}`) || !strings.Contains(targetOpening, `data-gosx-transfer-eligible={data.team_terminal_roster_complete && slot.locked == false && slot.transfer_eligible_for != ""}`) {
+		t.Fatalf("starter target lost stable identity or incoming eligibility: %s", targetOpening)
+	}
+
+	handle := `<span class="lineup-slot__handle" data-gosx-transfer-handle data-gosx-transfer-source={slot.id} data-gosx-transfer-disabled={data.team_terminal_roster_complete == false || slot.locked || slot.has_move_options == false}`
+	if !strings.Contains(page, handle) {
+		t.Fatalf("starter grip does not carry the outgoing-move disabled guard %q", handle)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Team lineup and bench redesign (2026-09-07, section-B)
+
+// TestTeamPlayerPhotoThumbnailKeepsSquareUprightGeometry ensures the shared
+// decorative mark transform does not shear real player photographs or let a
+// non-square source image stretch a flex identity row.
+func TestTeamPlayerPhotoThumbnailKeepsSquareUprightGeometry(t *testing.T) {
+	stylesBytes, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	styles := string(stylesBytes)
+	ruleAt := strings.Index(styles, ".player-avatar--photo {")
+	if ruleAt < 0 {
+		t.Fatal("player photo rule is missing")
+	}
+	ruleEnd := strings.Index(styles[ruleAt:], "}")
+	if ruleEnd < 0 {
+		t.Fatal("player photo rule has no closing brace")
+	}
+	rule := styles[ruleAt : ruleAt+ruleEnd]
+	for _, want := range []string{
+		"display: block;",
+		"width: 2.6rem;",
+		"height: 2.6rem;",
+		"flex: 0 0 2.6rem;",
+		"object-fit: cover;",
+		"object-position: center;",
+		"transform: none;",
+	} {
+		if !strings.Contains(rule, want) {
+			t.Errorf("player photo rule missing %q: %s", want, rule)
 		}
 	}
 }

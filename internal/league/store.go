@@ -3257,6 +3257,60 @@ func (s *Store) SetLineupSlot(teamID string, week int, slot, playerID string, no
 	return s.persistLocked(colLineups)
 }
 
+// SetLineupSlotIfUnchanged is SetLineupSlot's guarded form. expected is the
+// explicit lineup-week map observed by the Service before it validated a
+// move; the comparison happens under the same Store lock as the write, so a
+// concurrent lineup-set cannot be silently overwritten by a stale move.
+func (s *Store) SetLineupSlotIfUnchanged(teamID string, week int, slot, playerID string, expected map[string]string, now time.Time) error {
+	_ = now
+	if !knownTeam(teamID) {
+		return fmt.Errorf("unknown team %q", teamID)
+	}
+	if week < 1 {
+		return fmt.Errorf("unknown lineup week %d", week)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
+	byWeek := s.state.Lineups[teamID]
+	current := map[string]string(nil)
+	if byWeek != nil {
+		current = byWeek[week]
+	}
+	if !lineupMapsEqual(current, expected) {
+		return fmt.Errorf("%s", lineupChangedWhileMovingMessage)
+	}
+	if lineupWeekFinalLocked(s.state, week) {
+		return fmt.Errorf("%s", lineupWeekClosedMessage(week))
+	}
+	if s.state.Lineups == nil {
+		s.state.Lineups = map[string]map[int]map[string]string{}
+	}
+	if byWeek == nil {
+		byWeek = map[int]map[string]string{}
+		s.state.Lineups[teamID] = byWeek
+	}
+	slots, ok := byWeek[week]
+	if !ok {
+		slots = map[string]string{}
+		byWeek[week] = slots
+	}
+	playerID = strings.TrimSpace(playerID)
+	if playerID == "" {
+		delete(slots, slot)
+		return s.persistLocked(colLineups)
+	}
+	for otherSlot, occupant := range slots {
+		if otherSlot != slot && occupant == playerID {
+			delete(slots, otherSlot)
+		}
+	}
+	slots[slot] = playerID
+	return s.persistLocked(colLineups)
+}
+
 // SetLineupWeek replaces teamID's entire explicit lineup for week with
 // slots (slot ID -> player ID), one lock, one persist. The lineup-auto
 // action (roster-ops spec section 4.7) is the only caller: it recomputes
@@ -3292,6 +3346,60 @@ func (s *Store) SetLineupWeek(teamID string, week int, slots map[string]string) 
 	}
 	byWeek[week] = copied
 	return s.persistLocked(colLineups)
+}
+
+// SetLineupWeekIfUnchanged is SetLineupWeek's guarded form. expected is
+// compared while holding the Store write lock, then the replacement is
+// persisted under that same lock. It is used by multi-slot moves so a
+// concurrent unrelated lineup edit fails closed instead of being lost.
+func (s *Store) SetLineupWeekIfUnchanged(teamID string, week int, expected, slots map[string]string) error {
+	if !knownTeam(teamID) {
+		return fmt.Errorf("unknown team %q", teamID)
+	}
+	if week < 1 {
+		return fmt.Errorf("unknown lineup week %d", week)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
+	byWeek := s.state.Lineups[teamID]
+	current := map[string]string(nil)
+	if byWeek != nil {
+		current = byWeek[week]
+	}
+	if !lineupMapsEqual(current, expected) {
+		return fmt.Errorf("%s", lineupChangedWhileMovingMessage)
+	}
+	if lineupWeekFinalLocked(s.state, week) {
+		return fmt.Errorf("%s", lineupWeekClosedMessage(week))
+	}
+	if s.state.Lineups == nil {
+		s.state.Lineups = map[string]map[int]map[string]string{}
+	}
+	if byWeek == nil {
+		byWeek = map[int]map[string]string{}
+		s.state.Lineups[teamID] = byWeek
+	}
+	copied := make(map[string]string, len(slots))
+	for slot, playerID := range slots {
+		copied[slot] = playerID
+	}
+	byWeek[week] = copied
+	return s.persistLocked(colLineups)
+}
+
+func lineupMapsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for slot, playerID := range a {
+		if b[slot] != playerID {
+			return false
+		}
+	}
+	return true
 }
 
 // RecordTransaction appends one add/drop transaction (roster-ops spec
