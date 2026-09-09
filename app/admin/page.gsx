@@ -1841,7 +1841,7 @@ func Page() Node {
 							</select>
 							<button class="button button--ghost" type="submit">Filter free agents</button>
 						</form>
-						<form method="post" action={actionPath("roster-correction")} data-gosx-managed="true" class="season-control-form">
+						<form method="post" action={actionPath("roster-correction")} data-gosx-managed="false" class="season-control-form">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<input type="hidden" name="team_id" value={data.roster_correction.selected_team_id}></input>
 							<div class="roster-shape-form-grid">

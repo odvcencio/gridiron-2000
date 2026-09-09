@@ -1938,6 +1938,8 @@ func TestRosterCorrectionMarkupContract(t *testing.T) {
 		// then a second, distinct submit that actually commits.
 		"roster_correction_review_pending",
 		"roster_correction_review_summary",
+		`<form method="post" action={actionPath("roster-correction")} data-gosx-managed="false" class="season-control-form">`,
+		`<form method="post" action={actionPath("roster-correction")} data-gosx-managed="true">`,
 		`name="confirmation" value="correct-roster"`,
 		">Review correction<",
 		">Confirm correction<",
@@ -1945,6 +1947,22 @@ func TestRosterCorrectionMarkupContract(t *testing.T) {
 		if !strings.Contains(markup, want) {
 			t.Errorf("roster correction panel source missing %q", want)
 		}
+	}
+	// Keep the managed flags attached to the correct step: the review
+	// submit must be native so its validation redirect can paint the
+	// conditional confirm panel, while only the final commit stays managed.
+	reviewButton := strings.Index(markup, ">Review correction<")
+	confirmButton := strings.Index(markup, ">Confirm correction<")
+	if reviewButton < 0 || confirmButton <= reviewButton {
+		t.Fatalf("roster correction source lost the review/confirm button order")
+	}
+	reviewFormStart := strings.LastIndex(markup[:reviewButton], "<form ")
+	confirmFormStart := strings.LastIndex(markup[:confirmButton], "<form ")
+	if reviewFormStart < 0 || !strings.Contains(markup[reviewFormStart:reviewButton], `data-gosx-managed="false"`) {
+		t.Fatalf("Review correction must use an unmanaged native form")
+	}
+	if confirmFormStart < 0 || !strings.Contains(markup[confirmFormStart:confirmButton], `data-gosx-managed="true"`) {
+		t.Fatalf("Confirm correction must keep its managed form")
 	}
 }
 
