@@ -126,3 +126,53 @@ func TestLineupMutationSuccessKeepsChangedRowFragmentForManagedRequests(t *testi
 		})
 	}
 }
+
+// TestLineupMutationSuccessKeepsStablePlayerDestinationRowForManagedRequests
+// covers the all-destination native fallback used by both starter and bench
+// rows. Its source is a stable player_id, so the destination is carried in
+// to_slot; the redirect must preserve that fixed slot's fragment just like a
+// lineup-set that submits slot directly.
+func TestLineupMutationSuccessKeepsStablePlayerDestinationRowForManagedRequests(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		accept     string
+		wantTarget string
+	}{
+		{name: "native", accept: "", wantTarget: "/team?week=2#slot-FLEX"},
+		{name: "managed", accept: "application/json", wantTarget: "/team?week=2#slot-FLEX"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/team/__actions/lineup-move-player", nil)
+			request.Form = map[string][]string{"week": {"2"}, "player_id": {"bench-rb"}, "to_slot": {"FLEX"}}
+			if tt.accept != "" {
+				request.Header.Set("Accept", tt.accept)
+				request.Header.Set("X-Requested-With", "XMLHttpRequest")
+			}
+			response := httptest.NewRecorder()
+			action.ServeHandler(response, request, func(ctx *action.Context) error {
+				ctx.FormData = map[string]string{"week": "2", "player_id": "bench-rb", "to_slot": "FLEX"}
+				return lineupMutationSuccess(ctx, "Bench RB starts at FLEX.")
+			})
+
+			if response.Code != http.StatusSeeOther {
+				t.Fatalf("status = %d, want 303", response.Code)
+			}
+			if tt.accept == "" {
+				if got := response.Header().Get("Location"); got != tt.wantTarget {
+					t.Fatalf("native Location = %q, want %q", got, tt.wantTarget)
+				}
+				return
+			}
+			var result action.Result
+			if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+				t.Fatalf("decode managed result: %v", err)
+			}
+			if !result.OK {
+				t.Fatalf("managed result.OK = false, want true: %+v", result)
+			}
+			if result.Redirect != tt.wantTarget {
+				t.Fatalf("managed result.Redirect = %q, want %q — a player destination submitted as to_slot must preserve the fixed target row", result.Redirect, tt.wantTarget)
+			}
+		})
+	}
+}

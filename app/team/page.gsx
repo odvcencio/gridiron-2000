@@ -7,11 +7,10 @@ type BreakdownRow struct {
 	Points string
 }
 
-// SlotOption is one choice in a bench row's "Swap with…" disclosure
-// (section-B item 4): the starter slot ID and its plain-language label
-// ("RB1 — replaces Jonathan Taylor"), server-computed by
-// league.addBenchActionOptions so the select never offers a slot
-// SetLineup would reject.
+// SlotOption is one choice in a bench row's destination disclosure: the
+// starter slot ID and its plain-language label ("RB1 — replaces Jonathan
+// Taylor"), server-computed by league.addBenchActionOptions so the select
+// never offers a slot SetLineup would reject.
 type SlotOption struct {
 	ID    string
 	Label string
@@ -80,22 +79,23 @@ type RosterRowProps struct {
 	InjuryDesignation    string
 	InjuryTip            string
 	// Locked (section-B item 4) mirrors league.playerLocked for this
-	// bench player's own NFL game: once true, Start/Swap/Drop all stop
+	// bench player's own NFL game: once true, Move/Drop all stop
 	// rendering (AddPlayer/DropPlayer/SetLineup would reject every one of
 	// them once a player's game has kicked off) in favor of a plain
 	// LOCKED status chip.
 	Locked bool
-	// HasOpenSlot/OpenSlotID and HasSwapOptions/SwapOptions (section-B
-	// item 4) are league.addBenchActionOptions' own server-side choice: a
-	// legal open starting slot for this player's position when one
-	// exists, or — when none is open — every slot this player fits whose
-	// current occupant is not locked, so the "Start"/"Swap with…"
-	// controls below never offer a move SetLineup would reject.
+	// HasOpenSlot/OpenSlotID and HasSwapOptions/SwapOptions are retained for
+	// the service's native option matrix: a legal open starting slot for this
+	// player's position when one exists, or — when none is open — every slot
+	// this player fits whose current occupant is not locked. The rendered
+	// Move form uses the same matrix through MoveOptions.
 	HasOpenSlot    bool
 	OpenSlotID     string
 	HasSwapOptions bool
 	SwapOptions    []SlotOption
-	// RosterComplete gates Start/Swap/Drop on the same
+	HasMoveOptions bool
+	MoveOptions    []SlotOption
+	// RosterComplete gates Move/Drop on the same
 	// team_terminal_roster_complete condition the starter slots' own SET
 	// forms use — AddPlayer/DropPlayer both require a finished draft
 	// (free agency has not opened yet otherwise).
@@ -179,9 +179,17 @@ func RosterRow(props RosterRowProps) Node {
 		<If cond={props.HasGroupHeader}>
 			<h4 class="roster-group-header mono">{props.GroupHeader}</h4>
 		</If>
-		<div class="roster-row" id={"bench-" + props.ID}>
+		<div
+			class="roster-row"
+			id={"bench-" + props.ID}
+			data-gosx-transfer-source={props.ID}
+			data-gosx-transfer-disabled={props.RosterComplete == false || props.Locked || props.HasMoveOptions == false}
+		>
 		<div class="position-chip lineup-slot__id">
 			{props.Position}
+			<If cond={props.RosterComplete && props.Locked == false && props.HasMoveOptions}>
+				<span class="lineup-slot__handle" data-gosx-transfer-handle aria-label={"Move " + props.Name + " to a starter slot"}>⠿</span>
+			</If>
 			<If cond={props.HasHouseRank}>
 				<small class="house-rank">{props.HouseRank}</small>
 			</If>
@@ -196,7 +204,7 @@ func RosterRow(props RosterRowProps) Node {
 				<span class="player-avatar" aria-hidden="true">{props.NFLTeam}</span>
 			</If>
 			<span class="player-identity__text">
-				<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Name} />
+				<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} text={props.Name} />
 				<small class="roster-row__schedule mono">{props.Position} · {props.NFLTeam}</small>
 			</span>
 			</summary>
@@ -285,33 +293,26 @@ func RosterRow(props RosterRowProps) Node {
 			</div>
 			<div class="lineup-slot__action">
 				<If cond={props.RosterComplete && props.Locked == false}>
-					<If cond={props.HasOpenSlot}>
-						<form method="post" action={actionPath("lineup-set")} data-gosx-managed="true" class="lineup-slot__form">
-							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-							<input type="hidden" name="team_id" value={props.TeamID}></input>
-							<input type="hidden" name="week" value={props.Week}></input>
-							<input type="hidden" name="slot" value={props.OpenSlotID}></input>
-							<input type="hidden" name="player_id" value={props.ID}></input>
-							<button class="board-button" type="submit">{"Start at " + props.OpenSlotID}</button>
-						</form>
-					</If>
-					<If cond={props.HasOpenSlot == false && props.HasSwapOptions}>
-						<details class="action-disclosure">
-							<summary aria-label={"Swap with… " + props.Name}>Swap</summary>
-							<form method="post" action={actionPath("lineup-set")} data-gosx-managed="true" class="lineup-slot__form">
-								<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-								<input type="hidden" name="team_id" value={props.TeamID}></input>
-								<input type="hidden" name="week" value={props.Week}></input>
-								<input type="hidden" name="player_id" value={props.ID}></input>
-								<select name="slot" aria-label={"Choose a starter to replace with " + props.Name}>
-									<Each of={props.SwapOptions} as="opt">
-										<option value={opt.ID}>{opt.Label}</option>
-									</Each>
-								</select>
-								<button class="board-button" type="submit">Set</button>
-							</form>
-						</details>
-					</If>
+									<If cond={props.HasMoveOptions}>
+										<details class="action-disclosure lineup-move-disclosure">
+											<summary aria-label={"Choose a starter destination for " + props.Name}>
+												<If cond={props.HasOpenSlot}>Start</If>
+												<If cond={props.HasOpenSlot == false}>Move</If>
+											</summary>
+											<form method="post" action={actionPath("lineup-move-player")} data-gosx-managed="true" class="lineup-slot__form lineup-player-move-form">
+												<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+												<input type="hidden" name="team_id" value={props.TeamID}></input>
+												<input type="hidden" name="week" value={props.Week}></input>
+												<input type="hidden" name="player_id" value={props.ID}></input>
+												<select name="to_slot" aria-label={"Choose a starter destination for " + props.Name}>
+													<Each of={props.MoveOptions} as="opt">
+														<option value={opt.ID}>{opt.Label}</option>
+													</Each>
+												</select>
+												<button class="board-button" type="submit">Start / replace</button>
+											</form>
+										</details>
+									</If>
 					<form method="post" action={actionPath("player-drop")} data-gosx-managed="true" class="roster-row__drop-form">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="team_id" value={props.TeamID}></input>
@@ -424,7 +425,7 @@ func Page() Node {
 						MANAGER TERMINAL //
 						{data.hero_initials}
 					</span>
-					<TextBlock as="h1" font="400 24px Archivo Black" lineHeight={28} maxLines={2} overflow="ellipsis" text={data.team.name} />
+					<TextBlock as="h1" font="400 24px Archivo Black" lineHeight={28} text={data.team.name} />
 					<small class="mono">
 						{data.team.division}
 						DIVISION
@@ -442,7 +443,7 @@ func Page() Node {
 							<TextBlock as="span" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.hero_manager_name} />
 						</p>
 					</If>
-					{/* Section-B item 6 (page-height budget): in season, the hero
+					{/* Section-B item 6: in season, the hero
 					    keeps exactly one band — name, division, record, badge.
 					    The manager line and the Customize franchise link (a
 					    pre-season setup task, not a weekly one) move behind the
@@ -679,11 +680,27 @@ func Page() Node {
 // to come from never rendering the attribute at all, not from rendering
 // it with an empty value.
 func TeamLineupRegion() Node {
-	return <div class="team-lineup-region">
+	return <div
+		class="team-lineup-region"
+		data-gosx-transfer
+		data-gosx-transfer-action={"POST " + actionPath("lineup-move-player")}
+		data-gosx-transfer-context={"team_id=" + data.team.id + "&week=" + data.week}
+		data-gosx-transfer-target-field="to_slot"
+		data-gosx-csrf-token={csrf.token}
+	>
 				<div class="team-command-strip">
 				<div>
-					<span>Projected</span>
+					<span>Starting projection</span>
 					<strong class="mono">{data.projected}</strong>
+					<small class="team-command-strip__hint">Counts toward team score</small>
+				</div>
+				<div class="team-command-strip__projection team-command-strip__projection--bench">
+					<span>Bench projection</span>
+					<strong class="mono">{data.bench_projected}</strong>
+					<small class="team-command-strip__hint">{data.bench_projection_coverage_label} · <span>Not included in team score</span></small>
+					<If cond={data.bench_projection_note != ""}>
+						<small class="team-command-strip__hint">{data.bench_projection_note}</small>
+					</If>
 				</div>
 				<div>
 					<span>Starters</span>
@@ -740,7 +757,7 @@ func TeamLineupRegion() Node {
 						</span>
 						<div>
 							<span class="section-index">{"WEEK " + data.week + " MATCHUP"}</span>
-							<TextBlock as="strong" id="current-matchup-title" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={data.current_matchup.opponent.name} />
+							<TextBlock as="strong" id="current-matchup-title" font="600 16px Plus Jakarta Sans" lineHeight={22} text={data.current_matchup.opponent.name} />
 						</div>
 					</div>
 					<div class="current-matchup-card__stats">
@@ -972,7 +989,7 @@ func TeamLineupRegion() Node {
 							</p>
 						</details>
 					</If>
-					<div class="lineup-slot-labels" aria-hidden="true">
+						<div class="lineup-slot-labels" aria-hidden="true">
 						<span>SLOT</span>
 						<span>PLAYER</span>
 						<span>OPPONENT</span>
@@ -982,11 +999,33 @@ func TeamLineupRegion() Node {
 						<span>PTS</span>
 						<span>ACTION</span>
 					</div>
-					<div class="lineup-slot-list">
-							<Each of={data.starters} as="slot">
-								<div class="lineup-slot" id={"slot-" + slot.slot_id}>
-									<div class="lineup-slot__id mono">
-										{slot.slot_id}
+						<p class="lineup-transfer-help" id="lineup-transfer-help">
+							<If cond={data.team_terminal_roster_complete}>
+								Drag a grip to assign that player to a highlighted eligible starter slot. Keyboard: focus a grip, press Space or Enter, then use Tab/Shift+Tab or the arrow keys; press Space or Enter to assign, Escape to cancel. Native Move forms remain available for touch and keyboard; locked games stay put.
+							</If>
+						</p>
+						<div class="lineup-slot-list">
+						<div
+							class="lineup-slot-list lineup-slot-list--transfer"
+							aria-describedby="lineup-transfer-help"
+							aria-label="Starting lineup movement"
+						>
+								<Each of={data.starters} as="slot">
+									<div
+										class="lineup-slot"
+										id={"slot-" + slot.slot_id}
+										data-player-id={slot.id}
+										data-gosx-transfer-target={slot.slot_id}
+										data-gosx-transfer-eligible-for={slot.transfer_eligible_for}
+										data-gosx-transfer-locked={slot.locked}
+										data-gosx-transfer-eligible={data.team_terminal_roster_complete && slot.locked == false && slot.transfer_eligible_for != ""}
+										aria-label={"Assign a player to " + slot.slot_id}
+									>
+										<div class="lineup-slot__id mono">
+											<If cond={data.team_terminal_roster_complete && slot.has_player && slot.locked == false && slot.has_move_options}>
+												<span class="lineup-slot__handle" data-gosx-transfer-handle data-gosx-transfer-source={slot.id} data-gosx-transfer-disabled={data.team_terminal_roster_complete == false || slot.locked || slot.has_move_options == false} aria-label={"Move " + slot.name + " to another starter slot"}>⠿</span>
+											</If>
+																			{slot.slot_id}
 										<If cond={slot.has_house_rank}>
 											<small class="house-rank">{slot.house_rank}</small>
 										</If>
@@ -1002,7 +1041,7 @@ func TeamLineupRegion() Node {
 												<span class="player-avatar" aria-hidden="true">{slot.nfl_team}</span>
 											</If>
 											<span class="player-identity__text">
-												<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={slot.name} />
+								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} text={slot.name} />
 												<small class="roster-row__schedule mono">{slot.position} · {slot.nfl_team}</small>
 											</span>
 											</summary>
@@ -1107,8 +1146,22 @@ func TeamLineupRegion() Node {
 										</div>
 										<div class="lineup-slot__action">
 											<If cond={data.team_terminal_roster_complete && slot.locked == false}>
-												<details class="action-disclosure">
-													<summary>Swap</summary>
+												<details class="action-disclosure lineup-move-disclosure">
+													<summary aria-label={"Move or change " + slot.name}>Move / change</summary>
+													<If cond={slot.has_move_options}>
+														<form method="post" action={actionPath("lineup-move-player")} data-gosx-managed="true" class="lineup-slot__form lineup-player-move-form">
+															<input type="hidden" name="csrf_token" value={csrf.token}></input>
+															<input type="hidden" name="team_id" value={data.team.id}></input>
+															<input type="hidden" name="week" value={data.week}></input>
+															<input type="hidden" name="player_id" value={slot.id}></input>
+															<select name="to_slot" aria-label={"Choose a destination for " + slot.name}>
+																<Each of={slot.move_options} as="opt">
+																	<option value={opt.id}>{opt.label}</option>
+																</Each>
+															</select>
+															<button class="board-button" type="submit">Move</button>
+														</form>
+													</If>
 													<form method="post" action={actionPath("lineup-set")} data-gosx-managed="true" class="lineup-slot__form">
 														<input type="hidden" name="csrf_token" value={csrf.token}></input>
 														<input type="hidden" name="team_id" value={data.team.id}></input>
@@ -1124,11 +1177,17 @@ func TeamLineupRegion() Node {
 												</details>
 											</If>
 										</div>
-									</div>
 								</div>
+							</div>
 							</Each>
+								<p class="transfer-status lineup-transfer-status lineup-transfer-status--pending">Saving player destination…</p>
+								<p class="transfer-status lineup-transfer-status lineup-transfer-status--error" role="alert">Player movement failed. The current lineup was restored.</p>
+							</div>
 						</div>
-						<h3 class="lineup-bench-title">Bench</h3>
+		<h3 class="lineup-bench-title">
+								Bench
+								<small class="lineup-bench-title__projection mono">Projected {data.bench_projected} · {data.bench_projection_coverage_label} · excluded from team score</small>
+							</h3>
 						<If cond={data.bench_empty}>
 							<If cond={data.team_terminal_roster_complete}>
 								<p class="stat-tip__empty">No bench players.</p>
