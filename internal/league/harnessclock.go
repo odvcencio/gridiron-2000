@@ -29,6 +29,18 @@ func (s *Service) SetClockForTest(now func() time.Time) {
 // environment.
 func (s *Service) ClockForTest() time.Time { return s.clock() }
 
+// EvaluateNotificationsForTest runs one notifier evaluation at the harness
+// clock's current instant. Harness only: production callers must use the
+// real StartNotifier loop, so a leaked test endpoint can never manufacture
+// notification events in a live league.
+func (s *Service) EvaluateNotificationsForTest() error {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
+		return fmt.Errorf("EvaluateNotificationsForTest is refused in production")
+	}
+	s.notifierTick(s.clock())
+	return nil
+}
+
 // SeedStarterForTest directly records a pick and pins it into teamID's
 // week starting slot, bypassing the draft-pick clock and the SetLineup
 // service wrapper's kickoff lock entirely (Store.MakePick,
