@@ -2,10 +2,12 @@ package matchups
 
 import (
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
+	helpcontent "gridiron-2000/app/help"
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
@@ -519,6 +521,14 @@ func matchupsPrimaryAction(myMatchup FeaturedMatchupData) map[string]any {
 	}
 }
 
+func matchupsProjectionHelpHref(request *http.Request) string {
+	return helpcontent.ContextualTopicURL(
+		"lineups-locks-matchups-and-scoring",
+		nil,
+		helpcontent.ReturnPathForRequest(request, "main-content"),
+	)
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
@@ -526,6 +536,7 @@ func init() {
 			ctx.Runtime().EnableBootstrap()
 			ctx.Runtime().BindHub(ScoresLiveHubName, ScoresLiveBindingPath(), nil)
 			data := league.Default().MatchupsData(ctx.Request.Context(), ctx.Request)
+			data["projection_help_href"] = matchupsProjectionHelpHref(ctx.Request)
 			data["is_game_day"] = matchupsIsGameDay(data["status_line"])
 			if myMatchup, ok := data["my_matchup"].(map[string]any); ok {
 				typedMyMatchup := featuredMatchupData(myMatchup)

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	helpcontent "gridiron-2000/app/help"
 	matchupspage "gridiron-2000/app/matchups"
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/action"
@@ -374,7 +375,34 @@ func prepareTeamData(data map[string]any, request *http.Request) map[string]any 
 	}
 	data["lineup_fragment_interval"] = teamLineupFragmentInterval
 	data["lineup_fragment_url"] = teamLineupFragmentURL(data, request)
+	data["lineup_help_href"] = teamLineupHelpHref(request)
 	return data
+}
+
+func teamLineupReturnPath(request *http.Request) string {
+	values := url.Values{}
+	if request != nil && request.URL != nil {
+		query := request.URL.Query()
+		if week := strings.TrimSpace(query.Get("week")); week != "" {
+			values.Set("week", week)
+		}
+		if team := strings.TrimSpace(query.Get("team")); team != "" {
+			values.Set("team", team)
+		}
+	}
+	target := "/team"
+	if encoded := values.Encode(); encoded != "" {
+		target += "?" + encoded
+	}
+	return target + "#lineup"
+}
+
+func teamLineupHelpHref(request *http.Request) string {
+	return helpcontent.ContextualTopicURL(
+		"lineups-locks-matchups-and-scoring",
+		nil,
+		teamLineupReturnPath(request),
+	)
 }
 
 // teamLineupRowFragment names one lineup slot's own row id (J3 F8):
