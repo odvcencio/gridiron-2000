@@ -43,10 +43,10 @@ func TestRenderWritesOnlyOwnedFilesAndIsIdempotent(t *testing.T) {
 		t.Fatalf("first render exit = %d, stdout=%q stderr=%q", got, stdout.String(), stderr.String())
 	}
 	first := readOwnedFiles(t, dir)
-	if got, want := len(first), 2; got != want {
+	if got, want := len(first), 3; got != want {
 		t.Fatalf("rendered file count = %d, want %d", got, want)
 	}
-	for _, name := range []string{commissionerDocument, operatorDocument} {
+	for _, name := range []string{commissionerDocument, managerDocument, operatorDocument} {
 		if len(first[name]) == 0 {
 			t.Fatalf("rendered %s is empty", name)
 		}
@@ -69,7 +69,7 @@ func TestRenderWritesOnlyOwnedFilesAndIsIdempotent(t *testing.T) {
 	if got := run([]string{"check", "--out", dir}, &stdout, &stderr); got != 0 {
 		t.Fatalf("clean check exit = %d, stdout=%q stderr=%q", got, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "clean (2 files)") {
+	if !strings.Contains(stdout.String(), "clean (3 files)") {
 		t.Fatalf("clean check output = %q", stdout.String())
 	}
 }
@@ -125,28 +125,36 @@ func TestGeneratedDocsDeriveCorpusReceiptAndOverlay(t *testing.T) {
 		t.Fatal("commissioner topic missing")
 	}
 	overlay := commissionerOverlay(t)
+	managerTopic, ok := help.FindTopic("getting-started")
+	if !ok {
+		t.Fatal("manager root topic missing")
+	}
 	commissioner := byName[commissionerDocument]
 	operator := byName[operatorDocument]
 	for name, content := range byName {
+		expectedTopic := topic
+		if name == managerDocument {
+			expectedTopic = managerTopic
+		}
 		for _, want := range []string{
 			"Corpus version: `" + help.CorpusVersion + "`",
 			"Verified source SHA: `" + help.VerifiedSourceSHA + "`",
 			"Corpus source owner: `app/help` (`app/help/content.go`).",
-			"Topic ID: `" + topic.ID + "`.",
-			"Introduced version: `" + topic.IntroducedVersion + "`.",
-			"Last verified topic SHA: `" + topic.LastVerifiedSHA + "`.",
+			"Topic ID: `" + expectedTopic.ID + "`.",
+			"Introduced version: `" + expectedTopic.IntroducedVersion + "`.",
+			"Last verified topic SHA: `" + expectedTopic.LastVerifiedSHA + "`.",
 			"Evidence status: source-only",
-			topic.RuntimeSource,
-			topic.SourceRefs[0],
-			"Identity states: `" + strings.Join(topic.IdentityStates, "`, `") + "`",
-			"Admission states: `" + strings.Join(topic.AdmissionStates, "`, `") + "`",
-			"Team associations: `" + strings.Join(topic.TeamAssociations, "`, `") + "`",
-			"Team roles: `" + strings.Join(topic.TeamRoles, "`, `") + "`",
-			"Commissioner capability: `" + strings.Join(topic.CommissionerCapability, "`, `") + "`",
-			"Modes: `" + strings.Join(topic.Modes, "`, `") + "`",
-			"Phases: `" + strings.Join(topic.Phases, "`, `") + "`",
-			"Required capabilities: `" + strings.Join(topic.RequiredCapabilities, "`, `") + "`",
-			"Data states: `" + strings.Join(topic.DataStates, "`, `") + "`",
+			expectedTopic.RuntimeSource,
+			expectedTopic.SourceRefs[0],
+			"Identity states: `" + strings.Join(expectedTopic.IdentityStates, "`, `") + "`",
+			"Admission states: `" + strings.Join(expectedTopic.AdmissionStates, "`, `") + "`",
+			"Team associations: `" + strings.Join(expectedTopic.TeamAssociations, "`, `") + "`",
+			"Team roles: `" + strings.Join(expectedTopic.TeamRoles, "`, `") + "`",
+			"Commissioner capability: `" + strings.Join(expectedTopic.CommissionerCapability, "`, `") + "`",
+			"Modes: `" + strings.Join(expectedTopic.Modes, "`, `") + "`",
+			"Phases: `" + strings.Join(expectedTopic.Phases, "`, `") + "`",
+			"Required capabilities: `" + strings.Join(expectedTopic.RequiredCapabilities, "`, `") + "`",
+			"Data states: `" + strings.Join(expectedTopic.DataStates, "`, `") + "`",
 		} {
 			if !strings.Contains(content, want) {
 				t.Errorf("%s omitted %q", name, want)
@@ -217,7 +225,7 @@ func TestGeneratedDocsHaveValidLocalLinksAndNoPrivateValues(t *testing.T) {
 	secretAssignmentPattern := regexp.MustCompile(`(?i)(password|secret|token|api[_ -]?key)\s*[:=]`)
 	for _, doc := range documents {
 		content := string(doc.Contents)
-		if strings.Contains(content, "../help/") {
+		if strings.Contains(content, "../help") || strings.Contains(content, "../app") {
 			t.Errorf("%s uses a repository-relative link for an app route", doc.Name)
 		}
 		if emailPattern.MatchString(content) || secretAssignmentPattern.MatchString(content) {
@@ -296,10 +304,120 @@ func readOwnedFiles(t *testing.T, dir string) map[string][]byte {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	want := []string{commissionerDocument, operatorDocument}
+	want := []string{commissionerDocument, managerDocument, operatorDocument}
 	sort.Strings(want)
 	if strings.Join(names, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("render created files %v, want only %v", names, want)
 	}
 	return files
+}
+func TestManagerProjectionDerivesRolesPhasesAndReferences(t *testing.T) {
+	documents, err := renderDocuments()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manager string
+	for _, doc := range documents {
+		if doc.Name == managerDocument {
+			manager = string(doc.Contents)
+			break
+		}
+	}
+	if manager == "" {
+		t.Fatal("manager projection is missing")
+	}
+	for _, want := range []string{
+		"# Manager handbook",
+		"## Source and route references",
+		"## Five-minute manager path",
+		"## Role checklists",
+		"### Shared admitted-member checks",
+		"### Primary manager",
+		"### Co-manager",
+		"### Seatless member",
+		"### Commissioner overlay",
+		"## Manager workflow index",
+		"## State recovery reference",
+		"## Manager glossary",
+		"## Concept transition reference",
+		"## Technical appendix: role, mode, and phase coverage",
+		"## Technical appendix: corpus provenance and selection axes",
+		"### Projection receipt",
+		"not a universal entitlement",
+		"When this applies:",
+		"Anonymous and pending viewers",
+		"primary-manager and manager",
+		"comanager to the co-manager key",
+	} {
+		if !strings.Contains(manager, want) {
+			t.Errorf("manager projection omitted %q", want)
+		}
+	}
+	pathAt := strings.Index(manager, "## Five-minute manager path")
+	receiptAt := strings.Index(manager, "### Projection receipt")
+	matrixAt := strings.Index(manager, "## Technical appendix: role, mode, and phase coverage")
+	provenanceAt := strings.Index(manager, "## Technical appendix: corpus provenance and selection axes")
+	if pathAt < 0 || receiptAt < 0 || matrixAt < 0 || provenanceAt < 0 {
+		t.Fatal("manager projection is missing the expected reading-order anchors")
+	}
+	if pathAt >= receiptAt {
+		t.Fatal("five-minute manager path must precede the projection receipt")
+	}
+	if matrixAt >= provenanceAt || provenanceAt >= receiptAt {
+		t.Fatal("projection receipt must remain inside the technical appendix")
+	}
+	if strings.Contains(manager, "../help") || strings.Contains(manager, "../app") {
+		t.Fatal("manager projection contains repository-relative app links")
+	}
+	for _, topic := range managerWorkflowTopics(help.TopicCorpus()) {
+		for _, want := range []string{topic.ID, topic.Title, topic.ActionRoute, topic.RuntimeSource, topic.Recovery} {
+			if !strings.Contains(manager, want) {
+				t.Errorf("manager projection omitted workflow %s field %q", topic.ID, want)
+			}
+		}
+	}
+	modes := corpusAxisValues(managerWorkflowTopics(help.TopicCorpus()), func(topic help.Topic) []string { return topic.Modes }, preferredManagerModes)
+	phases := corpusAxisValues(managerWorkflowTopics(help.TopicCorpus()), func(topic help.Topic) []string { return topic.Phases }, preferredManagerPhases)
+	for _, mode := range modes {
+		if !strings.Contains(manager, codeSpan(mode)) {
+			t.Errorf("manager projection omitted mode %q", mode)
+		}
+	}
+	for _, phase := range phases {
+		if !strings.Contains(manager, codeSpan(phase)) {
+			t.Errorf("manager projection omitted phase %q", phase)
+		}
+	}
+	for _, role := range managerRoleSpecs {
+		items := help.ChecklistFor(role.Key, "", "", false)
+		if len(items) == 0 {
+			t.Fatalf("checklist for %s is empty", role.Key)
+		}
+		for _, item := range items {
+			if !strings.Contains(manager, item.Title) || !strings.Contains(manager, item.Predicate) || !strings.Contains(manager, item.ActionRoute) {
+				t.Errorf("manager projection omitted %s checklist item %q", role.Key, item.ID)
+			}
+		}
+	}
+	for _, entry := range help.Glossary() {
+		if !strings.Contains(manager, entry.Term) || !strings.Contains(manager, entry.TopicID) {
+			t.Errorf("manager projection omitted glossary entry %q", entry.Term)
+		}
+	}
+	for _, mapping := range help.MigrationMappings() {
+		if !strings.Contains(manager, mapping.Canonical) || !strings.Contains(manager, mapping.Difference) {
+			t.Errorf("manager projection omitted concept mapping %q", mapping.Canonical)
+		}
+	}
+	for _, link := range []string{
+		"[px1_help_corpus.md](px1_help_corpus.md)",
+		"[px1_glossary.md](px1_glossary.md)",
+		"[px1_concept-transition.md](px1_concept-transition.md)",
+		"[px1_commissioner-handbook.md](px1_commissioner-handbook.md)",
+		"[season-operations.md](season-operations.md)",
+	} {
+		if !strings.Contains(manager, link) {
+			t.Errorf("manager projection omitted local reference %q", link)
+		}
+	}
 }
