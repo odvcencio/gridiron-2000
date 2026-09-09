@@ -1004,11 +1004,14 @@ func TeamLineupRegion() Node {
 						>
 								<Each of={data.starters} as="slot">
 									<div class="lineup-slot" id={"slot-" + slot.slot_id} data-gosx-reorder-item={slot.slot_id}>
-										<div class="lineup-slot__id mono">
-											<If cond={data.team_terminal_roster_complete && slot.has_player && slot.locked == false}>
-												<span class="lineup-slot__handle" data-gosx-reorder-handle aria-label={"Move " + slot.slot_id + " starter"}>⠿</span>
-											</If>
-											{slot.slot_id}
+																				<div class="lineup-slot__id mono">
+																					<If cond={data.team_terminal_roster_complete && slot.has_player && slot.locked == false}>
+																						<span class="lineup-slot__handle" data-gosx-reorder-handle aria-label={"Move " + slot.slot_id + " starter"}>⠿</span>
+																					</If>
+																					<If cond={data.team_terminal_roster_complete == false || slot.has_player == false || slot.locked}>
+																						<span class="lineup-slot__handle lineup-slot__handle--disabled" data-gosx-reorder-handle aria-hidden="true" aria-disabled="true" tabindex="-1">⠿</span>
+																					</If>
+																					{slot.slot_id}
 										<If cond={slot.has_house_rank}>
 											<small class="house-rank">{slot.house_rank}</small>
 										</If>
