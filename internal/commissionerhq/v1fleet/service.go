@@ -238,6 +238,35 @@ func (service *Service) Retry(ctx context.Context, connectionKey string) (Row, e
 	return service.rowAt(connection, service.clock().UTC()), nil
 }
 
+// HasConnection reports whether a syntactically valid stable key is present
+// in the operator-managed registry. It performs no provider call and returns
+// no configuration or credential material.
+func (service *Service) HasConnection(connectionKey string) bool {
+	if service == nil || !connectionKeyPattern.MatchString(connectionKey) {
+		return false
+	}
+	_, ok := service.byKey[connectionKey]
+	return ok
+}
+
+// LookupConnection returns a defensive copy of the configured connection for
+// a stable key. It performs no provider call and exposes no credential
+// material; callers use it to reject unknown retry targets before auth.
+func (service *Service) LookupConnection(connectionKey string) (Connection, bool) {
+	if !service.HasConnection(connectionKey) {
+		return Connection{}, false
+	}
+	connection, ok := service.byKey[connectionKey]
+	if !ok {
+		return Connection{}, false
+	}
+	// Keep the returned metadata copy deliberately non-credential-bearing.
+	connection.target = v1transport.Target{}
+	connection.Capabilities = append([]string(nil), connection.Capabilities...)
+	connection.Links = cloneLinks(connection.Links)
+	return connection, true
+}
+
 func (service *Service) beginAttempt(connection Connection, at time.Time) (uint64, bool) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
