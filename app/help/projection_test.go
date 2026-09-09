@@ -40,6 +40,22 @@ func TestHelpDocsInventoryMatchesExecutableCorpus(t *testing.T) {
 	}
 }
 
+func TestStaticHelpDocsUseLiteralHelpRoute(t *testing.T) {
+	for _, name := range []string{"px1_help_corpus.md", "px1_glossary.md"} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "docs", name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		content := string(raw)
+		if strings.Contains(content, "../help") {
+			t.Errorf("%s links the /help app route through a repository-relative path", name)
+		}
+		if !strings.Contains(content, "`/help`") {
+			t.Errorf("%s omits the literal /help app route", name)
+		}
+	}
+}
+
 func TestVerifiedSourceSHARecordsReviewedOriginSnapshot(t *testing.T) {
 	const reviewedOrigin = "e666554818c82410fb651ac88236441dc9ac275c"
 	if VerifiedSourceSHA != reviewedOrigin {

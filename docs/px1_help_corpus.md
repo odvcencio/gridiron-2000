@@ -2,7 +2,7 @@
 
 The public help center is the executable, server-rendered projection of the
 versioned corpus in [`app/help/content.go`](../app/help/content.go). Open
-[`/help`](../help) for deterministic search, role checklists, migration
+the `/help` route for deterministic search, role checklists, migration
 concepts, glossary terms, state recovery, and links to the owning product
 surface. Every result has a stable topic route at `/help/{topic_id}`.
 
