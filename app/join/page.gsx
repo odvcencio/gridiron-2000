@@ -11,7 +11,7 @@ func Page() Node {
 	return <main class="page join-page" id="main-content">
 		<div class="notice-stack" aria-live="polite">
 			<If cond={data.has_signup_error}>
-				<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.signup_error} />
+				<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.signup_error} />
 			</If>
 		</div>
 		<section class="hero-command">
@@ -77,7 +77,7 @@ func Page() Node {
 					</form>
 					</If>
 					<If cond={data.identity_available == false}>
-						<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" role="status" text={data.identity_error} />
+						<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} role="status" text={data.identity_error} />
 					</If>
 				</If>
 				<If cond={data.public_entry.can_claim == false}>

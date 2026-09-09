@@ -3333,8 +3333,8 @@ func Page() Node {
 		    control. */}
 		<a class="skip-link" href="#draft-search">Skip to the player pool</a>
 		<div class="draft-notice" aria-live="polite">
-			<If cond={data.has_notice}><TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.notice} /></If>
-			<If cond={data.has_pick_error}><TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.pick_error} /></If>
+			<If cond={data.has_notice}><TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.notice} /></If>
+			<If cond={data.has_pick_error}><TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.pick_error} /></If>
 		</div>
 		<If cond={data.live_mode == "target"}>
 		<header class="draft-command" data-gosx-live-mode="event" data-gosx-live-src={data.live_src} data-gosx-live-hub={data.live_hub} data-gosx-live-on="draft:pick draft:undo draft:clock draft:seat draft:state">

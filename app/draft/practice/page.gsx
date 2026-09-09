@@ -44,8 +44,8 @@ func Page() Node {
 			</div>
 		</header>
 		<div class="draft-notice" aria-live="polite">
-			<If cond={data.has_notice}><TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.notice} /></If>
-			<If cond={data.has_error}><TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" role="alert" text={data.error} /></If>
+			<If cond={data.has_notice}><TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.notice} /></If>
+			<If cond={data.has_error}><TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} role="alert" text={data.error} /></If>
 		</div>
 		<If cond={data.practice.allowed == false}>
 			<section class="empty-tape" aria-labelledby="practice-unavailable-title">

@@ -285,10 +285,10 @@ func Page() Node {
 		</section>
 		<div class="notice-stack" aria-live="polite">
 			<If cond={data.has_notice}>
-				<TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.notice} />
+				<TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.notice} />
 			</If>
 			<If cond={data.has_blitz_error}>
-				<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.blitz_error} />
+				<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.blitz_error} />
 			</If>
 			<If cond={data.can_enter == false}>
 				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
