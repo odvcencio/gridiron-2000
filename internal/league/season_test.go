@@ -282,6 +282,9 @@ func TestAdminWeekCloseInfoSeparatesReadinessFromOverride(t *testing.T) {
 	if !info.Ready || !info.StatsFresh || info.GamesFinal != 1 {
 		t.Fatalf("ready snapshot = %+v", info)
 	}
+	if info.Reason != "" {
+		t.Fatalf("ready snapshot retained a blocking reason = %q", info.Reason)
+	}
 }
 
 // TestAdminWeekCloseInfoNamesAStaleFeed pins F21 (J4 console gap-audit): a
