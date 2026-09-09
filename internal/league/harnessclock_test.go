@@ -78,3 +78,35 @@ func TestSetClockForTestAppEnvGuard(t *testing.T) {
 		})
 	}
 }
+
+func TestEvaluateNotificationsForTestDrivesNotifierTick(t *testing.T) {
+	t.Setenv("APP_ENV", "test")
+	now := time.Date(2026, 9, 10, 16, 0, 0, 0, time.UTC)
+	start := now.Add(time.Hour)
+	t.Setenv("SEASON_START_AT", start.Format(time.RFC3339))
+	service, _ := newNotifyTestService(t, now.Add(-24*time.Hour), now)
+	service.SetClockForTest(func() time.Time { return now })
+	if _, _, err := service.store.AssignMember("a@example.com", "A"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.SetSchedule(nt1Schedule(service.cfg.Season, now, false)); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.EvaluateNotificationsForTest(); err != nil {
+		t.Fatalf("EvaluateNotificationsForTest: %v", err)
+	}
+	if got := service.notifyQueue.Depth(); got != 1 {
+		t.Fatalf("evaluation queue depth = %d, want one queued kickoff", got)
+	}
+}
+
+func TestEvaluateNotificationsForTestIsRefusedInProduction(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	service, _ := newNotifyTestService(t, time.Now(), time.Now())
+	if err := service.EvaluateNotificationsForTest(); err == nil {
+		t.Fatal("EvaluateNotificationsForTest was accepted in production")
+	}
+	if got := service.notifyQueue.Depth(); got != 0 {
+		t.Fatalf("production-refused evaluation queued %d messages", got)
+	}
+}
