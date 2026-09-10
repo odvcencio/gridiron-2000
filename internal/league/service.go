@@ -4093,6 +4093,12 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	// (.injury-chip:empty, the same idiom .possession-chip and the state
 	// pill already use), so a poll that fills it makes it appear — a
 	// designation that lands mid-game is exactly when a manager needs it.
+	// starterPointsTotal is the tooltip's own copy of the score. It must
+	// NOT reuse starterPoints: that key is how callers find the one score
+	// cell per starting slot, and binding it twice made every such
+	// selector match two elements per slot (sim_live_browser_test.go
+	// counts exactly nine).
+	starterPointsTotalBind := make(map[string]string)
 	starterInjuryBind := make(map[string]string)
 	// The code alone ("O") is not a sentence a screen reader can use, and
 	// an aria-label cannot be live-bound without going stale. The plain
@@ -4140,6 +4146,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		// a poll cannot pair a new points value with the prior identity or join
 		// explanation when a lineup/stat join changes.
 		starterPoints[row.LiveKey] = row.PointsText
+		starterPointsTotalBind[row.LiveKey] = row.PointsText
 		starterPlayerName[row.LiveKey] = row.PlayerName
 		starterPosition[row.LiveKey] = row.Position
 		starterNFLTeam[row.LiveKey] = row.NFLTeam
@@ -4249,6 +4256,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"starterSourceText":     starterSourceText,
 		"starterGameState":      starterGameStateBind,
 		"starterBreakdown":      starterBreakdownBind,
+		"starterPointsTotal":    starterPointsTotalBind,
 		"starterInjury":         starterInjuryBind,
 		"starterInjuryLabel":    starterInjuryLabelBind,
 		"starterPossession":     starterPossessionBind,

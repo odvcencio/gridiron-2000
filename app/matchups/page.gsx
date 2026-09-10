@@ -134,7 +134,10 @@ func StarterCell(props StarterCellData) Node {
 		    game. :empty hides it until there is something to explain. */}
 		<b class="pts starter-cell__pts" role="cell" tabindex="0" aria-describedby={"pts-tip-" + props.LiveKey}>
 			<span data-gosx-live-bind={"starterPoints." + props.LiveKey} data-gosx-live-flash-class="score-flash">{props.Points}</span>
-			<span class="points-tip" id={"pts-tip-" + props.LiveKey} role="tooltip" data-gosx-live-bind={"starterBreakdown." + props.LiveKey}>{props.Breakdown}</span>
+			<span class="points-tip" id={"pts-tip-" + props.LiveKey} role="tooltip">
+				<span class="points-tip__rows" data-gosx-live-bind={"starterBreakdown." + props.LiveKey}>{props.Breakdown}</span>
+				<span class="points-tip__total"><span class="points-tip__total-label">TOTAL</span><span data-gosx-live-bind={"starterPointsTotal." + props.LiveKey}>{props.Points}</span></span>
+			</span>
 		</b>
 	</div>
 }

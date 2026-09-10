@@ -11172,8 +11172,13 @@ body.is-on-clock .draft-clock-panel {
   line-height: 1.5;
   text-align: left;
   white-space: normal;
-  opacity: 0;
-  visibility: hidden;
+  /* display: none, not visibility: hidden. A hidden-but-laid-out
+     absolutely positioned box still contributes to the document's
+     scrollWidth, and this one is wider than the cell it hangs off — at
+     390px it pushed the page to 413px and made the whole of /matchups
+     scroll sideways while showing nothing (2026-09-10). Taking it out of
+     layout entirely is the only version that cannot do that. */
+  display: none;
   pointer-events: none;
 }
 
@@ -11187,13 +11192,45 @@ body.is-on-clock .draft-clock-panel {
 .starter-cell__pts:hover .points-tip,
 .starter-cell__pts:focus .points-tip,
 .starter-cell__pts:focus-within .points-tip {
-  opacity: 1;
-  visibility: visible;
+  display: block;
 }
 
-/* Nothing to explain yet: no empty box on hover. */
-.points-tip:empty {
+/* Nothing to explain yet: no empty box on hover. The tooltip now has
+   static children (a heading and a total), so :empty can no longer detect
+   that — it gates on the BOUND rows being empty instead. */
+.points-tip:not(:has(.points-tip__rows:not(:empty))) {
   display: none;
+}
+
+/* Two registers, so the eye can find each part without reading it as a
+   sentence (2026-09-10): the rules in a monospaced column with the values
+   aligned under each other, and the total set apart above a rule. There is
+   no heading — the tooltip hangs off the score it explains, so a line
+   announcing what the box is would be noise in a box that exists to be
+   read at a glance. */
+
+.points-tip__rows {
+  display: block;
+  /* pre, not pre-line: the padding that aligns the values into a column
+     is literal spaces, and pre-line would collapse them. */
+  white-space: pre;
+  color: var(--color-text-secondary);
+}
+
+.points-tip__total {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--color-border);
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.points-tip__total-label {
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
 }
 
 

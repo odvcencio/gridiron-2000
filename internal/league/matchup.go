@@ -174,6 +174,13 @@ func opponentInSlate(games []BlitzGame, nflTeam string) (opponent string, home b
 // tier only as a data-matchup-tier class (see playerMap/styles.css), not
 // this word, to keep the row compact (owner directive: "favor a short
 // chip over a sentence").
+// MatchupTierWord is exported so the visible chip and the tooltip
+// sentence share ONE derivation of the tier word. Deriving it twice is the
+// mistake this codebase has made repeatedly (see injuryDesignationAbbr's
+// own note); the chip says "tough", the tip says "(tough)", and they say
+// it because of the same function.
+func MatchupTierWord(tier string) string { return matchupTierWord(tier) }
+
 func matchupTierWord(tier string) string {
 	switch tier {
 	case "favorable":

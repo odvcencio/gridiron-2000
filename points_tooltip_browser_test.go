@@ -45,13 +45,25 @@ func TestBrowserPointsTooltipRevealsAndFits(t *testing.T) {
 				t.Fatalf("starter cells did not render: %v", err)
 			}
 
-			// Hidden until asked for.
-			var hidden string
-			if err := chromedp.Run(ctx, chromedp.Evaluate(`getComputedStyle(document.querySelector('.points-tip')).visibility`, &hidden)); err != nil {
+			// Hidden until asked for — and hidden by display, not by
+			// visibility. That distinction is the whole point: a
+			// visibility-hidden absolutely positioned box is still laid
+			// out, and this one is wider than its cell, so it pushed the
+			// document to 413px at a 390px viewport and made /matchups
+			// scroll sideways while showing nothing.
+			var rest string
+			if err := chromedp.Run(ctx, chromedp.Evaluate(`getComputedStyle(document.querySelector('.points-tip')).display`, &rest)); err != nil {
 				t.Fatal(err)
 			}
-			if hidden != "hidden" {
-				t.Errorf("tooltip visibility at rest = %q, want hidden", hidden)
+			if rest != "none" {
+				t.Errorf("tooltip display at rest = %q, want none (it must not occupy layout)", rest)
+			}
+			var docOverflow bool
+			if err := chromedp.Run(ctx, chromedp.Evaluate(`document.documentElement.scrollWidth > window.innerWidth`, &docOverflow)); err != nil {
+				t.Fatal(err)
+			}
+			if docOverflow {
+				t.Errorf("the page scrolls sideways at %s with tooltips present", viewport.name)
 			}
 
 			// Revealed by FOCUS alone, on both sides, and fitting the
@@ -65,7 +77,13 @@ func TestBrowserPointsTooltipRevealsAndFits(t *testing.T) {
 					if (!cell) { out.push({side, err:'no cell'}); continue; }
 					const tip = cell.querySelector('.points-tip');
 					if (!tip) { out.push({side, err:'no tip'}); continue; }
-					tip.textContent = text;
+					// Fill the BOUND rows node, not the tooltip itself:
+					// writing textContent on the tooltip would delete its
+					// heading and total, which is what the poll patches
+					// around in the real page too.
+					const rows = tip.querySelector('.points-tip__rows');
+					if (!rows) { out.push({side, err:'no rows'}); continue; }
+					rows.textContent = text;
 					cell.focus();
 					const cs = getComputedStyle(tip);
 					const r = tip.getBoundingClientRect();
@@ -81,6 +99,31 @@ func TestBrowserPointsTooltipRevealsAndFits(t *testing.T) {
 			})()`, &report)); err != nil {
 				t.Fatal(err)
 			}
+			// The tooltip is structured, not a sentence: a heading naming
+			// what the box is, one line per scoring rule with the values
+			// aligned into a column, and a total set apart. Checked here
+			// because a run-on paragraph was the first thing the owner
+			// said was wrong with it.
+			var shape string
+			if err := chromedp.Run(ctx, chromedp.Evaluate(`(() => {
+				const tip = document.querySelector('.points-tip');
+				const rows = tip.querySelector('.points-tip__rows');
+				return JSON.stringify({
+					// No heading: the tooltip hangs off the score it
+					// explains, so announcing what it is would be noise.
+					noHeading: !tip.querySelector('.points-tip__head'),
+					total: !!tip.querySelector('.points-tip__total'),
+					preservesAlignment: getComputedStyle(rows).whiteSpace === 'pre'
+				});
+			})()`, &shape)); err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{`"noHeading":true`, `"total":true`, `"preservesAlignment":true`} {
+				if !strings.Contains(shape, want) {
+					t.Errorf("tooltip structure missing %s at %s: %s", want, viewport.name, shape)
+				}
+			}
+
 			for _, want := range []string{`"focused":true`, `"visible":true`, `"describedBy":true`, `"fits":true`} {
 				if strings.Count(report, want) != 2 {
 					t.Errorf("both sides must satisfy %s at %s: %s", want, viewport.name, report)

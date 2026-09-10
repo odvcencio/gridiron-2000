@@ -160,19 +160,43 @@ func ScoreBreakdownText(stats map[string]float64, values map[string]float64) str
 	if values == nil {
 		values = breakdownDefaultValues()
 	}
-	var parts []string
+	type row struct{ left, right string }
+	var rows []row
+	widest := 0
 	for _, rule := range defaultScoringRules() {
 		stat, ok := stats[rule.Key]
 		if !ok || stat == 0 || !finiteScoringPoints(stat) {
 			continue
 		}
-		part := rule.Label
+		left := rule.Label
 		if stat != 1 {
-			part += " x" + trimFloat(stat)
+			left += " x" + trimFloat(stat)
 		}
-		parts = append(parts, part+" "+fmt.Sprintf("%.1f", stat*scoringPoints(values, rule.Key)))
+		if len(left) > widest {
+			widest = len(left)
+		}
+		rows = append(rows, row{left: left, right: fmt.Sprintf("%.1f", stat*scoringPoints(values, rule.Key))})
 	}
-	return strings.Join(parts, " · ")
+	if len(rows) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, r := range rows {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		// Pad the label so every value lands in the same column. The
+		// tooltip renders this in a monospaced face with white-space: pre,
+		// so the padding is what makes the numbers line up (2026-09-10:
+		// one run-on line separated by middots was unreadable — a reader
+		// had to parse the separators to find where one rule ended).
+		b.WriteString(r.left)
+		for pad := len(r.left); pad < widest+2; pad++ {
+			b.WriteByte(' ')
+		}
+		b.WriteString(r.right)
+	}
+	return b.String()
 }
 
 // trimFloat renders a stat count without a trailing ".0", so a whole

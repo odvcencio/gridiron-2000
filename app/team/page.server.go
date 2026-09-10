@@ -204,7 +204,7 @@ func rosterRowProps(raw []map[string]any, csrfToken, teamID, week string, roster
 			HasMatchup:     boolField(player, "has_matchup"),
 			MatchupTier:    stringField(player, "matchup_tier"),
 			MatchupChip:    stringField(player, "matchup_chip"),
-			MatchupOrdinal: matchupOrdinal(stringField(player, "matchup_chip")),
+			MatchupOrdinal: matchupOrdinal(stringField(player, "matchup_chip"), stringField(player, "matchup_tier")),
 			MatchupDetail:  stringField(player, "matchup_detail"),
 			Jersey:         stringField(player, "jersey"),
 			HasBreakdown:   boolField(player, "has_breakdown"),
@@ -340,8 +340,30 @@ func teamLineupFragmentURL(data map[string]any, request *http.Request) string {
 // ordinal alone ("19th"); the fuller phrase still reads in full through
 // the chip's own title tip (matchup_detail/MatchupDetail already carry
 // it: "19th-toughest of 32 vs ARI (favorable) — ranked from the …").
-func matchupOrdinal(chip string) string {
-	return strings.TrimSuffix(chip, "-toughest")
+// matchupOrdinal renders the lineup row's matchup chip: the rank AND the
+// direction, as words.
+//
+// 2026-09-10 understandability sweep. The chip used to read a bare "20th",
+// with the direction carried by COLOUR alone — accent for a favourable
+// matchup, hot for a difficult one (public/styles.css's
+// [data-matchup-tier] rules). That fails the app's own stated rule that a
+// chip carries text and never colour alone, and it fails the manager the
+// chip exists for: "20th" does not say whether 20th is good or bad, and
+// direction is the entire reason to look. The full sentence stays in the
+// tooltip; this is the part you can read while scanning.
+//
+// Measured at 390px before making it longer: with "20th tough" on every
+// chip in a full lineup the document does not widen and no opponent cell
+// overflows.
+func matchupOrdinal(chip, tier string) string {
+	rank := strings.TrimSuffix(chip, "-toughest")
+	if rank == "" {
+		return ""
+	}
+	if word := league.MatchupTierWord(tier); word != "" {
+		return rank + " " + word
+	}
+	return rank
 }
 
 // configuredTeamName resolves teamID's compiled seed name — league.
@@ -366,7 +388,7 @@ func configuredTeamName(teamID string) string {
 func prepareTeamData(data map[string]any, request *http.Request) map[string]any {
 	if starters, ok := data["starters"].([]map[string]any); ok {
 		for _, slot := range starters {
-			slot["matchup_ordinal"] = matchupOrdinal(stringField(slot, "matchup_chip"))
+			slot["matchup_ordinal"] = matchupOrdinal(stringField(slot, "matchup_chip"), stringField(slot, "matchup_tier"))
 		}
 	}
 	if bench, ok := data["bench"].([]map[string]any); ok {

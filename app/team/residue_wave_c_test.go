@@ -8,18 +8,26 @@ import (
 )
 
 // TestMatchupOrdinalTrimsToughestSuffix pins J5 F26 team-lineup residue's
-// own view-model helper: the OPPONENT cell's chip shows the compact
-// ordinal alone ("19th"), not the full "19th-toughest" phrase a 7rem
-// column has never had room for.
+// own view-model helper: the OPPONENT cell's chip drops the long
+// "-toughest" phrase a 7rem column has never had room for.
+//
+// 2026-09-10: it now keeps the DIRECTION as a word. The bare ordinal left
+// the whole point of the chip — is this matchup good or bad — to colour
+// alone, which the app's own rules forbid and which a colourblind manager
+// cannot read at all. Measured at 390px: the longer text widens neither
+// the document nor the opponent cell.
 func TestMatchupOrdinalTrimsToughestSuffix(t *testing.T) {
-	cases := []struct{ chip, want string }{
-		{"19th-toughest", "19th"},
-		{"1st-toughest", "1st"},
-		{"", ""},
+	cases := []struct{ chip, tier, want string }{
+		{"19th-toughest", "difficult", "19th tough"},
+		{"1st-toughest", "difficult", "1st tough"},
+		{"31st-toughest", "favorable", "31st soft"},
+		{"16th-toughest", "neutral", "16th even"},
+		// No rank at all stays empty rather than rendering a lone word.
+		{"", "difficult", ""},
 	}
 	for _, c := range cases {
-		if got := matchupOrdinal(c.chip); got != c.want {
-			t.Errorf("matchupOrdinal(%q) = %q, want %q", c.chip, got, c.want)
+		if got := matchupOrdinal(c.chip, c.tier); got != c.want {
+			t.Errorf("matchupOrdinal(%q, %q) = %q, want %q", c.chip, c.tier, got, c.want)
 		}
 	}
 }
@@ -31,7 +39,7 @@ func TestMatchupOrdinalTrimsToughestSuffix(t *testing.T) {
 func TestPrepareTeamDataAddsMatchupOrdinalToStarterSlots(t *testing.T) {
 	data := map[string]any{
 		"starters": []map[string]any{
-			{"slot_id": "QB", "matchup_chip": "19th-toughest"},
+			{"slot_id": "QB", "matchup_chip": "19th-toughest", "matchup_tier": "difficult"},
 			{"slot_id": "RB1"},
 		},
 	}
@@ -40,8 +48,8 @@ func TestPrepareTeamDataAddsMatchupOrdinalToStarterSlots(t *testing.T) {
 	if !ok || len(starters) != 2 {
 		t.Fatalf("prepareTeamData starters = %#v, want a 2-element slice", out["starters"])
 	}
-	if got := starters[0]["matchup_ordinal"]; got != "19th" {
-		t.Errorf("starters[0].matchup_ordinal = %q, want %q", got, "19th")
+	if got := starters[0]["matchup_ordinal"]; got != "19th tough" {
+		t.Errorf("starters[0].matchup_ordinal = %q, want %q", got, "19th tough")
 	}
 	if got := starters[1]["matchup_ordinal"]; got != "" {
 		t.Errorf("starters[1].matchup_ordinal (no chip) = %q, want empty", got)

@@ -2,6 +2,7 @@ package league
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -32,8 +33,15 @@ func TestRosterRowsCarryAScoredBreakdown(t *testing.T) {
 	if got := rows[0]["points"]; got != "12.0" {
 		t.Errorf("scored defense points = %v, want 12.0", got)
 	}
-	if got, _ := rows[0]["points_breakdown"].(string); got != "Sack x2 2.0 · Interception x3 6.0 · 7-13 points allowed 4.0" {
-		t.Errorf("scored breakdown = %q, want the rule-by-rule explanation", got)
+	got, _ := rows[0]["points_breakdown"].(string)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 3 {
+		t.Errorf("scored breakdown has %d lines, want one per contributing rule:\n%s", len(lines), got)
+	}
+	for i, prefix := range []string{"Sack x2", "Interception x3", "7-13 points allowed"} {
+		if i < len(lines) && !strings.HasPrefix(lines[i], prefix) {
+			t.Errorf("breakdown line %d = %q, want it to start with %q", i, lines[i], prefix)
+		}
 	}
 	// Has not played: a dash, and nothing to explain.
 	if got := rows[1]["points"]; got != "—" {
