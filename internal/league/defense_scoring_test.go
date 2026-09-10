@@ -111,8 +111,10 @@ func TestExactlyOneBandScoresPerLadder(t *testing.T) {
 // see: the Seattle line from the opener, scored under the new rules.
 func TestOwnerWeekOneDefenseScores(t *testing.T) {
 	values := breakdownDefaultValues()
-	// Three interceptions, two sacks, held Green Bay to 13 points on 302
-	// total yards.
+	// Three interceptions, two sacks, and the opponent held to 13 points
+	// on 302 total yards. The figures are illustrative — this test is
+	// about the arithmetic the ladders produce, not about reproducing a
+	// particular real box score.
 	stats := RuleStatsFromTank01(map[string]float64{
 		"defensiveInterceptions": 3,
 		"sacks":                  2,

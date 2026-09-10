@@ -18,14 +18,16 @@ func TestRosterRowsCarryAScoredBreakdown(t *testing.T) {
 	values := breakdownDefaultValues()
 	lineByKey := weekStatLinesByKey(snapshot.lines)
 	seattle := Player{ID: "DST-SEA", Name: "Seattle Seahawks DST", Position: "DST", NFLTeam: "SEA"}
-	patriots := Player{ID: "DST-NE", Name: "New England Patriots DST", Position: "DST", NFLTeam: "NE"}
+	// Buffalo, not New England: New England played in the opener, so it
+	// has a real score rather than a dash (see week1Snapshot).
+	bills := Player{ID: "DST-BUF", Name: "Buffalo Bills DST", Position: "DST", NFLTeam: "BUF"}
 
 	rows := []map[string]any{
 		{"id": "DST-SEA", "points": "0.0"},
-		{"id": "DST-NE", "points": "0.0"},
+		{"id": "DST-BUF", "points": "0.0"},
 		{"points": "0.0"}, // an empty slot: no id, must be left alone
 	}
-	applyWeeklyPointsText(rows, []Player{seattle, patriots}, snapshot, values, lineByKey, now)
+	applyWeeklyPointsText(rows, []Player{seattle, bills}, snapshot, values, lineByKey, now)
 
 	if got := rows[0]["points"]; got != "8.0" {
 		t.Errorf("scored defense points = %v, want 8.0", got)
