@@ -603,7 +603,7 @@ func TestLiveScoresViewStarterRowsUpdateEveryFieldForIdentityAndJoinTransitions(
 		"starterProvenance":     {"explicit", "empty"},
 		"starterJoinState":      {"missing-join", "empty"},
 		"starterProvenanceText": {"Lineup: set by the manager", "Lineup: no player in this slot"},
-		"starterJoinStateText":  {" · Stats: no stat row yet", ""},
+		"starterJoinStateText":  {" · No stat row yet", ""},
 		"starterDetail":         {"No matching player-stat row for Player A.", "No player configured in this starting slot."},
 	}
 	assertView(svc.LiveScoresView(context.Background()), wantFields)
@@ -615,7 +615,7 @@ func TestLiveScoresViewStarterRowsUpdateEveryFieldForIdentityAndJoinTransitions(
 		"starterProvenance":     {"auto-filled", "explicit"},
 		"starterJoinState":      {"matched", "matched"},
 		"starterProvenanceText": {"Lineup: auto-filled", "Lineup: set by the manager"},
-		"starterJoinStateText":  {" · Stats: scored", " · Stats: scored"},
+		"starterJoinStateText":  {" · Scored", " · Scored"},
 		"starterDetail":         {"Matched current player-stat row.", "Matched current player-stat row."},
 	}
 	assertView(svc.LiveScoresView(context.Background()), wantFields)

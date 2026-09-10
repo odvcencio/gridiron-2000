@@ -829,7 +829,18 @@ func leagueStatLineKey(name, position, team string) string {
 func leagueInjuryDesignationSource(stats *openstats.Service) league.InjuryDesignationSource {
 	return func(name, position, nflTeam string) (string, bool) {
 		key := openstats.NormalizePlayerKey(name, position)
-		reports := stats.InjuryReports(openstats.InjuryQuery{Team: nflTeam, Limit: 1000})
+		// livescore.NormalizeTeam: nflTeam arrives as the POOL's Tank01
+		// spelling ("LAR", "WSH", "JAC") while the mirrored injury report
+		// stores nflverse's ("LA", "WAS", "JAX"), and InjuryQuery filters
+		// on a raw string compare. Unnormalized, this query returned zero
+		// rows for every Rams, Commanders, and Jaguars player — so IR
+		// placement refused them all with a message blaming the player
+		// ("does not carry a qualifying injury designation") while their
+		// own chip read Out, and the reconciled injury status silently
+		// degraded to a single feed for those three teams. Found by the
+		// 2026-09-10 holistic review; it is the same abbreviation
+		// mismatch already corrected in five other call sites.
+		reports := stats.InjuryReports(openstats.InjuryQuery{Team: livescore.NormalizeTeam(nflTeam), Limit: 1000})
 		bestWeek := -1
 		designation := ""
 		found := false

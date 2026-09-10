@@ -353,6 +353,21 @@ html {
    host, body::after's own scanline), pulling them off the viewport and
    onto body's own box for the transition's duration. */
 body {
+  /* text-wrap: pretty is the fix for a WIDOW — a short word left alone on
+     the last line ("· Stats: no stat row yet" breaking so that "yet" sits
+     by itself). It is a different defect from a word broken mid-word,
+     which overflow-wrap governs, and the two need different answers:
+     measured at 390px on 2026-09-10, every remaining bad wrap in the app
+     was a widow, not a mid-word break.
+
+     The browser reconsiders only the last few line breaks to avoid
+     stranding that word, so it changes where lines break but never which
+     characters a word is made of. It inherits, so declaring it here covers
+     the app; balance stays on the few headings that already set it
+     (balance optimises for even line lengths, pretty for the last line,
+     and a heading wants the former). Unsupported engines ignore it and
+     wrap exactly as they did before. */
+  text-wrap: pretty;
   margin: 0;
   /* Item 6 (wave 7b mobile-foundation audit — larch): 100vh on a phone
      browser measures the LARGEST possible viewport (address bar
@@ -1295,6 +1310,25 @@ button.access-link {
       padding-bottom: calc(var(--mobile-bar-height) + var(--space-lg));
     }
 
+    /* scroll-padding-bottom, not just the frame's padding above
+       (2026-09-10). The padding reserves SPACE below the last content, but
+       it does not tell the browser where the usable viewport ends — so
+       anything the browser scrolls to itself still lands under the fixed
+       bar: an in-page anchor jump, a focused control, a form field the
+       keyboard scrolls into view, and scrollIntoView from any script.
+       Proved with elementFromPoint: /team's contextual Help link sat at
+       781-825 in an 844px viewport with the bar's top edge at 787, so a
+       tap on it hit the MATCHUPS tab underneath and navigated away
+       instead. Reserving the same distance as scroll padding makes every
+       one of those scrolls stop short of the bar.
+
+       On the scroll container itself — the document element, since
+       .site-frame is not the scroller — and gated exactly like the
+       padding rules around it. */
+    html[data-gosx-navigation-state]:has(.app-tabbar):not(:has(.draft-shell)) {
+      scroll-padding-bottom: calc(var(--mobile-bar-height) + env(safe-area-inset-bottom) + var(--space-md));
+    }
+
     /* Item 11: PageActionBar (app/layout.gsx) promotes from its base, in-
        flow rendering (the plain phone-width display: flex rule above,
        public/styles.css ~line 800 — a no-JS/print context keeps it as an
@@ -1328,6 +1362,13 @@ button.access-link {
        above — unchanged from before this wave. */
     html[data-gosx-navigation-state] body:has(.app-tabbar):has(.page-action-bar):not(:has(.draft-shell)) .site-frame {
       padding-bottom: calc(var(--mobile-bar-height) + 3.5rem + env(safe-area-inset-bottom) + var(--space-lg));
+    }
+
+    /* Same reserve for the scroll container when the action bar stacks
+       above the tab bar, on the same two-pseudo-class specificity the
+       padding rule above uses to outrank its single-:has sibling. */
+    html[data-gosx-navigation-state]:has(.app-tabbar):has(.page-action-bar):not(:has(.draft-shell)) {
+      scroll-padding-bottom: calc(var(--mobile-bar-height) + 3.5rem + env(safe-area-inset-bottom) + var(--space-md));
     }
 
     /* /draft keeps its own nav.draft-tabbar and must not stack a second
@@ -11116,6 +11157,56 @@ body.is-on-clock .draft-clock-panel {
    alone. The code is resolved once for the whole pool
    (league.Service.resolveInjury) so this chip, /team's STATUS column, and
    the pool row can never disagree about whether a player is hurt. */
+/* .side-chip marks which team is at home. Two fantasy teams have no
+   venue, but the schedule still assigns a home side, and it decides
+   tie-breaks and reads as the "listed second" convention every scoreboard
+   uses — so a reader needs to be able to tell them apart at a glance
+   rather than inferring it from row order (owner report, 2026-09-10).
+   Text, never colour alone. */
+/* Compact meta labels are atomic: "WR · CHI", "PROJ 9.5", "QB · LAC" are
+   one unit each, and their grid cells measure 37-46px — narrower than the
+   label itself. Left to wrap they split into a two-line fragment with the
+   team code or the number stranded alone, which is the wrap the owner kept
+   seeing (measured at 390px, 2026-09-10). No wrapping rule can fix a box
+   too narrow to hold the content: the answer is to stop them wrapping and
+   let the cell size to what it holds. They are short enough that this
+   cannot push a row wide. */
+.matchup-benches__meta,
+.matchup-benches__proj,
+.starter-cell__name small,
+.roster-row__schedule {
+  white-space: nowrap;
+}
+
+.side-chip {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.side-chip--home {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-secondary);
+}
+
+/* .win-prob-team attributes the percentage beside it to a team. */
+.win-prob-team {
+  font-weight: 700;
+  color: var(--color-text-secondary);
+}
+
+.injury-chip:empty {
+  display: none;
+}
+
 .injury-chip {
   display: inline-block;
   margin-left: 4px;

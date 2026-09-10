@@ -363,6 +363,12 @@ type FeaturedMatchupData struct {
 	NextLineupHref      string
 	NextWeek            int
 	HasNextWeek         bool
+	// MineIsHome says which of the two sides is hosting, and WinProbTeam
+	// names whose percentage WinProb is. Both exist because neither was
+	// derivable from the card itself: "mine" follows the viewer, so it is
+	// Home for a spectator and either side for a manager.
+	MineIsHome          bool
+	WinProbTeam         string
 	Mine                FeaturedTeamData
 	Theirs              FeaturedTeamData
 	Pairs               []FeaturedMatchupPairData
@@ -393,6 +399,8 @@ func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
 		StateClass:          matchupStateClass(liveState),
 		WinProb:             stringField(raw, "win_prob"),
 		WinProbWidth:        stringField(raw, "win_prob_width"),
+		MineIsHome:          boolField(raw, "mine_is_home"),
+		WinProbTeam:         stringField(raw, "win_prob_team"),
 		WinProbAriaLabel:    league.WinProbabilityAriaLabel(stringField(raw, "win_prob")),
 		WinProbAriaValue:    league.WinProbabilityAriaValue(stringField(raw, "win_prob_width")),
 		StillToPlay:         intField(raw, "still_to_play"),
@@ -475,7 +483,11 @@ type ScorebugData struct {
 	StillToPlay          int
 	StillToPlayTotal     int
 	StillToPlaySentence  string
-	Pairs                []FeaturedMatchupPairData
+	// WinProbTeam names whose probability WinProbHome is — the scorebug
+	// reports the HOME side's. Without it the bare percentage said nothing
+	// about which of the two teams it described (owner report, 2026-09-10).
+	WinProbTeam string
+	Pairs       []FeaturedMatchupPairData
 	// FocusHref promotes this matchup to the page's own full-width
 	// featured card (MatchupsData's "?m=" focus, 2026-09-09). The card
 	// keeps its expandable body as well: the link is a second way to read
@@ -523,6 +535,7 @@ func matchupsPageScorebugs(raw []map[string]any) []ScorebugData {
 			StillToPlay:          intField(entry, "still_to_play"),
 			StillToPlayTotal:     intField(entry, "still_to_play_total"),
 			StillToPlaySentence:  stringField(entry, "still_to_play_sentence"),
+			WinProbTeam:          stringField(entry, "win_prob_team"),
 			Pairs:                pairs,
 			FocusHref:            stringField(entry, "focus_href"),
 		})

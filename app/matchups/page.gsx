@@ -113,7 +113,7 @@ func StarterCell(props StarterCellData) Node {
 					<span class="starter-cell__name-full" data-gosx-live-bind={"starterPlayerName." + props.LiveKey}>{props.PlayerName}</span>
 					<TextBlock as="span" class="starter-cell__name-short" font="700 15px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" mode="native" text={props.PlayerNameShort} />
 				</strong>
-				<small><span data-gosx-live-bind={"starterPosition." + props.LiveKey}>{props.Position}</span> · <span data-gosx-live-bind={"starterNFLTeam." + props.LiveKey}>{props.NFLTeam}</span><If cond={props.HasInjury}><span class="injury-chip" title={props.InjuryLabel} aria-label={"Injury report: " + props.InjuryLabel}>{props.Injury}</span></If><span class="starter-cell__state-text"> · <span data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span></span><span class="possession-chip" data-gosx-live-bind={"starterPossession." + props.LiveKey}>{props.Possession}</span></small>
+				<small><span data-gosx-live-bind={"starterPosition." + props.LiveKey}>{props.Position}</span> · <span data-gosx-live-bind={"starterNFLTeam." + props.LiveKey}>{props.NFLTeam}</span><span class="injury-chip" title={props.InjuryLabel} data-gosx-live-bind={"starterInjury." + props.LiveKey}>{props.Injury}</span><span class="visually-hidden" data-gosx-live-bind={"starterInjuryLabel." + props.LiveKey}>{props.InjuryLabel}</span><span class="starter-cell__state-text"> · <span data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span></span><span class="possession-chip" data-gosx-live-bind={"starterPossession." + props.LiveKey}>{props.Possession}</span></small>
 			</summary>
 			<div class="matchup-ledger__body">
 				{/* Where this player's points came from, rule by rule
@@ -153,7 +153,7 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 			<div class="my-matchup__team">
 				<TeamMark {...props.Mine}></TeamMark>
 				<div>
-					<span class="section-index"><If cond={props.IsViewer}>Your team</If><If cond={props.IsViewer == false}>Featured</If></span>
+					<span class="section-index"><If cond={props.IsViewer}>Your team</If><If cond={props.IsViewer == false}>Featured</If> <If cond={props.MineIsHome}><span class="side-chip side-chip--home">HOME</span></If><If cond={props.MineIsHome == false}><span class="side-chip">AWAY</span></If></span>
 					<TextBlock as="strong" class="display" font="400 15px Archivo Black" lineHeight={18} maxLines={2} overflow="ellipsis" text={props.Mine.Name} />
 					<small class="muted matchup-team-line"><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Mine.Manager} /><span class="matchup-team-line__meta"> · {props.Mine.Record}</span></small>
 				</div>
@@ -169,12 +169,12 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 				</div>
 				<small class="my-matchup__proj-sub mono muted">proj <span data-gosx-live-bind={"projected." + props.Mine.ID}>{props.Mine.Projected}</span> – <span data-gosx-live-bind={"projected." + props.Theirs.ID}>{props.Theirs.Projected}</span></small>
 				<div class="bar"><i style={"width: " + props.WinProbWidth} role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow={props.WinProbAriaValue} aria-label={props.WinProbAriaLabel}></i></div>
-				<small class="mono muted"><span data-gosx-live-bind={"winProb." + props.Mine.ID}>{props.WinProb}</span> to win · <span data-gosx-live-bind={"stillToPlaySentence." + props.ID}>{props.StillToPlaySentence}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlay." + props.ID}>{props.StillToPlay}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlayTotal." + props.ID}>{props.StillToPlayTotal}</span></small>
+				<small class="mono muted"><span class="win-prob-team">{props.WinProbTeam}</span> <span data-gosx-live-bind={"winProb." + props.Mine.ID}>{props.WinProb}</span> to win · <span data-gosx-live-bind={"stillToPlaySentence." + props.ID}>{props.StillToPlaySentence}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlay." + props.ID}>{props.StillToPlay}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlayTotal." + props.ID}>{props.StillToPlayTotal}</span></small>
 				<span class={"state-chip " + props.StateClass}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span><span data-gosx-live-bind={"matchupLiveState." + props.ID}>{props.LiveState}</span></span>
 			</div>
 			<div class="my-matchup__team my-matchup__team--opponent">
 				<div>
-					<span class="section-index muted"><If cond={props.IsViewer}>Opponent</If><If cond={props.IsViewer == false}>Versus</If></span>
+					<span class="section-index muted"><If cond={props.IsViewer}>Opponent</If><If cond={props.IsViewer == false}>Versus</If> <If cond={props.MineIsHome}><span class="side-chip">AWAY</span></If><If cond={props.MineIsHome == false}><span class="side-chip side-chip--home">HOME</span></If></span>
 					<TextBlock as="strong" class="display" font="400 15px Archivo Black" lineHeight={18} maxLines={2} overflow="ellipsis" text={props.Theirs.Name} />
 					<small class="muted matchup-team-line"><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Theirs.Manager} /><span class="matchup-team-line__meta"> · {props.Theirs.Record}</span></small>
 				</div>
@@ -264,7 +264,7 @@ func Scorebug(props ScorebugData) Node {
 			</div>
 			<div class="mini">
 				<TeamMark {...props.Away}></TeamMark>
-				<div><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Away.Name} /><small class="muted matchup-team-line"><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Away.Manager} /><span class="matchup-team-line__meta"> · {props.Away.Record}</span></small></div>
+				<div><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Away.Name} /><small class="muted matchup-team-line"><span class="side-chip">AWAY</span><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Away.Manager} /><span class="matchup-team-line__meta"> · {props.Away.Record}</span></small></div>
 				<div class="mini__score">
 					<b class="pts score scorebug__score-value" data-score-team={props.Away.ID} data-gosx-live-bind={"scores." + props.Away.ID} data-gosx-live-flash-class="score-flash">{props.Away.Score}</b>
 					<span class="pts proj scorebug__proj-value mono" data-gosx-live-bind={"projected." + props.Away.ID}>{props.ProjectedAway}</span>
@@ -272,7 +272,7 @@ func Scorebug(props ScorebugData) Node {
 			</div>
 			<div class="mini">
 				<TeamMark {...props.Home}></TeamMark>
-				<div><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Home.Name} /><small class="muted matchup-team-line"><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Home.Manager} /><span class="matchup-team-line__meta"> · {props.Home.Record}</span></small></div>
+				<div><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Home.Name} /><small class="muted matchup-team-line"><span class="side-chip side-chip--home">HOME</span><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Home.Manager} /><span class="matchup-team-line__meta"> · {props.Home.Record}</span></small></div>
 				<div class="mini__score">
 					<b class="pts score scorebug__score-value" data-score-team={props.Home.ID} data-gosx-live-bind={"scores." + props.Home.ID} data-gosx-live-flash-class="score-flash">{props.Home.Score}</b>
 					<span class="pts proj scorebug__proj-value mono" data-gosx-live-bind={"projected." + props.Home.ID}>{props.ProjectedHome}</span>
@@ -280,7 +280,10 @@ func Scorebug(props ScorebugData) Node {
 			</div>
 			<div class="scorebug__prob">
 				<div class="bar"><i style={"width: " + props.WinProbHomeWidth} role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow={props.WinProbHomeAriaValue} aria-label={props.WinProbHomeAriaLabel}></i></div>
-				<small class="mono muted"><span data-gosx-live-bind={"winProb." + props.Home.ID}>{props.WinProbHome}</span> to win · <span data-gosx-live-bind={"stillToPlaySentence." + props.ID}>{props.StillToPlaySentence}</span></small>
+				{/* The percentage names its own team (2026-09-10). It always
+				    describes the HOME side here, and a bare number gave a
+				    reader no way to tell which of the two it meant. */}
+				<small class="mono muted"><span class="win-prob-team">{props.WinProbTeam}</span> <span data-gosx-live-bind={"winProb." + props.Home.ID}>{props.WinProbHome}</span> to win · <span data-gosx-live-bind={"stillToPlaySentence." + props.ID}>{props.StillToPlaySentence}</span></small>
 			</div>
 			<span class="visually-hidden" data-gosx-live-bind={"matchupStatus." + props.ID}>{props.Status}</span>
 			<span class="visually-hidden" data-gosx-live-bind={"matchupClock." + props.ID}>{props.Clock}</span>

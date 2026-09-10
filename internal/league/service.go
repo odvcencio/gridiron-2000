@@ -4088,6 +4088,16 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	// rendering it once, is the whole reason ScoreBreakdownText returns a
 	// single string — see its doc comment.
 	starterBreakdownBind := make(map[string]string)
+	// starterInjuryBind keeps a scratch visible without waiting for a full
+	// render. The chip is always in the markup and hides itself when empty
+	// (.injury-chip:empty, the same idiom .possession-chip and the state
+	// pill already use), so a poll that fills it makes it appear — a
+	// designation that lands mid-game is exactly when a manager needs it.
+	starterInjuryBind := make(map[string]string)
+	// The code alone ("O") is not a sentence a screen reader can use, and
+	// an aria-label cannot be live-bound without going stale. The plain
+	// word rides along in its own bound, visually hidden span instead.
+	starterInjuryLabelBind := make(map[string]string)
 	starterGameStateBind := make(map[string]string)
 	starterPossessionBind := make(map[string]string)
 	// starterProjBind is the slot table's own per-starter PROJ live update
@@ -4146,6 +4156,8 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		starterSourceText[row.LiveKey] = ledgerSourceText(row.Source)
 		starterGameStateBind[row.LiveKey] = row.GameState
 		starterBreakdownBind[row.LiveKey] = row.Breakdown
+		starterInjuryBind[row.LiveKey] = row.Injury
+		starterInjuryLabelBind[row.LiveKey] = row.InjuryLabel
 		starterPossessionBind[row.LiveKey] = row.Possession
 		starterProjBind[row.LiveKey] = starterProjectedText(row, projectionByID, liveStatusValue, hasLive)
 	}
@@ -4227,6 +4239,8 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"starterSourceText":     starterSourceText,
 		"starterGameState":      starterGameStateBind,
 		"starterBreakdown":      starterBreakdownBind,
+		"starterInjury":         starterInjuryBind,
+		"starterInjuryLabel":    starterInjuryLabelBind,
 		"starterPossession":     starterPossessionBind,
 		"liveStatus":            liveStatus,
 		"liveUpdated":           checked,
@@ -5941,6 +5955,9 @@ func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, 
 			// shows for the viewer's own matchup, expressed from the home
 			// side's perspective since neither side of a scorebug is "mine".
 			entry["win_prob_home"] = winProbabilityText(homeProjected, awayProjected, homeHasProjection, awayHasProjection)
+			// The scorebug reports the HOME side's probability; name it, so
+			// the number is attributable to a team instead of floating free.
+			entry["win_prob_team"] = m.Home.Abbreviation
 			winProbHomeWidth := entry["win_prob_home"].(string)
 			if winProbHomeWidth == winProbabilityDashText {
 				winProbHomeWidth = "0%"
@@ -5989,6 +6006,7 @@ func emptyFeaturedMatchup() map[string]any {
 		"has_matchup": false, "is_viewer": false, "id": "", "label": "",
 		"live_indicator": "", "live_state": "", "win_prob": "", "win_prob_width": "0%",
 		"still_to_play": 0, "still_to_play_total": 0, "still_to_play_sentence": "",
+		"mine_is_home": false, "win_prob_team": "",
 		"next_lineup_href": "", "next_week": 0, "has_next_week": false,
 		"mine": map[string]any{}, "theirs": map[string]any{}, "pairs": []map[string]any{},
 		"mine_bench": []map[string]any{}, "theirs_bench": []map[string]any{},
@@ -6025,6 +6043,12 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 	if !isViewer {
 		label = "FEATURED"
 	}
+	// mine_is_home lets the card say which side is hosting (2026-09-10):
+	// featuredMatchupMap follows the VIEWER's side into "mine", so "mine"
+	// is Home for a spectator and either side for a manager. Without this
+	// the page had no way to tell a reader which team is at home, and the
+	// two sides read as interchangeable.
+	mineIsHome := mine.ID == m.Home.ID
 	// next_week/has_next_week target the VIEWED week (viewedWeek) when its
 	// own lineup slots are still editable — not yet kicked off, the same
 	// lockWeek authority /team's own week selector uses
@@ -6064,14 +6088,19 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 	mineBench := benchRowMapsWithProjection(s.effectiveLineupForTeam(state, mine.ID, viewedWeek).Bench, projectionAvailable)
 	theirsBench := benchRowMapsWithProjection(s.effectiveLineupForTeam(state, theirs.ID, viewedWeek).Bench, projectionAvailable)
 	return map[string]any{
-		"has_matchup":            true,
-		"is_viewer":              isViewer,
-		"id":                     m.ID,
-		"label":                  label,
-		"live_indicator":         liveIndicatorToken(m.State),
-		"live_state":             m.LiveState,
-		"win_prob":               winProbText,
-		"win_prob_width":         winProbWidth,
+		"has_matchup":    true,
+		"is_viewer":      isViewer,
+		"id":             m.ID,
+		"label":          label,
+		"live_indicator": liveIndicatorToken(m.State),
+		"live_state":     m.LiveState,
+		"win_prob":       winProbText,
+		"win_prob_width": winProbWidth,
+		"mine_is_home":   mineIsHome,
+		// win_prob_team names whose percentage win_prob is. The bare
+		// number never said, so a reader could not tell which side it
+		// described or who was favoured (owner report, 2026-09-10).
+		"win_prob_team":          mine.Abbreviation,
 		"still_to_play":          stillToPlayCount,
 		"still_to_play_total":    len(combined),
 		"still_to_play_sentence": stillToPlaySentence(stillToPlayCount, len(combined)),
@@ -6362,21 +6391,16 @@ const histScoringLabel = "Scored under this league's own rules"
 // unrecognized non-empty designation renders as-is rather than silently
 // dropping information a real feed reported; an empty designation (a
 // healthy player) renders an empty chip text, gated by has_injury_designation.
+//
+// 2026-09-10 (holistic review, finding 1.3): this used to carry its own
+// switch, which was a SECOND derivation of a code the canonical vocabulary
+// already defines — and it had drifted. resolveInjury overwrites
+// Player.Injury with the canonical Label, and the switch had no case for
+// "physically unable to perform" or "suspended", so the compact chip
+// rendered the whole 28-character sentence for those two. It now defers to
+// NormalizeInjury, so there is one table and it cannot drift again.
 func injuryDesignationAbbr(injury string) string {
-	switch strings.ToLower(strings.TrimSpace(injury)) {
-	case "":
-		return ""
-	case "questionable":
-		return "Q"
-	case "doubtful":
-		return "D"
-	case "out":
-		return "O"
-	case "injured reserve", "ir":
-		return "IR"
-	default:
-		return strings.TrimSpace(injury)
-	}
+	return NormalizeInjury(injury, "").Code
 }
 
 // injuryDesignationTip is the STATUS chip's native title tip (J3 F10's

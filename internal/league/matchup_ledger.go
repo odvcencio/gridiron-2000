@@ -160,14 +160,21 @@ func ledgerStatsText(joinState string) string {
 		// Lineup already said "no player in this slot"; a starter this
 		// week never had, has nothing further to say about stats.
 		return ""
+	// The "Stats: " prefix was pure overhead in a column this narrow: the
+	// starter cell's disclosure body is a grid item in the name column,
+	// roughly 123px at phone width, and " · Stats: no stat row yet" broke
+	// across three lines there with "yet" stranded on the last one — 62
+	// times on one screen (measured 2026-09-10). The surrounding line
+	// already reads as provenance, so the label added nothing the reader
+	// did not have.
 	case "matched":
-		return " · Stats: scored"
+		return " · Scored"
 	case "missing-join":
-		return " · Stats: no stat row yet"
+		return " · No stat row yet"
 	case "stats-unavailable":
-		return " · Stats: source unavailable"
+		return " · Stat source unavailable"
 	case "stats-empty":
-		return " · Stats: none yet"
+		return " · No stats yet"
 	default:
 		return " · Stats: " + joinState
 	}

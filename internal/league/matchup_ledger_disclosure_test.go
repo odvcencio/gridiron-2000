@@ -22,16 +22,21 @@ func TestLedgerLineupTextMapsEveryProvenanceToken(t *testing.T) {
 // TestLedgerStatsTextOmitsEmptyAndCarriesItsOwnSeparator covers wave-8
 // audit item 3: the "empty slot" JoinState carries no Stats segment at
 // all (Lineup already said so) — no dangling " · " left behind — while
-// every other JoinState renders its own leading " · Stats: ..." segment.
+// every other JoinState renders its own leading " · ..." segment.
+//
+// 2026-09-10: the segments dropped their "Stats: " prefix. This body is a
+// grid item in the starter cell's name column, about 123px wide at phone
+// width, and the prefix pushed every one of these onto a third line with a
+// three-letter word stranded alone on it.
 func TestLedgerStatsTextOmitsEmptyAndCarriesItsOwnSeparator(t *testing.T) {
 	if got := ledgerStatsText("empty"); got != "" {
 		t.Fatalf("ledgerStatsText(empty) = %q, want an empty string (no dangling separator)", got)
 	}
 	cases := map[string]string{
-		"matched":           " · Stats: scored",
-		"missing-join":      " · Stats: no stat row yet",
-		"stats-unavailable": " · Stats: source unavailable",
-		"stats-empty":       " · Stats: none yet",
+		"matched":           " · Scored",
+		"missing-join":      " · No stat row yet",
+		"stats-unavailable": " · Stat source unavailable",
+		"stats-empty":       " · No stats yet",
 	}
 	for joinState, want := range cases {
 		if got := ledgerStatsText(joinState); got != want {
