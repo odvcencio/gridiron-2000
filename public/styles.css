@@ -11110,6 +11110,28 @@ body.is-on-clock .draft-clock-panel {
   display: none;
 }
 
+/* The /team stat tip's own "what this player actually scored" block. It
+   sits inside a disclosure that is closed by default, so it adds nothing
+   to the lineup row's height budget — the reason the scored breakdown
+   went to /matchups first and waited for that budget to come back under
+   control. */
+.stat-tip__scored-head {
+  margin: var(--space-sm) 0 2px;
+  font-size: var(--type-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.stat-tip__scored {
+  margin: 0;
+  font-size: var(--type-xs);
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
 /* .possession-chip is GC-2b's possession chip: rendered inline inside
    the starter-cell name's <small> line (never a promoted grid item of
    .starter-cell, which has display: contents above and must keep its

@@ -493,6 +493,24 @@ func weeklyPlayerPointsText(player Player, snapshot matchupStatsSnapshot, values
 	return "0.0"
 }
 
+// weeklyPlayerScoredBreakdown explains the number weeklyPlayerPointsText
+// renders, rule by rule (ScoreBreakdownText). It is deliberately empty
+// whenever that function does not return a real score: an explanation of
+// a dash, or of a zero nothing has posted yet, would be an explanation of
+// nothing. /team renders it beside the PROJECTION breakdown its stat tip
+// already carries, which is a different claim about a different number —
+// one is a forecast, this is what actually happened.
+func weeklyPlayerScoredBreakdown(player Player, snapshot matchupStatsSnapshot, values map[string]float64, lineByKey map[string]WeekStatLine) string {
+	if snapshot.sourceErr != nil || len(snapshot.lines) == 0 {
+		return ""
+	}
+	line, joined := lineByKey[playerStatKey(player)]
+	if !joined {
+		return ""
+	}
+	return ScoreBreakdownText(line.Stats, values)
+}
+
 // SeasonPointsText sums player's posted weekly ledger points across every
 // closed week (J3 F31 residue, wave E). weeklyPlayerPointsText, above,
 // reads one week's live/posted score — the trade composer's own
@@ -556,6 +574,7 @@ func applyWeeklyPointsText(rows []map[string]any, players []Player, snapshot mat
 		}
 		if player, ok := byID[id]; ok {
 			row["points"] = weeklyPlayerPointsText(player, snapshot, values, lineByKey, now)
+			row["points_breakdown"] = weeklyPlayerScoredBreakdown(player, snapshot, values, lineByKey)
 		}
 	}
 }

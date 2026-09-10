@@ -232,6 +232,16 @@ func RosterRow(props RosterRowProps) Node {
 				<If cond={props.HasBreakdown == false}>
 					<p class="stat-tip__empty">No projection detail for this position.</p>
 				</If>
+				{/* What this player actually scored, rule by rule
+				    (2026-09-09). Kept plainly separate from the projection
+				    breakdown above: one is a forecast, this is the real
+				    result, and a reader must never have to guess which
+				    number they are looking at. It appears only once a
+				    score has genuinely posted. */}
+				<If cond={props.HasPointsBreakdown}>
+					<p class="stat-tip__scored-head">Scored this week</p>
+					<p class="stat-tip__scored mono">{props.PointsBreakdown}</p>
+				</If>
 				<If cond={props.HasMatchup}>
 					<p class="stat-tip__hist mono">{props.MatchupDetail}</p>
 				</If>

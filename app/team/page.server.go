@@ -44,32 +44,38 @@ type RosterCard struct {
 	MatchupChip string
 	// MatchupOrdinal (J5 F26 team lineup residue) is MatchupChip with its
 	// "-toughest" suffix trimmed — see matchupOrdinal's own doc comment.
-	MatchupOrdinal  string
-	MatchupDetail   string
-	Jersey          string
-	HasBreakdown    bool
-	Breakdown       []league.BreakdownRow
-	BreakdownTotal  string
-	HasHist         bool
-	Hist            string
-	HistLabel       string
-	Status          string
-	Projection      string
-	Points          string
-	HasKickoff      bool
-	Kickoff         string
-	HasBye          bool
-	Bye             string
-	HasDraftedLabel bool
-	DraftedLabel    string
-	HasGroupHeader  bool
-	GroupHeader     string
-	HasNews         bool
-	News            string
-	HasInjury       bool
-	Injury          string
-	HasHouseRank    bool
-	HouseRank       string
+	MatchupOrdinal string
+	MatchupDetail  string
+	Jersey         string
+	HasBreakdown   bool
+	Breakdown      []league.BreakdownRow
+	BreakdownTotal string
+	HasHist        bool
+	Hist           string
+	HistLabel      string
+	Status         string
+	Projection     string
+	Points         string
+	// PointsBreakdown explains Points rule by rule
+	// (league.ScoreBreakdownText) — what this player ACTUALLY scored,
+	// which is a different claim from the Breakdown field above it: that
+	// one explains the PROJECTION. Empty until a real score has posted.
+	PointsBreakdown    string
+	HasPointsBreakdown bool
+	HasKickoff         bool
+	Kickoff            string
+	HasBye             bool
+	Bye                string
+	HasDraftedLabel    bool
+	DraftedLabel       string
+	HasGroupHeader     bool
+	GroupHeader        string
+	HasNews            bool
+	News               string
+	HasInjury          bool
+	Injury             string
+	HasHouseRank       bool
+	HouseRank          string
 
 	HasInjuryDesignation bool
 	InjuryDesignation    string
@@ -208,6 +214,9 @@ func rosterRowProps(raw []map[string]any, csrfToken, teamID, week string, roster
 			Status:         stringField(player, "status"),
 			Projection:     stringField(player, "projection"),
 			Points:         stringField(player, "points"),
+
+			PointsBreakdown:    stringField(player, "points_breakdown"),
+			HasPointsBreakdown: stringField(player, "points_breakdown") != "",
 			// Kickoff/Bye/GroupHeader (wave 7 items 1/4) come from
 			// league.addScheduleLabels/addBenchGroupHeaders, which teamData
 			// applies to every bench row before this conversion runs.
