@@ -2,6 +2,7 @@ package league
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -250,10 +251,51 @@ func starterOnBye(player Player, week int, snapshot matchupStatsSnapshot) bool {
 	return !teamHasGame(player.NFLTeam, snapshot.games)
 }
 
+// starterFinalLabel renders a finished game as its result, read from one
+// starter's own team's side: "W 27-20", "L 20-27", "T 20-20". team must
+// already be nflverse-normalized; away and home are the game's two sides
+// in that same namespace, with awayPoints/homePoints their scores.
+//
+// The score is what the owner asked this chip for after week 1's opener
+// (2026-09-09): the bare word "FINAL" told a manager their starter's
+// game had ended but not how it ended, so the result had to be looked up
+// somewhere else. The word itself is not lost — the chip carries
+// starterStateClass's own state--final treatment (app/matchups's
+// page.server.go), and a settled score beside a W/L/T reads as concluded
+// where "Q3 8:12" reads as running. It stays compact on purpose: the
+// .slot-row grid gives this chip a 5rem column with white-space: nowrap
+// (public/styles.css), which "FINAL W 27-20" overflows and "W 27-20"
+// does not.
+//
+// When the starter's team matches neither side — an unrecognized
+// abbreviation on either end of a source drift — it falls back to the
+// bare "FINAL" this label used to be. Naming a winner it cannot actually
+// locate would be worse than saying less.
+func starterFinalLabel(team, away, home string, awayPoints, homePoints float64) string {
+	var own, opponent float64
+	switch team {
+	case normalizeNFLAbbreviation(away):
+		own, opponent = awayPoints, homePoints
+	case normalizeNFLAbbreviation(home):
+		own, opponent = homePoints, awayPoints
+	default:
+		return "FINAL"
+	}
+	result := "T"
+	switch {
+	case own > opponent:
+		result = "W"
+	case own < opponent:
+		result = "L"
+	}
+	return fmt.Sprintf("%s %d-%d", result, int(math.Round(own)), int(math.Round(opponent)))
+}
+
 // starterGameState renders one starter's game clock: "BYE" when the
 // starter's team has no game this week, "Q3 8:12" while the poller sees
-// the game in progress, "FINAL" once final, the kickoff ("SUN 4:25 PM")
-// from the schedule before it starts, else "".
+// the game in progress, the game's own result ("W 27-20", see
+// starterFinalLabel) once final, the kickoff ("SUN 4:25 PM") from the
+// schedule before it starts, else "".
 //
 // Item 2 (2026-08-31 post-wave audit): the schedule loop below matches
 // through normalizeNFLAbbreviation — teamHasGame's own fix (this file,
@@ -264,21 +306,33 @@ func starterOnBye(player Player, week int, snapshot matchupStatsSnapshot) bool {
 // and /board rendered no kickoff/game-clock text for that starter at
 // all (blank where "@ SF" or "SUN 4:25 PM" belongs) even though the
 // lock join (playerLockAt) already correctly enforced their kickoff.
-// The live.Games lookup just above deliberately stays on the RAW team
-// key: both player.NFLTeam and snapshot.live.Games are Tank01-sourced,
-// so that join was never broken and normalizing it would risk mapping
-// two distinct Tank01 keys onto one nflverse key where none collided
-// before.
+//
+// 2026-09-09: the live.Games lookup is normalized for exactly the same
+// reason, correcting this comment's own former claim that it did not
+// need to be. LiveStatus.Games is keyed by nflverse abbreviation, not by
+// a Tank01 one — liveStatusFromPoller (live_scoring.go) builds it from
+// livescore.GameState.Away/Home, which snapshot.go writes through
+// livescore.NormalizeTeam — while player.NFLTeam is the pool's raw
+// Tank01 string ("LAR"). So every Rams, Commanders, and Jaguars starter
+// missed this join outright: no live clock, no live final, and (through
+// starterGameKnownZeroSoFar below, which shares the lookup) a team total,
+// projection, and win probability that fell to "—" for the whole game
+// whenever one of those three teams' starters had no ledger row yet.
+// starterPossessionLabel (possession.go) already normalized this same
+// map correctly; these three call sites were the ones left behind. There
+// is no collision risk in normalizing: the map's own keys are nflverse
+// abbreviations, so LAR/WSH/JAC resolve onto LA/WAS/JAX, which is
+// precisely the entry being looked for.
 func starterGameState(player Player, week int, snapshot matchupStatsSnapshot, location *time.Location) string {
 	if starterOnBye(player, week, snapshot) {
 		return "BYE"
 	}
-	team := player.NFLTeam
+	team := normalizeNFLAbbreviation(player.NFLTeam)
 	if snapshot.hasLive {
 		if game, ok := snapshot.live.Games[team]; ok {
 			switch {
 			case game.Final:
-				return "FINAL"
+				return starterFinalLabel(team, game.Away, game.Home, game.AwayPoints, game.HomePoints)
 			case game.InProgress && game.Clock != "":
 				return game.Period + " " + game.Clock
 			case game.InProgress:
@@ -286,10 +340,16 @@ func starterGameState(player Player, week int, snapshot matchupStatsSnapshot, lo
 			}
 		}
 	}
-	normalized := normalizeNFLAbbreviation(team)
 	for _, game := range snapshot.games {
-		if (normalizeNFLAbbreviation(game.Away) == normalized || normalizeNFLAbbreviation(game.Home) == normalized) && !game.Kickoff.IsZero() {
+		if (normalizeNFLAbbreviation(game.Away) == team || normalizeNFLAbbreviation(game.Home) == team) && !game.Kickoff.IsZero() {
 			if game.Final {
+				// ScoresPresent, not the numbers themselves: a blank
+				// nflverse score is not an actual 0-0 (openstats'
+				// HasFinalScore keeps the same distinction), so a final
+				// game the schedule has no score for still reads "FINAL".
+				if game.ScoresPresent {
+					return starterFinalLabel(team, game.Away, game.Home, float64(game.AwayScore), float64(game.HomeScore))
+				}
 				return "FINAL"
 			}
 			return strings.ToUpper(game.Kickoff.In(location).Format("Mon 3:04 PM"))
@@ -311,20 +371,52 @@ func starterGameState(player Player, week int, snapshot matchupStatsSnapshot, lo
 // but rendering an explicit 0.0 by default is the safer of the two
 // honest options when the starter's game state truly cannot be read.
 func starterGameNotStarted(team string, snapshot matchupStatsSnapshot, now time.Time) bool {
+	// Item 2, and the 2026-09-09 live-key correction beside it: both the
+	// live lookup and the schedule loop below normalize, so a LAR/WSH/JAC
+	// starter resolves in either. starterGameState's own doc comment
+	// carries the full explanation.
+	normalized := normalizeNFLAbbreviation(team)
 	if snapshot.hasLive {
-		if game, ok := snapshot.live.Games[team]; ok {
+		if game, ok := snapshot.live.Games[normalized]; ok {
 			return !game.Final && !game.InProgress
 		}
 	}
-	// Item 2: same normalize-before-compare fix as starterGameState just
-	// above (its own doc comment carries the full explanation) — the live
-	// key lookup stays raw, only the nflverse-normalized schedule loop
-	// below is normalized.
-	normalized := normalizeNFLAbbreviation(team)
 	for _, game := range snapshot.games {
 		if (normalizeNFLAbbreviation(game.Away) == normalized || normalizeNFLAbbreviation(game.Home) == normalized) && !game.Kickoff.IsZero() {
 			return !game.Final && now.Before(game.Kickoff)
 		}
+	}
+	return false
+}
+
+// starterGameStarted reports whether a player's NFL game is
+// AFFIRMATIVELY known to have begun — the live poller has it in progress
+// or final, or the loaded schedule says its kickoff has passed. It is
+// deliberately not the negation of starterGameNotStarted: that function
+// answers false both for "the game is running" and for "no signal at
+// all", and those two must not render the same way.
+//
+// 2026-09-09 (owner report: a bench defense that had not played read
+// 0.0): an explicit zero is a claim that a player took the field and
+// scored nothing. Only this function's positive answer justifies making
+// it. With no schedule loaded and no poller entry — the state a fresh
+// boot or an unwired stat source produces — the honest render is the
+// dash, not a zero every roster row would wear alike.
+func starterGameStarted(team string, snapshot matchupStatsSnapshot, now time.Time) bool {
+	normalized := normalizeNFLAbbreviation(team)
+	if snapshot.hasLive {
+		if game, ok := snapshot.live.Games[normalized]; ok {
+			return game.InProgress || game.Final
+		}
+	}
+	for _, game := range snapshot.games {
+		if normalizeNFLAbbreviation(game.Away) != normalized && normalizeNFLAbbreviation(game.Home) != normalized {
+			continue
+		}
+		if game.Final {
+			return true
+		}
+		return !game.Kickoff.IsZero() && !now.Before(game.Kickoff)
 	}
 	return false
 }
@@ -356,7 +448,7 @@ func starterGameKnownZeroSoFar(player Player, week int, snapshot matchupStatsSna
 	if snapshot.hasLive && snapshot.live.Degraded {
 		return false
 	}
-	team := player.NFLTeam
+	team := normalizeNFLAbbreviation(player.NFLTeam)
 	if starterGameNotStarted(team, snapshot, now) {
 		return true
 	}
@@ -385,13 +477,17 @@ func weeklyPlayerPointsText(player Player, snapshot matchupStatsSnapshot, values
 	if len(snapshot.lines) == 0 {
 		return "—"
 	}
-	if line, joined := lineByKey[normalizePlayerKey(player.Name, player.Position)]; joined {
+	if line, joined := lineByKey[playerStatKey(player)]; joined {
 		return fmt.Sprintf("%.1f", scorePlayerStats(line.Stats, values))
 	}
 	if snapshot.hasLive && snapshot.live.Degraded {
 		return "—"
 	}
-	if starterGameNotStarted(player.NFLTeam, snapshot, now) {
+	// An explicit 0.0 needs a positive reason: this player's game is
+	// known to have started and the ledger simply has nothing for them
+	// yet. Every other case — not kicked off, or no signal at all — is
+	// the dash (starterGameStarted's own doc comment).
+	if !starterGameStarted(player.NFLTeam, snapshot, now) {
 		return "—"
 	}
 	return "0.0"
@@ -416,7 +512,7 @@ func (s *Service) SeasonPointsText(state PersistedState, player Player) string {
 	}
 	source := s.weekStatsSource()
 	values := s.currentScoringValues()
-	key := normalizePlayerKey(player.Name, player.Position)
+	key := playerStatKey(player)
 	total := 0.0
 	closedWeeks := 0
 	for _, wk := range state.Schedule.Weeks {
@@ -514,8 +610,9 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 			row.JoinState = "stats-unavailable"
 		} else if len(lines) == 0 {
 			row.JoinState = "stats-empty"
-		} else if line, joined := lineByKey[normalizePlayerKey(assignment.Player.Name, assignment.Player.Position)]; joined {
+		} else if line, joined := lineByKey[playerStatKey(assignment.Player)]; joined {
 			row.Points = scorePlayerStats(line.Stats, values)
+			row.Breakdown = ScoreBreakdownText(line.Stats, values)
 			row.JoinState = "matched"
 			row.Source = line.Source
 			if row.Source == "" {

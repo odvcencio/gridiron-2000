@@ -2239,6 +2239,31 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 	livePoll := isCurrentWeek && live.State != MatchupStateFinal && live.State != MatchupStatePreseason
 	matchups := s.matchupMaps(state, live.Matchups)
 	teamID, _ := viewer["team_id"].(string)
+	// focusID ("?m=") is the owner's 2026-09-09 request: any matchup, not
+	// only the viewer's own, can take the page's full-width featured card.
+	// It is validated against THIS week's matchups the same way "?week="
+	// is validated against the published schedule — an id that names no
+	// matchup in the week being read falls back to the default featured
+	// choice and says so, rather than silently ignoring the request.
+	focusID := strings.TrimSpace(r.URL.Query().Get("m"))
+	if focusID != "" && !matchupsContainID(live.Matchups, focusID) {
+		if weekNotice == "" {
+			weekNotice = fmt.Sprintf("That matchup is not on Week %d's schedule. Showing this week's featured matchup instead.", selectedWeek)
+		}
+		focusID = ""
+	}
+	// focusActive drives the "back" link: it is true only when the focus
+	// actually moved the featured card off the one this viewer would have
+	// been shown anyway, so focusing your own matchup by id (a shared
+	// link, a bookmark) offers no pointless way back to where you already
+	// are.
+	defaultIndex, viewerHasMatchup := featuredMatchupIndex(live.Matchups, teamID, "")
+	focusedIndex, _ := featuredMatchupIndex(live.Matchups, teamID, focusID)
+	focusActive := focusID != "" && focusedIndex != defaultIndex
+	focusClearLabel := "Back to the featured matchup"
+	if viewerHasMatchup {
+		focusClearLabel = "Back to your matchup"
+	}
 	// lockWeek is the lineup-lock authority (item 7, 2026-08-31 post-wave
 	// audit): the same lineupCurrentWeekAt concept /team's own week
 	// selector (teamWeekOptions, lineup_deadline.go) already uses to
@@ -2249,7 +2274,7 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 	lockWeek := lineupCurrentWeekAt(s.schedule(), s.clock())
 	pool := s.pool()
 	projectionByID, projectionAvailable, projectionNote := s.projectionPoolForWeek(pool, selectedWeek)
-	myMatchup, otherMatchups := s.featuredMatchupViews(state, live, matchups, teamID, selectedWeek, lockWeek, projectionByID, projectionAvailable)
+	myMatchup, otherMatchups := s.featuredMatchupViews(state, live, matchups, teamID, focusID, selectedWeek, lockWeek, projectionByID, projectionAvailable)
 	liveView := s.liveMapForWeek(live, isCurrentWeek, currentWeek)
 	liveView["projection_note"] = projectionNote
 	return map[string]any{
@@ -2261,6 +2286,9 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 		"my_matchup":         myMatchup,
 		"other_matchups":     otherMatchups,
 		"other_count_label":  otherMatchupsCountLabel(len(otherMatchups)),
+		"focus_active":       focusActive,
+		"focus_clear_href":   matchupWeekHref(selectedWeek),
+		"focus_clear_label":  focusClearLabel,
 		"status_line":        s.matchupStatusLine(live),
 		"leaders":            s.leaderMaps(),
 		"league":             s.leagueMapForViewer(r),
@@ -4035,6 +4063,11 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	starterProvenanceText := make(map[string]string)
 	starterJoinStateText := make(map[string]string)
 	starterSourceText := make(map[string]string)
+	// starterBreakdownBind keeps a starter's score explanation on the same
+	// poll as the score it explains (2026-09-09). Binding it, rather than
+	// rendering it once, is the whole reason ScoreBreakdownText returns a
+	// single string — see its doc comment.
+	starterBreakdownBind := make(map[string]string)
 	starterGameStateBind := make(map[string]string)
 	starterPossessionBind := make(map[string]string)
 	// starterProjBind is the slot table's own per-starter PROJ live update
@@ -4092,6 +4125,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		starterJoinStateText[row.LiveKey] = ledgerStatsText(row.JoinState)
 		starterSourceText[row.LiveKey] = ledgerSourceText(row.Source)
 		starterGameStateBind[row.LiveKey] = row.GameState
+		starterBreakdownBind[row.LiveKey] = row.Breakdown
 		starterPossessionBind[row.LiveKey] = row.Possession
 		starterProjBind[row.LiveKey] = starterProjectedText(row, projectionByID, liveStatusValue, hasLive)
 	}
@@ -4172,6 +4206,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"starterJoinStateText":  starterJoinStateText,
 		"starterSourceText":     starterSourceText,
 		"starterGameState":      starterGameStateBind,
+		"starterBreakdown":      starterBreakdownBind,
 		"starterPossession":     starterPossessionBind,
 		"liveStatus":            liveStatus,
 		"liveUpdated":           checked,
@@ -5780,6 +5815,7 @@ func starterLedgerMaps(rows []StarterLedgerRow) []map[string]any {
 			"points": row.PointsText, "provenance": row.Provenance, "join_state": row.JoinState,
 			"provenance_text": ledgerLineupText(row.Provenance), "join_state_text": ledgerStatsText(row.JoinState),
 			"detail": row.Detail, "source": row.Source, "source_text": ledgerSourceText(row.Source), "game_state": row.GameState,
+			"breakdown":  row.Breakdown,
 			"possession": row.Possession,
 		})
 	}
@@ -5787,15 +5823,30 @@ func starterLedgerMaps(rows []StarterLedgerRow) []map[string]any {
 }
 
 // featuredMatchupIndex resolves which of matchups (live.Matchups, in
-// schedule order) is "my_matchup": the viewer's own matchup this week
-// when teamID names one of its two sides, else the week's first matchup
-// (isViewer false — the page labels this case FEATURED instead of
-// claiming it belongs to the viewer). index is -1 when the week has no
-// matchups at all.
-func featuredMatchupIndex(matchups []ScoreMatchup, teamID string) (index int, isViewer bool) {
+// schedule order) gets the page's full-width featured card: the one
+// focusID names when it names one at all, else the viewer's own matchup
+// this week when teamID names one of its two sides, else the week's first
+// matchup. index is -1 when the week has no matchups at all.
+//
+// isViewer stays a fact about the resolved matchup, never about how it
+// was chosen (the owner's 2026-09-09 request to read any matchup at full
+// size): a manager who focuses their OWN matchup by id still gets the
+// "Your team"/"Opponent" labels and the set-lineup call to action, and
+// focusing anyone else's drops both for the neutral FEATURED/VERSUS pair.
+func featuredMatchupIndex(matchups []ScoreMatchup, teamID, focusID string) (index int, isViewer bool) {
+	viewerHolds := func(m ScoreMatchup) bool {
+		return teamID != "" && (m.Home.ID == teamID || m.Away.ID == teamID)
+	}
+	if focusID != "" {
+		for i, m := range matchups {
+			if m.ID == focusID {
+				return i, viewerHolds(m)
+			}
+		}
+	}
 	if teamID != "" {
 		for i, m := range matchups {
-			if m.Home.ID == teamID || m.Away.ID == teamID {
+			if viewerHolds(m) {
 				return i, true
 			}
 		}
@@ -5804,6 +5855,25 @@ func featuredMatchupIndex(matchups []ScoreMatchup, teamID string) (index int, is
 		return 0, false
 	}
 	return -1, false
+}
+
+// matchupFocusHref links to one matchup's own full-width featured view.
+// The week rides along explicitly so the link keeps working when the
+// viewer is reading a week other than the current one, and so a shared
+// link resolves to the same matchup for whoever opens it.
+func matchupFocusHref(week int, matchupID string) string {
+	return fmt.Sprintf("/matchups?week=%d&m=%s", week, url.QueryEscape(matchupID))
+}
+
+// matchupsContainID reports whether id names one of this week's matchups.
+// MatchupsData validates "?m=" through it before honouring the focus.
+func matchupsContainID(matchups []ScoreMatchup, id string) bool {
+	for _, m := range matchups {
+		if m.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // otherMatchupsCountLabel renders MatchupsData's "other_count_label"
@@ -5825,9 +5895,9 @@ func otherMatchupsCountLabel(count int) string {
 // threaded down to every starterProjections call this function and
 // featuredMatchupMap make, rather than each call taking the pool itself
 // (round-2 review of commit 133d1d7, finding 3).
-func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, matchups []map[string]any, teamID string, viewedWeek, lockWeek int, projectionByID map[string]Player, projectionAvailable bool) (map[string]any, []map[string]any) {
+func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, matchups []map[string]any, teamID, focusID string, viewedWeek, lockWeek int, projectionByID map[string]Player, projectionAvailable bool) (map[string]any, []map[string]any) {
 	status, hasLive := s.liveStatus()
-	index, isViewer := featuredMatchupIndex(live.Matchups, teamID)
+	index, isViewer := featuredMatchupIndex(live.Matchups, teamID, focusID)
 	other := make([]map[string]any, 0, len(matchups))
 	for i, entry := range matchups {
 		if i == index {
@@ -5874,6 +5944,13 @@ func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, 
 			// Scorebug body is a ul.matchup-pairs of StarterCell, same as
 			// FeaturedMatchup's), now with each row's own PROJ cell (A2).
 			entry["pairs"] = featuredStarterPairs(m.Away.StarterLedger, m.Home.StarterLedger, projectionByID, status, hasLive)
+			// focus_href promotes this matchup to the page's full-width
+			// featured card (the owner's 2026-09-09 request): every matchup
+			// gets the same real estate the viewer's own one gets, not a
+			// scorebug the rest of the league is squeezed into. The
+			// scorebug keeps its own expandable body either way, so this
+			// link adds a reading mode instead of replacing one.
+			entry["focus_href"] = matchupFocusHref(viewedWeek, m.ID)
 		}
 		other = append(other, entry)
 	}

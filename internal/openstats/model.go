@@ -125,11 +125,31 @@ type PlayerWeekStat struct {
 	PassingTwoPt   float64 `json:"passing_2pt_conversions"`
 	RushingTwoPt   float64 `json:"rushing_2pt_conversions"`
 	ReceivingTwoPt float64 `json:"receiving_2pt_conversions"`
+	// SpecialTeamsTDs is a kick or punt return touchdown credited to this
+	// player (special_teams_tds). It feeds the MISC returnTD rule at week
+	// close (2026-09-09).
+	//
+	// Before that, returnTD was fed ONLY by the live box score, and a
+	// return touchdown survived the ledger posting solely because
+	// livescore.MergeLines copies live-only categories onto the ledger row
+	// (mergeLedgerOnlyCategories, GC-1 fix 4). That safety net depends on
+	// the live row existing: a return scored while the poller was down, or
+	// in a week the poller never covered, was six points the ledger then
+	// had no way to report. The column was in this same file all along.
+	SpecialTeamsTDs float64 `json:"special_teams_tds"`
 	// Kicking fields (WP-R2): sourced from the same stats_player_week
 	// release's fg_made/fg_missed/pat_made columns, present on K-position
-	// rows. defaultScoringRules' KICKING group carries no FG distance
-	// bands or an xpMissed key, so only these three feed live scoring
-	// today; see main.go's leagueWeekStatsSource.
+	// rows.
+	//
+	// 2026-09-09 audit: the note that used to sit here said no FG
+	// distance bands or missed-extra-point column were "available". That
+	// was the wrong way round, and worth correcting rather than deleting.
+	// This release carries fg_made_0_19 through fg_made_60_, the matching
+	// fg_missed_* bands, and pat_missed. What is missing is the RULES —
+	// defaultScoringRules' KICKING group has no band or xpMissed key for
+	// them to feed. Adding those is a scoring-rule decision for the
+	// commissioner, not a data limitation; see the DEFENSE group, which
+	// had exactly this shape until it was filled out.
 	FGMade   float64 `json:"fg_made"`
 	FGMissed float64 `json:"fg_missed"`
 	XPMade   float64 `json:"xp_made"`
@@ -213,6 +233,37 @@ type TeamWeekStat struct {
 	// in the source CSV) is not a defensive scoring event and is
 	// deliberately excluded.
 	FumbleRecoveryOpp float64 `json:"fumble_recovery_opp"`
+	// The 2026-09-09 defensive expansion. Every field below was already
+	// sitting in this same mirrored release, unread: the parser took five
+	// def_* columns out of the twenty-odd the file carries, and the
+	// DEFENSE scoring group was written to exactly those five. See
+	// defaultScoringRules' DEFENSE group.
+	DefFumblesForced float64 `json:"def_fumbles_forced"`
+	// DefPuntBlocks/DefPATBlocks/DefFGBlocks are the three separately
+	// reported blocked-kick columns. The league scores one "blocked kick"
+	// rule, so main.go's dstWeekStatLines sums them: a block is a block,
+	// and three typed rules would need three sources to stay consistent
+	// with when only one of them can ever be verified against the live
+	// feed (which reports no block at all).
+	DefPuntBlocks float64 `json:"def_punt_blocks"`
+	DefPATBlocks  float64 `json:"def_pat_blocks"`
+	DefFGBlocks   float64 `json:"def_fg_blocks"`
+	// Def2ptMade is a defensive two-point return (def_2pt_made), scored
+	// on a turnover during the opponent's own conversion attempt.
+	Def2ptMade float64 `json:"def_2pt_made"`
+	// SpecialTeamsTDs is a kick or punt return touchdown credited to the
+	// TEAM's special-teams unit. The player-level returnTD rule scores the
+	// returner; this scores the D/ST unit that fielded them, which is how
+	// a D/ST is conventionally credited with a return score.
+	SpecialTeamsTDs float64 `json:"special_teams_tds"`
+	// PassingYards and RushingYards are this team's OWN offensive output.
+	// They are read for the other side of the game: a defense's
+	// yards-allowed tier is its opponent's row summed, joined through
+	// OpponentTeam (see main.go's dstWeekStatLines). nflverse reports
+	// passing yards net of sack losses, so these two summed are the
+	// conventional "total net yards" a yards-allowed ladder is scored on.
+	PassingYards float64 `json:"passing_yards"`
+	RushingYards float64 `json:"rushing_yards"`
 }
 
 type TeamStatsQuery struct {

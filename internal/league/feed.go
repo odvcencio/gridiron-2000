@@ -180,7 +180,7 @@ func (p scheduleProvider) SnapshotWeek(ctx context.Context, now time.Time, week 
 		if !m.Final && !awayLedger.Known {
 			awayScoreTeam.Score = awayScore
 		}
-		liveState := matchupLiveState(m.Final, weeklyStats.live, weeklyStats.hasLive, append(append([]StarterLedgerRow(nil), homeLedger.Rows...), awayLedger.Rows...))
+		liveState := matchupLiveState(m.Final, weeklyStats, now, append(append([]StarterLedgerRow(nil), homeLedger.Rows...), awayLedger.Rows...))
 		matchups = append(matchups, ScoreMatchup{
 			ID:        m.ID,
 			Home:      homeScoreTeam,
@@ -192,7 +192,10 @@ func (p scheduleProvider) SnapshotWeek(ctx context.Context, now time.Time, week 
 		})
 	}
 	pageLiveState := LiveStateLedger
-	for _, candidate := range []string{LiveStatePaused, LiveStateLive, LiveStateFinal, LiveStateLedger} {
+	// UNDERWAY outranks FINAL at the page level for the same reason it
+	// does at the matchup level: while any matchup still has a game to
+	// come, the week is not over.
+	for _, candidate := range []string{LiveStatePaused, LiveStateLive, LiveStateUnderway, LiveStateFinal, LiveStateLedger} {
 		found := false
 		for _, m := range matchups {
 			if m.LiveState == candidate {
@@ -255,33 +258,96 @@ func (p scheduleProvider) SnapshotWeek(ctx context.Context, now time.Time, week 
 	}, nil
 }
 
+// matchupStarterGamePhases reports, across one matchup's filled starting
+// slots, whether any of their NFL games is running right now, whether any
+// has finished, and whether any has yet to kick off.
+//
+// It reads the live poller first and the loaded schedule second, so a
+// game the poller has not pulled into its window yet (a Sunday game while
+// only Thursday's is being polled) still counts as "still to come"
+// instead of silently vanishing from the count. Both reads normalize the
+// team abbreviation: the roster carries Tank01's spelling ("LAR") and
+// both game sources carry nflverse's ("LA"), the same mismatch that broke
+// starterGameState's own live join (matchup_ledger.go).
+//
+// An empty slot is skipped: a lineup hole is not a game still to come.
+func matchupStarterGamePhases(rows []StarterLedgerRow, snapshot matchupStatsSnapshot, now time.Time) (inProgress, done, awaiting bool) {
+	for _, row := range rows {
+		if row.PlayerID == "" {
+			continue
+		}
+		team := normalizeNFLAbbreviation(row.NFLTeam)
+		if snapshot.hasLive {
+			if game, ok := snapshot.live.Games[team]; ok {
+				switch {
+				case game.InProgress:
+					inProgress = true
+				case game.Final:
+					done = true
+				default:
+					awaiting = true
+				}
+				continue
+			}
+		}
+		for _, game := range snapshot.games {
+			if normalizeNFLAbbreviation(game.Away) != team && normalizeNFLAbbreviation(game.Home) != team {
+				continue
+			}
+			switch {
+			case game.Final:
+				done = true
+			case game.Kickoff.IsZero():
+				// No kickoff instant to judge by: claim nothing.
+			case now.Before(game.Kickoff):
+				awaiting = true
+			default:
+				// Kicked off, and the poller has no entry saying it
+				// finished. Treat it as still to come rather than done —
+				// counting it done is the error that produced a premature
+				// FINAL in the first place.
+				awaiting = true
+			}
+			break
+		}
+	}
+	return inProgress, done, awaiting
+}
+
 // matchupLiveState resolves exactly one state in the spec's order (A5):
 // posted final -> LEDGER; in-progress starter and degraded poller ->
-// PAUSED; in-progress starter -> LIVE; a live-final row with no ledger row
-// -> FINAL; otherwise LEDGER. inProgress can only ever be true once hasLive
-// already is (it is set from status.Games, which is only consulted when
-// hasLive holds), so an unwired poller (hasLive false) always falls
-// through the switch to LEDGER — there is no separate "!hasLive" case to
-// guard for (round-2 review of commit 8a4ffea, finding 3).
-func matchupLiveState(postedFinal bool, status LiveStatus, hasLive bool, rows []StarterLedgerRow) string {
+// PAUSED; in-progress starter -> LIVE; some starters finished and others
+// still to kick off -> UNDERWAY; every starter's game finished with no
+// ledger row yet -> FINAL; otherwise LEDGER.
+//
+// The UNDERWAY case is the 2026-09-09 correction. FINAL used to need only
+// ONE live-final starter row, so the Wednesday opener alone made a whole
+// matchup — nine of whose starters had not played a snap — read FINAL,
+// and the page swapped its projection out for a result that did not
+// exist yet. FINAL now means what it says: every filled slot's game is
+// over. inProgress can only ever be true once hasLive already is, so an
+// unwired poller still falls through to the schedule read inside
+// matchupStarterGamePhases (round-2 review of commit 8a4ffea, finding 3,
+// extended rather than dropped).
+func matchupLiveState(postedFinal bool, snapshot matchupStatsSnapshot, now time.Time, rows []StarterLedgerRow) string {
 	if postedFinal {
 		return LiveStateLedger
 	}
-	inProgress, liveFinal := false, false
+	inProgress, done, awaiting := matchupStarterGamePhases(rows, snapshot, now)
+	liveFinal := false
 	for _, row := range rows {
-		game, ok := status.Games[row.NFLTeam]
-		if hasLive && ok && game.InProgress {
-			inProgress = true
-		}
 		if row.Source == StatSourceLiveFinal {
 			liveFinal = true
+			break
 		}
 	}
 	switch {
-	case inProgress && status.Degraded:
+	case inProgress && snapshot.live.Degraded:
 		return LiveStatePaused
 	case inProgress:
 		return LiveStateLive
+	case (liveFinal || done) && awaiting:
+		return LiveStateUnderway
 	case liveFinal:
 		return LiveStateFinal
 	}
@@ -296,6 +362,8 @@ func liveSourceLine(state string, status LiveStatus, now time.Time) string {
 		return fmt.Sprintf("Live box scores · checked %d s ago", int(now.Sub(status.CheckedAt).Seconds()))
 	case LiveStatePaused:
 		return "Live box scores paused · " + status.Reason
+	case LiveStateUnderway:
+		return "Live box scores · games still to come"
 	case LiveStateFinal:
 		return "Final box scores · weekly ledger pending"
 	}

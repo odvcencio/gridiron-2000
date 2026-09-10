@@ -126,7 +126,7 @@ func ScoreRuleStats(stats map[string]float64, values map[string]float64) float64
 // join and rule application here prevents a rendered row from drifting away
 // from the team's aggregate score.
 func scorePlayerPoints(player Player, byKey map[string]map[string]float64, values map[string]float64) (float64, bool) {
-	line, ok := byKey[normalizePlayerKey(player.Name, player.Position)]
+	line, ok := byKey[playerStatKey(player)]
 	if !ok {
 		return 0, false
 	}
@@ -200,6 +200,47 @@ type JoinMiss struct {
 // doc comment), so this is a deliberate, tested duplicate — keep it in
 // lockstep; scorer_test.go asserts parity directly against the openstats
 // implementation on a range of names.
+// DSTStatKey is the one stat-line key every D/ST producer and every D/ST
+// consumer must agree on. It is derived from the unit's NFL TEAM, never
+// from a display name.
+//
+// The name was the bug (owner report, 2026-09-09: a defense with three
+// interceptions scored 0.0). Three independent sources spell the same
+// unit three different ways — the pool takes Tank01's ADP longName
+// ("Houston Texans DST"), internal/livescore's DSTName carries the pool's
+// intended display form ("Texans D/ST"), and nothing reconciled them — so
+// normalizePlayerKey produced "houstontexansdst|DST" on the roster side
+// and "texansdst|DST" on both stat sides. The join never matched for any
+// D/ST, in any week, in either the live overlay or the week-close ledger,
+// and a missing join whose game is known to be underway renders an
+// explicit 0.0 (rider R3), so the failure looked exactly like a defense
+// that had genuinely done nothing.
+//
+// A team abbreviation cannot drift the way a display name can: it is the
+// same three letters in the pool, the box score, and the mirror. The
+// "DST " prefix keeps the key inside normalizePlayerKey's own namespace
+// while making a collision with a real player's name impossible — no
+// human name normalizes to "dsthou".
+//
+// team may arrive in either abbreviation namespace (a pool player carries
+// Tank01's "LAR", a mirrored row carries nflverse's "LA"), so it is
+// normalized first through the same map every other team join here uses.
+func DSTStatKey(team string) string {
+	return normalizePlayerKey("DST "+normalizeNFLAbbreviation(team), "DST")
+}
+
+// playerStatKey is the join key for one pool player against a weekly stat
+// line: a D/ST joins on its team (DSTStatKey, above), everyone else on
+// name and position. Every join site in this package goes through this
+// one function so the roster side and the stat side can never again
+// disagree about how a player is addressed.
+func playerStatKey(player Player) string {
+	if strings.EqualFold(strings.TrimSpace(player.Position), "DST") {
+		return DSTStatKey(player.NFLTeam)
+	}
+	return normalizePlayerKey(player.Name, player.Position)
+}
+
 func normalizePlayerKey(name, position string) string {
 	var b strings.Builder
 	for _, r := range name {

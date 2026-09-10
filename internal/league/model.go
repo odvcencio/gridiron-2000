@@ -639,7 +639,12 @@ type StarterLedgerRow struct {
 	Provenance string  `json:"provenance"`
 	JoinState  string  `json:"joinState"`
 	Source     string  `json:"source,omitempty"`    // StatSource* of the matched line
-	GameState  string  `json:"gameState,omitempty"` // "Q3 8:12", "FINAL", "SUN 4:25 PM", ""
+	GameState  string  `json:"gameState,omitempty"` // "Q3 8:12", "W 27-20", "FINAL", "SUN 4:25 PM", "BYE", ""
+	// Breakdown explains Points rule by rule (ScoreBreakdownText,
+	// breakdown.go): "Interception x3 6.0 · Sack x2 2.0". Empty when the
+	// row has no matched stat line, so a reader is never shown an
+	// explanation for a score that does not exist yet.
+	Breakdown string `json:"breakdown,omitempty"`
 	// Possession is GC-2b's possession chip text ("ON OFFENSE", "DEFENSE
 	// ON FIELD", or "" — starterPossessionLabel's own doc comment). Empty
 	// renders no chip at all: possession only appears when known.
@@ -697,6 +702,17 @@ const (
 	LiveStateFinal  = "FINAL"
 	LiveStateLedger = "LEDGER"
 	LiveStatePaused = "PAUSED"
+	// LiveStateUnderway is the state between games (owner report,
+	// 2026-09-09: "stuff is saying FINAL when the games haven't all
+	// completed yet"). Some of this matchup's starters have finished
+	// their NFL games and their points are real; others have not kicked
+	// off. Nothing is running at this instant, so LIVE would be a false
+	// claim — but the week is plainly not over either, so FINAL was a
+	// worse one. It presents exactly like LIVE (the big number is the
+	// real score, the projection sits under it) because that is the
+	// honest reading: these points are banked, the rest are still
+	// forecast.
+	LiveStateUnderway = "UNDERWAY"
 )
 
 // LiveSnapshot is the stable JSON contract consumed by the score enhancer.

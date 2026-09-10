@@ -566,29 +566,55 @@ func pointsAllowedByTeam(games []openstats.ScheduleGame, eastern *time.Location,
 func dstWeekStatLines(stats *openstats.Service, eastern *time.Location, week int) []league.WeekStatLine {
 	rows := stats.TeamStats(openstats.TeamStatsQuery{Week: week, Limit: 64})
 	allowed := pointsAllowedByTeam(stats.Games(week), eastern, time.Now())
+	// offenseYards indexes each team's OWN total net yards so the loop
+	// below can read a defense's yards allowed off its opponent's row
+	// (2026-09-09). nflverse reports passing yards net of sack losses, so
+	// passing plus rushing is the conventional total.
+	offenseYards := make(map[string]float64, len(rows))
+	for _, row := range rows {
+		offenseYards[strings.ToUpper(row.Team)] = row.PassingYards + row.RushingYards
+	}
 	out := make([]league.WeekStatLine, 0, len(rows))
 	for _, row := range rows {
 		team := strings.ToUpper(row.Team)
-		name, ok := livescore.DSTName(team)
-		if !ok {
+		if _, ok := livescore.DSTName(team); !ok {
 			// An unrecognized team abbreviation (a source drift, not a
-			// user error) scores nothing rather than guessing a name —
-			// the same fail-quiet discipline punterHistLine follows.
+			// user error) scores nothing rather than guessing at the unit
+			// — the same fail-quiet discipline punterHistLine follows.
 			continue
 		}
 		statLine := map[string]float64{
-			"dstSack":      row.DefSacks,
-			"dstInt":       row.DefInterceptions,
-			"dstFumbleRec": row.FumbleRecoveryOpp,
-			"dstTD":        row.DefTDs,
-			"dstSafety":    row.DefSafeties,
-			"dstShutout":   0,
+			"dstSack":           row.DefSacks,
+			"dstInt":            row.DefInterceptions,
+			"dstFumbleRec":      row.FumbleRecoveryOpp,
+			"dstForcedFumble":   row.DefFumblesForced,
+			"dstTD":             row.DefTDs,
+			"dstSafety":         row.DefSafeties,
+			"dstBlockedKick":    row.DefPuntBlocks + row.DefPATBlocks + row.DefFGBlocks,
+			"dstTwoPtReturn":    row.Def2ptMade,
+			"dstSpecialTeamsTD": row.SpecialTeamsTDs,
 		}
-		if pointsAllowed, ok := allowed[team]; ok && pointsAllowed == 0 {
-			statLine["dstShutout"] = 1
+		// Both ladders are gated on the same finality rule the shutout
+		// always used: pointsAllowedByTeam only carries a team once its
+		// game is actually final, so an unplayed or in-progress game can
+		// never band a defense at all. The yards figure is read off the
+		// opponent's own offensive row for that same final game.
+		if pointsAllowed, ok := allowed[team]; ok {
+			if key := league.PointsAllowedRuleKey(pointsAllowed); key != "" {
+				statLine[key] = 1
+			}
+			if yards, known := offenseYards[strings.ToUpper(row.OpponentTeam)]; known {
+				if key := league.YardsAllowedRuleKey(yards); key != "" {
+					statLine[key] = 1
+				}
+			}
 		}
 		out = append(out, league.WeekStatLine{
-			Key:    openstats.NormalizePlayerKey(name, "DST"),
+			// league.DSTStatKey, not a name-derived key: the pool, this
+			// mirror, and the live overlay each spell a D/ST's display name
+			// differently, so the join must go through the one thing all
+			// three agree on — the team (see DSTStatKey's doc comment).
+			Key:    league.DSTStatKey(team),
 			Stats:  statLine,
 			Source: league.StatSourceLedger,
 		})
@@ -721,7 +747,13 @@ func offenseStatLine(row openstats.PlayerWeekStat) map[string]float64 {
 		// and internal/fantasy's preseasonPlayerStats), so twoPt scores at
 		// week close only, the same closed-week-only pattern several
 		// PUNTING keys already follow.
-		"twoPt":    row.PassingTwoPt + row.RushingTwoPt + row.ReceivingTwoPt,
+		"twoPt": row.PassingTwoPt + row.RushingTwoPt + row.ReceivingTwoPt,
+		// returnTD from the mirrored ledger (2026-09-09). It used to score
+		// from the live box score only, so a return touchdown reached the
+		// closed week solely through MergeLines' live-only-category copy —
+		// a safety net that needs the live row to have existed at all. See
+		// PlayerWeekStat.SpecialTeamsTDs.
+		"returnTD": row.SpecialTeamsTDs,
 		"fgMade":   row.FGMade,
 		"fgMissed": row.FGMissed,
 		"xpMade":   row.XPMade,

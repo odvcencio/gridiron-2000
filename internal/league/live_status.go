@@ -8,6 +8,15 @@ type LiveGameState struct {
 	Away, Home string
 	Period     string
 	Clock      string
+	// AwayPoints and HomePoints are the polled game's real score, carried
+	// through from livescore.GameState so a final game can render its
+	// result and not only the word FINAL (starterGameState,
+	// matchup_ledger.go). They are the poller's live running score while
+	// InProgress and the final score once Final; before kickoff both are
+	// zero, which is why every reader gates on Final or InProgress rather
+	// than on the numbers themselves.
+	AwayPoints float64
+	HomePoints float64
 	Final      bool
 	InProgress bool
 	Kickoff    time.Time

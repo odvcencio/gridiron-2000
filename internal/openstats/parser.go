@@ -134,16 +134,18 @@ func parsePlayerStats(path string, season int) ([]PlayerWeekStat, error) {
 			// returns "" for a missing column and floatValue("") is 0, so
 			// an older or non-kicking/punting row decodes to honest zeros,
 			// never an error.
-			FGMade:         floatValue(cell(row, index, "fg_made")),
-			FGMissed:       floatValue(cell(row, index, "fg_missed")),
-			XPMade:         floatValue(cell(row, index, "pat_made")),
-			Punts:          floatValue(cell(row, index, "pt_att")),
-			PuntYardsGross: floatValue(cell(row, index, "pt_yards")),
-			PuntLong:       floatValue(cell(row, index, "pt_long")),
-			PuntInside20:   floatValue(cell(row, index, "pt_inside_20")),
-			PuntDowned:     floatValue(cell(row, index, "pt_downed")),
-			PuntTouchback:  floatValue(cell(row, index, "pt_touchback")),
-			PuntBlocked:    floatValue(cell(row, index, "pt_blocked")),
+			// Optional in exactly the same way, and for the same reason.
+			SpecialTeamsTDs: floatValue(cell(row, index, "special_teams_tds")),
+			FGMade:          floatValue(cell(row, index, "fg_made")),
+			FGMissed:        floatValue(cell(row, index, "fg_missed")),
+			XPMade:          floatValue(cell(row, index, "pat_made")),
+			Punts:           floatValue(cell(row, index, "pt_att")),
+			PuntYardsGross:  floatValue(cell(row, index, "pt_yards")),
+			PuntLong:        floatValue(cell(row, index, "pt_long")),
+			PuntInside20:    floatValue(cell(row, index, "pt_inside_20")),
+			PuntDowned:      floatValue(cell(row, index, "pt_downed")),
+			PuntTouchback:   floatValue(cell(row, index, "pt_touchback")),
+			PuntBlocked:     floatValue(cell(row, index, "pt_blocked")),
 		})
 	}
 	return stats, nil
@@ -245,6 +247,18 @@ func parseTeamStats(path string, season int) ([]TeamWeekStat, error) {
 			DefTDs:            floatValue(cell(row, index, "def_tds")),
 			DefSafeties:       floatValue(cell(row, index, "def_safeties")),
 			FumbleRecoveryOpp: floatValue(cell(row, index, "fumble_recovery_opp")),
+			// Every column below is optional by construction: cell returns
+			// "" for a header this release does not carry and floatValue
+			// reads that as 0, so a season predating any of them parses
+			// exactly as before rather than failing the whole file.
+			DefFumblesForced: floatValue(cell(row, index, "def_fumbles_forced")),
+			DefPuntBlocks:    floatValue(cell(row, index, "def_punt_blocks")),
+			DefPATBlocks:     floatValue(cell(row, index, "def_pat_blocks")),
+			DefFGBlocks:      floatValue(cell(row, index, "def_fg_blocks")),
+			Def2ptMade:       floatValue(cell(row, index, "def_2pt_made")),
+			SpecialTeamsTDs:  floatValue(cell(row, index, "special_teams_tds")),
+			PassingYards:     floatValue(cell(row, index, "passing_yards")),
+			RushingYards:     floatValue(cell(row, index, "rushing_yards")),
 		})
 	}
 	return stats, nil

@@ -116,6 +116,12 @@ func StarterCell(props StarterCellData) Node {
 				<small><span data-gosx-live-bind={"starterPosition." + props.LiveKey}>{props.Position}</span> · <span data-gosx-live-bind={"starterNFLTeam." + props.LiveKey}>{props.NFLTeam}</span><span class="starter-cell__state-text"> · <span data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span></span><span class="possession-chip" data-gosx-live-bind={"starterPossession." + props.LiveKey}>{props.Possession}</span></small>
 			</summary>
 			<div class="matchup-ledger__body">
+				{/* Where this player's points came from, rule by rule
+				    (2026-09-09). Live-bound like the score it explains, so
+				    the two can never disagree mid-game; the :empty rule in
+				    the stylesheet hides it until there is a score to
+				    explain. */}
+				<p class="matchup-ledger__breakdown mono" data-gosx-live-bind={"starterBreakdown." + props.LiveKey}>{props.Breakdown}</p>
 				<TextBlock as="p" class="matchup-ledger__hint" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Configured starters only. Bench, reserve, and IR are excluded." />
 				<span data-gosx-live-bind={"starterProvenanceText." + props.LiveKey}>{props.ProvenanceText}</span><span data-gosx-live-bind={"starterJoinStateText." + props.LiveKey}>{props.JoinStateText}</span><span data-gosx-live-bind={"starterSourceText." + props.LiveKey}>{props.SourceText}</span>
 				<small class="matchup-ledger__detail" data-gosx-live-bind={"starterDetail." + props.LiveKey}>{props.Detail}</small>
@@ -180,7 +186,7 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 			<span class="section-index" role="columnheader" aria-label={props.Mine.Name + " starter"}>Starter</span><span class="section-index" role="columnheader" aria-label={props.Mine.Name + " game"}>Game</span><span class="section-index" role="columnheader" aria-label={props.Mine.Name + " projected points"}>Proj</span><span class="section-index" role="columnheader" aria-label={props.Mine.Name + " points"}>Pts</span><span class="section-index slot-row__slot-head" role="columnheader">Slot</span><span class="section-index" role="columnheader" aria-label={props.Theirs.Name + " points"}>Pts</span><span class="section-index" role="columnheader" aria-label={props.Theirs.Name + " projected points"}>Proj</span><span class="section-index" role="columnheader" aria-label={props.Theirs.Name + " game"}>Game</span><span class="section-index right" role="columnheader" aria-label={props.Theirs.Name + " starter"}>Starter</span>
 		</div>
 		<div class="slot-row slot-row--head slot-row--head-mobile" role="row">
-			<span class="section-index" role="columnheader" aria-label={props.Mine.Name + " starter"}>You</span><span class="section-index right" role="columnheader" aria-label={props.Theirs.Name + " starter"}>Opponent</span>
+			<span class="section-index" role="columnheader" aria-label={props.Mine.Name + " starter"}><If cond={props.IsViewer}>You</If><If cond={props.IsViewer == false}>Featured</If></span><span class="section-index right" role="columnheader" aria-label={props.Theirs.Name + " starter"}><If cond={props.IsViewer}>Opponent</If><If cond={props.IsViewer == false}>Versus</If></span>
 		</div>
 		<ul class="matchup-pairs" role="rowgroup">
 			<Each of={props.Pairs} as="pair">
@@ -254,6 +260,7 @@ func Scorebug(props ScorebugData) Node {
 			<div class="scorebug__meta">
 				<span class={"state-chip " + props.StateClass}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span><span data-gosx-live-bind={"matchupLiveState." + props.ID}>{props.LiveState}</span></span>
 				<span class="scorebug__phase-label mono muted">{props.PhaseLabel}</span>
+				<a class="scorebug__focus" href={props.FocusHref} data-gosx-link aria-label={"Open " + props.Away.Name + " versus " + props.Home.Name + " at full size"}>Full view →</a>
 			</div>
 			<div class="mini">
 				<TeamMark {...props.Away}></TeamMark>
@@ -398,6 +405,10 @@ func Page() Node {
 				<p class="matchups-masthead__state mono"><span data-gosx-live-bind="headlineTop">{data.live.headline_top}</span> <span data-gosx-live-bind="headlineBottom">{data.live.headline_bottom}</span> · <span data-gosx-live-bind="status">{data.live.status}</span></p>
 			</div>
 			<If cond={data.has_weeks}><WeekBrowser HasPrevious={data.has_previous_week} PreviousHref={data.previous_week_href} Options={data.week_options} HasNext={data.has_next_week} NextHref={data.next_week_href} IsCurrent={data.is_current_week} CurrentHref={data.current_week_href}></WeekBrowser></If>
+			{/* The featured card is showing a matchup this viewer did not
+			    arrive at by default ("?m=", 2026-09-09), so the page owes
+			    them one plain way back to their own. */}
+			<If cond={data.focus_active}><a class="matchups-masthead__back access-link" href={data.focus_clear_href} data-gosx-link>{data.focus_clear_label}</a></If>
 		</header>
 		<If cond={data.is_game_day}>
 			<MatchupScoreBlock></MatchupScoreBlock>

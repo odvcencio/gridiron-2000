@@ -100,26 +100,76 @@ func defaultScoringRules() []ScoringRule {
 		{Group: "MISC", Key: "returnTD", Label: "Kick or punt return TD", Points: 6},
 		// KICKING (WP-R2). Fed from the openstats weekly player ledger's
 		// fg_made/fg_missed/pat_made columns (main.go's
-		// leagueWeekStatsSource). This group carries no FG distance bands
-		// and no xpMissed key, so nothing else is available to feed today
-		// — an honest boundary, not an oversight.
+		// leagueWeekStatsSource).
+		//
+		// 2026-09-09 audit correction. This note used to say that nothing
+		// else "is available to feed" a distance band or a missed extra
+		// point. That was backwards: the mirrored ledger carries
+		// fg_made_0_19 through fg_made_60_, the matching fg_missed_*
+		// bands, and pat_missed. What is absent is a RULE for them to
+		// feed. Whether a 52-yard field goal should outscore a 22-yard one
+		// is a commissioner's decision, not a data limit — the same shape
+		// the DEFENSE group had until the owner decided it (see below).
 		{Group: "KICKING", Key: "fgMade", Label: "Field goal made", Points: 3},
 		{Group: "KICKING", Key: "fgMissed", Label: "Field goal missed", Points: -1},
 		{Group: "KICKING", Key: "xpMade", Label: "Extra point made", Points: 1},
-		// DEFENSE (WP-R2). dstSack/dstInt/dstFumbleRec/dstTD/dstSafety feed
-		// from the openstats team-stats mirror's def_* columns; dstFumbleRec
-		// counts opponent-fumble recoveries only (fumble_recovery_own is
-		// not a defensive scoring event). dstShutout derives from the
-		// schedule's points-allowed, gated on the same kickoff-plus-five-
-		// hours finality rule the schedule adapter uses, so an unplayed or
-		// in-progress game can never read as a shutout. See main.go's
-		// dstWeekStatLines.
+		// DEFENSE. The event rules feed from the openstats team-stats
+		// mirror's def_* columns; dstFumbleRec counts opponent-fumble
+		// recoveries only (fumble_recovery_own is not a defensive scoring
+		// event). See main.go's dstWeekStatLines.
+		//
+		// 2026-09-09 (owner decision). This group carried six rules while
+		// PUNTING carried seven, and the difference was never a judgement
+		// about the game — it was where the plumbing stopped. WP-R2 gave
+		// punting a full play-by-play pass and gave defense five columns
+		// out of the twenty-odd the same mirrored file already held. The
+		// visible cost was the shutout: a single all-or-nothing 10 meant a
+		// defense that held an opponent to 3 points scored nothing at all
+		// for it, which is exactly what the owner saw in week 1.
+		//
+		// dstBlockedKick sums the three separately reported block columns
+		// (punt, PAT, FG) into one rule — see TeamWeekStat's own comment.
+		// dstSpecialTeamsTD credits the D/ST unit for a return score; the
+		// MISC returnTD rule credits the returner, and a league that
+		// rosters both collects both, which is the conventional treatment.
 		{Group: "DEFENSE", Key: "dstSack", Label: "Sack", Points: 1},
 		{Group: "DEFENSE", Key: "dstInt", Label: "Interception", Points: 2},
 		{Group: "DEFENSE", Key: "dstFumbleRec", Label: "Fumble recovery", Points: 2},
+		{Group: "DEFENSE", Key: "dstForcedFumble", Label: "Forced fumble", Points: 1},
 		{Group: "DEFENSE", Key: "dstTD", Label: "Defensive TD", Points: 6},
 		{Group: "DEFENSE", Key: "dstSafety", Label: "Safety", Points: 2},
-		{Group: "DEFENSE", Key: "dstShutout", Label: "Shutout", Points: 10},
+		{Group: "DEFENSE", Key: "dstBlockedKick", Label: "Blocked kick (punt, PAT, or FG)", Points: 2},
+		{Group: "DEFENSE", Key: "dstTwoPtReturn", Label: "Defensive two-point return", Points: 2},
+		{Group: "DEFENSE", Key: "dstSpecialTeamsTD", Label: "Special-teams TD", Points: 6},
+		// POINTS ALLOWED and YARDS ALLOWED are ladders, not per-event
+		// rules, so each band is its own rule whose stat line carries a
+		// 1 for the band the game landed in and nothing for the rest.
+		// That shape is deliberate: it needs no new scoring engine (a
+		// band scores exactly like any other stat, value times points),
+		// it renders as ordinary rows on the Scoring Settings page, and
+		// every band stays independently commissioner-tunable under the
+		// same -25..25 clamp as every other rule.
+		//
+		// Both ladders score only once a game is FINAL — dstPointsAllowed
+		// bands derive from the schedule's points-allowed under the same
+		// kickoff-plus-five-hours finality rule the schedule adapter uses,
+		// and the live feed's own bands are gated on its final flag. A
+		// defense leading 0-0 in the first quarter has not earned the
+		// shutout band, and an in-progress game can never read as one.
+		{Group: "POINTS ALLOWED", Key: "dstPointsAllowed0", Label: "Shutout (0 points allowed)", Points: 10},
+		{Group: "POINTS ALLOWED", Key: "dstPointsAllowed1", Label: "1-6 points allowed", Points: 7},
+		{Group: "POINTS ALLOWED", Key: "dstPointsAllowed7", Label: "7-13 points allowed", Points: 4},
+		{Group: "POINTS ALLOWED", Key: "dstPointsAllowed14", Label: "14-20 points allowed", Points: 1},
+		{Group: "POINTS ALLOWED", Key: "dstPointsAllowed21", Label: "21-27 points allowed", Points: 0},
+		{Group: "POINTS ALLOWED", Key: "dstPointsAllowed28", Label: "28-34 points allowed", Points: -1},
+		{Group: "POINTS ALLOWED", Key: "dstPointsAllowed35", Label: "35 or more points allowed", Points: -4},
+		{Group: "YARDS ALLOWED", Key: "dstYardsAllowed0", Label: "Under 100 total yards allowed", Points: 5}, // see YardsAllowedRuleKey: a zero figure bands nothing
+		{Group: "YARDS ALLOWED", Key: "dstYardsAllowed100", Label: "100-199 yards allowed", Points: 3},
+		{Group: "YARDS ALLOWED", Key: "dstYardsAllowed200", Label: "200-299 yards allowed", Points: 2},
+		{Group: "YARDS ALLOWED", Key: "dstYardsAllowed300", Label: "300-399 yards allowed", Points: 0},
+		{Group: "YARDS ALLOWED", Key: "dstYardsAllowed400", Label: "400-449 yards allowed", Points: -1},
+		{Group: "YARDS ALLOWED", Key: "dstYardsAllowed450", Label: "450-499 yards allowed", Points: -3},
+		{Group: "YARDS ALLOWED", Key: "dstYardsAllowed500", Label: "500 or more yards allowed", Points: -5},
 		// PUNTING (roster-ops spec section 4.1.2, owner-refined defaults —
 		// these supersede the spec's draft numbers where they differ).
 		// Commissioner-tunable like every group above, same -25..25 clamp
@@ -148,6 +198,89 @@ func defaultScoringRules() []ScoringRule {
 		{Group: "PUNTING", Key: "puntTouchback", Label: "Punt touchback", Points: -0.5},
 		{Group: "PUNTING", Key: "puntBlocked", Label: "Punt blocked", Points: -2},
 	}
+}
+
+// pointsAllowedBands and yardsAllowedBands are the two ladders, each
+// ordered from the best outcome to the worst. Threshold is the lowest
+// value that lands in that band, so a resolver walks the list backwards
+// and takes the first band whose threshold the actual figure reaches.
+// One table per ladder, read by both the week-close mirror (main.go's
+// dstWeekStatLines) and the live box score (RuleStatsFromTank01,
+// breakdown.go), so the two sources can never draw the bands differently.
+var pointsAllowedBands = []struct {
+	Threshold float64
+	Key       string
+}{
+	{Threshold: 0, Key: "dstPointsAllowed0"},
+	{Threshold: 1, Key: "dstPointsAllowed1"},
+	{Threshold: 7, Key: "dstPointsAllowed7"},
+	{Threshold: 14, Key: "dstPointsAllowed14"},
+	{Threshold: 21, Key: "dstPointsAllowed21"},
+	{Threshold: 28, Key: "dstPointsAllowed28"},
+	{Threshold: 35, Key: "dstPointsAllowed35"},
+}
+
+var yardsAllowedBands = []struct {
+	Threshold float64
+	Key       string
+}{
+	{Threshold: 0, Key: "dstYardsAllowed0"},
+	{Threshold: 100, Key: "dstYardsAllowed100"},
+	{Threshold: 200, Key: "dstYardsAllowed200"},
+	{Threshold: 300, Key: "dstYardsAllowed300"},
+	{Threshold: 400, Key: "dstYardsAllowed400"},
+	{Threshold: 450, Key: "dstYardsAllowed450"},
+	{Threshold: 500, Key: "dstYardsAllowed500"},
+}
+
+// PointsAllowedRuleKey returns the scoring-rule key for a game's
+// points-allowed figure. A negative figure cannot happen in football and
+// resolves to the shutout band rather than to nothing.
+func PointsAllowedRuleKey(pointsAllowed float64) string {
+	return bandKey(pointsAllowed, func(i int) (float64, string) {
+		return pointsAllowedBands[i].Threshold, pointsAllowedBands[i].Key
+	}, len(pointsAllowedBands))
+}
+
+// YardsAllowedRuleKey returns the scoring-rule key for a game's
+// total-yards-allowed figure, or "" when there is no figure to band.
+//
+// Zero reads as ABSENT, not as a perfect defensive game. No NFL team has
+// ever finished a game with zero total net yards, so a zero here always
+// means the source did not report the figure — an unreleased column, a
+// row that failed to join its opponent, a live block without ydsAllowed.
+// Banding it anyway would hand EVERY defense in the league the best band
+// and its full bonus the moment a column went missing, which is the
+// loudest possible way for a scoring bug to be wrong. Saying nothing is
+// the quiet, correct failure. The same reasoning does not apply to points
+// allowed: a real shutout happens several times a season, and that figure
+// comes from the schedule's own score, which is present or the game is
+// not final at all.
+func YardsAllowedRuleKey(yardsAllowed float64) string {
+	if yardsAllowed <= 0 {
+		return ""
+	}
+	return bandKey(yardsAllowed, func(i int) (float64, string) {
+		return yardsAllowedBands[i].Threshold, yardsAllowedBands[i].Key
+	}, len(yardsAllowedBands))
+}
+
+// bandKey walks a ladder from its worst band back to its best and returns
+// the first whose threshold value reaches. A non-finite figure resolves
+// to no band at all: an unreadable source must score nothing here rather
+// than land a defense in the best or worst band by accident.
+func bandKey(value float64, at func(int) (float64, string), n int) string {
+	if !finiteScoringPoints(value) {
+		return ""
+	}
+	for i := n - 1; i >= 0; i-- {
+		threshold, key := at(i)
+		if value >= threshold {
+			return key
+		}
+	}
+	_, first := at(0)
+	return first
 }
 
 // scoringRuleByKey looks up one default rule by its key.
@@ -187,6 +320,30 @@ func ReceptionPointsForScoringFormat(format string) float64 {
 // defaultScoringRules regardless, so a commissioner could still have
 // recorded an override on one.
 var legacyTwoPointRuleKeys = []string{"pass2pt", "rush2pt", "rec2pt"}
+
+// migrateLegacyShutoutOverride carries a commissioner's own "dstShutout"
+// value onto the rule that replaced it. The 2026-09-09 defensive
+// expansion turned the single all-or-nothing shutout into a
+// points-allowed ladder whose best band, dstPointsAllowed0, is the same
+// event under a new key and the same shipped 10 points — so an override
+// recorded against the old key is still an override of exactly that
+// event, and dropping it would silently reset a deliberate choice.
+//
+// Runs on every state load (normalizeState) beside the two-point
+// migration, the same self-healing discipline every other legacy-shape
+// guard there follows, so it is idempotent and needs no separate one-time
+// step. A league that never overrode the shutout — the overwhelming case
+// — sees no change at all.
+func migrateLegacyShutoutOverride(scoring map[string]float64) {
+	value, found := scoring["dstShutout"]
+	if !found {
+		return
+	}
+	delete(scoring, "dstShutout")
+	if _, alreadySet := scoring["dstPointsAllowed0"]; !alreadySet {
+		scoring["dstPointsAllowed0"] = value
+	}
+}
 
 // migrateLegacyTwoPointOverrides folds the highest override still
 // recorded under a legacy typed two-point key into the replacement
@@ -400,8 +557,15 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 // PUNTING doc comment for the honest accounting this note summarizes for
 // managers.
 func scoringGroupNote(group string) string {
-	if group == "PUNTING" {
+	switch group {
+	case "PUNTING":
 		return "Punting yards score only on punts of 40 or more yards. Coffin-corner, inside-the-5, and blocked-punt rules score from play-by-play data at week close; a week without full play data scores those three at zero until the data arrives."
+	case "DEFENSE":
+		return "Sacks, interceptions, fumble recoveries, defensive touchdowns, and safeties score live. Forced fumbles, blocked kicks, defensive two-point returns, and special-teams touchdowns score at week close: the live box score does not report them."
+	case "POINTS ALLOWED":
+		return "A defense scores exactly one of these bands per game, and only once that game is final. Points allowed are the points its own opponent scored."
+	case "YARDS ALLOWED":
+		return "A defense scores exactly one of these bands per game, and only once that game is final. Yards allowed are its opponent's passing plus rushing yards, with sack losses already deducted."
 	}
 	return ""
 }

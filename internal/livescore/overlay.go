@@ -59,12 +59,16 @@ func MergeLines(base []league.WeekStatLine, week int, snapshot Snapshot, resolve
 			case final:
 				// The ledger is complete and wins for every category it
 				// reports (see ledgerBehind above). But the ledger's own
-				// stat mapping (main.go's offenseStatLine) never carries
-				// some live-only categories at all — returnTD is the one in
-				// production today (breakdown.go's returnTD row doc
-				// comment). Without this, a scored return touchdown a live
-				// game reported would silently vanish the moment the ledger
-				// posts (GC-1 fix 4). mergeLedgerOnlyCategories copies in
+				// stat mapping (main.go's offenseStatLine) may not carry a
+				// live category at all. returnTD was the one such case in
+				// production, and without this step a scored return
+				// touchdown a live game reported would silently vanish the
+				// moment the ledger posted (GC-1 fix 4). The ledger now
+				// reports returnTD itself from special_teams_tds
+				// (2026-09-09), so this step is a safety net rather than
+				// the only thing holding that category up — it stays,
+				// because the next live-only category will need it again.
+				// mergeLedgerOnlyCategories copies in
 				// only the categories genuinely absent from the ledger row;
 				// every category the ledger DOES report keeps its own
 				// value untouched, so the ledger stays close-week truth for
@@ -90,14 +94,19 @@ func MergeLines(base []league.WeekStatLine, week int, snapshot Snapshot, resolve
 		apply(openstats.NormalizePlayerKey(player.Name, player.Position), row.Team, row.GameID, row.Stats, row.Final)
 	}
 	for team, unit := range live.DST {
-		name, ok := DSTName(team)
-		if !ok {
+		if _, ok := DSTName(team); !ok {
+			// An unrecognized abbreviation is a source drift: score
+			// nothing rather than invent a unit.
 			continue
 		}
+		// league.DSTStatKey, not a name-derived key: a D/ST joins on its
+		// team, because the pool and this feed spell the same unit
+		// differently and always have (see DSTStatKey's own doc comment).
+		//
 		// A D/ST unit's team comes from the box score's own map key, so
 		// it is never empty; the gameID fallback above never triggers,
 		// hence the empty literal here.
-		apply(openstats.NormalizePlayerKey(name, "DST"), team, "", unit.Stats, unit.Final)
+		apply(league.DSTStatKey(team), team, "", unit.Stats, unit.Final)
 	}
 	return out
 }

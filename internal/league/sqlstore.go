@@ -2310,6 +2310,7 @@ func normalizeState(state *PersistedState) {
 	}
 	normalizeScoringValues(state.Scoring)
 	migrateLegacyTwoPointOverrides(state.Scoring)
+	migrateLegacyShutoutOverride(state.Scoring)
 	if state.Pickems == nil {
 		state.Pickems = map[string]map[string]string{}
 	}

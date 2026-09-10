@@ -39,7 +39,11 @@ func TestMergeLinesLiveWinsWhileTheGameIsInProgress(t *testing.T) {
 	if allen := byKey["joshallen|QB"]; allen.Source != league.StatSourceLive || allen.Stats["passYards"] != 55 || allen.Stats["passTD"] != 1 {
 		t.Fatalf("a stale zero ledger row beat the live row: %+v", allen)
 	}
-	dst := byKey["billsdst|DST"]
+	// league.DSTStatKey, not "billsdst|DST": this assertion used to pin
+	// the display-name key that made D/ST scoring impossible — the pool
+	// spells the same unit "Buffalo Bills DST", so the two sides never
+	// met (owner report, 2026-09-09). The key is derived from the team now.
+	dst := byKey[league.DSTStatKey("BUF")]
 	if dst.Source != league.StatSourceLive || dst.Stats["dstSack"] != 2 {
 		t.Fatalf("D/ST = %+v", dst)
 	}
@@ -68,8 +72,8 @@ func TestMergeLinesLedgerWinsOnceTheGameIsFinal(t *testing.T) {
 		if line.Key == "joshallen|QB" && (line.Source != league.StatSourceLedger || line.Stats["passYards"] != 300) {
 			t.Fatalf("the ledger row lost to a final live row: %+v", line)
 		}
-		if line.Key == "billsdst|DST" && (line.Source != league.StatSourceLiveFinal || line.Stats["dstShutout"] != 1) {
-			t.Fatalf("a final D/ST row without a ledger row must be live-final with the shutout: %+v", line)
+		if line.Key == league.DSTStatKey("BUF") && (line.Source != league.StatSourceLiveFinal || line.Stats["dstPointsAllowed0"] != 1) {
+			t.Fatalf("a final D/ST row without a ledger row must be live-final in the shutout band: %+v", line)
 		}
 	}
 	if got := MergeLines(base, 2, overlaySnapshot(true), overlayResolver); len(got) != 1 {

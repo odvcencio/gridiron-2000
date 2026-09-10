@@ -24,14 +24,26 @@ func TestRuleStatsFromTank01CrosswalkAndDST(t *testing.T) {
 	if dst["dstSack"] != 3 || dst["dstInt"] != 1 || dst["dstFumbleRec"] != 2 || dst["dstTD"] != 1 {
 		t.Fatalf("dst = %v", dst)
 	}
-	if _, ok := dst["dstShutout"]; ok {
-		t.Fatal("an in-progress 0 points allowed must not score a shutout")
+	// The 2026-09-09 expansion replaced the single all-or-nothing
+	// dstShutout rule with a points-allowed ladder. The gate is unchanged:
+	// no band may score while a game is still in progress.
+	if _, ok := dst["dstPointsAllowed0"]; ok {
+		t.Fatal("an in-progress 0 points allowed must not score the shutout band")
 	}
-	if final := RuleStatsFromTank01(map[string]float64{"ptsAllowed": 0}, true); final["dstShutout"] != 1 {
+	if final := RuleStatsFromTank01(map[string]float64{"ptsAllowed": 0}, true); final["dstPointsAllowed0"] != 1 {
 		t.Fatalf("final shutout = %v", final)
 	}
-	if final := RuleStatsFromTank01(map[string]float64{"ptsAllowed": 7}, true); len(final) != 0 {
-		t.Fatalf("7 allowed scored a shutout instead of carrying no data: %v", final)
+	// 7 points allowed used to score nothing at all — the gap the owner
+	// reported. It now lands in its own band.
+	if final := RuleStatsFromTank01(map[string]float64{"ptsAllowed": 7}, true); final["dstPointsAllowed7"] != 1 {
+		t.Fatalf("7 points allowed = %v, want the 7-13 band", final)
+	}
+	// Yards allowed band the same way, from the same live block.
+	if final := RuleStatsFromTank01(map[string]float64{"ydsAllowed": 302}, true); final["dstYardsAllowed300"] != 1 {
+		t.Fatalf("302 yards allowed = %v, want the 300-399 band", final)
+	}
+	if running := RuleStatsFromTank01(map[string]float64{"ydsAllowed": 302}, false); len(running) != 0 {
+		t.Fatalf("an in-progress yards total banded a defense: %v", running)
 	}
 }
 

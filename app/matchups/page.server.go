@@ -37,25 +37,46 @@ func intField(m map[string]any, key string) int {
 }
 
 // starterStateClass derives one starter cell's state-chip modifier class
-// from its rendered GameState text (starterGameState, matchup_ledger.go):
-// "FINAL" is always the literal string that function returns for a final
-// game; an in-progress period is always Tank01's uppercase Q1..Q4/OT
-// (the Sep 10 drill's decision, plan doc); everything else — a formatted
-// kickoff instant ("SUN 4:25 PM") or the empty string when the game state
-// is not yet known — reads as not-yet-started. This is a render-time-only
-// classification: like the top status line's own data-live-state
-// attribute, it is set once at render and does not itself live-update
-// (only the bound text inside it does) — see FeaturedMatchup's/StarterCell's
-// own state-chip doc comments in page.gsx.
+// from its rendered GameState text (starterGameState, matchup_ledger.go).
+// A final game reads as that game's own result — "W 27-20", "L 20-27",
+// "T 20-20" (starterFinalLabel) — or, when the source carries no score to
+// read a result from, the bare "FINAL" this label used to always be; both
+// forms are final here. An in-progress period is always Tank01's
+// uppercase Q1..Q4/OT (the Sep 10 drill's decision, plan doc); everything
+// else — a formatted kickoff instant ("SUN 4:25 PM") or the empty string
+// when the game state is not yet known — reads as not-yet-started.
+//
+// Matching the result form on its leading W/L/T token is safe against
+// every other string this chip can hold: a kickoff instant always starts
+// with a weekday ("SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"), a
+// period with Q or OT, and a bye with "BYE" — none of which begin with a
+// bare W, L, or T followed by a space.
+//
+// This is a render-time-only classification: like the top status line's
+// own data-live-state attribute, it is set once at render and does not
+// itself live-update (only the bound text inside it does) — see
+// FeaturedMatchup's/StarterCell's own state-chip doc comments in page.gsx.
 func starterStateClass(gameState string) string {
 	switch {
-	case gameState == "FINAL":
+	case gameState == "FINAL" || starterStateIsResult(gameState):
 		return "state--final"
 	case strings.HasPrefix(gameState, "Q") || strings.HasPrefix(gameState, "OT"):
 		return "state--live"
 	default:
 		return "state--pre"
 	}
+}
+
+// starterStateIsResult reports whether a GameState string is
+// starterFinalLabel's result form ("W 27-20"). See starterStateClass for
+// why this leading token cannot collide with any other state text.
+func starterStateIsResult(gameState string) bool {
+	for _, prefix := range []string{"W ", "L ", "T "} {
+		if strings.HasPrefix(gameState, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // matchupStateClass derives a matchup-level state-chip modifier class
@@ -66,7 +87,12 @@ func starterStateClass(gameState string) string {
 // reads as not-yet-started.
 func matchupStateClass(liveState string) string {
 	switch liveState {
-	case "LIVE", "PAUSED":
+	// UNDERWAY (2026-09-09) shares LIVE's treatment because it shares
+	// LIVE's meaning for the reader: real points are on the board and the
+	// week is not settled. Only the chip's own word separates them — one
+	// says a game is running, the other that the next one has yet to
+	// start.
+	case "LIVE", "PAUSED", "UNDERWAY":
 		return "state--live"
 	case "FINAL":
 		return "state--final"
@@ -85,7 +111,12 @@ func matchupStateClass(liveState string) string {
 // never disagree about which phase a matchup is in.
 func matchupPhaseLabel(liveState string) string {
 	switch liveState {
-	case "LIVE", "PAUSED":
+	// UNDERWAY renders no centre label for the same reason LIVE does not:
+	// the big number is already the real score, with the projection on
+	// its own line underneath. Labelling it PROJ would misread banked
+	// points as a forecast, and FINAL — the bug this state was added to
+	// fix — would claim a result that does not exist yet.
+	case "LIVE", "PAUSED", "UNDERWAY":
 		return ""
 	case "FINAL":
 		return "FINAL"
@@ -116,6 +147,10 @@ type StarterCellData struct {
 	JoinState       string
 	Detail          string
 	Source          string
+	// Breakdown explains Points rule by rule
+	// (league.ScoreBreakdownText) — the owner's 2026-09-09 request to see
+	// where a player's points came from, not only the total.
+	Breakdown string
 	// ProvenanceText/JoinStateText/SourceText (wave-8 audit item 3) are
 	// ledgerLineupText/ledgerStatsText/ledgerSourceText's already-labelled,
 	// plain-word segments (service.go's starterLedgerMaps) — what the
@@ -177,6 +212,7 @@ func starterCellData(raw any, right bool) StarterCellData {
 		JoinStateText:   stringField(row, "join_state_text"),
 		SourceText:      stringField(row, "source_text"),
 		GameState:       stringField(row, "game_state"),
+		Breakdown:       stringField(row, "breakdown"),
 		StateClass:      starterStateClass(stringField(row, "game_state")),
 		Possession:      stringField(row, "possession"),
 	}
@@ -430,6 +466,12 @@ type ScorebugData struct {
 	StillToPlayTotal     int
 	StillToPlaySentence  string
 	Pairs                []FeaturedMatchupPairData
+	// FocusHref promotes this matchup to the page's own full-width
+	// featured card (MatchupsData's "?m=" focus, 2026-09-09). The card
+	// keeps its expandable body as well: the link is a second way to read
+	// the same matchup at full size, not a replacement for opening it in
+	// place.
+	FocusHref string
 }
 
 // matchupsPageScorebugs converts MatchupsData's "other_matchups" slice
@@ -472,13 +514,16 @@ func matchupsPageScorebugs(raw []map[string]any) []ScorebugData {
 			StillToPlayTotal:     intField(entry, "still_to_play_total"),
 			StillToPlaySentence:  stringField(entry, "still_to_play_sentence"),
 			Pairs:                pairs,
+			FocusHref:            stringField(entry, "focus_href"),
 		})
 	}
 	return out
 }
 
 // matchupsIsGameDay reports whether the viewed week has at least one
-// matchup that is LIVE, PAUSED, or FINAL (wave 7b, item 1): LiveState
+// matchup that is LIVE, PAUSED, UNDERWAY, or FINAL (wave 7b, item 1;
+// UNDERWAY added 2026-09-09 — a week whose opener has been played has
+// real scores worth leading with, even between games): LiveState
 // (matchupStatusLine's own "live_state" field, internal/league/service.go)
 // is documented as "the first of PAUSED, LIVE, FINAL, LEDGER present in
 // any matchup", but in practice a week with no schedule published yet
@@ -493,7 +538,7 @@ func matchupsPageScorebugs(raw []map[string]any) []ScorebugData {
 func matchupsIsGameDay(statusLineRaw any) bool {
 	statusLine, _ := statusLineRaw.(map[string]any)
 	switch stringField(statusLine, "live_state") {
-	case league.LiveStateLive, league.LiveStatePaused, league.LiveStateFinal:
+	case league.LiveStateLive, league.LiveStatePaused, league.LiveStateUnderway, league.LiveStateFinal:
 		return true
 	default:
 		return false

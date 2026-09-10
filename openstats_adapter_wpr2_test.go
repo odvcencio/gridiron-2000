@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"gridiron-2000/internal/league"
 	"gridiron-2000/internal/openstats"
 )
 
@@ -184,10 +185,14 @@ func wpr2Fixture(t *testing.T, pbpCSV string) *openstats.Service {
 }
 
 // TestDSTWeekStatLinesFeedsDefenseKeysAndGatesShutout is the DEFENSE-group
-// integration test: BUF's defense keys feed from stats_team_week, and
-// dstShutout is 1 for BUF (MIA scored 0, game final) but 0 for a team whose
-// game has not been played (KC/DEN) — the fabrication guard proven
-// end-to-end.
+// integration test: BUF's defense keys feed from stats_team_week, and the
+// shutout band is scored for BUF (MIA scored 0, game final) but withheld
+// entirely from a team whose game has not been played (KC/DEN) — the
+// fabrication guard proven end-to-end.
+//
+// 2026-09-09: the line is addressed by league.DSTStatKey, not by a
+// display name (the join that never matched in production), and the
+// single dstShutout rule is now the best band of a points-allowed ladder.
 func TestDSTWeekStatLinesFeedsDefenseKeysAndGatesShutout(t *testing.T) {
 	service := wpr2Fixture(t, pbpFixtureCSVForWeek1)
 	eastern := openStatsEastern()
@@ -196,7 +201,7 @@ func TestDSTWeekStatLinesFeedsDefenseKeysAndGatesShutout(t *testing.T) {
 	for _, line := range lines {
 		byKey[line.Key] = line.Stats
 	}
-	bufKey := openstats.NormalizePlayerKey("Bills D/ST", "DST")
+	bufKey := league.DSTStatKey("BUF")
 	buf, ok := byKey[bufKey]
 	if !ok {
 		t.Fatalf("no WeekStatLine for BUF's DST: %+v", byKey)
@@ -207,16 +212,30 @@ func TestDSTWeekStatLinesFeedsDefenseKeysAndGatesShutout(t *testing.T) {
 	if buf["dstFumbleRec"] != 2 {
 		t.Fatalf("BUF dstFumbleRec = %v, want 2 (must exclude fumble_recovery_own)", buf["dstFumbleRec"])
 	}
-	if buf["dstShutout"] != 1 {
-		t.Fatalf("BUF dstShutout = %v, want 1 (MIA scored 0 in a final game)", buf["dstShutout"])
+	if buf["dstPointsAllowed0"] != 1 {
+		t.Fatalf("BUF shutout band = %v, want 1 (MIA scored 0 in a final game)", buf["dstPointsAllowed0"])
 	}
-	miaKey := openstats.NormalizePlayerKey("Dolphins D/ST", "DST")
+	// The fixture carries no offensive yardage columns, so there is no
+	// figure to band. Every defense getting the best yards band off a
+	// missing column is exactly the failure YardsAllowedRuleKey's zero
+	// guard exists to prevent.
+	for _, band := range []string{"dstYardsAllowed0", "dstYardsAllowed100", "dstYardsAllowed200"} {
+		if buf[band] != 0 {
+			t.Fatalf("BUF scored yards band %q from a source with no yardage at all: %+v", band, buf)
+		}
+	}
+	miaKey := league.DSTStatKey("MIA")
 	mia, ok := byKey[miaKey]
 	if !ok {
 		t.Fatalf("no WeekStatLine for MIA's DST: %+v", byKey)
 	}
-	if mia["dstShutout"] != 0 {
-		t.Fatalf("MIA dstShutout = %v, want 0 (BUF scored 24)", mia["dstShutout"])
+	if mia["dstPointsAllowed0"] != 0 {
+		t.Fatalf("MIA shutout band = %v, want 0 (BUF scored 24)", mia["dstPointsAllowed0"])
+	}
+	// BUF scored 24, so MIA lands in the 21-27 band — a band worth zero
+	// points, but a real, explainable outcome rather than silence.
+	if mia["dstPointsAllowed21"] != 1 {
+		t.Fatalf("MIA points-allowed band = %+v, want the 21-27 band", mia)
 	}
 }
 

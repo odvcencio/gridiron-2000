@@ -3,6 +3,7 @@ package league
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"sync/atomic"
 )
 
@@ -76,6 +77,12 @@ var breakdownRows = []breakdownRow{
 // separate table so scoreStatsWithValues (Blitz) never scores D/ST keys.
 // It carries no label: RuleStatsFromTank01, its only reader, never renders
 // one; Task 10 can add labels where it renders D/ST breakdown rows.
+// The live feed's DST block carries exactly these five event fields plus
+// ptsAllowed and ydsAllowed (verified against internal/fantasy's box-score
+// fixtures). It reports no blocked kick, forced fumble, defensive
+// two-point return, or special-teams TD, so those four DEFENSE rules
+// score at week close only — the same honest closed-week-only boundary
+// several PUNTING keys and the MISC twoPt rule already sit behind.
 var tank01DSTRows = []breakdownRow{
 	{statKey: "sacks", ruleKey: "dstSack"},
 	{statKey: "defensiveInterceptions", ruleKey: "dstInt"},
@@ -105,10 +112,75 @@ func RuleStatsFromTank01(stats map[string]float64, final bool) map[string]float6
 			}
 		}
 	}
-	if allowed, ok := stats["ptsAllowed"]; ok && final && allowed == 0 {
-		out["dstShutout"] = 1
+	// Both ladders score only once the game is final (2026-09-09). A
+	// defense leading 0-0 in the first quarter has not earned the shutout
+	// band, and a yards figure mid-game is a running total, not a result.
+	// This is the same gate the single dstShutout rule always applied,
+	// widened to every band that replaced it.
+	if final {
+		if allowed, ok := stats["ptsAllowed"]; ok {
+			if key := PointsAllowedRuleKey(allowed); key != "" {
+				out[key] = 1
+			}
+		}
+		if yards, ok := stats["ydsAllowed"]; ok {
+			if key := YardsAllowedRuleKey(yards); key != "" {
+				out[key] = 1
+			}
+		}
 	}
 	return out
+}
+
+// ScoreBreakdownText explains one player's score: every scoring rule that
+// contributed to it, in the shipped rule order, as one plain line —
+// "Interception x3 6.0 · Sack x2 2.0 · 7-13 points allowed 4.0".
+//
+// It is one string rather than a structured list on purpose. A starter's
+// points live-update every poll, and gosx's live-bind patches an
+// element's TEXT and nothing else (no markup, no attributes), so a
+// structured list or a title attribute would freeze at its render-time
+// value and quietly disagree with the number beside it mid-game. One
+// bound text node stays honest.
+//
+// A rule with a count of exactly one carries no multiplier — "Defensive
+// TD 6.0", not "Defensive TD x1" — and a band rule ("7-13 points
+// allowed"), whose stat is always the flag 1, reads the same way. A rule
+// whose stat is present but scores nothing is still listed with its 0.0:
+// landing in the 21-27 points-allowed band is a real, explainable part of
+// a score, and hiding it would leave a reader hunting for points that
+// were never there.
+//
+// Returns "" when nothing contributed, so a caller can render the empty
+// case however it likes rather than showing an empty label.
+func ScoreBreakdownText(stats map[string]float64, values map[string]float64) string {
+	if len(stats) == 0 {
+		return ""
+	}
+	if values == nil {
+		values = breakdownDefaultValues()
+	}
+	var parts []string
+	for _, rule := range defaultScoringRules() {
+		stat, ok := stats[rule.Key]
+		if !ok || stat == 0 || !finiteScoringPoints(stat) {
+			continue
+		}
+		part := rule.Label
+		if stat != 1 {
+			part += " x" + trimFloat(stat)
+		}
+		parts = append(parts, part+" "+fmt.Sprintf("%.1f", stat*scoringPoints(values, rule.Key)))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// trimFloat renders a stat count without a trailing ".0", so a whole
+// number of interceptions reads "x3" and a yardage total still reads
+// "x250" rather than "x250.0".
+func trimFloat(value float64) string {
+	text := strconv.FormatFloat(value, 'f', -1, 64)
+	return text
 }
 
 // breakdownDefaultValues resolves every scoring rule's stock point value,

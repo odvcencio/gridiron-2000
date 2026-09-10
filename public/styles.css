@@ -10755,6 +10755,13 @@ body.is-on-clock .draft-clock-panel {
   white-space: nowrap;
 }
 
+/* UNDERWAY (2026-09-09) takes the same treatment as LIVE because it
+   carries the same meaning for a reader: real points are on the board and
+   the week is not settled. Only the chip's own word separates them — one
+   says a game is running, the other that the next one has yet to start.
+   Without this selector an UNDERWAY chip would render with no state
+   colour at all, which is how a new state token quietly goes missing. */
+.state-chip[data-live-state="UNDERWAY"],
 .state-chip[data-live-state="LIVE"],
 .state-chip[data-live-state="PAUSED"],
 .state--live {
@@ -11082,6 +11089,27 @@ body.is-on-clock .draft-clock-panel {
   display: none;
 }
 
+/* .matchup-ledger__breakdown is a starter's own score explanation, one
+   rule per segment ("Interception x3 6.0 · Sack x2 2.0"). It lives inside
+   the ledger disclosure rather than in a hover tooltip on the score
+   itself: a title attribute cannot live-update (gosx's live-bind patches
+   text only), so it would drift out of step with the number it explains
+   during a game, and it would be unreachable on a phone. The same
+   :empty-hides pattern the state pill uses keeps the bound node present
+   for a later poll to fill while showing nothing until there is a score
+   to explain. */
+.matchup-ledger__breakdown {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--type-xs);
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.matchup-ledger__breakdown:empty {
+  display: none;
+}
+
 /* .possession-chip is GC-2b's possession chip: rendered inline inside
    the starter-cell name's <small> line (never a promoted grid item of
    .starter-cell, which has display: contents above and must keep its
@@ -11186,6 +11214,37 @@ body.is-on-clock .draft-clock-panel {
   align-items: center;
   justify-content: space-between;
   padding: 6px var(--space-sm) 2px;
+}
+
+/* .scorebug__focus opens one around-the-league matchup in the page's own
+   full-width featured card ("?m=", 2026-09-09). It sits inside the
+   card's <summary>, so it shares that row with the state chip and the
+   phase label; the card's expand-in-place body is unaffected — the link
+   navigates, and a toggle alongside it costs nothing because the page is
+   being replaced anyway. margin-left: auto keeps it hard right when the
+   phase label beside it is empty (a LIVE matchup renders no label). */
+.scorebug__focus {
+  margin-left: auto;
+  padding-left: var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.scorebug__focus:hover,
+.scorebug__focus:focus-visible {
+  color: var(--color-text-primary);
+  text-decoration: underline;
+}
+
+/* The way back from a focused matchup, beside the week browser. */
+.matchups-masthead__back {
+  align-self: start;
+  white-space: nowrap;
 }
 
 .mini {

@@ -186,7 +186,14 @@ type PlayerLine struct {
 
 // dstStatKeys are the DST group fields the DEFENSE scoring group can
 // consume. ptsAllowed is read separately because its zero is meaningful.
-var dstStatKeys = []string{"sacks", "defensiveInterceptions", "fumblesRecovered", "defTD", "safeties"}
+//
+// ydsAllowed joined the list on 2026-09-09: the live box score has always
+// carried it (verified against testdata/box-20250904_DAL-PHI.json, where
+// both units report it), and the yards-allowed ladder the DEFENSE group
+// gained that day scores from it. Nothing else in the live DST block is
+// left unread — the live feed reports no blocked kick, forced fumble, or
+// defensive two-point return at all, so those rules are week-close only.
+var dstStatKeys = []string{"sacks", "defensiveInterceptions", "fumblesRecovered", "defTD", "safeties", "ydsAllowed"}
 
 // ParseBoxScore unwraps the Tank01 envelope and parses the body. The
 // replay tests and the render fixture use it from other packages.

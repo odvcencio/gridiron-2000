@@ -5,7 +5,20 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- Team defenses now score. A D/ST was addressed by its display name, which the player pool ("Seattle Seahawks DST") and both stat sources ("Seahawks D/ST") spelled differently, so no defense ever joined its own stat line in any week — a defense with three interceptions read 0.0, because a starter with no stat line whose game is underway renders an honest zero. Defenses now join on their NFL team, which cannot drift between sources.
+- A matchup no longer reads FINAL while its starters still have games to play. FINAL used to need only one finished game, so the Wednesday opener alone finished a whole week and replaced the projection with a result that did not exist. A matchup with some games played and others still to come now reads UNDERWAY, keeps its projection, and shows the real points scored so far as its main number.
+- A finished NFL game now shows its result beside a starter — "W 27-20", "L 20-27", "T 20-20" — instead of only the word FINAL.
+- Rams, Commanders, and Jaguars starters now resolve their live game. The live poller is keyed by nflverse team abbreviations ("LA") while the player pool carries Tank01's ("LAR"), and three of the four places that read it never converted, so those teams' starters showed no live clock, no live final, and no possession. The same missed lookup also forced a team's whole total, projection, and win probability to read "—" for an entire game whenever one of their starters had no stat row yet.
+- A player whose game has not started no longer reads 0.0. An explicit zero now requires positive evidence that the game began; with no schedule loaded and no live poller, every roster row used to read a confident zero.
+- A kick or punt return touchdown now scores from the weekly ledger as well as the live feed. It previously reached a closed week only by being copied off the live row, so a return scored while the poller was down was six points the ledger could not report.
+
+### Added
+- Any matchup can be opened at full page width, not only your own. Every around-the-league card carries a "Full view" link, and a focused matchup offers one plain way back to yours.
+- A starter's points now open a breakdown of where they came from, rule by rule — "Interception x3 6.0 · Sack x2 2.0 · 7-13 points allowed 4.0" — inside the ledger disclosure that already opens on a player. It updates on the same poll as the score it explains.
+
+### Changed
+- Defensive scoring is filled out. Points allowed becomes a seven-band ladder (shutout 10, 1-6 7, 7-13 4, 14-20 1, 21-27 0, 28-34 -1, 35+ -4) in place of the single all-or-nothing shutout, which meant a defense holding an opponent to 3 points scored nothing for it. Yards allowed gains its own seven-band ladder, and forced fumbles, blocked kicks, defensive two-point returns, and special-teams touchdowns are now scored. Both ladders score only once a game is final; the four new event rules score at week close, because the live box score does not report them. A commissioner's own shutout value carries over onto the shutout band. This corrects a plumbing gap, not a rules judgement: the mirrored data carried roughly twenty-seven defensive columns and the scoring rules were written to the five the parser happened to read.
 
 ## [release-2026.09.08-d17cadb-season4] — 2026-09-08
 
