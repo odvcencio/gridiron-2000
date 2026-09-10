@@ -421,6 +421,33 @@ func starterGameStarted(team string, snapshot matchupStatsSnapshot, now time.Tim
 	return false
 }
 
+// starterGameFinal reports whether a starter's NFL game is over, reading
+// the live poller first and the loaded schedule second.
+//
+// The second read is the whole point (owner report, 2026-09-10: a defense
+// that had finished its game was projected for 23.8 — its 12.0 of real
+// points plus its entire 11.8 weekly projection on top). remainingFraction
+// (projection.go) only ever consulted the poller, and a poller's entry for
+// a game disappears once that game's window closes — the state the morning
+// after a Wednesday opener. With no entry, remainingFraction takes its
+// "nothing has been checked yet" branch and returns the FULL projection,
+// so a player whose week was entirely over read as though it were entirely
+// ahead of them. The schedule knew the game was final the whole time.
+func starterGameFinal(team string, snapshot matchupStatsSnapshot) bool {
+	normalized := normalizeNFLAbbreviation(team)
+	if snapshot.hasLive {
+		if game, ok := snapshot.live.Games[normalized]; ok {
+			return game.Final
+		}
+	}
+	for _, game := range snapshot.games {
+		if normalizeNFLAbbreviation(game.Away) == normalized || normalizeNFLAbbreviation(game.Home) == normalized {
+			return game.Final
+		}
+	}
+	return false
+}
+
 // starterGameKnownZeroSoFar reports whether a missing-join starter's game
 // state is affirmatively known — a true bye (starterOnBye), under a
 // healthy live poller, or (via starterGameNotStarted's own fallback)
@@ -624,6 +651,7 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 		row.Position = assignment.Player.Position
 		row.NFLTeam = assignment.Player.NFLTeam
 		row.GameState = starterGameState(assignment.Player, week, snapshot, s.matchupLocation())
+		row.GameFinal = starterGameFinal(assignment.Player.NFLTeam, snapshot)
 		row.Possession = starterPossessionLabel(assignment.Player, snapshot.live, snapshot.hasLive)
 		if sourceErr != nil {
 			row.JoinState = "stats-unavailable"

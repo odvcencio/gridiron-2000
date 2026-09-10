@@ -220,11 +220,19 @@ func projectedTotal(rows []StarterLedgerRow, projections map[string]float64, sta
 	total := 0.0
 	for _, row := range rows {
 		total += row.Points
-		game, ok := status.Games[row.NFLTeam]
 		projection := projections[row.PlayerID]
 		if !projectionValueKnown(projection) {
 			continue
 		}
+		// Same two corrections as starterProjectedTotal above: a finished
+		// game projects nothing further, and the live lookup normalizes
+		// the team abbreviation. A team total is the sum of these rows, so
+		// an un-corrected row here inflates the whole side's projection
+		// and, through it, its win probability.
+		if row.GameFinal {
+			continue
+		}
+		game, ok := status.Games[normalizeNFLAbbreviation(row.NFLTeam)]
 		total += projection * remainingFraction(game, hasLive && ok)
 	}
 	return total
@@ -333,7 +341,18 @@ func starterProjectedTotal(row StarterLedgerRow, byID map[string]Player, status 
 	if !ok || !playerHasProjection(player) {
 		return row.Points
 	}
-	game, ok := status.Games[row.NFLTeam]
+	// A finished game has nothing left to project, whichever source knows
+	// it is finished (starterGameFinal, matchup_ledger.go). Without this,
+	// a starter whose game ended and whose live entry has since aged out
+	// of the poller's window reads as points-plus-whole-projection.
+	if row.GameFinal {
+		return row.Points
+	}
+	// normalizeNFLAbbreviation: LiveStatus.Games is keyed by nflverse
+	// abbreviation while a pool player carries Tank01's, so a raw lookup
+	// misses every Rams, Commanders, and Jaguars starter and hands them
+	// the same doubled projection.
+	game, ok := status.Games[normalizeNFLAbbreviation(row.NFLTeam)]
 	return row.Points + player.Projection*remainingFraction(game, hasLive && ok)
 }
 

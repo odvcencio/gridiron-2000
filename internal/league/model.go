@@ -640,6 +640,12 @@ type StarterLedgerRow struct {
 	JoinState  string  `json:"joinState"`
 	Source     string  `json:"source,omitempty"`    // StatSource* of the matched line
 	GameState  string  `json:"gameState,omitempty"` // "Q3 8:12", "W 27-20", "FINAL", "SUN 4:25 PM", "BYE", ""
+	// GameFinal is whether this starter's NFL game is over, resolved from
+	// the live poller AND the loaded schedule (starterGameFinal). The
+	// projection math needs it: a finished game has nothing left to
+	// project, and the poller alone cannot be trusted to say so — its
+	// entry for a game ages out once that game's window closes.
+	GameFinal bool `json:"gameFinal,omitempty"`
 	// Breakdown explains Points rule by rule (ScoreBreakdownText,
 	// breakdown.go): "Interception x3 6.0 · Sack x2 2.0". Empty when the
 	// row has no matched stat line, so a reader is never shown an

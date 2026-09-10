@@ -5,6 +5,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- A starter whose game has finished is no longer projected as though the game were still ahead of them. The projection consulted only the live poller, and a poller's entry for a game disappears once that game's window closes — the state the morning after a Wednesday opener — so it concluded nothing had been checked yet and added the player's entire weekly projection on top of the points they had already scored. A defense that finished with 12.0 real points showed a projection of 23.8. The schedule knew the game was final the whole time; the projection now reads both sources, and a finished game projects nothing further. Team totals and the win probabilities computed from them were inflated the same way.
+- Rams, Commanders, and Jaguars starters were hit by that doubled projection even while the poller did have their game: the poller is keyed by nflverse abbreviation ("LA") and the player pool carries Tank01's ("LAR"). This was the fifth and last call site of that mismatch.
+- Words no longer break mid-word when a line wraps, leaving a stray letter or two stranded on the next line. Forty-four rules holding ordinary prose used `overflow-wrap: anywhere`, which breaks a word at any character; they now use `break-word`, which breaks a word only when it cannot fit a line by itself, so whole words wrap. Nine rules keep `anywhere` deliberately: their content is a machine string — an invite URL, an email address, a console identifier, a timestamp — which has no word boundary to wrap at and would otherwise overflow its container.
+
 No changes yet.
 
 ## [release-2026.09.10-017094c-season5] — 2026-09-09

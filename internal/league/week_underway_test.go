@@ -10,13 +10,18 @@ import (
 // still days away; and the nflverse weekly ledger has not posted, so the
 // live poller is the only source of truth.
 //
-// The two sides of that opener are the real matchup the owner reported
-// against (correcting an earlier revision of this fixture, which invented
-// a different opponent). BOTH defenses in it played, and both read 0.0 on
-// the night — the Seattle unit a rival had started and the New England
-// unit the owner held on their own bench. The score and stat lines below
-// are illustrative: the join failure this fixture pins does not depend on
-// the real numbers, and inventing them would be the same mistake twice.
+// The teams, the final score, and New England's own line are the real
+// ones the owner reported: Seattle 13, New England 10, and a New England
+// defense that scores 8.0 under this league's rules (two sacks at 1, one
+// interception at 2, and 13 points allowed landing in the 7-13 band at
+// 4). An earlier revision of this fixture invented a different opponent
+// and a different score; using the real ones costs nothing and means this
+// test documents what actually happened.
+//
+// BOTH defenses in that game played, and both read 0.0 on the night — the
+// Seattle unit a rival had started and the New England unit the owner
+// held on their own bench. Seattle's own stat line is still illustrative:
+// the owner reported New England's number, not Seattle's.
 //
 // Buffalo stands in for "has not kicked off yet". It has to be a team that
 // genuinely was not playing: New England cannot serve that role here,
@@ -26,18 +31,20 @@ func week1Snapshot() (matchupStatsSnapshot, time.Time) {
 	sunday := time.Date(2026, 9, 13, 17, 0, 0, 0, time.UTC)
 	return matchupStatsSnapshot{
 		lines: []WeekStatLine{
-			{Key: DSTStatKey("SEA"), Stats: map[string]float64{"dstInt": 3, "dstSack": 2}, Source: StatSourceLiveFinal},
-			{Key: DSTStatKey("NE"), Stats: map[string]float64{"dstSack": 1, "dstFumbleRec": 1}, Source: StatSourceLiveFinal},
+			{Key: DSTStatKey("SEA"), Stats: map[string]float64{"dstInt": 3, "dstSack": 2, "dstPointsAllowed7": 1}, Source: StatSourceLiveFinal},
+			// New England's real line: 8.0, exactly as the owner saw it
+			// once the join was fixed.
+			{Key: DSTStatKey("NE"), Stats: map[string]float64{"dstSack": 2, "dstInt": 1, "dstPointsAllowed7": 1}, Source: StatSourceLiveFinal},
 		},
 		known: true,
 		games: []GameInfo{
-			{ID: "g1", Week: 1, Away: "SEA", Home: "NE", Kickoff: now.Add(-4 * time.Hour), Final: true, AwayScore: 24, HomeScore: 13, ScoresPresent: true},
+			{ID: "g1", Week: 1, Away: "SEA", Home: "NE", Kickoff: now.Add(-4 * time.Hour), Final: true, AwayScore: 13, HomeScore: 10, ScoresPresent: true},
 			{ID: "g2", Week: 1, Away: "BUF", Home: "MIA", Kickoff: sunday},
 		},
 		hasLive: true,
 		live: LiveStatus{Enabled: true, Games: map[string]LiveGameState{
-			"SEA": {GameID: "g1", Away: "SEA", Home: "NE", AwayPoints: 24, HomePoints: 13, Final: true},
-			"NE":  {GameID: "g1", Away: "SEA", Home: "NE", AwayPoints: 24, HomePoints: 13, Final: true},
+			"SEA": {GameID: "g1", Away: "SEA", Home: "NE", AwayPoints: 13, HomePoints: 10, Final: true},
+			"NE":  {GameID: "g1", Away: "SEA", Home: "NE", AwayPoints: 13, HomePoints: 10, Final: true},
 		}},
 	}, now
 }
@@ -64,14 +71,15 @@ func TestWeekOneEveningReadsTruthfully(t *testing.T) {
 	// Three interceptions at 2 plus two sacks at 1. It read 0.0 before the
 	// D/ST key fix, because the pool and the feed spelled the unit
 	// differently and the join silently missed.
-	if got := weeklyPlayerPointsText(seattle, snapshot, values, byKey, now); got != "8.0" {
-		t.Errorf("the started defense scored %q, want %q", got, "8.0")
+	if got := weeklyPlayerPointsText(seattle, snapshot, values, byKey, now); got != "12.0" {
+		t.Errorf("the started defense scored %q, want %q", got, "12.0")
 	}
-	// The other side of the same game: a sack at 1 plus a fumble recovery
-	// at 2. On a bench, but it played, so it has a real score — not a
-	// zero and not a dash.
-	if got := weeklyPlayerPointsText(patriots, snapshot, values, byKey, now); got != "3.0" {
-		t.Errorf("the benched defense from the same game scored %q, want %q", got, "3.0")
+	// The other side of the same game, and the owner's own bench: two
+	// sacks, an interception, and 13 points allowed. It played, so it has
+	// a real score — not a zero and not a dash. 8.0 is the number the
+	// owner reported seeing once the join was fixed.
+	if got := weeklyPlayerPointsText(patriots, snapshot, values, byKey, now); got != "8.0" {
+		t.Errorf("the benched defense from the same game scored %q, want %q", got, "8.0")
 	}
 	// A defense whose game is still days away has not scored zero — it
 	// has not played. An explicit zero is a claim, and nothing supports it.
@@ -79,11 +87,11 @@ func TestWeekOneEveningReadsTruthfully(t *testing.T) {
 		t.Errorf("a defense that has not played scored %q, want %q", got, "—")
 	}
 	// A finished game names its result from each side's own perspective.
-	if got := starterGameState(seattle, 1, snapshot, time.UTC); got != "W 24-13" {
-		t.Errorf("winning side's game state = %q, want %q", got, "W 24-13")
+	if got := starterGameState(seattle, 1, snapshot, time.UTC); got != "W 13-10" {
+		t.Errorf("winning side's game state = %q, want %q", got, "W 13-10")
 	}
-	if got := starterGameState(patriots, 1, snapshot, time.UTC); got != "L 13-24" {
-		t.Errorf("losing side's game state = %q, want %q", got, "L 13-24")
+	if got := starterGameState(patriots, 1, snapshot, time.UTC); got != "L 10-13" {
+		t.Errorf("losing side's game state = %q, want %q", got, "L 10-13")
 	}
 	if got := starterGameState(bills, 1, snapshot, time.UTC); got != "SUN 5:00 PM" {
 		t.Errorf("unplayed game state = %q, want a kickoff time", got)

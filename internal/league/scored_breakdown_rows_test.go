@@ -29,10 +29,10 @@ func TestRosterRowsCarryAScoredBreakdown(t *testing.T) {
 	}
 	applyWeeklyPointsText(rows, []Player{seattle, bills}, snapshot, values, lineByKey, now)
 
-	if got := rows[0]["points"]; got != "8.0" {
-		t.Errorf("scored defense points = %v, want 8.0", got)
+	if got := rows[0]["points"]; got != "12.0" {
+		t.Errorf("scored defense points = %v, want 12.0", got)
 	}
-	if got, _ := rows[0]["points_breakdown"].(string); got != "Sack x2 2.0 · Interception x3 6.0" {
+	if got, _ := rows[0]["points_breakdown"].(string); got != "Sack x2 2.0 · Interception x3 6.0 · 7-13 points allowed 4.0" {
 		t.Errorf("scored breakdown = %q, want the rule-by-rule explanation", got)
 	}
 	// Has not played: a dash, and nothing to explain.

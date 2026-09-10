@@ -667,7 +667,7 @@ textarea:focus-visible {
   font-family: var(--font-display);
   font-size: var(--type-base);
   letter-spacing: -0.04em;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .brand-copy small {
@@ -1902,7 +1902,7 @@ textarea {
   margin-bottom: var(--space-sm);
   font-size: var(--type-2xl);
   line-height: 1;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .event-date {
@@ -1931,7 +1931,7 @@ textarea {
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   font-size: var(--type-xs);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .event-state {
@@ -2088,7 +2088,7 @@ textarea {
      (same audit check). */
   font-size: clamp(1.5rem, 0.5rem + 1.7vw, var(--type-2xl));
   line-height: 1;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .draft-transmission__body > span {
@@ -2791,7 +2791,7 @@ button.badge-option:hover {
 }
 
 .guide-actions a {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .minimal-actions {
@@ -2905,7 +2905,7 @@ button.badge-option:hover {
    width — the actual scrollWidth source behind /help's 404 > 390
    overflow, once minmax(0, 1fr) above ruled the grid track itself out. */
 .guide-next p {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .guide-steps,
@@ -3150,7 +3150,7 @@ button.badge-option:hover {
   color: var(--color-warning);
   font-size: var(--type-sm);
   letter-spacing: 0.06em;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .draft-region[data-gosx-region-state="error"] .draft-region-stale {
@@ -3205,7 +3205,7 @@ button.badge-option:hover {
   color: var(--color-text-secondary);
   font-size: var(--type-sm);
   line-height: 1.5;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .matchup-stage .section-heading--split {
@@ -3229,7 +3229,7 @@ button.badge-option:hover {
 
 .matchups-page .masthead-console strong {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   text-align: right;
 }
 
@@ -3277,7 +3277,7 @@ button.badge-option:hover {
 
 .next-matchup-panel__link strong {
   line-height: 1.35;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .next-matchup-panel__link strong span {
@@ -4377,7 +4377,7 @@ button.badge-option:hover {
 
 .admin-task-nav__label {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   font-size: var(--type-sm);
 }
 
@@ -5328,7 +5328,7 @@ body.is-on-clock .draft-clock-panel {
 }
 
 .waiver-receipt-player strong {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 @media (max-width: 54rem) {
@@ -5638,7 +5638,7 @@ body.is-on-clock .draft-clock-panel {
 
 .stat-tip__row > * {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .stat-tip__total {
   margin-top: var(--space-xs);
@@ -6129,7 +6129,7 @@ body.is-on-clock .draft-clock-panel {
 .seat-release-form label .mono,
 .seat-trim-form label .mono {
   color: var(--color-accent);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .seat-release-form input[type="text"],
@@ -7556,7 +7556,7 @@ body.is-on-clock .draft-clock-panel {
 
   .matchups-page .leader-row > div {
     min-width: 0;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
 
   .matchup-week-controls .pickem-weeknav {
@@ -9268,7 +9268,7 @@ body.is-on-clock .draft-clock-panel {
   padding: 0.8rem 0.25rem 0.8rem 1rem;
   font-size: var(--type-sm);
   line-height: 1.45;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .gosx-toast__dismiss {
@@ -9378,7 +9378,7 @@ body.is-on-clock .draft-clock-panel {
 
 .commissioner-hq__masthead h1 {
   font-size: clamp(2.25rem, 7vw, var(--type-display));
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .commissioner-hq__masthead .draft-masthead__copy,
@@ -9388,7 +9388,7 @@ body.is-on-clock .draft-clock-panel {
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .commissioner-hq__fleet-total .draft-clock-meta {
@@ -9471,7 +9471,7 @@ body.is-on-clock .draft-clock-panel {
 }
 
 .commissioner-hq__attention-copy strong {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .commissioner-hq__attention-copy > span:last-child {
@@ -9521,12 +9521,12 @@ body.is-on-clock .draft-clock-panel {
 }
 
 .commissioner-hq__card-header h2 {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .commissioner-hq__card-header .scoring-note {
   margin-block: 0.45rem 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .commissioner-hq__provenance {
@@ -9572,7 +9572,7 @@ body.is-on-clock .draft-clock-panel {
 
 .commissioner-hq__detail p {
   margin: 0.3rem 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .commissioner-hq__ledger,
@@ -9614,7 +9614,7 @@ body.is-on-clock .draft-clock-panel {
 }
 
 .commissioner-hq__inline-attention p {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .commissioner-hq__empty {
@@ -9745,7 +9745,7 @@ body.is-on-clock .draft-clock-panel {
   color: var(--muted);
   font-size: var(--type-xs);
   letter-spacing: 0.08em;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   white-space: normal;
 }
 
@@ -10326,7 +10326,7 @@ body.is-on-clock .draft-clock-panel {
     min-height: 2.75rem;
     min-block-size: 2.75rem;
     white-space: normal;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
 
   /* Home action card (P1-1, UI pass 2026-08-30): the anchor selector above
@@ -11103,7 +11103,7 @@ body.is-on-clock .draft-clock-panel {
   font-size: var(--type-xs);
   line-height: 1.5;
   color: var(--color-text-secondary);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .matchup-ledger__breakdown:empty {
@@ -11129,7 +11129,7 @@ body.is-on-clock .draft-clock-panel {
   font-size: var(--type-xs);
   line-height: 1.5;
   color: var(--color-text-secondary);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 /* .possession-chip is GC-2b's possession chip: rendered inline inside
@@ -11613,7 +11613,7 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   margin: 0;
   padding: 0 var(--space-md) var(--space-xs);
   overflow: hidden;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   font-size: var(--type-xs);
@@ -12797,7 +12797,7 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 
 .team-column__name,
 .team-column__manager {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .team-column__picks .tape-row {
@@ -13793,7 +13793,7 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   min-width: 0;
   margin-top: 0.1rem;
   color: var(--color-text-muted);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 /* Item 3: FLEX (and any other multi-position slot)'s eligible-position
@@ -13808,7 +13808,7 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 
 .roster-shape__eligible {
   color: var(--color-text-muted);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 /* Item 2: the positional-depth line ("2 QB · 4 RB · 5 WR · 2 TE · 1 K ·
@@ -15324,7 +15324,7 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   margin: 0;
   color: var(--color-text-secondary);
   font-size: var(--type-xs);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .stat-tip__label {
@@ -16084,6 +16084,14 @@ a.skip-link {
    unbreakable run (a URL, a long token) that pre-wrap alone would not
    break; overflow-x is a last-resort scrollbar for anything that still
    does not fit, never the default behavior. */
+/* overflow-wrap, and which value belongs where (2026-09-10). Prose uses
+   break-word: a word breaks only when it cannot fit a line by itself, so
+   ordinary words wrap whole instead of leaving a stray letter or two
+   stranded on the next line. The handful of rules below keep "anywhere"
+   on purpose — their content is a machine string (an invite URL, an email
+   address, a console identifier, a timestamp), which has no word boundary
+   to wrap at and would simply overflow its container. Do not swap these
+   two values without checking which kind of content the rule holds. */
 .admin-grid details pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -16189,7 +16197,7 @@ a.skip-link {
    long presence detail sentence (a live relative-time stamp) cannot
    overflow past the seat row either. */
 .seat-presence {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   min-width: 0;
 }
 
@@ -17896,7 +17904,7 @@ a.skip-link {
 /* F31: .commissioner-hq__masthead h1 (line ~9367) clamps to
    var(--type-display)'s own 5.96rem (95.36px) maximum at desktop widths
    — wide enough that "COMMISSIONER" alone does not fit its own line
-   inside the masthead's ~700px column, so overflow-wrap: anywhere broke
+   inside the masthead's ~700px column, so overflow-wrap: break-word broke
    it after "COMMISSION" even with room below to wrap the whole word.
    Lowering this heading's own maximum (unlike var(--type-display),
    shared sitewide) to 4.5rem lets "Commissioner HQ" wrap at the space
@@ -17986,7 +17994,7 @@ a.skip-link {
 
 .gosx-toast__message {
   white-space: normal;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 /* comb — textflow (2026-09-05) */
 
@@ -18000,7 +18008,7 @@ a.skip-link {
    wave converts is real user text (team, player, and league names) with
    no guaranteed short "words" (live-measured: "TOUCHDOWNS" alone
    overflowed a 90px name column by 25px, one real word wider than the
-   column, not a framework or layout defect). overflow-wrap: anywhere
+   column, not a framework or layout defect). overflow-wrap: break-word
    gives the clamp box the same last-resort mid-word break an ordinary
    wrapped paragraph already has, so a single long word clamps inside
    its own box instead of overflowing it. width: 100%/box-sizing:
@@ -18012,7 +18020,7 @@ a.skip-link {
 [data-gosx-text-layout-role="block"][data-gosx-text-layout-max-lines][data-gosx-text-layout-overflow="ellipsis"] {
   width: 100%;
   box-sizing: border-box;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 /* Retires the ellipsis half of the shared name-truncation rule
@@ -19949,7 +19957,7 @@ body.is-on-clock .draft-command__pill-sentence {
    at 1440): with the role rendered inline after the team name, a
    single-word name too long for the rail's own column ("In Shedeur
    Time") broke mid-word across four lines ("IN / SHED / EUR / TIME") —
-   .navigation-account .user-name's own overflow-wrap: anywhere (this
+   .navigation-account .user-name's own overflow-wrap: break-word (this
    file, "Item 7") let the browser split anywhere once white-space:
    normal removed the old single-line clamp, and the name's own TextBlock
    carried no maxLines to stop it. .user-identity stacks the name and the
@@ -20182,7 +20190,7 @@ body.is-on-clock .draft-command__pill-sentence {
 /* comb — sequoia (2026-09-08 wave E integration): the pool row's
    "+ BOARD" control (renamed from "+ RANK" in wave D) no longer fits its
    4.5rem action column at desktop, and the button's inherited
-   overflow-wrap: anywhere let the label break letter by letter into a
+   overflow-wrap: break-word let the label break letter by letter into a
    138px-tall column that pushed every pool row to 213px. The label stays
    on one line and the action column is wide enough for it; the phone
    block above keeps its own 6.5rem width and compact "+" control. */
@@ -20400,7 +20408,7 @@ body.is-on-clock .draft-command__pill-sentence {
     overflow: visible;
     text-overflow: clip;
     white-space: normal;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
     line-height: 1.35;
   }
 
@@ -20441,7 +20449,7 @@ body.is-on-clock .draft-command__pill-sentence {
   min-height: var(--control-h);
   margin: 0 0 var(--space-md);
   padding: var(--space-xs) var(--space-sm);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   white-space: normal;
 }
 
@@ -20485,7 +20493,7 @@ body.is-on-clock .draft-command__pill-sentence {
     width: 100%;
     min-width: 0;
     gap: 0.15rem;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
     text-align: center;
     line-height: 1.15;
   }
@@ -20500,7 +20508,7 @@ body.is-on-clock .draft-command__pill-sentence {
   .lineup-slot > .lineup-slot__id .house-rank,
   .roster-row > .lineup-slot__id .house-rank {
     max-width: 100%;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
 
   /* Opponent/game/status/action share one meta wrapper. A single flex line
@@ -20525,7 +20533,7 @@ body.is-on-clock .draft-command__pill-sentence {
     overflow: visible;
     text-overflow: clip;
     white-space: normal;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
 
   .lineup-slot__game {
