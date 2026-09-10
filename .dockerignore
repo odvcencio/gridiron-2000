@@ -1,6 +1,16 @@
 # Runtime state; a PVC (Kubernetes) or bind mount (local) owns this path.
 data/
 
+# The same state, at any depth. A package test that opens the league store
+# leaves a data/ directory beside its own source (app/matchups/data,
+# app/wire/data, app/settings/data ...). Those are gitignored, so they never
+# reach a commit — but the Docker build context is the working tree, not the
+# index, so a release built straight after a test run carried them into the
+# image and GoSX's bundle validator rejected the build outright:
+# "mutable database/state files are denied" (2026-09-10). A bare "data/"
+# only matches the repository root.
+**/data/
+
 # Local `gosx build` output; the image builds the server with `go build`.
 dist/
 
