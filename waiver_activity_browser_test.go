@@ -47,6 +47,58 @@ type waiverActivityQAMetrics struct {
 	Clipped     []string `json:"clipped"`
 }
 
+type waiverActivityQAFocus struct {
+	RootPresent   bool   `json:"rootPresent"`
+	RootID        string `json:"rootID"`
+	RootTag       string `json:"rootTag"`
+	RootConnected bool   `json:"rootConnected"`
+	RootManaged   bool   `json:"rootManaged"`
+	RootTabIndex  string `json:"rootTabIndex"`
+	ActiveID      string `json:"activeID"`
+	ActiveTag     string `json:"activeTag"`
+	ActiveIsRoot  bool   `json:"activeIsRoot"`
+	SameRoot      bool   `json:"sameRoot"`
+}
+
+func (f waiverActivityQAFocus) valid(requireSameRoot bool) bool {
+	return f.RootPresent && f.RootID == "waivers" && f.RootTag == "DIV" && f.RootConnected && f.RootManaged && f.RootTabIndex == "-1" && f.ActiveIsRoot && (!requireSameRoot || f.SameRoot)
+}
+
+const waiverActivityQACaptureFocusScript = `(function(){
+	var root=document.querySelector('#waivers');
+	var active=document.activeElement;
+	if (root) window.__waiverActivityQABRoot=root;
+	return {
+		rootPresent:!!root,
+		rootID:root ? root.id : '',
+		rootTag:root ? String(root.tagName || '') : '',
+		rootConnected:!!(root && root.isConnected),
+		rootManaged:!!(root && root.hasAttribute('data-gosx-focus-managed')),
+		rootTabIndex:root ? (root.getAttribute('tabindex') || '') : '',
+		activeID:active ? (active.id || '') : '',
+		activeTag:active ? String(active.tagName || '') : '',
+		activeIsRoot:!!root && active === root,
+		sameRoot:!!root && root === window.__waiverActivityQABRoot
+	};
+})()`
+
+const waiverActivityQAReadFocusScript = `(function(){
+	var root=document.querySelector('#waivers');
+	var active=document.activeElement;
+	return {
+		rootPresent:!!root,
+		rootID:root ? root.id : '',
+		rootTag:root ? String(root.tagName || '') : '',
+		rootConnected:!!(root && root.isConnected),
+		rootManaged:!!(root && root.hasAttribute('data-gosx-focus-managed')),
+		rootTabIndex:root ? (root.getAttribute('tabindex') || '') : '',
+		activeID:active ? (active.id || '') : '',
+		activeTag:active ? String(active.tagName || '') : '',
+		activeIsRoot:!!root && active === root,
+		sameRoot:!!root && root === window.__waiverActivityQABRoot
+	};
+})()`
+
 // writeWaiverActivityQASchedule creates the only source-state input this
 // lane owns. It stays under t.TempDir, so the browser acceptance never reads
 // or mutates a shared league or open-stats cache.
@@ -94,6 +146,21 @@ func waiverActivityQANavigate(t *testing.T, ctx context.Context, child *simChild
 	); err != nil {
 		t.Fatalf("navigate to %s: %v", path, err)
 	}
+}
+
+func waiverActivityQACaptureManagedWaiverFocus(t *testing.T, ctx context.Context, label string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	var focus waiverActivityQAFocus
+	var lastErr error
+	for time.Now().Before(deadline) {
+		lastErr = chromedp.Run(ctx, chromedp.Evaluate(waiverActivityQACaptureFocusScript, &focus))
+		if lastErr == nil && focus.valid(false) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("%s: managed #waivers root did not retain focus: focus=%+v err=%v", label, focus, lastErr)
 }
 
 func waiverActivityQAReadBody(t *testing.T, ctx context.Context) string {
@@ -531,12 +598,14 @@ func waiverActivityQAWaitPrivateWon(t *testing.T, ctx context.Context, winning w
 	t.Helper()
 	deadline := time.Now().Add(8 * time.Second)
 	var lastReceipts []string
+	var lastFocus waiverActivityQAFocus
 	for time.Now().Before(deadline) {
 		var href, stamp string
 		if err := chromedp.Run(ctx,
 			chromedp.Location(&href),
 			chromedp.WaitVisible(`#waivers-content`, chromedp.ByQuery),
 			chromedp.Evaluate(`String(window.__waiverActivityQABStamp || '')`, &stamp),
+			chromedp.Evaluate(waiverActivityQAReadFocusScript, &lastFocus),
 			chromedp.Evaluate(`Array.from(document.querySelectorAll('.waiver-receipt-row')).map(function(e){return (e.innerText || '').trim();})`, &lastReceipts),
 		); err != nil {
 			t.Fatalf("read B Players region while waiting for private receipt: %v", err)
@@ -549,12 +618,15 @@ func waiverActivityQAWaitPrivateWon(t *testing.T, ctx context.Context, winning w
 		}
 		for _, receipt := range lastReceipts {
 			if strings.Contains(receipt, winning.Name) && strings.Contains(strings.ToUpper(receipt), "WON") {
+				if !lastFocus.valid(true) {
+					t.Fatalf("B Players private WON receipt converged without retained managed #waivers focus: focus=%+v", lastFocus)
+				}
 				return
 			}
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	t.Fatalf("B Players region did not converge within 8s to private WON receipt for %s: %q", winning.Name, lastReceipts)
+	t.Fatalf("B Players region did not converge within 8s to private WON receipt for %s: receipts=%q focus=%+v", winning.Name, lastReceipts, lastFocus)
 }
 
 func waiverActivityQAAssertReceiptsAndRoster(t *testing.T, bCtx, aCtx context.Context, child *simChild, winning, cancelled, bDrop waiverActivityQAPlayer, bBeforeHref, bStamp string, width, height int64) {
@@ -729,10 +801,15 @@ func TestBrowserWaiverActivityJourney(t *testing.T) {
 			}
 			var bBefore string
 			const bStamp = "waiver-b-pre-run"
+			// Re-navigate immediately before the commissioner action and assert
+			// the real GoSX hash target is focused. Do not blur it: the live
+			// private receipt must converge in this same document while this
+			// managed region root remains the active element.
+			waiverActivityQANavigate(t, bCtx, child, "/players#waivers")
+			waiverActivityQACaptureManagedWaiverFocus(t, bCtx, "B Players before commissioner run")
 			if err := chromedp.Run(bCtx,
 				chromedp.Location(&bBefore),
 				chromedp.Evaluate(`window.__waiverActivityQABStamp = "waiver-b-pre-run";`, nil),
-				chromedp.Evaluate(`if (document.activeElement && typeof document.activeElement.blur === "function") document.activeElement.blur();`, nil),
 			); err != nil {
 				t.Fatalf("read pre-run B Players URL: %v", err)
 			}
