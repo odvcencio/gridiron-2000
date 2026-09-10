@@ -39,7 +39,7 @@ spec:
           # Release build: 2026-09-09T05:23:15Z.
           # Stable Kernel did not form for 2026; this flagship-only release does not
           # alter the SK template or run an SK canary.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:bf7b98cee49ef43b3ebb09561ca2046d27e48c4306a7f05400b5e14dc1b37d3f
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:e73bdd63ab0dbf58afeed6cccba56a0d59e102a6fc6fc4dd50a9ae7db79b0976
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
