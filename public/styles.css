@@ -20346,3 +20346,121 @@ body.is-on-clock .draft-command__pill-sentence {
     min-width: 0;
   }
 }
+
+/* Team projection guidance belongs to the page flow, not the horizontally
+   scrolling stat strip. It keeps the explanatory link reachable at every
+   scroll position while preserving a readable, wrapped label and a 44px
+   activation area for touch and keyboard users. */
+.team-lineup-help-link {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--control-h);
+  margin: 0 0 var(--space-md);
+  padding: var(--space-xs) var(--space-sm);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+@media (max-width: 899px) {
+  .team-lineup-help-link {
+    border-left: 2px solid var(--color-accent-cyan);
+  }
+}
+
+/* The transfer feedback nodes are always present so GoSX can reveal the
+   pending or error state without changing the row structure. Keep idle
+   feedback out of document flow; the state-specific rules remain explicit
+   so a real managed transfer still exposes its recovery text. */
+.team-lineup-region[data-gosx-transfer] .lineup-transfer-status {
+  display: none;
+}
+
+.team-lineup-region[data-gosx-transfer][data-gosx-pending="true"] .lineup-transfer-status--pending {
+  display: block;
+}
+
+.team-lineup-region[data-gosx-transfer][data-gosx-form-state="error"] .lineup-transfer-status--error {
+  display: block;
+}
+
+@media (max-width: 899px) {
+  /* The position/house-rank/handle cluster carries real content. Give it
+     its own room and stack its items so a 44px grip or H### rank never
+     paints over the player's avatar. The player column remains flexible. */
+  .lineup-slot,
+  .roster-row {
+    grid-template-columns: 4rem minmax(0, 1fr) auto;
+  }
+
+  .lineup-slot > .lineup-slot__id,
+  .roster-row > .lineup-slot__id {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+    gap: 0.15rem;
+    overflow-wrap: anywhere;
+    text-align: center;
+    line-height: 1.15;
+  }
+
+  .lineup-slot > .lineup-slot__id .lineup-slot__handle,
+  .roster-row > .lineup-slot__id .lineup-slot__handle {
+    width: 2.75rem;
+    min-width: 2.75rem;
+    align-self: center;
+  }
+
+  .lineup-slot > .lineup-slot__id .house-rank,
+  .roster-row > .lineup-slot__id .house-rank {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  /* Opponent/game/status/action share one meta wrapper. A single flex line
+     forced a long lock/status phrase to a one-character column beside the
+     action controls. Two natural rows keep the opponent readable and put
+     state/action controls on their own line without dropping either fact. */
+  .lineup-slot__meta {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "opponent game"
+      "status action";
+    align-items: center;
+    column-gap: var(--space-sm);
+    row-gap: 0.3rem;
+  }
+
+  .lineup-slot__opponent {
+    grid-area: opponent;
+    width: auto;
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .lineup-slot__game {
+    grid-area: game;
+    justify-self: end;
+  }
+
+  .lineup-slot__status {
+    grid-area: status;
+    min-width: 0;
+    justify-self: start;
+  }
+
+  .lineup-slot__action {
+    grid-area: action;
+    margin-left: 0;
+    justify-self: end;
+  }
+}

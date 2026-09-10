@@ -741,9 +741,9 @@ func TeamLineupRegion() Node {
 							<p class="mono">Schedule refresh required before this lock window is authoritative.</p>
 						</If>
 					</details>
-					<a href={data.lineup_help_href} data-gosx-link class="access-link">Read lineup, lock, and projection guidance →</a>
 				</div>
 			</div>
+			<a href={data.lineup_help_href} data-gosx-link class="access-link team-lineup-help-link">Read lineup, lock, and projection guidance →</a>
 			<If cond={data.lineup_intervention == false}>
 			<section class="current-matchup-card" aria-labelledby="current-matchup-title">
 				<If cond={data.current_matchup.has_matchup}>

@@ -859,15 +859,15 @@ func waitForTeamTransfer(t *testing.T, ctx context.Context, check func(teamTrans
 }
 
 // TestBrowserTeamLineupFixedTargetTransfer exercises the real Team page's
-// stable source/target transfer contract. The 390px path is deliberately
-// narrow touch-pointer plumbing (CDP touch events plus explicit JS scroll),
-// not a claim of native edge-scroll coverage: it promotes a bench player
-// into an occupied eligible starter slot, including an incoming-only target
-// with no outgoing starter handle. The desktop path uses Space/Enter on a
-// starter handle to swap two legal starter slots. Each accepted action is
-// checked against a fresh server-rendered page so displaced and unrelated
-// identities are persisted, while the original page also proves no hard
-// navigation. The phone path observes managed transfer submissions and
+// stable source/target transfer contract. The 390px path uses the real
+// coarse-pointer edge-scroll gesture to bring a distant bench source and
+// starter target into contact without script-positioning either endpoint: it
+// promotes a bench player into an occupied eligible starter slot, including
+// an incoming-only target with no outgoing starter handle. The desktop path
+// uses Space/Enter on a starter handle to swap two legal starter slots. Each
+// accepted action is checked against a fresh server-rendered page so displaced
+// and unrelated identities are persisted, while the original page also proves
+// no hard navigation. The phone path observes managed transfer submissions and
 // attempts a source-ineligible target, requiring no request or assignment
 // change.
 func TestBrowserTeamLineupFixedTargetTransfer(t *testing.T) {
@@ -886,6 +886,8 @@ func TestBrowserTeamLineupFixedTargetTransfer(t *testing.T) {
 		t.Fatalf("instrument phone transfer document: %v", err)
 	}
 	phoneBefore := readTeamTransferDOM(t, phoneCtx)
+	assertTeamTransferStatusIdle(t, phoneCtx, "phone transfer")
+	assertTeamMobileIdentityFlow(t, phoneCtx, "phone transfer")
 	bench, promotionTarget, ok := chooseBenchPromotion(phoneBefore)
 	if !ok {
 		t.Fatalf("transfer fixture has no occupied eligible incoming-only starter target for an unlocked bench source: %+v", phoneBefore)
@@ -893,7 +895,7 @@ func TestBrowserTeamLineupFixedTargetTransfer(t *testing.T) {
 	t.Logf("touch transfer selected bench %s -> %s (target disabled=%q, has outgoing handle=%t)", bench.ID, promotionTarget.Slot, promotionTarget.Disabled, promotionTarget.HasHandle)
 	benchSelector := "#bench-" + bench.ID + " [data-gosx-transfer-handle]"
 	targetSelector := "#slot-" + promotionTarget.Slot
-	dragTeamTransferTouch(t, phoneCtx, benchSelector, targetSelector)
+	dragTeamTransferTouchAtViewportEdge(t, phoneCtx, benchSelector, targetSelector, 390, 844)
 	phoneAfter := waitForTeamTransfer(t, phoneCtx, func(snapshot teamTransferDOMSnapshot) bool {
 		for _, target := range snapshot.Targets {
 			if target.Slot == promotionTarget.Slot && target.Source == bench.ID {
@@ -970,29 +972,48 @@ func TestBrowserTeamLineupFixedTargetTransfer(t *testing.T) {
 // transfer against the configured 17-player gridiron-house roster. Unlike
 // the small source/target-disabled probe above, this acceptance path checks
 // the shipped 11-starter shape (including SUPERFLEX and P), all six bench
-// identities, and persisted bench promotion on a fresh server render.
+// identities, and persisted bench promotion on a fresh server render. The
+// source and destination intentionally span more than one phone viewport, so
+// the real coarse-pointer edge-scroll path keeps the held contact alive while
+// native scrolling brings the destination into view.
 func TestBrowserTeamLineupFixedTargetTransferFlagship(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
 	}
 	child, league := startTeamTransferFlagshipDraftedChild(t)
 	bot := league.bots[1]
-	ctx := newBrowserContext(t, chromePath(t))
-	signInBrowserSeat(t, ctx, child, bot, "/team", 390, 844)
+	ctx := newCoarsePointerBrowserContext(t, chromePath(t))
+	const width, height = 390.0, 844.0
+	signInBrowserSeat(t, ctx, child, bot, "/team", int64(width), int64(height))
+	var coarsePointer bool
 	if err := chromedp.Run(ctx,
+		emulation.SetTouchEmulationEnabled(true),
+		chromedp.Evaluate(`matchMedia('(pointer: coarse)').matches`, &coarsePointer),
 		chromedp.Evaluate(`window.__teamTransferBrowserMarker = (window.__teamTransferBrowserMarker || 0) + 1`, nil),
 		chromedp.Evaluate(teamTransferInstrumentationScript, nil),
 	); err != nil {
 		t.Fatalf("instrument flagship transfer document: %v", err)
 	}
+	if !coarsePointer {
+		t.Fatal("flagship transfer browser did not report a coarse primary pointer")
+	}
 	before := readTeamTransferDOM(t, ctx)
+	assertTeamTransferStatusIdle(t, ctx, "flagship")
+	assertTeamMobileIdentityFlow(t, ctx, "flagship")
 	assertFlagshipRosterShape(t, before)
 	bench, target, ok := chooseFlagshipVisiblePromotion(before)
 	if !ok {
 		t.Fatalf("flagship fixture has no occupied eligible incoming-only starter target: %+v", before)
 	}
-	t.Logf("flagship touch transfer selected bench %s -> %s (target disabled=%q, has outgoing handle=%t)", bench.ID, target.Slot, target.Disabled, target.HasHandle)
-	dragTeamTransferTouch(t, ctx, "#bench-"+bench.ID+" [data-gosx-transfer-handle]", "#slot-"+target.Slot)
+	benchSelector := "#bench-" + bench.ID + " [data-gosx-transfer-handle]"
+	targetSelector := "#slot-" + target.Slot
+	initialSource := elementBoundingRect(t, ctx, benchSelector)
+	initialTarget := elementBoundingRect(t, ctx, targetSelector)
+	if initialSource.Top-initialTarget.Top < height && initialTarget.Top-initialSource.Top < height {
+		t.Fatalf("flagship edge transfer endpoints are not more than one viewport apart: source=%+v target=%+v", initialSource, initialTarget)
+	}
+	t.Logf("flagship held-edge transfer selected bench %s -> %s; initial source=%+v target=%+v (target disabled=%q, has outgoing handle=%t)", bench.ID, target.Slot, initialSource, initialTarget, target.Disabled, target.HasHandle)
+	dragTeamTransferTouchAtViewportEdge(t, ctx, benchSelector, targetSelector, width, height)
 	after := waitForTeamTransfer(t, ctx, func(snapshot teamTransferDOMSnapshot) bool {
 		for _, candidate := range snapshot.Targets {
 			if candidate.Slot == target.Slot && candidate.Source == bench.ID {
@@ -1000,14 +1021,45 @@ func TestBrowserTeamLineupFixedTargetTransferFlagship(t *testing.T) {
 			}
 		}
 		return false
-	}, "flagship bench-to-starter transfer")
+	}, "flagship held-edge bench-to-starter transfer")
 	assertFlagshipRosterShape(t, after)
 	assertBenchPromotion(t, before, after, bench, target)
-	assertNoHardNavigation(t, before, after, "flagship bench transfer")
-	assertTransferSubmitted(t, before, after, "flagship bench transfer")
-	fresh := freshTeamTransferSnapshot(t, child, bot, 390, 844)
+	assertNoHardNavigation(t, before, after, "flagship held-edge transfer")
+	assertTransferSubmitted(t, before, after, "flagship held-edge transfer")
+	fresh := freshTeamTransferSnapshot(t, child, bot, int64(width), int64(height))
 	assertFlagshipRosterShape(t, fresh)
 	assertBenchPromotion(t, before, fresh, bench, target)
+}
+
+func assertTeamMobileIdentityFlow(t *testing.T, ctx context.Context, label string) {
+	t.Helper()
+	var failures []struct {
+		Row      string `json:"row"`
+		Part     string `json:"part"`
+		Detail   string `json:"detail"`
+	}
+	const expression = `(function(){
+		function rect(e){var r=e.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height};}
+		function intersects(a,b){return a.left < b.right - 0.5 && a.right > b.left + 0.5 && a.top < b.bottom - 0.5 && a.bottom > b.top + 0.5;}
+		var out=[];
+		Array.from(document.querySelectorAll('.lineup-slot, .roster-row')).forEach(function(row){
+			var avatar=row.querySelector('.player-avatar'), id=row.querySelector('.lineup-slot__id');
+			if (!avatar || !id) return;
+			var avatarRect=rect(avatar), rowName=row.id || row.className;
+			Array.from(id.querySelectorAll('.lineup-slot__handle, .house-rank')).forEach(function(part){
+				if (intersects(rect(part), avatarRect)) out.push({row:rowName,part:part.className || part.tagName,detail:'identity control overlaps avatar'});
+			});
+			var opponent=row.querySelector('.lineup-slot__opponent');
+			if (opponent && opponent.textContent.trim() && opponent.scrollWidth > opponent.clientWidth + 1) out.push({row:rowName,part:'opponent',detail:'opponent text overflows its natural wrapped cell'});
+		});
+		return out;
+	})()`
+	if err := chromedp.Run(ctx, chromedp.Evaluate(expression, &failures)); err != nil {
+		t.Fatalf("%s: read mobile identity flow: %v", label, err)
+	}
+	for _, failure := range failures {
+		t.Errorf("%s: %s %s (%s)", label, failure.Row, failure.Part, failure.Detail)
+	}
 }
 
 // TestBrowserTeamLineupFixedTargetTransferFlagshipEdgeScroll proves the
@@ -1015,9 +1067,8 @@ func TestBrowserTeamLineupFixedTargetTransferFlagship(t *testing.T) {
 // the bench source is made visible only with native wheel input, the starter
 // destination remains more than one viewport away, and GoSX's held edge
 // contact scrolls/highlights it before one managed submission. Persistence is
-// checked on a fresh server-rendered page; the existing flagship smoke test
-// remains separate because its explicit JS positioning is not edge-scroll
-// evidence.
+// checked on a fresh server-rendered page; the primary flagship acceptance
+// keeps the same roster assertions while exercising this edge-scroll path.
 func TestBrowserTeamLineupFixedTargetTransferFlagshipEdgeScroll(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
@@ -1040,6 +1091,8 @@ func TestBrowserTeamLineupFixedTargetTransferFlagshipEdgeScroll(t *testing.T) {
 		t.Fatal("flagship edge transfer browser did not report a coarse primary pointer")
 	}
 	before := readTeamTransferDOM(t, ctx)
+	assertTeamTransferStatusIdle(t, ctx, "flagship edge")
+	assertTeamMobileIdentityFlow(t, ctx, "flagship edge")
 	assertFlagshipRosterShape(t, before)
 	bench, target, ok := chooseBenchPromotion(before)
 	if !ok {
@@ -1069,4 +1122,30 @@ func TestBrowserTeamLineupFixedTargetTransferFlagshipEdgeScroll(t *testing.T) {
 	fresh := freshTeamTransferSnapshot(t, child, bot, int64(width), int64(height))
 	assertFlagshipRosterShape(t, fresh)
 	assertBenchPromotion(t, before, fresh, bench, target)
+}
+
+func assertTeamTransferStatusIdle(t *testing.T, ctx context.Context, label string) {
+	t.Helper()
+	var states []struct {
+		Display string  `json:"display"`
+		Width   float64 `json:"width"`
+		Height  float64 `json:"height"`
+	}
+	const expression = `(function(){
+		return Array.from(document.querySelectorAll('.team-lineup-region[data-gosx-transfer] .lineup-transfer-status')).map(function(e){
+			var r=e.getBoundingClientRect();
+			return {display:getComputedStyle(e).display,width:r.width,height:r.height};
+		});
+	})()`
+	if err := chromedp.Run(ctx, chromedp.Evaluate(expression, &states)); err != nil {
+		t.Fatalf("%s: read transfer feedback visibility: %v", label, err)
+	}
+	if len(states) != 2 {
+		t.Fatalf("%s: transfer feedback node count = %d, want pending and error nodes", label, len(states))
+	}
+	for i, state := range states {
+		if state.Display != "none" || state.Width != 0 || state.Height != 0 {
+			t.Errorf("%s: idle transfer feedback node %d is visible: display=%q size=%.1fx%.1f", label, i, state.Display, state.Width, state.Height)
+		}
+	}
 }
