@@ -58,6 +58,13 @@ func TestBrowserPointsTooltipRevealsAndFits(t *testing.T) {
 			if rest != "none" {
 				t.Errorf("tooltip display at rest = %q, want none (it must not occupy layout)", rest)
 			}
+			var surface string
+			if err := chromedp.Run(ctx, chromedp.Evaluate(`getComputedStyle(document.querySelector('.points-tip')).backgroundColor`, &surface)); err != nil {
+				t.Fatal(err)
+			}
+			if surface != "rgb(26, 36, 71)" {
+				t.Errorf("tooltip surface = %q, want the raised navy surface (rgb(26, 36, 71))", surface)
+			}
 			var docOverflow bool
 			if err := chromedp.Run(ctx, chromedp.Evaluate(`document.documentElement.scrollWidth > window.innerWidth`, &docOverflow)); err != nil {
 				t.Fatal(err)

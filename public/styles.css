@@ -11164,7 +11164,12 @@ body.is-on-clock .draft-clock-panel {
   padding: var(--space-xs) var(--space-sm);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
-  background: var(--color-canvas-deep);
+  /* A score explanation is a surfaced popover, not chrome. The canvas-deep
+     fill made it read as a black hole against the navy matchup grid and
+     gave the content no relationship to the rest of the panel system. Use
+     the solid raised surface so grid lines and neighboring scores never
+     show through the explanation while the cyan focus edge remains clear. */
+  background: var(--color-surface-raised);
   color: var(--color-text-secondary);
   font-family: var(--font-mono);
   font-size: var(--type-xs);
