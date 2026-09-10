@@ -30,3 +30,6 @@ docs/plans/
 
 # agent worktrees / session state
 .claude/
+
+# The compiled binary `go build .` drops in the repo root.
+/gridiron-2000

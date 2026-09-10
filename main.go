@@ -783,7 +783,17 @@ func leagueWeekStatsSource(stats *openstats.Service) league.WeekStatsSource {
 				}
 			}
 			out = append(out, league.WeekStatLine{
-				Key:    openstats.NormalizePlayerKey(row.PlayerName, row.Position),
+				// A D/ST row in the player ledger is keyed by its TEAM,
+				// like every other D/ST line (league.DSTStatKey), not by
+				// its display name. Production's nflverse player release
+				// carries no D/ST rows, so this branch is normally dead —
+				// but the replay harness's ledger does carry them, and
+				// keying those by name reintroduced exactly the join
+				// failure DSTStatKey exists to end: eight defenses missed
+				// their own stat lines at week close (2026-09-09). A
+				// producer that can emit a D/ST line must agree with every
+				// other one, dead path in production or not.
+				Key:    leagueStatLineKey(row.PlayerName, row.Position, row.Team),
 				Stats:  statLine,
 				Source: league.StatSourceLedger,
 			})
@@ -791,6 +801,18 @@ func leagueWeekStatsSource(stats *openstats.Service) league.WeekStatsSource {
 		out = append(out, dstWeekStatLines(stats, eastern, week)...)
 		return out
 	}
+}
+
+// leagueStatLineKey is the one key rule every stat-line producer in this
+// file follows: a D/ST joins on its NFL team, everyone else on name and
+// position. It mirrors internal/league's own playerStatKey on the roster
+// side — the two must never disagree, or the join silently misses and a
+// player scores an honest-looking zero.
+func leagueStatLineKey(name, position, team string) string {
+	if strings.EqualFold(strings.TrimSpace(position), "DST") {
+		return league.DSTStatKey(team)
+	}
+	return openstats.NormalizePlayerKey(name, position)
 }
 
 // leagueInjuryDesignationSource adapts the mirrored nflverse weekly injury
