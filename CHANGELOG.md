@@ -5,6 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+No changes yet.
+
+## [release-2026.09.10-d4bb0b2-season10] — 2026-09-10
+
+Scope: readable score explanations and a matchup chip that says which way it leans: the points tooltip is now one line per scoring rule with the values aligned into a column and a total set apart, with no heading because it hangs off the score it explains; the matchup chip beside an opponent reads soft, even or tough alongside the rank, where the direction — the whole reason to look — had been carried by colour alone, which a colourblind manager cannot read; and two defects the suite caught in that work, both mine: the tooltip was hidden with visibility rather than display, so it still occupied layout and pushed the matchups page to 413px on a 390px phone while showing nothing, and its total reused the score's own live-bind key, so every selector counting one score cell per starting slot found two. No schema change.
+
 ### Changed
 - The matchup chip beside a starter's opponent now says whether the matchup is soft, even, or tough, not just a bare ordinal. "20th" gave no indication of whether 20th was good or bad, and the direction — the whole reason to look — was carried by colour alone, which the app's own rules forbid and a colourblind manager cannot read at all. The rank, what it is ranked against, and the season it comes from stay in the tooltip. Measured at 390px before lengthening it: the document does not widen and no opponent cell overflows.
 - The points tooltip is laid out to be read at a glance: one line per scoring rule, the values aligned into a column beneath each other, and a total set apart above a rule, instead of a run-on of segments separated by middots. It carries no heading — the tooltip hangs off the score it explains, so a line announcing what the box is would be noise.
