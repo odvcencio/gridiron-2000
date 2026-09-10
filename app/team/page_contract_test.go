@@ -771,7 +771,7 @@ func TestBenchRowRendersNewsTipAndHouseRankChip(t *testing.T) {
 	block := page[rowStart : rowStart+rowEnd]
 	for _, want := range []string{
 		`<If cond={props.HasHouseRank}>`,
-		`<small class="house-rank">{props.HouseRank}</small>`,
+		`<small class="house-rank" title={props.HouseRankTip}>{props.HouseRank}</small>`,
 		`<If cond={props.HasNews}>`,
 		`<details class="stat-tip stat-tip--news">`,
 		`<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + props.Name}>📰</summary>`,
@@ -828,7 +828,9 @@ func TestStarterSlotRendersNewsTipAndHouseRankChip(t *testing.T) {
 	page := string(pageBytes)
 	for _, want := range []string{
 		`<If cond={slot.has_house_rank}>`,
-		`<small class="house-rank">{slot.house_rank}</small>`,
+		// The tip explains what "H##" means; before 2026-09-10 the code
+		// appeared on every row with no explanation anywhere in the app.
+		`<small class="house-rank" title={slot.house_rank_tip}>{slot.house_rank}</small>`,
 		`<If cond={slot.has_news}>`,
 		`<details class="stat-tip stat-tip--news">`,
 		`<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + slot.name}>📰</summary>`,

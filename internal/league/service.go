@@ -4110,6 +4110,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	matchupClock := make(map[string]string, len(live.Matchups))
 	matchupIndicator := make(map[string]string, len(live.Matchups))
 	matchupLiveStateBind := make(map[string]string, len(live.Matchups))
+	matchupLiveStateLabelBind := make(map[string]string, len(live.Matchups))
 	projected := make(map[string]string, len(live.Matchups)*2)
 	// winProb is keyed by TEAM ID, not matchup ID: each side's own win
 	// probability is published under its own key (round-2 review of
@@ -4177,7 +4178,10 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		matchupStatus[matchup.ID] = status
 		matchupClock[matchup.ID] = matchupClockLabel(matchup.Clock)
 		matchupIndicator[matchup.ID] = liveIndicatorToken(matchup.State)
+		// Raw token under the established key; the readable label under its
+		// own. The chips bind the label, everything else keeps the token.
 		matchupLiveStateBind[matchup.ID] = matchup.LiveState
+		matchupLiveStateLabelBind[matchup.ID] = LiveStateLabel(matchup.LiveState, matchup.State == MatchupStateFinal)
 		awayProjected := projectedTotal(matchup.Away.StarterLedger, starterProjections(matchup.Away.StarterLedger, projectionByID), liveStatusValue, hasLive)
 		homeProjected := projectedTotal(matchup.Home.StarterLedger, starterProjections(matchup.Home.StarterLedger, projectionByID), liveStatusValue, hasLive)
 		// hasProjectableStarters, not ScoreKnown: a pre-kickoff lineup still
@@ -4203,15 +4207,20 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	statsUpdated := s.formatMatchupUpdateOrUnavailable(live.StatsUpdatedAt)
 	liveStatus := s.liveStatusText(live, presentation)
 	return map[string]any{
-		"ok":                    live.OK,
-		"source":                live.Source,
-		"sourceLabel":           live.SourceLabel,
-		"week":                  live.Week,
-		"weekLabel":             s.presentedWeekLabel(live),
-		"state":                 live.State,
-		"status":                live.Status,
-		"warning":               live.Warning,
+		"ok":          live.OK,
+		"source":      live.Source,
+		"sourceLabel": live.SourceLabel,
+		"week":        live.Week,
+		"weekLabel":   s.presentedWeekLabel(live),
+		"state":       live.State,
+		"status":      live.Status,
+		"warning":     live.Warning,
+		// liveState stays the RAW token: it is part of the polled JSON
+		// contract external readers and the sim timeline match on. The
+		// chip binds liveStateLabel instead — changing this key's meaning
+		// would have broken that contract while claiming to preserve it.
 		"liveState":             live.LiveState,
+		"liveStateLabel":        LiveStateLabel(live.LiveState, live.State == MatchupStateFinal),
 		"sourceLine":            live.SourceLine,
 		"slateLine":             live.SlateLine,
 		"gamesFinal":            live.GamesFinal,
@@ -4220,6 +4229,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"matchupClock":          matchupClock,
 		"matchupIndicator":      matchupIndicator,
 		"matchupLiveState":      matchupLiveStateBind,
+		"matchupLiveStateLabel": matchupLiveStateLabelBind,
 		"projected":             projected,
 		"winProb":               winProb,
 		"stillToPlay":           stillToPlayBind,
@@ -5812,6 +5822,7 @@ func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []m
 			"id":                  matchup.ID,
 			"state":               matchup.State,
 			"live_state":          matchup.LiveState,
+			"live_state_label":    LiveStateLabel(matchup.LiveState, matchup.State == MatchupStateFinal),
 			"show_live_indicator": matchup.State == MatchupStateInProgress,
 			"live_indicator":      liveIndicatorToken(matchup.State),
 			"away": map[string]any{
@@ -6216,7 +6227,10 @@ func (s *Service) matchupStatusLine(live LiveSnapshot) map[string]any {
 		checkedAt = live.LastUpdated
 	}
 	return map[string]any{
+		// live_state stays the raw token (external readers match on it);
+		// live_state_label is what the chip actually shows.
 		"live_state":       live.LiveState,
+		"live_state_label": LiveStateLabel(live.LiveState, live.State == MatchupStateFinal),
 		"source_line":      live.SourceLine,
 		"checked_at":       s.formatMatchupUpdateOrUnavailable(checkedAt),
 		"stats_updated_at": s.formatMatchupUpdateOrUnavailable(live.StatsUpdatedAt),
@@ -6403,6 +6417,17 @@ func injuryDesignationAbbr(injury string) string {
 	return NormalizeInjury(injury, "").Code
 }
 
+// houseRankTip explains the "H##" label in one sentence, as a native
+// title tip — the same no-JS idiom injuryDesignationTip uses below.
+// Empty for a player with no house rank, so the caller can leave the
+// attribute off entirely rather than render an empty tooltip.
+func houseRankTip(rank int) string {
+	if rank <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("House rank %d — this league's own value ranking, computed for its roster shape and team count. Lower is better. Shown beside market rank, never instead of it.", rank)
+}
+
 // injuryDesignationTip is the STATUS chip's native title tip (J3 F10's
 // "report source in a tip"): the full designation word plus the feed that
 // actually supplied it, so the compact chip text never has to sacrifice
@@ -6576,9 +6601,17 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 		// against the pick a manager next selects; house_rank stays a
 		// display-only string for every other existing caller.
 		"house_rank_number": player.HouseRank,
-		"detail":            detail,
-		"detail_team_bye":   detailTeamBye,
-		"headshot":          player.Headshot, "has_headshot": player.Headshot != "",
+		// house_rank_tip (2026-09-10 understandability sweep): "H015"
+		// appeared on every player row across /team, /players, and the
+		// draft board with no explanation anywhere in the app — a code a
+		// manager had no way to learn the meaning of. It is a real,
+		// useful number (a value ranking computed for THIS league's roster
+		// shape and team count, unlike market ADP beside it), so it needs
+		// a sentence rather than a shorter code.
+		"house_rank_tip":  houseRankTip(player.HouseRank),
+		"detail":          detail,
+		"detail_team_bye": detailTeamBye,
+		"headshot":        player.Headshot, "has_headshot": player.Headshot != "",
 		"jersey":          jersey,
 		"has_breakdown":   hasBreakdown,
 		"breakdown":       breakdownRows,

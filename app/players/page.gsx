@@ -348,7 +348,7 @@ func PlayerPoolRegion() Node {
 					<span class="pool-rank mono">
 						{player.rank}
 						<If cond={player.has_house_rank}>
-							<small class="house-rank">{player.house_rank}</small>
+							<small class="house-rank" title={player.house_rank_tip}>{player.house_rank}</small>
 						</If>
 					</span>
 					<span class="pool-player-cell">

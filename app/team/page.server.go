@@ -76,6 +76,8 @@ type RosterCard struct {
 	Injury             string
 	HasHouseRank       bool
 	HouseRank          string
+	// HouseRankTip explains the "H##" code (league.houseRankTip).
+	HouseRankTip string
 
 	HasInjuryDesignation bool
 	InjuryDesignation    string
@@ -242,6 +244,7 @@ func rosterRowProps(raw []map[string]any, csrfToken, teamID, week string, roster
 			Injury:       stringField(player, "injury"),
 			HasHouseRank: boolField(player, "has_house_rank"),
 			HouseRank:    stringField(player, "house_rank"),
+			HouseRankTip: stringField(player, "house_rank_tip"),
 			// HasInjuryDesignation/InjuryDesignation/InjuryTip (J3 F10) and
 			// Locked/HasOpenSlot/OpenSlotID/HasSwapOptions/SwapOptions
 			// (section-B item 4) read league.playerMap's and

@@ -116,12 +116,6 @@ func StarterCell(props StarterCellData) Node {
 				<small><span data-gosx-live-bind={"starterPosition." + props.LiveKey}>{props.Position}</span> · <span data-gosx-live-bind={"starterNFLTeam." + props.LiveKey}>{props.NFLTeam}</span><span class="injury-chip" title={props.InjuryLabel} data-gosx-live-bind={"starterInjury." + props.LiveKey}>{props.Injury}</span><span class="visually-hidden" data-gosx-live-bind={"starterInjuryLabel." + props.LiveKey}>{props.InjuryLabel}</span><span class="starter-cell__state-text"> · <span data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span></span><span class="possession-chip" data-gosx-live-bind={"starterPossession." + props.LiveKey}>{props.Possession}</span></small>
 			</summary>
 			<div class="matchup-ledger__body">
-				{/* Where this player's points came from, rule by rule
-				    (2026-09-09). Live-bound like the score it explains, so
-				    the two can never disagree mid-game; the :empty rule in
-				    the stylesheet hides it until there is a score to
-				    explain. */}
-				<p class="matchup-ledger__breakdown mono" data-gosx-live-bind={"starterBreakdown." + props.LiveKey}>{props.Breakdown}</p>
 				<TextBlock as="p" class="matchup-ledger__hint" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Configured starters only. Bench, reserve, and IR are excluded." />
 				<span data-gosx-live-bind={"starterProvenanceText." + props.LiveKey}>{props.ProvenanceText}</span><span data-gosx-live-bind={"starterJoinStateText." + props.LiveKey}>{props.JoinStateText}</span><span data-gosx-live-bind={"starterSourceText." + props.LiveKey}>{props.SourceText}</span>
 				<small class="matchup-ledger__detail" data-gosx-live-bind={"starterDetail." + props.LiveKey}>{props.Detail}</small>
@@ -129,7 +123,19 @@ func StarterCell(props StarterCellData) Node {
 		</details>
 		<span class={"state starter-cell__state " + props.StateClass} role="cell" data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span>
 		<span class="proj starter-cell__proj" role="cell" data-gosx-live-bind={"starterProj." + props.LiveKey}>{props.Proj}</span>
-		<b class="pts starter-cell__pts" role="cell" data-gosx-live-bind={"starterPoints." + props.LiveKey} data-gosx-live-flash-class="score-flash">{props.Points}</b>
+		{/* The score explains itself on hover AND on focus (2026-09-10).
+		    Focus matters as much as hover here: a tabindex makes the cell
+		    reachable by keyboard and, on a phone, a tap focuses it — a
+		    hover-only tooltip would be unreachable on the device most of
+		    this league uses. The explanation is a live-bound text node
+		    rather than a title attribute for the same reason the score is:
+		    the poll patches text, so a title would freeze at its
+		    render-time value and drift from the number beside it during a
+		    game. :empty hides it until there is something to explain. */}
+		<b class="pts starter-cell__pts" role="cell" tabindex="0" aria-describedby={"pts-tip-" + props.LiveKey}>
+			<span data-gosx-live-bind={"starterPoints." + props.LiveKey} data-gosx-live-flash-class="score-flash">{props.Points}</span>
+			<span class="points-tip" id={"pts-tip-" + props.LiveKey} role="tooltip" data-gosx-live-bind={"starterBreakdown." + props.LiveKey}>{props.Breakdown}</span>
+		</b>
 	</div>
 }
 
@@ -170,7 +176,7 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 				<small class="my-matchup__proj-sub mono muted">proj <span data-gosx-live-bind={"projected." + props.Mine.ID}>{props.Mine.Projected}</span> – <span data-gosx-live-bind={"projected." + props.Theirs.ID}>{props.Theirs.Projected}</span></small>
 				<div class="bar"><i style={"width: " + props.WinProbWidth} role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow={props.WinProbAriaValue} aria-label={props.WinProbAriaLabel}></i></div>
 				<small class="mono muted"><span class="win-prob-team">{props.WinProbTeam}</span> <span data-gosx-live-bind={"winProb." + props.Mine.ID}>{props.WinProb}</span> to win · <span data-gosx-live-bind={"stillToPlaySentence." + props.ID}>{props.StillToPlaySentence}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlay." + props.ID}>{props.StillToPlay}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlayTotal." + props.ID}>{props.StillToPlayTotal}</span></small>
-				<span class={"state-chip " + props.StateClass}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span><span data-gosx-live-bind={"matchupLiveState." + props.ID}>{props.LiveState}</span></span>
+				<span class={"state-chip " + props.StateClass}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span><span data-gosx-live-bind={"matchupLiveStateLabel." + props.ID}>{props.LiveState}</span></span>
 			</div>
 			<div class="my-matchup__team my-matchup__team--opponent">
 				<div>
@@ -258,7 +264,7 @@ func Scorebug(props ScorebugData) Node {
 	return <details class="scorebug card" data-live-matchup={props.ID} data-phase={props.StateClass}>
 		<summary class="scorebug__summary">
 			<div class="scorebug__meta">
-				<span class={"state-chip " + props.StateClass}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span><span data-gosx-live-bind={"matchupLiveState." + props.ID}>{props.LiveState}</span></span>
+				<span class={"state-chip " + props.StateClass}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span><span data-gosx-live-bind={"matchupLiveStateLabel." + props.ID}>{props.LiveState}</span></span>
 				<span class="scorebug__phase-label mono muted">{props.PhaseLabel}</span>
 				<a class="scorebug__focus" href={props.FocusHref} data-gosx-link aria-label={"Open " + props.Away.Name + " versus " + props.Home.Name + " at full size"}>Full view →</a>
 			</div>
@@ -347,7 +353,7 @@ func Scorebug(props ScorebugData) Node {
 func MatchupStatusBlock() Node {
 	return <>
 		<p class="matchup-status-line" role="status" aria-live="polite">
-			<span class="state-chip" data-live-state={data.status_line.live_state}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind="liveIndicator">{data.live.live_indicator}</span><b data-gosx-live-bind="liveState">{data.status_line.live_state}</b></span>
+			<span class="state-chip" data-live-state={data.status_line.live_state}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind="liveIndicator">{data.live.live_indicator}</span><b data-gosx-live-bind="liveStateLabel">{data.status_line.live_state_label}</b></span>
 			{/* F3 (J4 console gap-audit): a forced close can finalize a week
 			    while its real NFL games are not final — every score risking
 			    0.0 from a missed player-stat join — and this line used to

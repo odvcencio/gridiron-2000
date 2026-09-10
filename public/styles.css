@@ -11130,26 +11130,72 @@ body.is-on-clock .draft-clock-panel {
   display: none;
 }
 
-/* .matchup-ledger__breakdown is a starter's own score explanation, one
-   rule per segment ("Interception x3 6.0 · Sack x2 2.0"). It lives inside
-   the ledger disclosure rather than in a hover tooltip on the score
-   itself: a title attribute cannot live-update (gosx's live-bind patches
-   text only), so it would drift out of step with the number it explains
-   during a game, and it would be unreachable on a phone. The same
-   :empty-hides pattern the state pill uses keeps the bound node present
-   for a later poll to fill while showing nothing until there is a score
-   to explain. */
-.matchup-ledger__breakdown {
-  margin: 0 0 var(--space-xs);
-  font-size: var(--type-xs);
-  line-height: 1.5;
-  color: var(--color-text-secondary);
-  overflow-wrap: break-word;
+/* .points-tip is the score's own explanation, revealed on hover and on
+   focus. Focus is not an accessibility afterthought here: it is what makes
+   the tooltip work on a phone, where a tap focuses the cell and there is
+   no hover at all. The cell carries tabindex="0" and aria-describedby so a
+   keyboard reaches it and a screen reader announces the explanation with
+   the number.
+
+   The content is a live-bound text node, not a title attribute: the poll
+   patches text only, so a title would freeze at its render-time value and
+   quietly disagree with the score beside it during a game — the same
+   reason the breakdown was not a title when it first shipped.
+
+   position: absolute keeps it out of the .slot-row grid entirely, so
+   revealing it never reflows the row; z-index clears the sticky bars. */
+.starter-cell__pts {
+  position: relative;
 }
 
-.matchup-ledger__breakdown:empty {
+.points-tip {
+  position: absolute;
+  /* Anchored to the cell's LEFT edge by default so it opens into the row
+     rather than off the screen. Measured at 390px: anchoring right meant a
+     240px tooltip on a left-hand cell started at -51px and lost its first
+     word. The opponent's column mirrors it below. max-width is clamped to
+     the viewport for the same reason — a phone has no room for a fixed
+     15rem box near either edge. */
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 60;
+  width: max-content;
+  max-width: min(15rem, calc(100vw - 2rem));
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-canvas-deep);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* The opponent's side sits at the right of the row, so its tooltip opens
+   leftward for exactly the same reason. */
+.starter-cell[data-right="true"] .points-tip {
+  left: auto;
+  right: 0;
+}
+
+.starter-cell__pts:hover .points-tip,
+.starter-cell__pts:focus .points-tip,
+.starter-cell__pts:focus-within .points-tip {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Nothing to explain yet: no empty box on hover. */
+.points-tip:empty {
   display: none;
 }
+
 
 /* .injury-chip is the canonical injury designation wherever a player's
    name appears: one letter (O, D, Q) or IR, in the warn colour, with the

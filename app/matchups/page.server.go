@@ -351,6 +351,7 @@ type FeaturedMatchupData struct {
 	Label               string
 	LiveIndicator       string
 	LiveState           string
+	LiveStateToken      string
 	StateClass          string
 	WinProb             string
 	WinProbWidth        string
@@ -367,13 +368,13 @@ type FeaturedMatchupData struct {
 	// names whose percentage WinProb is. Both exist because neither was
 	// derivable from the card itself: "mine" follows the viewer, so it is
 	// Home for a spectator and either side for a manager.
-	MineIsHome          bool
-	WinProbTeam         string
-	Mine                FeaturedTeamData
-	Theirs              FeaturedTeamData
-	Pairs               []FeaturedMatchupPairData
-	MineBench           []BenchRowData
-	TheirsBench         []BenchRowData
+	MineIsHome  bool
+	WinProbTeam string
+	Mine        FeaturedTeamData
+	Theirs      FeaturedTeamData
+	Pairs       []FeaturedMatchupPairData
+	MineBench   []BenchRowData
+	TheirsBench []BenchRowData
 }
 
 func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
@@ -390,12 +391,15 @@ func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
 	theirsBenchRaw, _ := raw["theirs_bench"].([]map[string]any)
 	liveState := stringField(raw, "live_state")
 	return FeaturedMatchupData{
-		HasMatchup:          boolField(raw, "has_matchup"),
-		IsViewer:            boolField(raw, "is_viewer"),
-		ID:                  stringField(raw, "id"),
-		Label:               stringField(raw, "label"),
-		LiveIndicator:       stringField(raw, "live_indicator"),
-		LiveState:           liveState,
+		HasMatchup:    boolField(raw, "has_matchup"),
+		IsViewer:      boolField(raw, "is_viewer"),
+		ID:            stringField(raw, "id"),
+		Label:         stringField(raw, "label"),
+		LiveIndicator: stringField(raw, "live_indicator"),
+		// The readable label for the chip; StateClass and PhaseLabel keep
+		// switching on the raw token (league.LiveStateLabel).
+		LiveState:           stringField(raw, "live_state_label"),
+		LiveStateToken:      liveState,
 		StateClass:          matchupStateClass(liveState),
 		WinProb:             stringField(raw, "win_prob"),
 		WinProbWidth:        stringField(raw, "win_prob_width"),
@@ -460,17 +464,22 @@ func scorebugTeamData(raw any) ScorebugTeamData {
 // app/page.gsx's MiniMatchup, not a shared component — see that
 // component's own doc comment for why.
 type ScorebugData struct {
-	ID            string
-	LiveState     string
-	StateClass    string
-	PhaseLabel    string
-	LiveIndicator string
-	Status        string
-	Clock         string
-	Away          ScorebugTeamData
-	Home          ScorebugTeamData
-	ProjectedAway string
-	ProjectedHome string
+	ID string
+	// LiveState is the readable label ("SCHEDULED", "LIVE", "UNDERWAY",
+	// "AWAITING FINAL", "FINAL"), not the raw token — see
+	// league.LiveStateLabel. StateClass and PhaseLabel still switch on the
+	// token, which arrives separately as LiveStateToken.
+	LiveState      string
+	LiveStateToken string
+	StateClass     string
+	PhaseLabel     string
+	LiveIndicator  string
+	Status         string
+	Clock          string
+	Away           ScorebugTeamData
+	Home           ScorebugTeamData
+	ProjectedAway  string
+	ProjectedHome  string
 	// WinProbHome/WinProbHomeWidth/WinProbHomeAriaLabel/WinProbHomeAriaValue
 	// (A1, matchup redesign 2026-09-07) give every around-the-league card
 	// its own accessible win-probability meter, expressed from the home
@@ -518,7 +527,8 @@ func matchupsPageScorebugs(raw []map[string]any) []ScorebugData {
 		liveState := stringField(entry, "live_state")
 		out = append(out, ScorebugData{
 			ID:                   stringField(entry, "id"),
-			LiveState:            liveState,
+			LiveState:            stringField(entry, "live_state_label"),
+			LiveStateToken:       liveState,
 			StateClass:           matchupStateClass(liveState),
 			PhaseLabel:           matchupPhaseLabel(liveState),
 			LiveIndicator:        stringField(entry, "live_indicator"),

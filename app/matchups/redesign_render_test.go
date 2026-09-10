@@ -67,7 +67,9 @@ func TestMatchupStatusBlockRendersClosedEarlyBadge(t *testing.T) {
 		t.Fatal("MatchupStatusBlock is missing the CLOSED EARLY badge text")
 	}
 	closedEarlyAt := strings.Index(markup, `<If cond={data.status_line.closed_early}>`)
-	liveBindAt := strings.Index(markup, `data-gosx-live-bind="liveState"`)
+	// The chip binds the readable label; the raw token keeps its own key
+	// for the polled contract (2026-09-10).
+	liveBindAt := strings.Index(markup, `data-gosx-live-bind="liveStateLabel"`)
 	if closedEarlyAt < 0 || liveBindAt < 0 {
 		t.Fatal("could not locate both the closed-early badge and the live-bound state chip")
 	}

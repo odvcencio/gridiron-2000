@@ -354,6 +354,48 @@ func matchupLiveState(postedFinal bool, snapshot matchupStatsSnapshot, now time.
 	return LiveStateLedger
 }
 
+// LiveStateLabel renders a live state as a word a manager can act on,
+// rather than the token this package reasons in.
+//
+// The tokens stay exactly as they are — they are the JSON contract
+// external readers match on (LiveSnapshot.LiveState) — but they were never
+// written to be read by a manager, and two of them actively misled
+// (2026-09-10 understandability sweep):
+//
+//   - "LEDGER" meant BOTH ends of the week. It is the state before
+//     anything kicks off AND the state once the week is posted and
+//     official. One word for two opposite situations is the hardest
+//     possible thing to read on a scoreboard, so postedFinal splits it:
+//     SCHEDULED before, FINAL after.
+//   - "PAUSED" reads as though the GAME is paused. It means our own feed
+//     is degraded while the game plays on — so it says so.
+//   - "FINAL" (this package's own token) means every game has ended but
+//     the authoritative weekly ledger has not posted yet. Calling that
+//     FINAL and ALSO calling the posted result FINAL is the same collision
+//     as LEDGER, one step later; the unposted one now says what it is
+//     waiting for.
+func LiveStateLabel(liveState string, postedFinal bool) string {
+	switch liveState {
+	case LiveStateLive:
+		return "LIVE"
+	case LiveStatePaused:
+		return "FEED DELAYED"
+	case LiveStateUnderway:
+		return "UNDERWAY"
+	case LiveStateFinal:
+		return "AWAITING FINAL"
+	case LiveStateLedger:
+		if postedFinal {
+			return "FINAL"
+		}
+		return "SCHEDULED"
+	}
+	if postedFinal {
+		return "FINAL"
+	}
+	return "SCHEDULED"
+}
+
 // liveSourceLine is the one status-line sentence A5/A6 render in place of
 // the old provenance table.
 func liveSourceLine(state string, status LiveStatus, now time.Time) string {

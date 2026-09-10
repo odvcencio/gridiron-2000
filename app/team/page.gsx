@@ -70,6 +70,10 @@ type RosterRowProps struct {
 	Injury       string
 	HasHouseRank bool
 	HouseRank    string
+	// HouseRankTip explains the "H##" code in one sentence
+	// (league.houseRankTip). Without it the code is unreadable: it named a
+	// ranking the app never defined anywhere.
+	HouseRankTip string
 	// InjuryDesignation/HasInjuryDesignation/InjuryTip (J3 F10) back the
 	// bench row's own STATUS chip, rendered on the row itself rather than
 	// only inside the news disclosure (has_news-gated, HasNews above) —
@@ -191,7 +195,7 @@ func RosterRow(props RosterRowProps) Node {
 				<span class="lineup-slot__handle" data-gosx-transfer-handle aria-label={"Move " + props.Name + " to a starter slot"}>⠿</span>
 			</If>
 			<If cond={props.HasHouseRank}>
-				<small class="house-rank">{props.HouseRank}</small>
+				<small class="house-rank" title={props.HouseRankTip}>{props.HouseRank}</small>
 			</If>
 		</div>
 		<span class="pool-player-cell lineup-slot__player">
@@ -1038,7 +1042,7 @@ func TeamLineupRegion() Node {
 											</If>
 																			{slot.slot_id}
 										<If cond={slot.has_house_rank}>
-											<small class="house-rank">{slot.house_rank}</small>
+											<small class="house-rank" title={slot.house_rank_tip}>{slot.house_rank}</small>
 										</If>
 									</div>
 									<If cond={slot.has_player}>

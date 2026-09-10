@@ -5,7 +5,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Changed
+- A starter's points now explain themselves in a tooltip on the score itself, instead of inside a disclosure you had to open. It reveals on hover and on focus — focus matters as much as hover, because a phone has no hover, and a tap or a Tab now reveals it; the cell is described by the tooltip so a screen reader announces the explanation with the number. It stays a live-bound text node rather than a title attribute: the poll patches text, so a title would freeze at its render-time value and drift from the score beside it during a game. Each side of the matchup opens its tooltip toward the middle of the row, after measurement showed a right-anchored tooltip running 51px off the left of a 390px viewport and losing its first word.
+- The live status chip no longer shows the app's internal vocabulary. It rendered "LEDGER", which named nothing a manager could act on and, worse, meant BOTH ends of a week — the state before anything kicks off and the state once the week is posted and official. It now reads SCHEDULED, LIVE, UNDERWAY, AWAITING FINAL, or FINAL, each naming one situation. "PAUSED" likewise read as though the game had stopped when it meant our own feed was delayed, and now says so. The raw tokens are unchanged in the JSON contract external readers match on.
+- The "H##" chip beside a player now explains itself. House rank is this league's own value ranking, computed for its roster shape and team count rather than a market consensus — a genuinely useful number that appeared on every player row across the lineup and the pool with no explanation anywhere in the app. It now carries a sentence saying what it is and that lower is better.
 
 ## [release-2026.09.10-87c3c79-season8] — 2026-09-10
 
