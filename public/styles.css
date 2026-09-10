@@ -11216,9 +11216,15 @@ body.is-on-clock .draft-clock-panel {
 
 .points-tip__rows {
   display: block;
-  /* pre, not pre-line: the padding that aligns the values into a column
-     is literal spaces, and pre-line would collapse them. */
-  white-space: pre;
+  /* Keep the server-provided line breaks and alignment spaces, but let a
+     long rule wrap inside the capped card. `pre` made the final value paint
+     outside the tooltip's background (the exact failure visible in the
+     owner screenshot); `pre-wrap` preserves the ledger shape while giving
+     the browser real line-break opportunities. `anywhere` is the last
+     guard for an unusually long label or upstream token. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 100%;
   color: var(--color-text-secondary);
 }
 

@@ -912,6 +912,18 @@ func TestMobileBottomBarFourSlotsWithCurrentMarker(t *testing.T) {
 	if len(matchups) != 1 {
 		t.Errorf("app-tabbar Matchups link count = %d, want 1", len(matchups))
 	}
+	icons := findNodes(matchups[0], func(node *html.Node) bool {
+		return node.Type == html.ElementNode && node.Data == "span" && hasClass(node, "app-tabbar__icon")
+	})
+	if len(icons) != 1 {
+		t.Fatalf("app-tabbar Matchups icon count = %d, want 1", len(icons))
+	}
+	if got := strings.TrimSpace(descendantText(icons[0])); got != "🏈" {
+		t.Errorf("app-tabbar Matchups icon = %q, want an American-football icon", got)
+	}
+	if strings.Contains(descendantText(matchups[0]), "⚽") {
+		t.Error("app-tabbar Matchups still renders the soccer-ball icon")
+	}
 
 	more := findNodes(bar, func(node *html.Node) bool {
 		return node.Type == html.ElementNode && node.Data == "button" && hasClass(node, "app-tabbar__tab")

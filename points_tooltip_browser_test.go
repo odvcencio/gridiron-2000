@@ -94,12 +94,21 @@ func TestBrowserPointsTooltipRevealsAndFits(t *testing.T) {
 					cell.focus();
 					const cs = getComputedStyle(tip);
 					const r = tip.getBoundingClientRect();
+					const rowsStyle = getComputedStyle(rows);
+					const rowsRect = rows.getBoundingClientRect();
+					const insetLeft = parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft);
+					const insetRight = parseFloat(cs.borderRightWidth) + parseFloat(cs.paddingRight);
 					out.push({
 						side,
 						focused: document.activeElement === cell,
 						visible: cs.visibility === 'visible',
 						describedBy: cell.getAttribute('aria-describedby') === tip.id && !!tip.id,
-						fits: r.left >= 0 && r.right <= window.innerWidth && r.top >= 0
+						fits: r.left >= 0 && r.right <= window.innerWidth && r.top >= 0,
+						panelPaints: cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundImage === 'none',
+						hasBox: r.width > 0 && r.height > 0,
+						rowsContained: rowsRect.left >= r.left + insetLeft - 0.5 && rowsRect.right <= r.right - insetRight + 0.5,
+						noContentOverflow: tip.scrollWidth <= tip.clientWidth && rows.scrollWidth <= rows.clientWidth,
+						flow: rowsStyle.whiteSpace === 'pre-wrap' && rowsStyle.overflowWrap === 'anywhere'
 					});
 				}
 				return JSON.stringify(out);
@@ -120,18 +129,19 @@ func TestBrowserPointsTooltipRevealsAndFits(t *testing.T) {
 					// explains, so announcing what it is would be noise.
 					noHeading: !tip.querySelector('.points-tip__head'),
 					total: !!tip.querySelector('.points-tip__total'),
-					preservesAlignment: getComputedStyle(rows).whiteSpace === 'pre'
+					preservesAlignment: getComputedStyle(rows).whiteSpace === 'pre-wrap',
+					wrapsLongRows: getComputedStyle(rows).overflowWrap === 'anywhere'
 				});
 			})()`, &shape)); err != nil {
 				t.Fatal(err)
 			}
-			for _, want := range []string{`"noHeading":true`, `"total":true`, `"preservesAlignment":true`} {
+			for _, want := range []string{`"noHeading":true`, `"total":true`, `"preservesAlignment":true`, `"wrapsLongRows":true`} {
 				if !strings.Contains(shape, want) {
 					t.Errorf("tooltip structure missing %s at %s: %s", want, viewport.name, shape)
 				}
 			}
 
-			for _, want := range []string{`"focused":true`, `"visible":true`, `"describedBy":true`, `"fits":true`} {
+			for _, want := range []string{`"focused":true`, `"visible":true`, `"describedBy":true`, `"fits":true`, `"panelPaints":true`, `"hasBox":true`, `"rowsContained":true`, `"noContentOverflow":true`, `"flow":true`} {
 				if strings.Count(report, want) != 2 {
 					t.Errorf("both sides must satisfy %s at %s: %s", want, viewport.name, report)
 				}

@@ -599,7 +599,7 @@ func Layout() Node {
 					<span id="app-tabbar-team-reason" class="visually-hidden">Needs a franchise seat</span>
 				</If>
 				<Link href="/matchups" class="app-tabbar__tab">
-					<span class="app-tabbar__icon" aria-hidden="true">&#9917;</span>
+					<span class="app-tabbar__icon" aria-hidden="true">&#127944;</span>
 					Matchups
 				</Link>
 				<button
