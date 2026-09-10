@@ -79,6 +79,7 @@ var adminActionSection = map[string]string{
 	"clock-set-duration":   "clock",
 	"clock-set-autopick":   "seats",
 	"roster-shape-apply":   "roster",
+	"roster-ir-apply":      "roster",
 	"roster-shape-reset":   "roster",
 	"roster-correction":    "roster",
 	"announcement-post":    "announcements",

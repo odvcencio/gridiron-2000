@@ -209,6 +209,49 @@ type RosterOverride struct {
 	Limits  map[string]int `json:"limits,omitempty"`
 }
 
+// rosterOverrideOnlyIRDiffers reports whether next changes nothing about
+// current except the IR count.
+//
+// This is the whole basis for letting IR move in-season (2026-09-10). The
+// roster shape locks at the first pick because every OTHER field feeds the
+// draft-round count, and changing one after a draft would leave rosters
+// built against a slot count that no longer exists. IR does not: it sits
+// outside that total — "IR sits outside that total — in-season stash only,
+// not draftable", the console's own words — so no pick was ever made
+// against it and none can be invalidated by changing it.
+//
+// The comparison is against the EFFECTIVE shape (CurrentRoster), not
+// against any stored override. A league running the config default has no
+// override recorded at all, and the first override it ever writes — the
+// one that turns IR on — necessarily carries the full slot map with it.
+// Comparing that against an empty stored override would reject exactly the
+// change this exception exists to permit.
+func rosterOverrideOnlyIRDiffers(base RosterPreset, next RosterOverride) bool {
+	if base.Bench != next.Bench {
+		return false
+	}
+	return sameCountMap(base.Slots, next.Slots) &&
+		sameCountMap(base.Reserve, next.Reserve) &&
+		sameCountMap(base.Limits, next.Limits)
+}
+
+// sameCountMap compares two position-count maps, treating a missing key
+// and an explicit zero as the same thing: a shape that lists "SUPERFLEX:
+// 0" and one that omits SUPERFLEX describe the same roster.
+func sameCountMap(a, b map[string]int) bool {
+	for key, count := range a {
+		if b[key] != count {
+			return false
+		}
+	}
+	for key, count := range b {
+		if a[key] != count {
+			return false
+		}
+	}
+	return true
+}
+
 // cloneRosterOverride deep-copies o (nil-safe), matching the store's
 // snapshot/clone discipline (see cloneSchedule, clonePlayoffState).
 func cloneRosterOverride(o *RosterOverride) *RosterOverride {

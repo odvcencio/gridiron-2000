@@ -200,6 +200,118 @@ func irQualifies(designation string) bool {
 	return irQualifyingDesignations[strings.ToLower(strings.TrimSpace(designation))]
 }
 
+// InjuryStatus is this league's ONE injury vocabulary. Two feeds report a
+// player's availability in two different shapes — Tank01's pool
+// designation (Player.Injury, free text) and the mirrored nflverse weekly
+// report (InjuryDesignationSource, report_status) — and before
+// 2026-09-10 they were consumed by two different halves of the app: the
+// visible chip read the pool field, and the IR eligibility gate read the
+// weekly report. Nothing reconciled them, so a player could be marked out
+// by one and healthy by the other, and which answer you got depended on
+// which screen you were looking at.
+//
+// The owner hit exactly that: a late scratch showed no indicator anywhere,
+// while the weekly report knew. One vocabulary, one resolver, every
+// reader.
+type InjuryStatus struct {
+	// Code is the compact chip text: "O", "D", "Q", "IR", "PUP", "SUS",
+	// or "" for a player with no reported designation.
+	Code string
+	// Label is the plain word a reader knows: "Out", "Questionable", ...
+	Label string
+	// Severity orders the vocabulary so the more serious of two
+	// disagreeing feeds wins. A manager deciding a lineup is better served
+	// by the worse news.
+	Severity int
+	// Source names the feed that supplied the winning value, so the tip
+	// can say where it came from instead of asserting one feed's name for
+	// a value the other actually provided.
+	Source string
+}
+
+// Reported reports whether any feed gave this player a designation.
+func (i InjuryStatus) Reported() bool { return i.Code != "" }
+
+// Warns reports whether this designation should warn a manager who has
+// the player in a starting slot — the roster-ops section 4.5 rule,
+// expressed against the canonical vocabulary instead of a free-text
+// prefix match.
+func (i InjuryStatus) Warns() bool { return i.Severity >= injurySeverityDoubtful }
+
+const (
+	injurySeverityNone         = 0
+	injurySeverityQuestionable = 1
+	injurySeverityDoubtful     = 2
+	injurySeverityOut          = 3
+	injurySeverityUnavailable  = 4
+)
+
+// injuryVocabulary maps every spelling either feed is known to report onto
+// the canonical status. An unrecognized non-empty designation is kept
+// verbatim rather than dropped — a real feed reported something, and
+// silently hiding it would be worse than showing a word this table does
+// not know yet (see NormalizeInjury).
+var injuryVocabulary = map[string]InjuryStatus{
+	"questionable":                 {Code: "Q", Label: "Questionable", Severity: injurySeverityQuestionable},
+	"doubtful":                     {Code: "D", Label: "Doubtful", Severity: injurySeverityDoubtful},
+	"out":                          {Code: "O", Label: "Out", Severity: injurySeverityOut},
+	"injured reserve":              {Code: "IR", Label: "Injured reserve", Severity: injurySeverityUnavailable},
+	"ir":                           {Code: "IR", Label: "Injured reserve", Severity: injurySeverityUnavailable},
+	"physically unable to perform": {Code: "PUP", Label: "Physically unable to perform", Severity: injurySeverityUnavailable},
+	"pup":                          {Code: "PUP", Label: "Physically unable to perform", Severity: injurySeverityUnavailable},
+	"suspended":                    {Code: "SUS", Label: "Suspended", Severity: injurySeverityUnavailable},
+	"doubtful/out":                 {Code: "D", Label: "Doubtful", Severity: injurySeverityDoubtful},
+}
+
+// NormalizeInjury maps one feed's designation onto the canonical status.
+// An empty designation is a healthy player, not an unknown one. source
+// names the feed for the tip.
+func NormalizeInjury(designation, source string) InjuryStatus {
+	trimmed := strings.TrimSpace(designation)
+	if trimmed == "" {
+		return InjuryStatus{}
+	}
+	if known, ok := injuryVocabulary[strings.ToLower(trimmed)]; ok {
+		known.Source = source
+		return known
+	}
+	// Unknown, but real. Keep the feed's own word, and treat it as at
+	// least questionable so it is never silently ignored by a warning
+	// that only knows the words in the table above.
+	return InjuryStatus{Code: trimmed, Label: trimmed, Severity: injurySeverityQuestionable, Source: source}
+}
+
+// resolveInjury is the canonical read: the worse of what the two feeds
+// report. Ties keep the weekly report, which is the one tied to a specific
+// game week rather than a rolling pool snapshot.
+//
+// It takes the source as a parameter rather than reaching for it, because
+// its hottest caller runs with poolMu already held. buildPool resolves the
+// source ONCE per rebuild (injuryDesignationSourceLocked) and threads it
+// down, the same shape scoringValues already takes through that function
+// — and the same reason: a per-player accessor call would re-enter poolMu
+// and deadlock the rebuild outright, which is exactly what an earlier
+// draft of this function did.
+func resolveInjury(player Player, source InjuryDesignationSource) InjuryStatus {
+	pool := NormalizeInjury(player.Injury, "Tank01 pool")
+	weekly := InjuryStatus{}
+	if source != nil {
+		if designation, ok := source(player.Name, player.Position, player.NFLTeam); ok {
+			weekly = NormalizeInjury(designation, "nflverse weekly report")
+		}
+	}
+	if weekly.Reported() && weekly.Severity >= pool.Severity {
+		return weekly
+	}
+	return pool
+}
+
+// injuryDesignationSourceLocked reads the attached lookup without taking
+// poolMu. The caller must already hold it — buildPool does.
+func (s *Service) injuryDesignationSourceLocked() InjuryDesignationSource {
+	return s.injuryFn
+}
+
 // irEligible reports whether player currently carries a qualifying injury
 // designation, per source. false when source is nil (not wired) or the
 // mirror carries no report for this player.

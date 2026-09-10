@@ -113,7 +113,7 @@ func StarterCell(props StarterCellData) Node {
 					<span class="starter-cell__name-full" data-gosx-live-bind={"starterPlayerName." + props.LiveKey}>{props.PlayerName}</span>
 					<TextBlock as="span" class="starter-cell__name-short" font="700 15px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" mode="native" text={props.PlayerNameShort} />
 				</strong>
-				<small><span data-gosx-live-bind={"starterPosition." + props.LiveKey}>{props.Position}</span> · <span data-gosx-live-bind={"starterNFLTeam." + props.LiveKey}>{props.NFLTeam}</span><span class="starter-cell__state-text"> · <span data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span></span><span class="possession-chip" data-gosx-live-bind={"starterPossession." + props.LiveKey}>{props.Possession}</span></small>
+				<small><span data-gosx-live-bind={"starterPosition." + props.LiveKey}>{props.Position}</span> · <span data-gosx-live-bind={"starterNFLTeam." + props.LiveKey}>{props.NFLTeam}</span><If cond={props.HasInjury}><span class="injury-chip" title={props.InjuryLabel} aria-label={"Injury report: " + props.InjuryLabel}>{props.Injury}</span></If><span class="starter-cell__state-text"> · <span data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span></span><span class="possession-chip" data-gosx-live-bind={"starterPossession." + props.LiveKey}>{props.Possession}</span></small>
 			</summary>
 			<div class="matchup-ledger__body">
 				{/* Where this player's points came from, rule by rule

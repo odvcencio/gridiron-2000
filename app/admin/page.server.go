@@ -124,7 +124,6 @@ const rosterCorrectionConfirmValue = "correct-roster"
 // reads this key to render the confirm panel rather than an error banner.
 const rosterCorrectionReviewField = "roster_correction_review"
 
-
 func adminNotificationReceiptText(receipt league.NotificationReceipt) string {
 	parts := make([]string, 0, 6)
 	if receipt.TransportNotWired {
@@ -312,7 +311,7 @@ func init() {
 					}
 				}
 			}
-			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-start", "draft-reschedule", "draft-reset", "draft-undo", "league-reset", "seat-trim", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete", "schedule-generate", "schedule-regenerate", "close-week-ready", "close-week-force", "run-waivers", "playoff-preview", "playoff-publish", "playoff-advance", "playoff-correct", "roster-correction"} {
+			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-start", "draft-reschedule", "draft-reset", "draft-undo", "league-reset", "seat-trim", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-ir-apply", "roster-shape-reset", "announcement-post", "announcement-delete", "schedule-generate", "schedule-regenerate", "close-week-ready", "close-week-force", "run-waivers", "playoff-preview", "playoff-publish", "playoff-advance", "playoff-correct", "roster-correction"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("admin"); message != "" {
 						data["has_admin_error"] = true
@@ -829,6 +828,46 @@ func init() {
 					status = "on"
 				}
 				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("seats"), "Autopick is "+status+" for that seat.")
+				return nil
+			},
+			// roster-ir-apply is the in-season IR knob (2026-09-10). It
+			// merges onto the CURRENT effective shape rather than rebuilding
+			// one from the form, so it can only ever move IR — the store
+			// refuses anything else once the draft has started, and a form
+			// that posted a partial shape would trip exactly that refusal.
+			"roster-ir-apply": func(ctx *action.Context) error {
+				raw := strings.TrimSpace(ctx.FormData["ir"])
+				count, err := strconv.Atoi(raw)
+				if err != nil || count < 0 {
+					message := "enter a whole number for IR"
+					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+				}
+				current := league.CurrentRoster()
+				override := league.RosterOverride{
+					Slots:   map[string]int{},
+					Reserve: map[string]int{},
+					Limits:  map[string]int{},
+					Bench:   current.Bench,
+					IR:      count,
+				}
+				for key, n := range current.Slots {
+					override.Slots[key] = n
+				}
+				for key, n := range current.Reserve {
+					override.Reserve[key] = n
+				}
+				for key, n := range current.Limits {
+					override.Limits[key] = n
+				}
+				preset, err := league.Default().AdminSetRosterShape(ctx.Request, override)
+				if err != nil {
+					return actionui.Validation(ctx, "admin", "admin", err)
+				}
+				notice := fmt.Sprintf("IR set to %d. An injured player reported Out or Doubtful can be stashed there, outside the roster cap.", preset.IR)
+				if preset.IR == 0 {
+					notice = "IR turned off. No player can be stashed outside the roster cap."
+				}
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("roster"), notice)
 				return nil
 			},
 			"roster-shape-apply": func(ctx *action.Context) error {

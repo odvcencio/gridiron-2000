@@ -68,22 +68,22 @@ func TestWithHistoricalAttachesPunterFallback(t *testing.T) {
 		return "", false // nflverse never matches a punter (no punting columns)
 	})
 
-	punter := service.withHistorical(Player{Name: "Tommy Townsend", Position: "P", NFLTeam: "HOU"}, nil)
+	punter := service.withHistorical(Player{Name: "Tommy Townsend", Position: "P", NFLTeam: "HOU"}, nil, nil)
 	if punter.Hist == "" {
 		t.Fatalf("punter fallback did not attach a hist line: %+v", punter)
 	}
 
-	unknownPunter := service.withHistorical(Player{Name: "Nobody Punter", Position: "P", NFLTeam: "HOU"}, nil)
+	unknownPunter := service.withHistorical(Player{Name: "Nobody Punter", Position: "P", NFLTeam: "HOU"}, nil, nil)
 	if unknownPunter.Hist != "" {
 		t.Fatalf("an unmatched punter must attach nothing: %+v", unknownPunter)
 	}
 
-	kicker := service.withHistorical(Player{Name: "Tommy Townsend", Position: "K", NFLTeam: "HOU"}, nil)
+	kicker := service.withHistorical(Player{Name: "Tommy Townsend", Position: "K", NFLTeam: "HOU"}, nil, nil)
 	if kicker.Hist != "" {
 		t.Fatalf("the punter fallback must never apply to a non-P position: %+v", kicker)
 	}
 
-	already := service.withHistorical(Player{Name: "Tommy Townsend", Position: "P", NFLTeam: "HOU", Hist: "already set"}, nil)
+	already := service.withHistorical(Player{Name: "Tommy Townsend", Position: "P", NFLTeam: "HOU", Hist: "already set"}, nil, nil)
 	if already.Hist != "already set" {
 		t.Fatalf("existing Hist must not be overwritten: %+v", already)
 	}
@@ -95,7 +95,7 @@ func TestWithHistoricalAttachesPunterFallback(t *testing.T) {
 // the primary source existing.
 func TestWithHistoricalPunterFallbackWithNoPrimarySource(t *testing.T) {
 	service := newTestService(t, true)
-	punter := service.withHistorical(Player{Name: "Tommy Townsend", Position: "P", NFLTeam: "HOU"}, nil)
+	punter := service.withHistorical(Player{Name: "Tommy Townsend", Position: "P", NFLTeam: "HOU"}, nil, nil)
 	if punter.Hist == "" {
 		t.Fatalf("punter fallback must work with no primary source attached: %+v", punter)
 	}

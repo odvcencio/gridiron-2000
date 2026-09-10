@@ -54,18 +54,25 @@ type Team struct {
 
 // Player is the compact player shape shared by the roster and draft room.
 type Player struct {
-	ID         string  `json:"id"`
-	GSISID     string  `json:"gsisId,omitempty"`
-	Name       string  `json:"name"`
-	Position   string  `json:"position"`
-	NFLTeam    string  `json:"nflTeam"`
-	Jersey     string  `json:"jersey,omitempty"`
-	Opponent   string  `json:"opponent"`
-	ADP        float64 `json:"adp,omitempty"`
-	ADPRank    int     `json:"adpRank,omitempty"`
-	ByeWeek    int     `json:"byeWeek,omitempty"`
-	Injury     string  `json:"injury,omitempty"`
-	Projection float64 `json:"projection"`
+	ID       string  `json:"id"`
+	GSISID   string  `json:"gsisId,omitempty"`
+	Name     string  `json:"name"`
+	Position string  `json:"position"`
+	NFLTeam  string  `json:"nflTeam"`
+	Jersey   string  `json:"jersey,omitempty"`
+	Opponent string  `json:"opponent"`
+	ADP      float64 `json:"adp,omitempty"`
+	ADPRank  int     `json:"adpRank,omitempty"`
+	ByeWeek  int     `json:"byeWeek,omitempty"`
+	// Injury is the player's CANONICAL designation, resolved from every
+	// feed that reports one (Service.resolveInjury, zones.go). The pool
+	// source fills it with its own raw value; buildPool then overwrites it
+	// with the resolved answer, so every surface that reads this field is
+	// reading the same fact. InjurySource names the feed the surviving
+	// value came from, for the tip.
+	Injury       string  `json:"injury,omitempty"`
+	InjurySource string  `json:"injurySource,omitempty"`
+	Projection   float64 `json:"projection"`
 	// ProjStats holds the projected-stat line behind Projection, keyed by
 	// stat name (for example "passYds", "rushTD"). scoreBreakdown resolves
 	// it against the league's live scoring settings; see breakdown.go.
@@ -640,6 +647,14 @@ type StarterLedgerRow struct {
 	JoinState  string  `json:"joinState"`
 	Source     string  `json:"source,omitempty"`    // StatSource* of the matched line
 	GameState  string  `json:"gameState,omitempty"` // "Q3 8:12", "W 27-20", "FINAL", "SUN 4:25 PM", "BYE", ""
+	// Injury is this starter's canonical designation, compacted to the
+	// chip code the row has room for ("O", "D", "Q", "IR"); InjuryLabel is
+	// the plain word behind it. Both empty for a player with no reported
+	// designation. Resolved once in the pool (Service.resolveInjury), so
+	// the matchups cell, the team lineup chip, and the pool row cannot
+	// disagree about whether a player is hurt.
+	Injury      string `json:"injury,omitempty"`
+	InjuryLabel string `json:"injuryLabel,omitempty"`
 	// GameFinal is whether this starter's NFL game is over, resolved from
 	// the live poller AND the loaded schedule (starterGameFinal). The
 	// projection math needs it: a finished game has nothing left to

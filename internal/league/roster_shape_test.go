@@ -77,8 +77,13 @@ func TestValidateRosterOverride(t *testing.T) {
 }
 
 // TestSetRosterOverrideLocksAfterFirstPick mirrors TestSetDraftOrder: once
-// a pick exists, SetRosterOverride and ClearRosterOverride both reject with
-// the roster-shape lock message.
+// a pick exists, a roster-shape change rejects with the lock message.
+//
+// 2026-09-10: with ONE exception. A change that moves only the IR count is
+// allowed after the draft, because IR sits outside the draft-round total
+// and is not draftable — no pick was made against it, so none can be
+// invalidated by changing it. Everything else still locks, and
+// ClearRosterOverride (which would revert the whole shape) locks too.
 func TestSetRosterOverrideLocksAfterFirstPick(t *testing.T) {
 	store := newTestStore(t)
 
@@ -91,12 +96,34 @@ func TestSetRosterOverrideLocksAfterFirstPick(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := store.SetRosterOverride(validGridironShape())
+	// A change that touches the draft-round count is still refused.
+	widened := validGridironShape()
+	widened.Bench = 8
+	err := store.SetRosterOverride(widened)
 	if err == nil {
-		t.Fatal("SetRosterOverride must reject once a pick exists")
+		t.Fatal("SetRosterOverride must reject a shape change once a pick exists")
 	}
-	if got := err.Error(); got != "the roster shape locks once the draft starts" {
+	if got := err.Error(); got != "the roster shape locks once the draft starts; only the IR count can change in-season" {
 		t.Fatalf("SetRosterOverride error = %q, want the lock message", got)
+	}
+
+	// An IR-only change is allowed: it cannot invalidate a pick.
+	withIR := validGridironShape()
+	withIR.IR = 1
+	if err := store.SetRosterOverride(withIR); err != nil {
+		t.Fatalf("an IR-only change after the draft must be accepted: %v", err)
+	}
+	if got := store.Snapshot().RosterOverride; got == nil || got.IR != 1 {
+		t.Fatalf("IR override = %+v, want IR 1", got)
+	}
+
+	// Shrinking IR back to zero is fine while nobody is stashed there.
+	// (The occupied case is covered directly by TestMaxIROccupancy and the
+	// guard in SetRosterOverride that reads it.)
+	shrunk := validGridironShape()
+	shrunk.IR = 0
+	if err := store.SetRosterOverride(shrunk); err != nil {
+		t.Fatalf("shrinking IR with nobody stashed must be accepted: %v", err)
 	}
 
 	err = store.ClearRosterOverride()

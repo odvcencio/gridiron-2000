@@ -239,17 +239,35 @@ func projectedTotal(rows []StarterLedgerRow, projections map[string]float64, sta
 }
 
 // stillToPlay counts configured starters (a row with a player assigned)
-// whose NFL game the poller has not yet marked in progress or final —
-// not started, or a team the poller has no entry for at all. An empty
-// slot contributes nothing to either side of the "X of Y" count this
-// backs (MatchupsData's still_to_play label).
+// whose NFL game has not started yet. An empty slot contributes nothing to
+// either side of the "X of Y" count this backs (MatchupsData's
+// still_to_play label).
+//
+// 2026-09-10: this used to read the live poller alone, and with a raw team
+// key, which gave it both halves of the bug that showed a finished
+// defense a 23.8 projection.
+//
+//   - A poller entry disappears once its game's window closes, and a team
+//     with no entry counted as still to play. So the morning after a
+//     Wednesday opener, every starter who had already finished was counted
+//     as yet to take the field, and the sentence beside the score read
+//     "N of M starters still to play" while naming players who were done.
+//     row.GameFinal settles it instead: it is resolved from the poller AND
+//     the schedule (starterGameFinal, matchup_ledger.go), so a game the
+//     poller has forgotten is still known to be over.
+//   - LiveStatus.Games is keyed by nflverse abbreviation while a pool
+//     player carries Tank01's, so every Rams, Commanders, and Jaguars
+//     starter missed the lookup and counted as still to play all game.
 func stillToPlay(rows []StarterLedgerRow, status LiveStatus) int {
 	count := 0
 	for _, row := range rows {
 		if row.PlayerID == "" {
 			continue
 		}
-		game, ok := status.Games[row.NFLTeam]
+		if row.GameFinal {
+			continue
+		}
+		game, ok := status.Games[normalizeNFLAbbreviation(row.NFLTeam)]
 		if !ok || (!game.Final && !game.InProgress) {
 			count++
 		}

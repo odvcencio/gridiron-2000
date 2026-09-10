@@ -1736,10 +1736,29 @@ func Page() Node {
 						) sits outside that total — in-season stash only, not draftable.
 					</p>
 					<If cond={data.roster_shape.draft_started}>
+						{/* The shape locks at the first pick because every
+						    other field feeds the draft-round count. IR does
+						    not — it sits outside that total and was never
+						    draftable — so it stays editable in-season
+						    (2026-09-10). Everything else still needs a
+						    draft reset. */}
 						<p class="demo-message">
 							<strong>LOCKED:</strong>
-							the roster shape locks once the draft starts. Reset the draft in 99 // DANGER ZONE to change it again.
+							the roster shape locks once the draft starts. Reset the draft in 99 // DANGER ZONE to change it again. IR is the exception below: it sits outside the draft rounds, so it can still change.
 						</p>
+						<form method="post" action={actionPath("roster-ir-apply")} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<div class="roster-shape-form-grid">
+								<label class="roster-shape-field">
+									<span class="mono">IR</span>
+									<input class="scoring-input" type="number" name="ir" value={data.roster_shape.ir} min="0" max="10"></input>
+								</label>
+							</div>
+							<p class="scoring-note">
+								An IR slot holds one injured player outside the roster cap, freeing a bench spot. A player must be reported Out or Doubtful to be placed there; Questionable does not qualify. Lowering IR is refused while a team still has that many players stashed.
+							</p>
+							<button class="button button--primary" type="submit">Apply IR count</button>
+						</form>
 					</If>
 					<If cond={data.roster_shape.draft_started == false}>
 						<form method="post" action={actionPath("roster-shape-apply")} data-gosx-managed="true">

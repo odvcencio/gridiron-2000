@@ -1520,13 +1520,18 @@ func (s *Service) SetHistoricalSource(fn HistoricalSource) {
 // finding, 2026-08-31).
 func (s *Service) buildPool(players []Player, version int64, label string) playerPool {
 	scoringValues := s.currentScoringValues()
+	// Resolved once per rebuild, exactly like scoringValues above, and for
+	// a second reason beyond cost: buildPool runs with poolMu held, so the
+	// locking accessor must not be called per player (see
+	// injuryDesignationSourceLocked, zones.go).
+	injurySource := s.injuryDesignationSourceLocked()
 	byID := make(map[string]Player, len(players)+len(s.players))
 	for _, player := range s.players {
-		byID[player.ID] = s.withHistorical(player, scoringValues)
+		byID[player.ID] = s.withHistorical(player, scoringValues, injurySource)
 	}
 	annotated := make([]Player, len(players))
 	for index, player := range players {
-		annotated[index] = s.withHistorical(player, scoringValues)
+		annotated[index] = s.withHistorical(player, scoringValues, injurySource)
 	}
 	// HouseRank (houserank.go) is computed once per pool version, here
 	// alongside byADP — never per render. It reads the ACTIVE roster
@@ -1624,7 +1629,22 @@ func (s *Service) carryForwardReferencedPlayers(byID map[string]Player) {
 // primary source is absent or misses and the player is a punter, this
 // falls back to the embedded 2025 punter index (punters_hist.go), matching
 // by team and last name. A mismatch attaches nothing (fail quiet).
-func (s *Service) withHistorical(player Player, scoringValues map[string]float64) Player {
+func (s *Service) withHistorical(player Player, scoringValues map[string]float64, injurySource InjuryDesignationSource) Player {
+	// Injury is resolved here, in buildPool's one per-player annotation
+	// pass, so every reader downstream — the lineup chip, the starter
+	// cell, the pool row, slotWarnsInjury's starting-slot warning — sees
+	// one answer instead of each consulting whichever feed it happened to
+	// know about (2026-09-10). The IR gate keeps reading the weekly report
+	// directly: it needs that feed's own word, not the merged one.
+	//
+	// injurySource arrives as a parameter for the same reason
+	// scoringValues does: this runs under poolMu, and an accessor call per
+	// player would re-enter that lock.
+	if status := resolveInjury(player, injurySource); status.Reported() {
+		player.Injury, player.InjurySource = status.Label, status.Source
+	} else {
+		player.Injury, player.InjurySource = "", ""
+	}
 	if player.Hist != "" {
 		return player
 	}
@@ -5815,8 +5835,10 @@ func starterLedgerMaps(rows []StarterLedgerRow) []map[string]any {
 			"points": row.PointsText, "provenance": row.Provenance, "join_state": row.JoinState,
 			"provenance_text": ledgerLineupText(row.Provenance), "join_state_text": ledgerStatsText(row.JoinState),
 			"detail": row.Detail, "source": row.Source, "source_text": ledgerSourceText(row.Source), "game_state": row.GameState,
-			"breakdown":  row.Breakdown,
-			"possession": row.Possession,
+			"breakdown":    row.Breakdown,
+			"injury":       row.Injury,
+			"injury_label": row.InjuryLabel,
+			"possession":   row.Possession,
 		})
 	}
 	return out
@@ -6358,15 +6380,25 @@ func injuryDesignationAbbr(injury string) string {
 }
 
 // injuryDesignationTip is the STATUS chip's native title tip (J3 F10's
-// "report source in a tip"): the full designation word plus the feed
-// this league's injury data comes from, so the compact chip text never
-// has to sacrifice the plain-language designation entirely.
-func injuryDesignationTip(injury string) string {
+// "report source in a tip"): the full designation word plus the feed that
+// actually supplied it, so the compact chip text never has to sacrifice
+// the plain-language designation entirely.
+//
+// 2026-09-10: this used to assert "nflverse" for every value while the
+// field it rendered came from the Tank01 pool — a label that named the
+// wrong feed whenever the two disagreed, which was the whole reason a
+// late scratch could show nothing at all. source now travels with the
+// designation (Player.InjurySource, resolved by Service.resolveInjury).
+func injuryDesignationTip(injury, source string) string {
 	injury = strings.TrimSpace(injury)
 	if injury == "" {
 		return ""
 	}
-	return fmt.Sprintf("Injury report · %s · nflverse", injury)
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return fmt.Sprintf("Injury report · %s", injury)
+	}
+	return fmt.Sprintf("Injury report · %s · %s", injury, source)
 }
 
 // playerMap renders one player's view-model map. scoringValues is the
@@ -6512,7 +6544,7 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 		// has_news.
 		"injury_designation":     injuryDesignationAbbr(player.Injury),
 		"has_injury_designation": player.Injury != "",
-		"injury_tip":             injuryDesignationTip(player.Injury),
+		"injury_tip":             injuryDesignationTip(player.Injury, player.InjurySource),
 		"rank":                   rank, "house_rank": houseRank, "has_house_rank": houseRank != "",
 		// house_rank_number (Wave D item 4, owner debrief 2026-09-06): the
 		// raw house rank int behind the "H%03d" display string above —

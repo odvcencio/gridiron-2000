@@ -5,6 +5,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- IR can now be turned on mid-season without resetting the draft. The roster shape locks at the first pick because every other field feeds the draft-round count — but IR sits outside that total and was never draftable, so no pick was made against it and none can be invalidated by changing it. The lock now permits an IR-only change and refuses everything else by name. Shrinking IR is refused while a team still has that many players stashed there. A player must be reported Out or Doubtful to occupy the slot; Questionable does not qualify, because that player can still play and IR is a season-length stash.
+- One canonical injury status, shown wherever a player appears. Two feeds report availability — the Tank01 pool field and the mirrored nflverse weekly report — and they were consumed by two different halves of the app: the visible chip read the pool, the IR eligibility gate read the weekly report, and nothing reconciled them. A late scratch the weekly report knew about could show no indicator at all. There is now one vocabulary (O, D, Q, IR, PUP, SUS), resolved once for the whole pool by taking the worse of the two — a manager setting a lineup is better served by the worse news — and the matchups starter cell carries the chip alongside the team lineup that already had one.
+
+### Fixed
+- The "N of M starters still to play" count no longer counts starters who have already played. It read the live poller alone, and a poller entry disappears once its game's window closes, so the morning after an opener every finished starter was still being counted as yet to take the field. It also missed every Rams, Commanders, and Jaguars starter outright, on the same abbreviation mismatch fixed elsewhere.
+- The injury chip's tip named "nflverse" for every value while rendering one that came from the Tank01 pool. It now names whichever feed actually supplied the designation.
+
 No changes yet.
 
 ## [release-2026.09.10-c29c784-season6] — 2026-09-10

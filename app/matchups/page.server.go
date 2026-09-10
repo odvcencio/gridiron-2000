@@ -151,6 +151,13 @@ type StarterCellData struct {
 	// (league.ScoreBreakdownText) — the owner's 2026-09-09 request to see
 	// where a player's points came from, not only the total.
 	Breakdown string
+	// Injury is the canonical designation code ("O", "D", "Q", "IR") and
+	// InjuryLabel the plain word behind it; HasInjury gates the chip. A
+	// late scratch has to be visible in the lineup you are watching, not
+	// only on the page where you set it (owner report, 2026-09-10).
+	Injury      string
+	InjuryLabel string
+	HasInjury   bool
 	// ProvenanceText/JoinStateText/SourceText (wave-8 audit item 3) are
 	// ledgerLineupText/ledgerStatsText/ledgerSourceText's already-labelled,
 	// plain-word segments (service.go's starterLedgerMaps) — what the
@@ -213,6 +220,9 @@ func starterCellData(raw any, right bool) StarterCellData {
 		SourceText:      stringField(row, "source_text"),
 		GameState:       stringField(row, "game_state"),
 		Breakdown:       stringField(row, "breakdown"),
+		Injury:          stringField(row, "injury"),
+		InjuryLabel:     stringField(row, "injury_label"),
+		HasInjury:       stringField(row, "injury") != "",
 		StateClass:      starterStateClass(stringField(row, "game_state")),
 		Possession:      stringField(row, "possession"),
 	}

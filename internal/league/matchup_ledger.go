@@ -652,6 +652,8 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 		row.NFLTeam = assignment.Player.NFLTeam
 		row.GameState = starterGameState(assignment.Player, week, snapshot, s.matchupLocation())
 		row.GameFinal = starterGameFinal(assignment.Player.NFLTeam, snapshot)
+		row.Injury = injuryDesignationAbbr(assignment.Player.Injury)
+		row.InjuryLabel = strings.TrimSpace(assignment.Player.Injury)
 		row.Possession = starterPossessionLabel(assignment.Player, snapshot.live, snapshot.hasLive)
 		if sourceErr != nil {
 			row.JoinState = "stats-unavailable"

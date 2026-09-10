@@ -135,8 +135,12 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// arrival panel reads the co_manager_bound flash it also sets)
 	// (7 -> 9). It is not one of the seven pages the scoped-notice
 	// migration above touched.
+	// 2026-09-10: app/admin's new "roster-ir-apply" action adds one
+	// RedirectBackWithNotice (30 -> 31). It is the in-season IR knob — the
+	// one part of the roster shape that may change after the draft, since
+	// IR sits outside the draft-round total (see Store.SetRosterOverride).
 	const wantRedirects = 9
-	const wantRedirectBacks = 30
+	const wantRedirectBacks = 31
 	redirects := 0
 	redirectBacks := 0
 	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, walkErr error) error {

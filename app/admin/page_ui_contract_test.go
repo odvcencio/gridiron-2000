@@ -419,7 +419,7 @@ func TestAdminTaskNavigationGroupsAndRoutineOrder(t *testing.T) {
 		"invite-send", "invite-remove", "draft-reset", "draft-undo", "league-reset",
 		"seat-trim", "order-randomize", "clock-pause", "clock-resume",
 		"clock-force-autopick", "clock-extend", "clock-set-duration",
-		"roster-shape-apply", "roster-shape-reset", "announcement-post",
+		"roster-shape-apply", "roster-ir-apply", "roster-shape-reset", "announcement-post",
 		"announcement-delete",
 	} {
 		if !strings.Contains(markup, "actionPath("+quote+action+quote+")") {

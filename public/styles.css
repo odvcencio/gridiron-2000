@@ -11110,6 +11110,26 @@ body.is-on-clock .draft-clock-panel {
   display: none;
 }
 
+/* .injury-chip is the canonical injury designation wherever a player's
+   name appears: one letter (O, D, Q) or IR, in the warn colour, with the
+   plain word in a native title and an aria-label so it is never colour
+   alone. The code is resolved once for the whole pool
+   (league.Service.resolveInjury) so this chip, /team's STATUS column, and
+   the pool row can never disagree about whether a player is hurt. */
+.injury-chip {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 4px;
+  border: 1px solid var(--color-warn, var(--color-border-strong));
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--color-warn, var(--color-text-primary));
+  white-space: nowrap;
+}
+
 /* The /team stat tip's own "what this player actually scored" block. It
    sits inside a disclosure that is closed by default, so it adds nothing
    to the lineup row's height budget — the reason the scored breakdown

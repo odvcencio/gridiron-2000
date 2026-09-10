@@ -3174,6 +3174,17 @@ func (s *Store) BadgeClaims() map[string]string {
 // derived draft-round count only stay free to change while nobody has been
 // drafted against a live slot count yet (mirrors SetDraftOrder's
 // post-first-pick lock, same message shape).
+//
+// One exception, added 2026-09-10: a change that touches ONLY the IR count
+// is allowed after the draft. IR sits outside the draft-round total and is
+// not draftable, so no pick was made against it and none can be
+// invalidated by moving it — which is what made the blanket lock too
+// coarse. A commissioner who wants an IR slot mid-season had no way to add
+// one short of resetting the draft and emptying every roster.
+//
+// Shrinking IR is still refused while any team has that many players
+// stashed: dropping the count out from under an occupied zone would strand
+// those players in a zone that no longer exists.
 func (s *Store) SetRosterOverride(o RosterOverride) error {
 	if err := validateRosterOverride(o); err != nil {
 		return err
@@ -3184,10 +3195,45 @@ func (s *Store) SetRosterOverride(o RosterOverride) error {
 		return err
 	}
 	if s.state.DraftStarted {
-		return fmt.Errorf("the roster shape locks once the draft starts")
+		// Prefer the STORED override as the comparison base when one
+		// exists: it is this store's own durable state, where CurrentRoster
+		// is package-level runtime state the store does not maintain and
+		// which a caller may not have applied yet. Fall back to the
+		// effective shape only when no override has ever been written —
+		// the config-default case, where it is the only description of the
+		// current shape.
+		base := CurrentRoster()
+		if s.state.RosterOverride != nil {
+			base = rosterOverridePreset(*s.state.RosterOverride)
+		}
+		if !rosterOverrideOnlyIRDiffers(base, o) {
+			return fmt.Errorf("the roster shape locks once the draft starts; only the IR count can change in-season")
+		}
+		if occupied := maxIROccupancyLocked(s.state); o.IR < occupied {
+			return fmt.Errorf("IR is set to %d but a team already has %d player(s) stashed there; move them back to the bench first", o.IR, occupied)
+		}
 	}
 	s.state.RosterOverride = cloneRosterOverride(&o)
 	return s.persistLocked(colScalars)
+}
+
+// maxIROccupancyLocked returns the largest number of players any one team
+// currently holds in its IR zone. SetRosterOverride refuses to shrink IR
+// below it. Caller holds s.mu.
+func maxIROccupancyLocked(state PersistedState) int {
+	worst := 0
+	for _, zones := range state.RosterZones {
+		count := 0
+		for _, assignment := range zones {
+			if assignment.Zone == zoneIR {
+				count++
+			}
+		}
+		if count > worst {
+			worst = count
+		}
+	}
+	return worst
 }
 
 // ClearRosterOverride drops any commissioner roster-shape override,
