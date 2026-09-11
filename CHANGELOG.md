@@ -5,11 +5,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [release-2026.09.10-a89ac36-season11] — 2026-09-10
+
+Scope: season-11 readability and runtime truth: scoring explanations stay inside their raised tooltip on narrow screens, the Matchups tab uses an American-football icon, finished games no longer receive future projections, and the application pins GoSX v0.56.3 with its fail-closed action return-target validation. No schema change.
+
 ### Fixed
 - Long scoring breakdowns now wrap inside their raised tooltip panel instead of overflowing the matchup row or clipping the explanation on narrow screens.
-- The mobile Matchups tab now uses an American-football icon.
+- Finished games no longer receive future projections, keeping player and team totals honest after kickoff windows close.
 
 ### Changed
+- The mobile Matchups tab now uses an American-football icon.
 - The application now pins GoSX v0.56.3, including its fail-closed action return-target validation.
 
 ## [release-2026.09.10-d4bb0b2-season10] — 2026-09-10

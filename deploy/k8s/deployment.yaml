@@ -30,16 +30,15 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.08-cb21969-weekly; built from
-          # cb2196986ffca237399ecebe8e58dbff4790c42e (main, 2026-09-08): GoSX v0.55.2 — comments inside .gsx
-          # markup compile away on the released line; soft navigation
-          # reconciles the body in place. Also ships the phone layout pass
-          # and the self-hosted fonts. No schema change: `rollout undo` to
-          # the previous revision is valid.
-          # Release build: 2026-09-09T05:23:15Z.
+          # release-2026.09.10-a89ac36-season11; built from
+          # a89ac369496352bc4e120fda8b946d58210d1591 (main, 2026-09-10): GoSX v0.56.3 —
+          # tooltip containment, football navigation icon, finished-game projection
+          # truth, and fail-closed action return-target validation. No schema change:
+          # `rollout undo` to the previous revision is valid.
+          # Release build: 2026-09-11T06:00:00Z.
           # Stable Kernel did not form for 2026; this flagship-only release does not
           # alter the SK template or run an SK canary.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:7fb5b7da8627eb382a5cca70d9f7a8b8d7fe9455b6af99777c42327883d9f3c4
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:e63175fc6507fd515729d0e98ab2290c5f60e8bfd2d551719b133ec11a4a50a2
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
