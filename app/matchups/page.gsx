@@ -82,7 +82,7 @@ func StarterProgress(props StarterProgressData) Node {
 						</Each>
 						<span class="starter-progress__center" aria-hidden="true">STARTER<br />PROGRESS</span>
 					</div>
-					<small class="starter-progress__summary mono"><span data-gosx-live-bind={"starterProgressSummary." + team.BindID}>{team.Summary}</span> · 25% per quarter</small>
+					<small class="starter-progress__summary mono"><span data-gosx-live-bind={"starterProgressSummary." + team.BindID}>{team.Summary}</span></small>
 				</article>
 			</Each>
 		</div>
