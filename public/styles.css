@@ -19025,10 +19025,11 @@ a.skip-link {
 .matchups-page .starter-progress__ring::before {
   position: absolute;
   inset: 0.72rem;
-  z-index: -1;
+  z-index: 0;
   border: 1px solid var(--color-border);
   border-radius: 50%;
   content: "";
+  pointer-events: none;
 }
 
 .matchups-page .starter-progress__piece {
@@ -19042,6 +19043,7 @@ a.skip-link {
   width: 2.15rem;
   height: 1.4rem;
   margin: -0.7rem -1.075rem;
+  z-index: 1;
   border: 1px solid var(--color-border-strong);
   border-radius: 0.45rem;
   background: var(--color-panel-deep);
@@ -19077,13 +19079,13 @@ a.skip-link {
   display: block;
   width: 0.31rem;
   height: 0.7rem;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 999px;
+  border: 0;
+  border-radius: 0.18rem;
+  background: var(--color-white-soft);
   font-size: 0;
 }
 
 .matchups-page .starter-progress__quarter:not(:empty) {
-  border-color: var(--color-accent);
   background: var(--color-accent);
   box-shadow: 0 0 5px var(--color-accent-haze);
 }
@@ -19096,6 +19098,7 @@ a.skip-link {
   width: 3.9rem;
   height: 3.9rem;
   place-items: center;
+  z-index: 2;
   border: 1px solid var(--color-border);
   border-radius: 50%;
   background: var(--color-panel-deep);
