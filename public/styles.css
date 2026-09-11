@@ -1677,7 +1677,7 @@ h2 {
 .board-button:hover {
   transform: translateY(-2px);
   border-color: var(--color-text-secondary);
-  background: var(--color-white-soft);
+  background: transparent;
 }
 
 .button:active,
