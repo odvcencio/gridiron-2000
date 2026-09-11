@@ -157,6 +157,15 @@ func TestRedesignedFeaturedTableRendersSlotProjTotalsAndBenches(t *testing.T) {
 			t.Errorf("redesigned featured table missing %q: %s", want, body)
 		}
 	}
+	if rings := strings.Count(body, `class="starter-progress__ring"`); rings < 2 {
+		t.Fatalf("featured matchup rendered %d starter progress ring(s), want one for each team", rings)
+	}
+	if teams := strings.Count(body, `class="starter-progress__team"`); teams < 2 {
+		t.Fatalf("featured matchup rendered %d starter progress team wrapper(s), want two", teams)
+	}
+	if !strings.Contains(body, `data-gosx-live-bind="starterProgressSummary.`) || !strings.Contains(body, `-mine"`) || !strings.Contains(body, `-theirs"`) {
+		t.Fatalf("featured matchup rings are missing side-specific summary bindings: %s", body)
+	}
 
 	// The Benches <details> is closed by default (no "open" attribute) so
 	// the featured table still reads as the primary surface.

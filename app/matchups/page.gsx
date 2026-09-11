@@ -58,21 +58,34 @@ func ProjectionValue(props ProjectionValueProps) Node {
 	</span>
 }
 
-// StarterProgress is a ten-piece ring. Each piece represents one configured
-// starter slot (the final K/P piece groups the reference roster's special
-// teams slots), and each piece contains four live-bound quarter marks. A mark
-// fills at 25%, 50%, 75%, and 100% as that slot's NFL game advances.
+// StarterProgress renders one ten-piece ring per team. Each piece represents
+// one configured starter slot (the final K/P piece groups the reference
+// roster's special-teams slots), and each piece contains four live-bound
+// quarter marks. A mark fills at 25%, 50%, 75%, and 100% as that slot's NFL
+// game advances. Keeping the rings team-owned makes it obvious whose slate
+// is complete when the two sides are at different points in the day.
 func StarterProgress(props StarterProgressData) Node {
 	return <section class="starter-progress" aria-label={props.AriaLabel}>
-		<div class="starter-progress__ring" role="img" aria-label={props.AriaLabel}>
-			<Each of={props.Segments} as="segment">
-				<span class="starter-progress__piece" data-piece={segment.Index} data-active={segment.Active} title={segment.Label + " · " + segment.PlayerNames + " · " + segment.ProgressLabel}>
-					<span class="starter-progress__quarters" aria-hidden="true"><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ1." + segment.BindKey}>{segment.Q1}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ2." + segment.BindKey}>{segment.Q2}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ3." + segment.BindKey}>{segment.Q3}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ4." + segment.BindKey}>{segment.Q4}</span></span>
-				</span>
+		<div class="starter-progress__teams">
+			<Each of={props.Teams} as="team">
+				<article class="starter-progress__team" data-team={team.TeamID}>
+					<header class="starter-progress__team-head">
+						<span class="starter-progress__team-side mono">{team.SideLabel}</span>
+						<If cond={team.TeamHref != ""}><a class="starter-progress__team-name" href={team.TeamHref} data-gosx-link>{team.TeamName}</a></If>
+						<If cond={team.TeamHref == ""}><span class="starter-progress__team-name">{team.TeamName}</span></If>
+					</header>
+					<div class="starter-progress__ring" role="img" aria-label={team.AriaLabel}>
+						<Each of={team.Segments} as="segment">
+							<span class="starter-progress__piece" data-piece={segment.Index} data-active={segment.Active} title={segment.Label + " · " + segment.PlayerNames + " · " + segment.ProgressLabel}>
+								<span class="starter-progress__quarters" aria-hidden="true"><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ1." + segment.BindKey}>{segment.Q1}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ2." + segment.BindKey}>{segment.Q2}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ3." + segment.BindKey}>{segment.Q3}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ4." + segment.BindKey}>{segment.Q4}</span></span>
+							</span>
+						</Each>
+						<span class="starter-progress__center" aria-hidden="true">STARTER<br />PROGRESS</span>
+					</div>
+					<small class="starter-progress__summary mono"><span data-gosx-live-bind={"starterProgressSummary." + team.BindID}>{team.Summary}</span> · 25% per quarter</small>
+				</article>
 			</Each>
-			<span class="starter-progress__center" aria-hidden="true">STARTER<br />PROGRESS</span>
 		</div>
-		<small class="starter-progress__summary mono"><span data-gosx-live-bind={"starterProgressSummary." + props.BindID}>{props.Summary}</span> · 25% per quarter</small>
 	</section>
 }
 

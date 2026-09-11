@@ -342,8 +342,9 @@ func featuredTeamData(raw any) FeaturedTeamData {
 }
 
 // StarterProgressSegmentData is one of the ten quarter-filled pieces shown
-// beside a matchup. BindKey is deliberately flat (matchup-id + piece index)
-// because the live runtime resolves one nested map key, not an array path.
+// in one team's ring. BindKey is deliberately flat (matchup-id + side +
+// piece index) because the live runtime resolves one nested map key, not an
+// array path.
 type StarterProgressSegmentData struct {
 	Index         string
 	BindKey       string
@@ -357,40 +358,102 @@ type StarterProgressSegmentData struct {
 	Active        bool
 }
 
-type StarterProgressData struct {
+type StarterProgressTeamData struct {
+	SideLabel string
+	TeamID    string
+	TeamName  string
+	TeamHref  string
 	Segments  []StarterProgressSegmentData
 	Summary   string
 	AriaLabel string
 	BindID    string
 }
 
-func starterProgressData(raw any, summary, matchupID string) StarterProgressData {
-	rawSegments, _ := raw.([]map[string]any)
-	segments := make([]StarterProgressSegmentData, 0, len(rawSegments))
-	for _, rawSegment := range rawSegments {
-		index := intField(rawSegment, "index")
-		bindKey := stringField(rawSegment, "bind_key")
-		if bindKey == "" {
-			bindKey = matchupID + "-" + strconv.Itoa(index)
+type StarterProgressData struct {
+	Teams     []StarterProgressTeamData
+	AriaLabel string
+}
+
+func starterProgressSummaryMap(raw any) map[string]string {
+	out := make(map[string]string)
+	switch values := raw.(type) {
+	case map[string]string:
+		for key, value := range values {
+			out[key] = value
 		}
-		segments = append(segments, StarterProgressSegmentData{
-			Index:         strconv.Itoa(index),
-			BindKey:       bindKey,
-			Label:         stringField(rawSegment, "label"),
-			PlayerNames:   stringField(rawSegment, "player_names"),
-			ProgressLabel: stringField(rawSegment, "progress_label"),
-			Q1:            stringField(rawSegment, "q1"),
-			Q2:            stringField(rawSegment, "q2"),
-			Q3:            stringField(rawSegment, "q3"),
-			Q4:            stringField(rawSegment, "q4"),
-			Active:        boolField(rawSegment, "active"),
+	case map[string]any:
+		for key, value := range values {
+			if summary, ok := value.(string); ok {
+				out[key] = summary
+			}
+		}
+	}
+	return out
+}
+
+func starterProgressSideLabel(side string) string {
+	switch strings.ToLower(strings.TrimSpace(side)) {
+	case "mine":
+		return "YOU"
+	case "theirs":
+		return "OPPONENT"
+	default:
+		return strings.ToUpper(strings.TrimSpace(side))
+	}
+}
+
+func starterProgressData(raw any, summaryRaw any, matchupID string, teamRaws map[string]any) StarterProgressData {
+	rawTeams, _ := raw.(map[string]any)
+	summaries := starterProgressSummaryMap(summaryRaw)
+	sides := []string{"mine", "theirs"}
+	if _, ok := rawTeams["mine"]; !ok {
+		sides = []string{"away", "home"}
+	}
+	teams := make([]StarterProgressTeamData, 0, len(sides))
+	for _, side := range sides {
+		rawSegments, _ := rawTeams[side].([]map[string]any)
+		segments := make([]StarterProgressSegmentData, 0, len(rawSegments))
+		for _, rawSegment := range rawSegments {
+			index := intField(rawSegment, "index")
+			bindKey := stringField(rawSegment, "bind_key")
+			if bindKey == "" {
+				bindKey = matchupID + "-" + side + "-" + strconv.Itoa(index)
+			}
+			segments = append(segments, StarterProgressSegmentData{
+				Index:         strconv.Itoa(index),
+				BindKey:       bindKey,
+				Label:         stringField(rawSegment, "label"),
+				PlayerNames:   stringField(rawSegment, "player_names"),
+				ProgressLabel: stringField(rawSegment, "progress_label"),
+				Q1:            stringField(rawSegment, "q1"),
+				Q2:            stringField(rawSegment, "q2"),
+				Q3:            stringField(rawSegment, "q3"),
+				Q4:            stringField(rawSegment, "q4"),
+				Active:        boolField(rawSegment, "active"),
+			})
+		}
+		team, _ := teamRaws[side].(map[string]any)
+		teamID := stringField(team, "id")
+		teamName := stringField(team, "name")
+		teamHref := stringField(team, "team_href")
+		if teamHref == "" {
+			teamHref = teamPageHref(teamID)
+		}
+		summary := summaries[side]
+		ariaLabel := starterProgressSideLabel(side) + " starter progress"
+		if teamName != "" {
+			ariaLabel = teamName + " starter progress"
+		}
+		if summary != "" {
+			ariaLabel += ": " + summary + ". Each piece fills one quarter as its slot's NFL game advances."
+		}
+		teams = append(teams, StarterProgressTeamData{
+			SideLabel: starterProgressSideLabel(side), TeamID: teamID, TeamName: teamName,
+			TeamHref: teamHref, Segments: segments, Summary: summary, AriaLabel: ariaLabel,
+			BindID: matchupID + "-" + side,
 		})
 	}
-	ariaLabel := "Starter progress"
-	if summary != "" {
-		ariaLabel += ": " + summary + ". Each piece fills one quarter as its slot's NFL game advances."
-	}
-	return StarterProgressData{Segments: segments, Summary: summary, AriaLabel: ariaLabel, BindID: matchupID}
+	return StarterProgressData{Teams: teams, AriaLabel: "Starter progress by team"}
 }
 
 // BenchRowData is one Benches-disclosure row (A4, matchup redesign
@@ -500,7 +563,7 @@ func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
 		Pairs:               pairs,
 		MineBench:           benchRowsData(mineBenchRaw),
 		TheirsBench:         benchRowsData(theirsBenchRaw),
-		StarterProgress:     starterProgressData(raw["starter_progress"], stringField(raw, "starter_progress_summary"), stringField(raw, "id")),
+		StarterProgress:     starterProgressData(raw["starter_progress"], raw["starter_progress_summary"], stringField(raw, "id"), map[string]any{"mine": raw["mine"], "theirs": raw["theirs"]}),
 	}
 }
 
@@ -644,7 +707,7 @@ func matchupsPageScorebugs(raw []map[string]any) []ScorebugData {
 			WinProbTeam:          stringField(entry, "win_prob_team"),
 			Pairs:                pairs,
 			FocusHref:            stringField(entry, "focus_href"),
-			StarterProgress:      starterProgressData(entry["starter_progress"], stringField(entry, "starter_progress_summary"), stringField(entry, "id")),
+			StarterProgress:      starterProgressData(entry["starter_progress"], entry["starter_progress_summary"], stringField(entry, "id"), map[string]any{"away": entry["away"], "home": entry["home"]}),
 		})
 	}
 	return out

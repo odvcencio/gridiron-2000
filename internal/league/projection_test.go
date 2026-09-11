@@ -265,6 +265,49 @@ func TestStarterProgressSegmentsUseTenQuarterPieces(t *testing.T) {
 	}
 }
 
+func TestStarterProgressSegmentsForTeamAreIndependent(t *testing.T) {
+	teamA := []StarterLedgerRow{
+		{Slot: "QB", PlayerID: "a-qb", PlayerName: "Team A QB", NFLTeam: "BUF"},
+		{Slot: "RB1", PlayerID: "a-rb", PlayerName: "Team A RB", NFLTeam: "MIA"},
+	}
+	teamB := []StarterLedgerRow{
+		{Slot: "QB", PlayerID: "b-qb", PlayerName: "Team B QB", NFLTeam: "BUF"},
+		{Slot: "RB1", PlayerID: "b-rb", PlayerName: "Team B RB", NFLTeam: "MIA"},
+	}
+	status := LiveStatus{Games: map[string]LiveGameState{
+		"BUF": {Period: "Q1", InProgress: true},
+		"MIA": {Final: true},
+	}}
+	a := starterProgressSegmentsForTeam(teamA, status)
+	b := starterProgressSegmentsForTeam(teamB, LiveStatus{Games: map[string]LiveGameState{
+		"BUF": {Final: true},
+		"MIA": {Final: true},
+	}})
+	if len(a) != starterProgressPieceCount || len(b) != starterProgressPieceCount {
+		t.Fatalf("team ring lengths = %d/%d, want %d/%d", len(a), len(b), starterProgressPieceCount, starterProgressPieceCount)
+	}
+	if a[0].Progress != 1 || a[1].Progress != 4 {
+		t.Fatalf("team A progress = %d/%d, want 1/4", a[0].Progress, a[1].Progress)
+	}
+	if b[0].Progress != 4 || b[1].Progress != 4 {
+		t.Fatalf("team B progress = %d/%d, want 4/4", b[0].Progress, b[1].Progress)
+	}
+	if got := starterProgressSummary(a); got != "1 of 10 starter pieces complete" {
+		t.Fatalf("team A summary = %q, want 1 of 10 starter pieces complete", got)
+	}
+	if got := starterProgressSummary(b); got != "2 of 10 starter pieces complete" {
+		t.Fatalf("team B summary = %q, want 2 of 10 starter pieces complete", got)
+	}
+	progress := starterProgressMapsForTeams("match-1", teamA, "away", teamB, "home", status)
+	away, ok := progress["away"].([]map[string]any)
+	if !ok || len(away) != starterProgressPieceCount {
+		t.Fatalf("away progress map = %#v, want ten segments", progress["away"])
+	}
+	if got := away[0]["bind_key"]; got != "match-1-away-0" {
+		t.Fatalf("away bind key = %v, want match-1-away-0", got)
+	}
+}
+
 // TestStillToPlaySentence covers A1 (matchup redesign 2026-09-07): the
 // plain-words still-to-play line retires the fixed "N of M starters
 // still to play" jargon for a sentence that reads naturally at both ends

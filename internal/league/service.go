@@ -4158,7 +4158,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	starterProgressQ2 := make(map[string]string)
 	starterProgressQ3 := make(map[string]string)
 	starterProgressQ4 := make(map[string]string)
-	starterProgressSummaryBind := make(map[string]string, len(live.Matchups))
+	starterProgressSummaryBind := make(map[string]string, len(live.Matchups)*2)
 	liveStatusValue, hasLive := s.liveStatus()
 	pool := s.pool()
 	projectionByID, _, projectionNote := s.projectionPoolForWeek(pool, live.Week)
@@ -4232,14 +4232,21 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		stillToPlayBind[matchup.ID] = strconv.Itoa(stillToPlayCount)
 		stillToPlayTotalBind[matchup.ID] = strconv.Itoa(len(combined))
 		stillToPlaySentenceBind[matchup.ID] = stillToPlaySentence(stillToPlayCount, len(combined))
-		progress := starterProgressSegments(matchup.Away.StarterLedger, matchup.Home.StarterLedger, liveStatusValue)
-		starterProgressSummaryBind[matchup.ID] = starterProgressSummary(progress)
-		for _, segment := range progress {
-			key := starterProgressBindKey(matchup.ID, segment.Index)
-			starterProgressQ1[key] = starterProgressMark(segment.Progress, 1)
-			starterProgressQ2[key] = starterProgressMark(segment.Progress, 2)
-			starterProgressQ3[key] = starterProgressMark(segment.Progress, 3)
-			starterProgressQ4[key] = starterProgressMark(segment.Progress, 4)
+		for _, progressSide := range []struct {
+			side     string
+			segments []starterProgressSegment
+		}{
+			{side: "away", segments: starterProgressSegmentsForTeam(matchup.Away.StarterLedger, liveStatusValue)},
+			{side: "home", segments: starterProgressSegmentsForTeam(matchup.Home.StarterLedger, liveStatusValue)},
+		} {
+			starterProgressSummaryBind[matchup.ID+"-"+progressSide.side] = starterProgressSummary(progressSide.segments)
+			for _, segment := range progressSide.segments {
+				key := starterProgressTeamBindKey(matchup.ID, progressSide.side, segment.Index)
+				starterProgressQ1[key] = starterProgressMark(segment.Progress, 1)
+				starterProgressQ2[key] = starterProgressMark(segment.Progress, 2)
+				starterProgressQ3[key] = starterProgressMark(segment.Progress, 3)
+				starterProgressQ4[key] = starterProgressMark(segment.Progress, 4)
+			}
 		}
 	}
 	checkedAt := live.CheckedAt
@@ -6059,8 +6066,8 @@ func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, 
 			// starters still to play" jargon in favor of a sentence that
 			// reads naturally at both ends of the range.
 			entry["still_to_play_sentence"] = stillToPlaySentence(stillToPlayCount, len(combined))
-			entry["starter_progress"] = starterProgressMapsForMatchup(m.ID, m.Away.StarterLedger, m.Home.StarterLedger, status)
-			entry["starter_progress_summary"] = starterProgressSummary(starterProgressSegments(m.Away.StarterLedger, m.Home.StarterLedger, status))
+			entry["starter_progress"] = starterProgressMapsForTeams(m.ID, m.Away.StarterLedger, "away", m.Home.StarterLedger, "home", status)
+			entry["starter_progress_summary"] = starterProgressSummariesForTeams(m.Away.StarterLedger, "away", m.Home.StarterLedger, "home", status)
 			// Every scorebug's own expandable body carries the same
 			// per-slot starter pairs the featured card renders (Task 11b's
 			// Scorebug body is a ul.matchup-pairs of StarterCell, same as
@@ -6089,7 +6096,7 @@ func emptyFeaturedMatchup() map[string]any {
 		"has_matchup": false, "is_viewer": false, "id": "", "label": "",
 		"live_indicator": "", "live_state": "", "win_prob": "", "win_prob_width": "0%",
 		"still_to_play": 0, "still_to_play_total": 0, "still_to_play_sentence": "",
-		"starter_progress": []map[string]any{}, "starter_progress_summary": "",
+		"starter_progress": map[string]any{}, "starter_progress_summary": map[string]string{},
 		"mine_is_home": false, "win_prob_team": "",
 		"next_lineup_href": "", "next_week": 0, "has_next_week": false,
 		"mine": map[string]any{}, "theirs": map[string]any{}, "pairs": []map[string]any{},
@@ -6190,8 +6197,8 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 		"still_to_play":            stillToPlayCount,
 		"still_to_play_total":      len(combined),
 		"still_to_play_sentence":   stillToPlaySentence(stillToPlayCount, len(combined)),
-		"starter_progress":         starterProgressMapsForMatchup(m.ID, mine.StarterLedger, theirs.StarterLedger, status),
-		"starter_progress_summary": starterProgressSummary(starterProgressSegments(mine.StarterLedger, theirs.StarterLedger, status)),
+		"starter_progress":         starterProgressMapsForTeams(m.ID, mine.StarterLedger, "mine", theirs.StarterLedger, "theirs", status),
+		"starter_progress_summary": starterProgressSummariesForTeams(mine.StarterLedger, "mine", theirs.StarterLedger, "theirs", status),
 		"next_lineup_href":         fmt.Sprintf("/team?week=%d#lineup", nextWeek),
 		"next_week":                nextWeek,
 		"has_next_week":            hasNextWeek,

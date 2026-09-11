@@ -18953,21 +18953,82 @@ a.skip-link {
   transform: none;
 }
 
-/* Ten-piece starter progress ring. A piece is a small raised tile around the
-   circumference; its four internal bars are quarter marks and are updated
-   by GoSX text binds without requiring a full page navigation. */
+/* Two team-owned ten-piece starter progress rings. Each piece is a readable
+   tile around its team's ring; its four internal bars are quarter marks and
+   are updated by GoSX text binds without requiring a full page navigation. */
 .matchups-page .starter-progress {
   width: 100%;
   min-width: 0;
   margin-top: var(--space-xs);
+}
+
+.matchups-page .starter-progress__teams {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(var(--space-sm), 3vw, var(--space-lg));
+  align-items: start;
+}
+
+.matchups-page .starter-progress__team {
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+  gap: 0.35rem;
   text-align: center;
+}
+
+.matchups-page .starter-progress__team-head {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+.matchups-page .starter-progress__team-side {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  letter-spacing: 0.08em;
+}
+
+.matchups-page .starter-progress__team-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-family: var(--font-display);
+  font-size: var(--type-sm);
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.matchups-page a.starter-progress__team-name:hover,
+.matchups-page a.starter-progress__team-name:focus-visible {
+  color: var(--color-accent);
 }
 
 .matchups-page .starter-progress__ring {
   position: relative;
-  width: 8rem;
-  height: 8rem;
-  margin: 0 auto var(--space-xs);
+  box-sizing: border-box;
+  width: clamp(7rem, 18vw, 9rem);
+  aspect-ratio: 1;
+  margin: 0 auto;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--color-panel-deep) 0 52%, transparent 53%);
+  isolation: isolate;
+}
+
+.matchups-page .starter-progress__ring::before {
+  position: absolute;
+  inset: 0.72rem;
+  z-index: -1;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  content: "";
 }
 
 .matchups-page .starter-progress__piece {
@@ -18977,18 +19038,23 @@ a.skip-link {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 1.15rem;
-  margin: -0.575rem -1rem;
+  box-sizing: border-box;
+  width: 2.15rem;
+  height: 1.4rem;
+  margin: -0.7rem -1.075rem;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: 0.45rem;
   background: var(--color-panel-deep);
-  transform: rotate(var(--piece-angle)) translateY(-3rem) rotate(var(--piece-counter-angle));
+  transform: rotate(var(--piece-angle)) translateY(-3.35rem) rotate(var(--piece-counter-angle));
   transition: border-color var(--duration-standard) var(--ease-out), background var(--duration-standard) var(--ease-out);
 }
 
+.matchups-page .starter-progress__piece[data-active="true"] {
+  border-color: var(--color-border);
+}
+
 .matchups-page .starter-progress__piece[data-active="false"] {
-  opacity: 0.4;
+  opacity: 0.32;
 }
 
 .matchups-page .starter-progress__piece[data-piece="0"] { --piece-angle: 0deg; --piece-counter-angle: 0deg; }
@@ -19004,15 +19070,15 @@ a.skip-link {
 
 .matchups-page .starter-progress__quarters {
   display: flex;
-  gap: 2px;
+  gap: 0.16rem;
 }
 
 .matchups-page .starter-progress__quarter {
   display: block;
-  width: 0.3rem;
-  height: 0.62rem;
+  width: 0.31rem;
+  height: 0.7rem;
   border: 1px solid var(--color-border-strong);
-  border-radius: 2px;
+  border-radius: 999px;
   font-size: 0;
 }
 
@@ -19027,11 +19093,12 @@ a.skip-link {
   top: 50%;
   left: 50%;
   display: grid;
-  width: 3.5rem;
-  height: 3.5rem;
+  width: 3.9rem;
+  height: 3.9rem;
   place-items: center;
   border: 1px solid var(--color-border);
   border-radius: 50%;
+  background: var(--color-panel-deep);
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   font-size: var(--type-xs);
@@ -19043,9 +19110,11 @@ a.skip-link {
 
 .matchups-page .starter-progress__summary {
   display: block;
+  max-width: 100%;
   color: var(--color-text-muted);
   font-size: var(--type-xs);
   line-height: 1.35;
+  text-align: center;
 }
 
 .matchups-page .matchup-insight-line {
@@ -19088,12 +19157,47 @@ a.skip-link {
   }
 
   .matchups-page .starter-progress__ring {
-    width: 7rem;
-    height: 7rem;
+    width: clamp(6.2rem, 30vw, 7.5rem);
   }
 
   .matchups-page .starter-progress__piece {
-    transform: rotate(var(--piece-angle)) translateY(-2.6rem) rotate(var(--piece-counter-angle));
+    width: 1.85rem;
+    height: 1.25rem;
+    margin: -0.625rem -0.925rem;
+    transform: rotate(var(--piece-angle)) translateY(-2.9rem) rotate(var(--piece-counter-angle));
+  }
+
+  .matchups-page .starter-progress__quarter {
+    width: 0.25rem;
+    height: 0.58rem;
+  }
+
+  .matchups-page .starter-progress__center {
+    width: 3.25rem;
+    height: 3.25rem;
+    font-size: 0.8125rem;
+  }
+}
+
+@media (width <= 24rem) {
+  .matchups-page .starter-progress__teams {
+    gap: 0.25rem;
+  }
+
+  .matchups-page .starter-progress__team-side {
+    font-size: 0.8125rem;
+  }
+
+  .matchups-page .starter-progress__team-name {
+    font-size: var(--type-xs);
+  }
+
+  .matchups-page .starter-progress__ring {
+    width: 5.9rem;
+  }
+
+  .matchups-page .starter-progress__piece {
+    transform: rotate(var(--piece-angle)) translateY(-2.7rem) rotate(var(--piece-counter-angle));
   }
 }
 

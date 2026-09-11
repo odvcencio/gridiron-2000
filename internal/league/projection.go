@@ -633,6 +633,104 @@ func starterProgressMapsForMatchup(matchupID string, mineRows, theirsRows []Star
 	return out
 }
 
+// starterProgressSegmentsForTeam builds one team's ten-piece progress ring.
+// A matchup renders two of these rings — one for each team — so a stalled or
+// completed opponent can never mask the other team's own starter progress.
+// The first nine pieces follow the ordinary configured slots; the final K/P
+// piece groups the special-teams slots just as the original matchup ring did.
+func starterProgressSegmentsForTeam(rows []StarterLedgerRow, status LiveStatus) []starterProgressSegment {
+	out := make([]starterProgressSegment, 0, starterProgressPieceCount)
+	for index := 0; index < starterProgressPieceCount; index++ {
+		label := "OPEN SLOT"
+		group := make([]StarterLedgerRow, 0, 4)
+		if index < starterProgressIndividualPieces {
+			if index < len(rows) {
+				group = append(group, rows[index])
+				if slot := strings.TrimSpace(rows[index].Slot); slot != "" {
+					label = slot
+				}
+			}
+		} else {
+			label = "K/P"
+			if len(rows) > starterProgressIndividualPieces {
+				group = append(group, rows[starterProgressIndividualPieces:]...)
+			}
+		}
+
+		progress := 4
+		active := false
+		hasPlayer := false
+		nameSet := make(map[string]bool)
+		names := make([]string, 0, len(group))
+		for _, row := range group {
+			if strings.TrimSpace(row.Slot) != "" {
+				active = true
+			}
+			if row.PlayerID == "" {
+				continue
+			}
+			hasPlayer = true
+			if name := strings.TrimSpace(row.PlayerName); name != "" && !nameSet[name] {
+				nameSet[name] = true
+				names = append(names, name)
+			}
+			quarter := starterProgressQuarter(row, status)
+			if quarter < progress {
+				progress = quarter
+			}
+		}
+		if !hasPlayer {
+			progress = 0
+		}
+		if len(names) == 0 {
+			names = append(names, "No player assigned")
+		}
+		out = append(out, starterProgressSegment{
+			Index:         index,
+			Label:         label,
+			PlayerNames:   strings.Join(names, " + "),
+			Progress:      progress,
+			ProgressLabel: progressLabel(progress),
+			Active:        active,
+		})
+	}
+	return out
+}
+
+func starterProgressMapsForTeam(matchupID, side string, rows []StarterLedgerRow, status LiveStatus) []map[string]any {
+	segments := starterProgressSegmentsForTeam(rows, status)
+	out := make([]map[string]any, 0, len(segments))
+	for _, segment := range segments {
+		bindKey := starterProgressTeamBindKey(matchupID, side, segment.Index)
+		out = append(out, map[string]any{
+			"index": segment.Index, "label": segment.Label, "player_names": segment.PlayerNames,
+			"progress": segment.Progress, "progress_label": segment.ProgressLabel, "active": segment.Active,
+			"bind_key": bindKey,
+			"q1":       starterProgressMark(segment.Progress, 1), "q2": starterProgressMark(segment.Progress, 2),
+			"q3": starterProgressMark(segment.Progress, 3), "q4": starterProgressMark(segment.Progress, 4),
+		})
+	}
+	return out
+}
+
+func starterProgressMapsForTeams(matchupID string, firstRows []StarterLedgerRow, firstSide string, secondRows []StarterLedgerRow, secondSide string, status LiveStatus) map[string]any {
+	return map[string]any{
+		firstSide:  starterProgressMapsForTeam(matchupID, firstSide, firstRows, status),
+		secondSide: starterProgressMapsForTeam(matchupID, secondSide, secondRows, status),
+	}
+}
+
+func starterProgressSummariesForTeams(firstRows []StarterLedgerRow, firstSide string, secondRows []StarterLedgerRow, secondSide string, status LiveStatus) map[string]string {
+	return map[string]string{
+		firstSide:  starterProgressSummary(starterProgressSegmentsForTeam(firstRows, status)),
+		secondSide: starterProgressSummary(starterProgressSegmentsForTeam(secondRows, status)),
+	}
+}
+
+func starterProgressTeamBindKey(matchupID, side string, index int) string {
+	return strings.TrimSpace(matchupID) + "-" + strings.TrimSpace(side) + "-" + strconv.Itoa(index)
+}
+
 func starterProgressBindKey(matchupID string, index int) string {
 	return strings.TrimSpace(matchupID) + "-" + strconv.Itoa(index)
 }
