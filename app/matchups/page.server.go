@@ -3,6 +3,7 @@ package matchups
 import (
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -34,6 +35,14 @@ func intField(m map[string]any, key string) int {
 	default:
 		return 0
 	}
+}
+
+func teamPageHref(teamID string) string {
+	teamID = strings.TrimSpace(teamID)
+	if teamID == "" {
+		return ""
+	}
+	return "/team?team=" + url.QueryEscape(teamID)
 }
 
 // starterStateClass derives one starter cell's state-chip modifier class
@@ -142,6 +151,7 @@ type StarterCellData struct {
 	NFLTeam         string
 	HasNFLTeam      bool
 	Proj            string
+	OriginalProj    string
 	Points          string
 	Provenance      string
 	JoinState       string
@@ -199,6 +209,10 @@ func starterCellData(raw any, right bool) StarterCellData {
 			proj = "—"
 		}
 	}
+	originalProj := stringField(row, "original_proj")
+	if originalProj == "" {
+		originalProj = proj
+	}
 	return StarterCellData{
 		HasPlayer:       stringField(row, "player_id") != "",
 		Right:           right,
@@ -209,7 +223,8 @@ func starterCellData(raw any, right bool) StarterCellData {
 		Position:        stringField(row, "position"),
 		NFLTeam:         nflTeam,
 		HasNFLTeam:      nflTeam != "",
-		Proj:            proj,
+		Proj:            originalProj,
+		OriginalProj:    originalProj,
 		Points:          stringField(row, "points"),
 		Provenance:      stringField(row, "provenance"),
 		JoinState:       stringField(row, "join_state"),
@@ -281,36 +296,101 @@ type FeaturedMatchupPairData struct {
 // ScoreNote or ScoreKnown (the featured card always has a live score to
 // show, even a 0.0 one).
 type FeaturedTeamData struct {
-	ID             string
-	Name           string
-	Manager        string
-	Record         string
-	Score          string
-	Projected      string
-	Tone           string
-	Abbreviation   string
-	HasAvatarImage bool
-	AvatarImageURL string
+	ID                  string
+	Name                string
+	Manager             string
+	Record              string
+	Score               string
+	Projected           string
+	Tone                string
+	Abbreviation        string
+	HasAvatarImage      bool
+	AvatarImageURL      string
+	AvatarImageLargeURL string
+	Href                string
 }
 
 func featuredTeamData(raw any) FeaturedTeamData {
 	team, _ := raw.(map[string]any)
+	id := stringField(team, "id")
+	href := stringField(team, "team_href")
+	if href == "" {
+		href = teamPageHref(id)
+	}
+	largeURL := stringField(team, "avatar_image_large_url")
+	if largeURL == "" {
+		largeURL = stringField(team, "avatar_image_url")
+	}
 	return FeaturedTeamData{
-		ID:   stringField(team, "id"),
+		ID:   id,
 		Name: stringField(team, "name"),
 		// Manager is the FIRST name only (A1, matchup redesign 2026-09-07):
 		// the scorebug header reads "avatar, team name, manager first name,
 		// record" — a full manager name duplicated the team name's own
 		// identity work and was the more likely of the two to wrap or clip.
-		Manager:        league.FirstName(stringField(team, "manager")),
-		Record:         stringField(team, "record"),
-		Score:          stringField(team, "score"),
-		Projected:      stringField(team, "projected"),
-		Tone:           stringField(team, "tone"),
-		Abbreviation:   stringField(team, "abbreviation"),
-		HasAvatarImage: boolField(team, "has_avatar_image"),
-		AvatarImageURL: stringField(team, "avatar_image_url"),
+		Manager:             league.FirstName(stringField(team, "manager")),
+		Record:              stringField(team, "record"),
+		Score:               stringField(team, "score"),
+		Projected:           stringField(team, "projected"),
+		Tone:                stringField(team, "tone"),
+		Abbreviation:        stringField(team, "abbreviation"),
+		HasAvatarImage:      boolField(team, "has_avatar_image"),
+		AvatarImageURL:      stringField(team, "avatar_image_url"),
+		AvatarImageLargeURL: largeURL,
+		Href:                href,
 	}
+}
+
+// StarterProgressSegmentData is one of the ten quarter-filled pieces shown
+// beside a matchup. BindKey is deliberately flat (matchup-id + piece index)
+// because the live runtime resolves one nested map key, not an array path.
+type StarterProgressSegmentData struct {
+	Index         string
+	BindKey       string
+	Label         string
+	PlayerNames   string
+	ProgressLabel string
+	Q1            string
+	Q2            string
+	Q3            string
+	Q4            string
+	Active        bool
+}
+
+type StarterProgressData struct {
+	Segments  []StarterProgressSegmentData
+	Summary   string
+	AriaLabel string
+	BindID    string
+}
+
+func starterProgressData(raw any, summary, matchupID string) StarterProgressData {
+	rawSegments, _ := raw.([]map[string]any)
+	segments := make([]StarterProgressSegmentData, 0, len(rawSegments))
+	for _, rawSegment := range rawSegments {
+		index := intField(rawSegment, "index")
+		bindKey := stringField(rawSegment, "bind_key")
+		if bindKey == "" {
+			bindKey = matchupID + "-" + strconv.Itoa(index)
+		}
+		segments = append(segments, StarterProgressSegmentData{
+			Index:         strconv.Itoa(index),
+			BindKey:       bindKey,
+			Label:         stringField(rawSegment, "label"),
+			PlayerNames:   stringField(rawSegment, "player_names"),
+			ProgressLabel: stringField(rawSegment, "progress_label"),
+			Q1:            stringField(rawSegment, "q1"),
+			Q2:            stringField(rawSegment, "q2"),
+			Q3:            stringField(rawSegment, "q3"),
+			Q4:            stringField(rawSegment, "q4"),
+			Active:        boolField(rawSegment, "active"),
+		})
+	}
+	ariaLabel := "Starter progress"
+	if summary != "" {
+		ariaLabel += ": " + summary + ". Each piece fills one quarter as its slot's NFL game advances."
+	}
+	return StarterProgressData{Segments: segments, Summary: summary, AriaLabel: ariaLabel, BindID: matchupID}
 }
 
 // BenchRowData is one Benches-disclosure row (A4, matchup redesign
@@ -368,13 +448,14 @@ type FeaturedMatchupData struct {
 	// names whose percentage WinProb is. Both exist because neither was
 	// derivable from the card itself: "mine" follows the viewer, so it is
 	// Home for a spectator and either side for a manager.
-	MineIsHome  bool
-	WinProbTeam string
-	Mine        FeaturedTeamData
-	Theirs      FeaturedTeamData
-	Pairs       []FeaturedMatchupPairData
-	MineBench   []BenchRowData
-	TheirsBench []BenchRowData
+	MineIsHome      bool
+	WinProbTeam     string
+	Mine            FeaturedTeamData
+	Theirs          FeaturedTeamData
+	Pairs           []FeaturedMatchupPairData
+	MineBench       []BenchRowData
+	TheirsBench     []BenchRowData
+	StarterProgress StarterProgressData
 }
 
 func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
@@ -419,6 +500,7 @@ func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
 		Pairs:               pairs,
 		MineBench:           benchRowsData(mineBenchRaw),
 		TheirsBench:         benchRowsData(theirsBenchRaw),
+		StarterProgress:     starterProgressData(raw["starter_progress"], stringField(raw, "starter_progress_summary"), stringField(raw, "id")),
 	}
 }
 
@@ -426,33 +508,46 @@ func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
 // scorebug card's own trimmed team shape (no ScoreNote/ScoreKnown/starter
 // ledger — see MatchupCardData for the full-card equivalent).
 type ScorebugTeamData struct {
-	ID             string
-	Name           string
-	Manager        string
-	Record         string
-	Abbreviation   string
-	Score          string
-	Tone           string
-	HasAvatarImage bool
-	AvatarImageURL string
+	ID                  string
+	Name                string
+	Manager             string
+	Record              string
+	Abbreviation        string
+	Score               string
+	Tone                string
+	HasAvatarImage      bool
+	AvatarImageURL      string
+	AvatarImageLargeURL string
+	Href                string
 }
 
 func scorebugTeamData(raw any) ScorebugTeamData {
 	team, _ := raw.(map[string]any)
+	id := stringField(team, "id")
+	href := stringField(team, "team_href")
+	if href == "" {
+		href = teamPageHref(id)
+	}
+	largeURL := stringField(team, "avatar_image_large_url")
+	if largeURL == "" {
+		largeURL = stringField(team, "avatar_image_url")
+	}
 	return ScorebugTeamData{
-		ID:   stringField(team, "id"),
+		ID:   id,
 		Name: stringField(team, "name"),
 		// Manager is the first name only — see featuredTeamData's own doc
 		// comment (A1, matchup redesign 2026-09-07): every around-the-league
 		// card gets the same "avatar, team name, manager first name, record"
 		// header shape as the featured card.
-		Manager:        league.FirstName(stringField(team, "manager")),
-		Record:         stringField(team, "record"),
-		Abbreviation:   stringField(team, "abbreviation"),
-		Score:          stringField(team, "score"),
-		Tone:           stringField(team, "tone"),
-		HasAvatarImage: boolField(team, "has_avatar_image"),
-		AvatarImageURL: stringField(team, "avatar_image_url"),
+		Manager:             league.FirstName(stringField(team, "manager")),
+		Record:              stringField(team, "record"),
+		Abbreviation:        stringField(team, "abbreviation"),
+		Score:               stringField(team, "score"),
+		Tone:                stringField(team, "tone"),
+		HasAvatarImage:      boolField(team, "has_avatar_image"),
+		AvatarImageURL:      stringField(team, "avatar_image_url"),
+		AvatarImageLargeURL: largeURL,
+		Href:                href,
 	}
 }
 
@@ -502,7 +597,8 @@ type ScorebugData struct {
 	// keeps its expandable body as well: the link is a second way to read
 	// the same matchup at full size, not a replacement for opening it in
 	// place.
-	FocusHref string
+	FocusHref       string
+	StarterProgress StarterProgressData
 }
 
 // matchupsPageScorebugs converts MatchupsData's "other_matchups" slice
@@ -548,6 +644,7 @@ func matchupsPageScorebugs(raw []map[string]any) []ScorebugData {
 			WinProbTeam:          stringField(entry, "win_prob_team"),
 			Pairs:                pairs,
 			FocusHref:            stringField(entry, "focus_href"),
+			StarterProgress:      starterProgressData(entry["starter_progress"], stringField(entry, "starter_progress_summary"), stringField(entry, "id")),
 		})
 	}
 	return out

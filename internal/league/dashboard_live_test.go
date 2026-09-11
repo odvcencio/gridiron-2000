@@ -14,7 +14,7 @@ func TestDashboardDataUsesTargetedLivePollingOnlyWhenUseful(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Run("scheduled matchup polls live feed", func(t *testing.T) {
+	t.Run("scheduled matchup stays quiet before kickoff", func(t *testing.T) {
 		svc := newTestService(t, true)
 		now := kickoffAt.Add(-time.Hour)
 		svc.now = func() time.Time { return now }
@@ -33,11 +33,11 @@ func TestDashboardDataUsesTargetedLivePollingOnlyWhenUseful(t *testing.T) {
 
 		request, _ := http.NewRequest(http.MethodGet, "/", nil)
 		data := svc.DashboardData(context.Background(), request)
-		if got := data["live_interval"]; got != "1m" {
-			t.Fatalf("scheduled dashboard live_interval = %v, want 1m", got)
+		if got := data["live_interval"]; got != "" {
+			t.Fatalf("scheduled dashboard live_interval = %v, want empty", got)
 		}
-		if got := data["live_poll"]; got != true {
-			t.Fatalf("scheduled dashboard live_poll = %v, want true", got)
+		if got := data["live_poll"]; got != false {
+			t.Fatalf("scheduled dashboard live_poll = %v, want false", got)
 		}
 		live, ok := data["live"].(map[string]any)
 		if !ok || live["live_status"] == "" {
@@ -71,4 +71,26 @@ func TestDashboardDataUsesTargetedLivePollingOnlyWhenUseful(t *testing.T) {
 			t.Fatalf("preseason dashboard refresh state = %#v", data["live"])
 		}
 	})
+}
+
+func TestLivePollingActiveRequiresAnActiveSlate(t *testing.T) {
+	cases := []struct {
+		name      string
+		state     string
+		slateLine string
+		want      bool
+	}{
+		{name: "scheduled before kickoff", state: MatchupStateScheduled, slateLine: "Sunday · 1:00 PM", want: false},
+		{name: "in progress between windows", state: MatchupStateInProgress, slateLine: "", want: false},
+		{name: "in progress with active slate", state: MatchupStateInProgress, slateLine: "BAL @ BUF · Q2", want: true},
+		{name: "final", state: MatchupStateFinal, slateLine: "BAL @ BUF · FINAL", want: false},
+		{name: "degraded", state: MatchupStateDegraded, slateLine: "BAL @ BUF", want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := livePollingActive(LiveSnapshot{State: tc.state, SlateLine: tc.slateLine}); got != tc.want {
+				t.Fatalf("livePollingActive(%q, %q) = %v, want %v", tc.state, tc.slateLine, got, tc.want)
+			}
+		})
+	}
 }

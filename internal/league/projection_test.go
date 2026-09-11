@@ -218,6 +218,53 @@ func TestStarterProjectedTextRendersKnownOrEmpty(t *testing.T) {
 	}
 }
 
+func TestOriginalProjectionRemainsStableAfterFinal(t *testing.T) {
+	byID := map[string]Player{"p-1": {ID: "p-1", NFLTeam: "BUF", Projection: 18}}
+	row := StarterLedgerRow{Slot: "QB", PlayerID: "p-1", NFLTeam: "BUF", Points: 26, GameState: "FINAL"}
+	if got, ok := originalStarterProjectedTotal(row, byID); !ok || got != 18 {
+		t.Fatalf("originalStarterProjectedTotal(final) = (%v, %v), want (18, true)", got, ok)
+	}
+	if got := originalStarterProjectedText(row, byID); got != "18.0" {
+		t.Fatalf("originalStarterProjectedText(final) = %q, want 18.0", got)
+	}
+	status := LiveStatus{Games: map[string]LiveGameState{"BUF": {Final: true}}}
+	if got := starterProjectedTotal(row, byID, status, true); got != 26 {
+		t.Fatalf("live rest-of-game projection after final = %v, want the posted score 26", got)
+	}
+	total, known := originalProjectedTotal([]StarterLedgerRow{row}, byID)
+	if !known || total != 18 {
+		t.Fatalf("originalProjectedTotal(final) = (%v, %v), want (18, true)", total, known)
+	}
+}
+
+func TestStarterProgressSegmentsUseTenQuarterPieces(t *testing.T) {
+	mine := []StarterLedgerRow{
+		{Slot: "QB", PlayerID: "mine-qb", PlayerName: "Mine QB", NFLTeam: "BUF"},
+		{Slot: "RB1", PlayerID: "mine-rb", PlayerName: "Mine RB", NFLTeam: "MIA"},
+	}
+	theirs := []StarterLedgerRow{
+		{Slot: "QB", PlayerID: "their-qb", PlayerName: "Their QB", NFLTeam: "BUF"},
+		{Slot: "RB1", PlayerID: "their-rb", PlayerName: "Their RB", NFLTeam: "MIA"},
+	}
+	status := LiveStatus{Games: map[string]LiveGameState{
+		"BUF": {Period: "Q1", InProgress: true},
+		"MIA": {Final: true},
+	}}
+	segments := starterProgressSegments(mine, theirs, status)
+	if len(segments) != starterProgressPieceCount {
+		t.Fatalf("starter progress piece count = %d, want 10", len(segments))
+	}
+	if segments[0].Progress != 1 || segments[0].ProgressLabel != "Through Q1" {
+		t.Fatalf("QB progress = %d/%q, want 1/Through Q1", segments[0].Progress, segments[0].ProgressLabel)
+	}
+	if segments[1].Progress != 4 || segments[1].ProgressLabel != "Complete" {
+		t.Fatalf("RB1 progress = %d/%q, want 4/Complete", segments[1].Progress, segments[1].ProgressLabel)
+	}
+	if got := starterProgressSummary(segments); got != "1 of 10 starter pieces complete" {
+		t.Fatalf("starter progress summary = %q, want 1 of 10 starter pieces complete", got)
+	}
+}
+
 // TestStillToPlaySentence covers A1 (matchup redesign 2026-09-07): the
 // plain-words still-to-play line retires the fixed "N of M starters
 // still to play" jargon for a sentence that reads naturally at both ends
