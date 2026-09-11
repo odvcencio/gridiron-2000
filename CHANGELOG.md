@@ -5,7 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- Long scoring breakdowns now wrap inside their raised tooltip panel instead of overflowing the matchup row or clipping the explanation on narrow screens.
+- The mobile Matchups tab now uses an American-football icon.
+
+### Changed
+- The application now pins GoSX v0.56.3, including its fail-closed action return-target validation.
 
 ## [release-2026.09.10-d4bb0b2-season10] — 2026-09-10
 
