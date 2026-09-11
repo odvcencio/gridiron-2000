@@ -853,3 +853,62 @@ func (team *ScoreTeam) applyPostedFinalScore(posted float64) {
 	}
 	team.ScoreNote = fmt.Sprintf("Posted final %.1f; current starter ledger %.1f (delta %+.1f). Posted total is authoritative.", posted, team.LedgerTotal, delta)
 }
+
+// playerWeekFacts adapts the weekly stats snapshot into the PlayerWeekFacts
+// the /team strip's projection helpers need: is this player's NFL game over,
+// and what did they actually score.
+//
+// It reuses starterGameFinal (the poller plus the schedule, so a game whose
+// poller entry has aged out is still known to be over) and the same
+// lineByKey join applyWeeklyPointsText renders from, so the strip's total and
+// the row's PTS cell can never disagree about the same player.
+func (s *Service) playerWeekFacts(snapshot matchupStatsSnapshot, lineByKey map[string]WeekStatLine, values map[string]float64) WeekFactsFunc {
+	return func(player Player) PlayerWeekFacts {
+		facts := PlayerWeekFacts{Final: starterGameFinal(player.NFLTeam, snapshot)}
+		if !facts.Final {
+			return facts
+		}
+		if snapshot.sourceErr != nil || len(snapshot.lines) == 0 {
+			return facts
+		}
+		if line, joined := lineByKey[playerStatKey(player)]; joined {
+			facts.Points = scorePlayerStats(line.Stats, values)
+			facts.Scored = true
+		}
+		return facts
+	}
+}
+
+// applyWeeklyProjectionText retires a row's PROJ value once that player's
+// NFL game is over.
+//
+// A projection is a forecast of a week still to come. Beside a final score
+// it is worse than noise: the owner report of 2026-09-10 was a New England
+// defense reading "PROJ 11.8" next to points it had already finished
+// earning, which invites the reader to add the two together — the same
+// mistake the team total was making. Once the game is final the row shows
+// an em dash, and the PTS cell beside it carries the only number that is
+// still true.
+func applyWeeklyProjectionText(rows []map[string]any, players []Player, facts WeekFactsFunc) {
+	if len(rows) == 0 || len(players) == 0 || facts == nil {
+		return
+	}
+	byID := make(map[string]Player, len(players))
+	for _, p := range players {
+		byID[p.ID] = p
+	}
+	for _, row := range rows {
+		id, _ := row["id"].(string)
+		if id == "" {
+			continue
+		}
+		player, ok := byID[id]
+		if !ok {
+			continue
+		}
+		if facts(player).Final {
+			row["projection"] = "—"
+			row["projection_final"] = true
+		}
+	}
+}

@@ -291,10 +291,21 @@ func stillToPlay(rows []StarterLedgerRow, status LiveStatus) int {
 // function computes directly. TestTeamProjectedTotalHelpersAgreePreKickoff
 // pins that equivalence so the two call sites can never drift back apart.
 func TeamStartersProjectedTotal(lineup EffectiveLineup) float64 {
+	return TeamStartersProjectedTotalWithWeek(lineup, nil)
+}
+
+// TeamStartersProjectedTotalWithWeek is TeamStartersProjectedTotal with live
+// game facts: a starter whose game is final contributes the score they
+// actually posted rather than a forecast of a week already played. See
+// PlayerWeekFacts (lineup_projection.go) for why this exists.
+func TeamStartersProjectedTotalWithWeek(lineup EffectiveLineup, facts WeekFactsFunc) float64 {
 	total := 0.0
 	for _, slot := range lineup.Slots {
-		if slot.HasPlayer && playerHasProjection(slot.Player) {
-			total += slot.Player.Projection
+		if !slot.HasPlayer {
+			continue
+		}
+		if value, known := projectionContribution(slot.Player, facts); known {
+			total += value
 		}
 	}
 	return total

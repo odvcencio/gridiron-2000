@@ -16,12 +16,67 @@ type TeamBenchProjectionSummary struct {
 // starter projection helpers in projection.go; zero, NaN, and infinity are
 // all unknown rather than confirmed zero-point forecasts.
 func TeamBenchProjection(lineup EffectiveLineup) TeamBenchProjectionSummary {
+	return TeamBenchProjectionWithWeek(lineup, nil)
+}
+
+// PlayerWeekFacts is what a projection needs to know about a player's real
+// NFL week: whether the game is over, and what they have already scored.
+//
+// It exists because /team's projection helpers take only an
+// EffectiveLineup. That was fine while a projection was purely a forecast,
+// and wrong the moment a game finished: commit c29c784 taught /matchups
+// that a finished game projects nothing further, and /team kept adding a
+// player's whole weekly projection on top of a score that was already
+// final (owner report, 2026-09-10 — a New England defense on the bench
+// showing a projection rather than its final score).
+type PlayerWeekFacts struct {
+	// Final is true once the player's NFL game is over.
+	Final bool
+	// Points is what the player actually scored. Meaningful only with
+	// Scored, so a real 0.0 is distinguishable from "nothing posted yet".
+	Points float64
+	// Scored is true when the weekly ledger has a line for this player.
+	Scored bool
+}
+
+// WeekFactsFunc reports the live facts for one player. A nil func means the
+// caller has no live signal, and every helper below then behaves exactly as
+// it did before: a pure forecast.
+type WeekFactsFunc func(player Player) PlayerWeekFacts
+
+// projectionContribution is the one rule every team-strip total shares.
+//
+// A finished game contributes what the player actually scored, not a
+// forecast of a week that has already happened. A game still ahead
+// contributes the forecast. A finished game with nothing posted yet
+// contributes nothing and is NOT known: an unposted box score is not a
+// confirmed zero, and reporting it as one would understate a total as
+// badly as the old behaviour overstated it.
+func projectionContribution(player Player, facts WeekFactsFunc) (float64, bool) {
+	if facts != nil {
+		state := facts(player)
+		if state.Final {
+			if state.Scored {
+				return state.Points, true
+			}
+			return 0, false
+		}
+	}
+	if playerHasProjection(player) {
+		return player.Projection, true
+	}
+	return 0, false
+}
+
+// TeamBenchProjectionWithWeek is TeamBenchProjection with live game facts.
+func TeamBenchProjectionWithWeek(lineup EffectiveLineup, facts WeekFactsFunc) TeamBenchProjectionSummary {
 	summary := TeamBenchProjectionSummary{PlayerCount: len(lineup.Bench)}
 	for _, player := range lineup.Bench {
-		if !playerHasProjection(player) {
+		value, known := projectionContribution(player, facts)
+		if !known {
 			continue
 		}
-		summary.Total += player.Projection
+		summary.Total += value
 		summary.KnownPlayers++
 	}
 	switch {
@@ -34,6 +89,7 @@ func TeamBenchProjection(lineup EffectiveLineup) TeamBenchProjectionSummary {
 	}
 	return summary
 }
+
 
 // TeamBenchProjectedTotal returns the display-only projection for the
 // resolved bench. It deliberately does not participate in matchup scoring:

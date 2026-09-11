@@ -11160,7 +11160,18 @@ body.is-on-clock .draft-clock-panel {
   bottom: calc(100% + 6px);
   z-index: 60;
   width: max-content;
-  max-width: min(15rem, calc(100vw - 2rem));
+  /* 15rem was measured against the wrong thing. The rows are monospaced and
+     space-padded into a column, and the widest real line the scoring rules
+     can produce — "Punting yards, 40+ yard punts only (per yard) x123.5"
+     plus its value — is 59 characters, about 460px at --type-xs. Capped at
+     240px with white-space: pre below, that line could not wrap and simply
+     rendered outside its own background: the box was there, the text was
+     not in it (owner report, 2026-09-10: "not formatted correctly or with a
+     big enough background to matter"). 24rem holds every ordinary rule on
+     one line; the viewport clamp still wins on a phone, and pre-wrap on
+     .points-tip__rows means the rare long line wraps inside the box
+     instead of escaping it. */
+  max-width: min(24rem, calc(100vw - 2rem));
   padding: var(--space-xs) var(--space-sm);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);

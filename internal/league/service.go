@@ -2590,10 +2590,21 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	// — this used to sum the WHOLE roster (bench included), so the strip
 	// showed a bigger number than the matchup card for the same team and
 	// week.
-	projected := TeamStartersProjectedTotal(lineup)
-	benchProjection := TeamBenchProjection(lineup)
-	benchProjected := benchProjection.Total
 	scoringValues := s.currentScoringValues()
+	// The weekly ledger is read here, above the two projection totals,
+	// rather than at its old position below the row maps: both totals now
+	// need to know which games are already over. Before this, /team's
+	// strip added a finished player's whole weekly projection on top of
+	// the score they had already posted — the inflation commit c29c784
+	// fixed for /matchups, which reads a different helper (owner report,
+	// 2026-09-10: a New England defense on the bench showing a projection
+	// instead of its final score).
+	weeklyStats := s.matchupStatsSnapshot(week)
+	weeklyLineByKey := weekStatLinesByKey(weeklyStats.lines)
+	weekFacts := s.playerWeekFacts(weeklyStats, weeklyLineByKey, scoringValues)
+	projected := TeamStartersProjectedTotalWithWeek(lineup, weekFacts)
+	benchProjection := TeamBenchProjectionWithWeek(lineup, weekFacts)
+	benchProjected := benchProjection.Total
 	matchupLabel, hasMatchupLabel := s.MatchupSourceLabel()
 	filled := 0
 	for _, a := range lineup.Slots {
@@ -2679,10 +2690,10 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	// renders on /matchups — a real number once matched, else the same
 	// honest "—" before the ledger has anything to say about that
 	// player, never an implied zero.
-	weeklyStats := s.matchupStatsSnapshot(week)
-	weeklyLineByKey := weekStatLinesByKey(weeklyStats.lines)
 	applyWeeklyPointsText(starterRows, general, weeklyStats, scoringValues, weeklyLineByKey, now)
 	applyWeeklyPointsText(benchRows, general, weeklyStats, scoringValues, weeklyLineByKey, now)
+	applyWeeklyProjectionText(starterRows, general, weekFacts)
+	applyWeeklyProjectionText(benchRows, general, weekFacts)
 	addBenchActionOptions(benchRows, lineup.Bench, lineup, games, week, now)
 	draftClass := s.draftClassTeaser(state, teamID, 3)
 
