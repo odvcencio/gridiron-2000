@@ -1677,7 +1677,7 @@ h2 {
 .board-button:hover {
   transform: translateY(-2px);
   border-color: var(--color-text-secondary);
-  background: transparent;
+  background: var(--color-white-soft);
 }
 
 .button:active,
@@ -19081,7 +19081,7 @@ a.skip-link {
   height: 0.7rem;
   border: 0;
   border-radius: 0.18rem;
-  background: var(--color-white-soft);
+  background: transparent;
   font-size: 0;
 }
 
