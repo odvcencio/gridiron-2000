@@ -66,7 +66,7 @@ func TestMatchupsPagePreseasonAndScheduledCopyIsNotLive(t *testing.T) {
 				t.Errorf("scheduled fixture omitted persistent card indicator bindings: %s", body)
 			}
 			if fixture.name == "scheduled" {
-				if !strings.Contains(body, "Push at kickoff · 60 s fallback") {
+				if !strings.Contains(body, "Quiet until kickoff") {
 					t.Errorf("current scheduled fixture lost live refresh copy: %s", body)
 				}
 				if strings.Contains(body, "Static week view") {
@@ -218,7 +218,7 @@ func TestMatchupsLiveFixtureIsSummaryFirstWithOneStatusLine(t *testing.T) {
 		// readable word ("SCHEDULED", "LIVE", "AWAITING FINAL"), while the
 		// raw token keeps its own key for the polled JSON contract.
 		`data-gosx-live-bind="liveStateLabel"`, `data-gosx-live-bind="sourceLine"`, `data-gosx-live-bind="gamesFinal"`,
-		`class="my-matchup card"`, `data-gosx-live-bind="winProb.`, `data-gosx-live-bind="projected.`, `data-gosx-live-bind="stillToPlay.`,
+		`class="my-matchup card"`, `data-gosx-live-bind="winProb.`, `data-gosx-live-bind="originalProjected.`, `data-gosx-live-bind="stillToPlay.`,
 		`class="matchup-pair slot-row"`, `<details class="matchup-ledger" role="cell">`, `data-gosx-live-bind="starterGameState.`, `class="scorebug card"`,
 		`data-gosx-live-on="scores:changed"`, "Live box scores · checked", "Q2 ", "Josh Allen", "Lamar Jackson",
 		// The masthead's plain-language state line is visible, never

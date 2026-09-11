@@ -148,7 +148,10 @@ func TestRedesignedFeaturedTableRendersSlotProjTotalsAndBenches(t *testing.T) {
 		`class="matchup-pairs-totals__label" role="cell">Total</span>`,
 		`class="matchup-benches">`,
 		`<summary>Benches</summary>`,
-		`class="proj starter-cell__proj" role="cell" data-gosx-live-bind="starterProj.`,
+		`class="proj starter-cell__proj" role="cell"> <span class="projection-cell projection-value"`,
+		`data-gosx-live-bind="starterOriginalProj.`,
+		`class="projection-tip"`, `ORIGINAL PROJECTION`,
+		`class="starter-progress__ring"`, `data-gosx-live-bind="starterProgressQ1.`, `data-gosx-live-bind="starterProgressSummary.`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("redesigned featured table missing %q: %s", want, body)
@@ -169,9 +172,43 @@ func TestRedesignedFeaturedTableRendersSlotProjTotalsAndBenches(t *testing.T) {
 
 	// PROJ always renders a real number, never borrowing PTS's own
 	// not-yet-known dash placeholder.
-	projValueRE := regexp.MustCompile(`class="proj starter-cell__proj" role="cell" data-gosx-live-bind="starterProj\.[^"]*">(\d+\.\d)</span>`)
+	projValueRE := regexp.MustCompile(`class="proj starter-cell__proj" role="cell">\s*<span class="projection-cell projection-value"[^>]*>\s*<span class="projection-value__number" data-gosx-live-bind="starterOriginalProj\.[^"]*">(\d+\.\d)</span>`)
 	if !projValueRE.MatchString(body) {
 		t.Error("no starter-cell__proj cell rendered a real decimal PROJ value")
+	}
+}
+
+func TestMatchupProjectionAndNavigationAffordancesRender(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMatchupsPageFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"MATCHUPS_RENDER_FIXTURE=scheduled",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fixture process: %v\n%s", err, output)
+	}
+	body := string(output)
+	for _, want := range []string{
+		`class="matchup-team-link"`,
+		`data-gosx-link`,
+		`href="/team?team=`,
+		`class="projection-tip"`,
+		`ORIGINAL PROJECTION`,
+		`Weekly source forecast`,
+		`class="starter-progress__ring"`,
+		`data-gosx-live-bind="starterProgressQ1.`,
+		`data-gosx-live-bind="starterProgressSummary.`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("matchup fixture missing %q: %s", want, body)
+		}
+	}
+	for _, forbidden := range []string{"60 sec", "60 SEC", "60 s fallback", "60 seconds", "60. seconds"} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("matchup fixture retained meaningless polling copy %q", forbidden)
+		}
 	}
 }
 

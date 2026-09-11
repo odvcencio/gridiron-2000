@@ -1,14 +1,16 @@
 package matchups
 
 type TeamMarkProps struct {
-	Tone           string
-	Abbreviation   string
-	Name           string
-	HasAvatarImage bool
-	AvatarImageURL string
+	Tone                string
+	Abbreviation        string
+	Name                string
+	HasAvatarImage      bool
+	AvatarImageURL      string
+	AvatarImageLargeURL string
+	Href                string
 }
 
-func TeamMark(props TeamMarkProps) Node {
+func TeamMarkBody(props TeamMarkProps) Node {
 	return <span class={"team-mark team-mark--large tone-" + props.Tone} aria-hidden="true">
 		<If cond={props.HasAvatarImage}>
 			<img class="avatar-mark__photo" src={props.AvatarImageURL} alt={props.Name} loading="lazy" />
@@ -17,6 +19,61 @@ func TeamMark(props TeamMarkProps) Node {
 			{props.Abbreviation}
 		</If>
 	</span>
+}
+
+func TeamMark(props TeamMarkProps) Node {
+	return <>
+		<If cond={props.HasAvatarImage && props.AvatarImageLargeURL != ""}>
+			<a class="team-mark-link team-mark-link--image" href={props.AvatarImageLargeURL} target="_blank" rel="noopener" aria-label={"View larger " + props.Name + " image"}>
+				<TeamMarkBody {...props}></TeamMarkBody>
+			</a>
+		</If>
+		<If cond={props.HasAvatarImage == false || props.AvatarImageLargeURL == ""}>
+			<a class="team-mark-link" href={props.Href} data-gosx-link aria-label={"Open " + props.Name + " team page"}>
+				<TeamMarkBody {...props}></TeamMarkBody>
+			</a>
+		</If>
+	</>
+}
+
+// ProjectionValue is the source weekly forecast, paired with the same kind
+// of focusable explanation the actual score cells use. The bind is kept on
+// the source value rather than the live rest-of-game estimate, so a finished
+// game never rewrites the number a manager saw before kickoff.
+type ProjectionValueProps struct {
+	ClassName string
+	Value     string
+	Bind      string
+	TipID     string
+}
+
+func ProjectionValue(props ProjectionValueProps) Node {
+	return <span class={props.ClassName + " projection-value"} tabindex="0" aria-describedby={"projection-tip-" + props.TipID}>
+		<span class="projection-value__number" data-gosx-live-bind={props.Bind}>{props.Value}</span>
+		<span class="projection-tip" id={"projection-tip-" + props.TipID} role="tooltip">
+			<span class="projection-tip__heading">ORIGINAL PROJECTION</span>
+			<span class="projection-tip__value" data-gosx-live-bind={props.Bind}>{props.Value}</span>
+			<span class="projection-tip__note">Weekly source forecast · stays fixed after kickoff and final.</span>
+		</span>
+	</span>
+}
+
+// StarterProgress is a ten-piece ring. Each piece represents one configured
+// starter slot (the final K/P piece groups the reference roster's special
+// teams slots), and each piece contains four live-bound quarter marks. A mark
+// fills at 25%, 50%, 75%, and 100% as that slot's NFL game advances.
+func StarterProgress(props StarterProgressData) Node {
+	return <section class="starter-progress" aria-label={props.AriaLabel}>
+		<div class="starter-progress__ring" role="img" aria-label={props.AriaLabel}>
+			<Each of={props.Segments} as="segment">
+				<span class="starter-progress__piece" data-piece={segment.Index} data-active={segment.Active} title={segment.Label + " · " + segment.PlayerNames + " · " + segment.ProgressLabel}>
+					<span class="starter-progress__quarters" aria-hidden="true"><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ1." + segment.BindKey}>{segment.Q1}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ2." + segment.BindKey}>{segment.Q2}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ3." + segment.BindKey}>{segment.Q3}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ4." + segment.BindKey}>{segment.Q4}</span></span>
+				</span>
+			</Each>
+			<span class="starter-progress__center" aria-hidden="true">STARTER<br />PROGRESS</span>
+		</div>
+		<small class="starter-progress__summary mono"><span data-gosx-live-bind={"starterProgressSummary." + props.BindID}>{props.Summary}</span> · 25% per quarter</small>
+	</section>
 }
 
 // WeekBrowserProps carries the season-schedule week-paging state
@@ -122,7 +179,9 @@ func StarterCell(props StarterCellData) Node {
 			</div>
 		</details>
 		<span class={"state starter-cell__state " + props.StateClass} role="cell" data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span>
-		<span class="proj starter-cell__proj" role="cell" data-gosx-live-bind={"starterProj." + props.LiveKey}>{props.Proj}</span>
+		<span class="proj starter-cell__proj" role="cell">
+			<ProjectionValue ClassName="projection-cell" Value={props.Proj} Bind={"starterOriginalProj." + props.LiveKey} TipID={props.LiveKey}></ProjectionValue>
+		</span>
 		{/* The score explains itself on hover AND on focus (2026-09-10).
 		    Focus matters as much as hover here: a tabindex makes the cell
 		    reachable by keyboard and, on a phone, a tap focuses it — a
@@ -133,7 +192,7 @@ func StarterCell(props StarterCellData) Node {
 		    render-time value and drift from the number beside it during a
 		    game. :empty hides it until there is something to explain. */}
 		<b class="pts starter-cell__pts" role="cell" tabindex="0" aria-describedby={"pts-tip-" + props.LiveKey}>
-			<span data-gosx-live-bind={"starterPoints." + props.LiveKey} data-gosx-live-flash-class="score-flash">{props.Points}</span>
+			<span class="score-value" data-gosx-live-bind={"starterPoints." + props.LiveKey} data-gosx-live-flash-class="score-flash">{props.Points}</span>
 			<span class="points-tip" id={"pts-tip-" + props.LiveKey} role="tooltip">
 				<span class="points-tip__rows" data-gosx-live-bind={"starterBreakdown." + props.LiveKey}>{props.Breakdown}</span>
 				<span class="points-tip__total"><span class="points-tip__total-label">TOTAL</span><span data-gosx-live-bind={"starterPointsTotal." + props.LiveKey}>{props.Points}</span></span>
@@ -163,7 +222,7 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 				<TeamMark {...props.Mine}></TeamMark>
 				<div>
 					<span class="section-index"><If cond={props.IsViewer}>Your team</If><If cond={props.IsViewer == false}>Featured</If> <If cond={props.MineIsHome}><span class="side-chip side-chip--home">HOME</span></If><If cond={props.MineIsHome == false}><span class="side-chip">AWAY</span></If></span>
-					<TextBlock as="strong" class="display" font="400 15px Archivo Black" lineHeight={18} maxLines={2} overflow="ellipsis" text={props.Mine.Name} />
+					<a class="matchup-team-link" href={props.Mine.Href} data-gosx-link><TextBlock as="strong" class="display" font="400 15px Archivo Black" lineHeight={18} maxLines={2} overflow="ellipsis" text={props.Mine.Name} /></a>
 					<small class="muted matchup-team-line"><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Mine.Manager} /><span class="matchup-team-line__meta"> · {props.Mine.Record}</span></small>
 				</div>
 			</div>
@@ -171,20 +230,21 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 				<span class="my-matchup__phase-label mono muted">{props.PhaseLabel}</span>
 				<div class="my-matchup__totals">
 					<b class="score score--large mono my-matchup__score-value" data-score-team={props.Mine.ID} data-gosx-live-bind={"scores." + props.Mine.ID} data-gosx-live-flash-class="score-flash">{props.Mine.Score}</b>
-					<span class="my-matchup__proj-value mono" data-gosx-live-bind={"projected." + props.Mine.ID}>{props.Mine.Projected}</span>
+					<ProjectionValue ClassName="my-matchup__proj-value mono" Value={props.Mine.Projected} Bind={"originalProjected." + props.Mine.ID} TipID={props.Mine.ID}></ProjectionValue>
 					<span class="muted">–</span>
 					<b class="score score--large mono my-matchup__score-value" data-score-team={props.Theirs.ID} data-gosx-live-bind={"scores." + props.Theirs.ID} data-gosx-live-flash-class="score-flash">{props.Theirs.Score}</b>
-					<span class="my-matchup__proj-value mono" data-gosx-live-bind={"projected." + props.Theirs.ID}>{props.Theirs.Projected}</span>
+					<ProjectionValue ClassName="my-matchup__proj-value mono" Value={props.Theirs.Projected} Bind={"originalProjected." + props.Theirs.ID} TipID={props.Theirs.ID}></ProjectionValue>
 				</div>
-				<small class="my-matchup__proj-sub mono muted">proj <span data-gosx-live-bind={"projected." + props.Mine.ID}>{props.Mine.Projected}</span> – <span data-gosx-live-bind={"projected." + props.Theirs.ID}>{props.Theirs.Projected}</span></small>
+				<small class="my-matchup__proj-sub mono muted">original proj <span data-gosx-live-bind={"originalProjected." + props.Mine.ID}>{props.Mine.Projected}</span> – <span data-gosx-live-bind={"originalProjected." + props.Theirs.ID}>{props.Theirs.Projected}</span></small>
 				<div class="bar"><i style={"width: " + props.WinProbWidth} role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow={props.WinProbAriaValue} aria-label={props.WinProbAriaLabel}></i></div>
-				<small class="mono muted"><span class="win-prob-team">{props.WinProbTeam}</span> <span data-gosx-live-bind={"winProb." + props.Mine.ID}>{props.WinProb}</span> to win · <span data-gosx-live-bind={"stillToPlaySentence." + props.ID}>{props.StillToPlaySentence}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlay." + props.ID}>{props.StillToPlay}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlayTotal." + props.ID}>{props.StillToPlayTotal}</span></small>
+				<small class="mono muted matchup-insight-line"><span class="win-prob-label">Win chance</span> · <span class="win-prob-team">{props.WinProbTeam}</span> <span data-gosx-live-bind={"winProb." + props.Mine.ID}>{props.WinProb}</span><span class="visually-hidden"> chance of winning this matchup</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlaySentence." + props.ID}>{props.StillToPlaySentence}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlay." + props.ID}>{props.StillToPlay}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlayTotal." + props.ID}>{props.StillToPlayTotal}</span></small>
+				<StarterProgress {...props.StarterProgress}></StarterProgress>
 				<span class={"state-chip " + props.StateClass}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span><span data-gosx-live-bind={"matchupLiveStateLabel." + props.ID}>{props.LiveState}</span></span>
 			</div>
 			<div class="my-matchup__team my-matchup__team--opponent">
 				<div>
 					<span class="section-index muted"><If cond={props.IsViewer}>Opponent</If><If cond={props.IsViewer == false}>Versus</If> <If cond={props.MineIsHome}><span class="side-chip">AWAY</span></If><If cond={props.MineIsHome == false}><span class="side-chip side-chip--home">HOME</span></If></span>
-					<TextBlock as="strong" class="display" font="400 15px Archivo Black" lineHeight={18} maxLines={2} overflow="ellipsis" text={props.Theirs.Name} />
+					<a class="matchup-team-link" href={props.Theirs.Href} data-gosx-link><TextBlock as="strong" class="display" font="400 15px Archivo Black" lineHeight={18} maxLines={2} overflow="ellipsis" text={props.Theirs.Name} /></a>
 					<small class="muted matchup-team-line"><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Theirs.Manager} /><span class="matchup-team-line__meta"> · {props.Theirs.Record}</span></small>
 				</div>
 				<TeamMark {...props.Theirs}></TeamMark>
@@ -207,9 +267,9 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 			</Each>
 		</ul>
 		<div class="matchup-pairs-totals" role="row">
-			<span class="matchup-pairs-totals__side" role="cell">PROJ <b data-gosx-live-bind={"projected." + props.Mine.ID}>{props.Mine.Projected}</b> · PTS <b data-gosx-live-bind={"scores." + props.Mine.ID}>{props.Mine.Score}</b></span>
+			<span class="matchup-pairs-totals__side" role="cell">PROJ <ProjectionValue ClassName="matchup-pairs-totals__projection mono" Value={props.Mine.Projected} Bind={"originalProjected." + props.Mine.ID} TipID={"total-" + props.Mine.ID}></ProjectionValue> · PTS <b data-gosx-live-bind={"scores." + props.Mine.ID}>{props.Mine.Score}</b></span>
 			<span class="matchup-pairs-totals__label" role="cell">Total</span>
-			<span class="matchup-pairs-totals__side matchup-pairs-totals__side--right" role="cell">PROJ <b data-gosx-live-bind={"projected." + props.Theirs.ID}>{props.Theirs.Projected}</b> · PTS <b data-gosx-live-bind={"scores." + props.Theirs.ID}>{props.Theirs.Score}</b></span>
+			<span class="matchup-pairs-totals__side matchup-pairs-totals__side--right" role="cell">PROJ <ProjectionValue ClassName="matchup-pairs-totals__projection mono" Value={props.Theirs.Projected} Bind={"originalProjected." + props.Theirs.ID} TipID={"total-" + props.Theirs.ID}></ProjectionValue> · PTS <b data-gosx-live-bind={"scores." + props.Theirs.ID}>{props.Theirs.Score}</b></span>
 		</div>
 		</div>
 		<details class="matchup-benches">
@@ -273,18 +333,18 @@ func Scorebug(props ScorebugData) Node {
 			</div>
 			<div class="mini">
 				<TeamMark {...props.Away}></TeamMark>
-				<div><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Away.Name} /><small class="muted matchup-team-line"><span class="side-chip">AWAY</span><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Away.Manager} /><span class="matchup-team-line__meta"> · {props.Away.Record}</span></small></div>
+				<div><a class="matchup-team-link" href={props.Away.Href} data-gosx-link><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Away.Name} /></a><small class="muted matchup-team-line"><span class="side-chip">AWAY</span><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Away.Manager} /><span class="matchup-team-line__meta"> · {props.Away.Record}</span></small></div>
 				<div class="mini__score">
 					<b class="pts score scorebug__score-value" data-score-team={props.Away.ID} data-gosx-live-bind={"scores." + props.Away.ID} data-gosx-live-flash-class="score-flash">{props.Away.Score}</b>
-					<span class="pts proj scorebug__proj-value mono" data-gosx-live-bind={"projected." + props.Away.ID}>{props.ProjectedAway}</span>
+					<ProjectionValue ClassName="pts proj scorebug__proj-value mono" Value={props.ProjectedAway} Bind={"originalProjected." + props.Away.ID} TipID={props.Away.ID}></ProjectionValue>
 				</div>
 			</div>
 			<div class="mini">
 				<TeamMark {...props.Home}></TeamMark>
-				<div><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Home.Name} /><small class="muted matchup-team-line"><span class="side-chip side-chip--home">HOME</span><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Home.Manager} /><span class="matchup-team-line__meta"> · {props.Home.Record}</span></small></div>
+				<div><a class="matchup-team-link" href={props.Home.Href} data-gosx-link><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Home.Name} /></a><small class="muted matchup-team-line"><span class="side-chip side-chip--home">HOME</span><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Home.Manager} /><span class="matchup-team-line__meta"> · {props.Home.Record}</span></small></div>
 				<div class="mini__score">
 					<b class="pts score scorebug__score-value" data-score-team={props.Home.ID} data-gosx-live-bind={"scores." + props.Home.ID} data-gosx-live-flash-class="score-flash">{props.Home.Score}</b>
-					<span class="pts proj scorebug__proj-value mono" data-gosx-live-bind={"projected." + props.Home.ID}>{props.ProjectedHome}</span>
+					<ProjectionValue ClassName="pts proj scorebug__proj-value mono" Value={props.ProjectedHome} Bind={"originalProjected." + props.Home.ID} TipID={props.Home.ID}></ProjectionValue>
 				</div>
 			</div>
 			<div class="scorebug__prob">
@@ -292,7 +352,8 @@ func Scorebug(props ScorebugData) Node {
 				{/* The percentage names its own team (2026-09-10). It always
 				    describes the HOME side here, and a bare number gave a
 				    reader no way to tell which of the two it meant. */}
-				<small class="mono muted"><span class="win-prob-team">{props.WinProbTeam}</span> <span data-gosx-live-bind={"winProb." + props.Home.ID}>{props.WinProbHome}</span> to win · <span data-gosx-live-bind={"stillToPlaySentence." + props.ID}>{props.StillToPlaySentence}</span></small>
+				<small class="mono muted matchup-insight-line"><span class="win-prob-label">Win chance</span> · <span class="win-prob-team">{props.WinProbTeam}</span> <span data-gosx-live-bind={"winProb." + props.Home.ID}>{props.WinProbHome}</span><span class="visually-hidden"> chance of winning this matchup</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlaySentence." + props.ID}>{props.StillToPlaySentence}</span></small>
+				<StarterProgress {...props.StarterProgress}></StarterProgress>
 			</div>
 			<span class="visually-hidden" data-gosx-live-bind={"matchupStatus." + props.ID}>{props.Status}</span>
 			<span class="visually-hidden" data-gosx-live-bind={"matchupClock." + props.ID}>{props.Clock}</span>

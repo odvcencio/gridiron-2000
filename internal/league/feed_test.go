@@ -213,14 +213,14 @@ func TestLiveScoresViewScheduledToInProgressTransitionUpdatesPresentation(t *tes
 			}
 		}
 	}
-	assertPresentation(scheduled, MatchupStateScheduled, "WEEK", "SCHEDULED.", "Push at kickoff · 60 s fallback", "Scheduled scoring", "Scores begin updating after the first NFL kickoff for this fantasy week.", "")
+	assertPresentation(scheduled, MatchupStateScheduled, "WEEK", "SCHEDULED.", "Quiet until kickoff", "Scheduled scoring", "Live requests stay off until a game is underway. Open or refresh this page once kickoff begins.", "")
 	if strings.Contains(scheduled["liveStatus"].(string), "Live scores on") {
 		t.Fatalf("scheduled liveStatus = %q", scheduled["liveStatus"])
 	}
 
 	now = kickoff.Add(time.Minute)
 	active := svc.LiveScoresView(context.Background())
-	assertPresentation(active, MatchupStateInProgress, "LIVE", "SIGNAL.", "Push · 60 s fallback", "Live scoring", "Scores push to this page during games. No refresh is needed.", "live")
+	assertPresentation(active, MatchupStateInProgress, "LIVE", "SIGNAL.", "Live updates", "Live scoring", "Scores push to this page during games. No refresh is needed.", "live")
 	if !strings.Contains(active["status"].(string), "in progress") || !strings.Contains(active["liveStatus"].(string), "Live scores on") {
 		t.Fatalf("active status/liveStatus = %q / %q", active["status"], active["liveStatus"])
 	}
@@ -266,6 +266,15 @@ func TestMatchupPresentationReflectsPollerOffState(t *testing.T) {
 	}
 	if got := home["sync_label"]; got != "Live scores off · weekly ledger only" {
 		t.Fatalf("home sync_label = %v, want the poller-off label", got)
+	}
+}
+
+func TestMatchupClockLabelDoesNotInventDuration(t *testing.T) {
+	if got := matchupClockLabel(""); got != "—" {
+		t.Fatalf("empty matchup clock = %q, want an em dash", got)
+	}
+	if got := matchupClockLabel("Q2 07:14"); got != "Q2 07:14" {
+		t.Fatalf("provided matchup clock = %q, want source value", got)
 	}
 }
 

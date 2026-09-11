@@ -18784,6 +18784,319 @@ a.skip-link {
   }
 }
 
+/* Matchups clarity pass (2026-09-11): team marks are navigation affordances
+   while their names remain the team-page link. Keep the mark's touch target
+   generous without changing the score grid's dimensions. */
+.matchups-page .team-mark-link {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+}
+
+.matchups-page .team-mark-link:focus-visible {
+  outline: 2px solid var(--color-accent-cyan);
+  outline-offset: 3px;
+}
+
+.matchups-page .team-mark-link--image {
+  cursor: zoom-in;
+}
+
+.matchups-page .matchup-team-link {
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+  color: inherit;
+  text-decoration: none;
+}
+
+.matchups-page .matchup-team-link:hover,
+.matchups-page .matchup-team-link:focus-visible {
+  color: var(--color-accent-cyan);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+/* Numeric cells use a shared right edge and a fixed character budget. A
+   Unicode em dash is wider/different from a decimal digit; anchoring both
+   inside the same inline box is what keeps an unavailable value from
+   appearing to drift sideways. */
+.matchups-page .starter-cell__proj,
+.matchups-page .starter-cell__pts {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  min-width: 0;
+  gap: 0.35rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.matchups-page .starter-cell__proj .projection-value__number,
+.matchups-page .starter-cell__pts .score-value,
+.matchups-page .matchup-pairs-totals__side b {
+  display: inline-block;
+  min-inline-size: 3.4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.matchups-page .matchup-pairs-totals__projection {
+  display: inline-block;
+  min-inline-size: 3.4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.matchups-page .slot-row--head-desktop .section-index:nth-child(3),
+.matchups-page .slot-row--head-desktop .section-index:nth-child(4),
+.matchups-page .slot-row--head-desktop .section-index:nth-child(6),
+.matchups-page .slot-row--head-desktop .section-index:nth-child(7) {
+  justify-self: stretch;
+  text-align: right;
+}
+
+.matchups-page .my-matchup__totals {
+  align-items: baseline;
+}
+
+.matchups-page .my-matchup__totals .score,
+.matchups-page .my-matchup__totals .projection-value__number {
+  display: inline-block;
+  min-inline-size: 4.5ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.matchups-page .my-matchup__totals > .muted {
+  min-inline-size: 1ch;
+  text-align: center;
+}
+
+/* ProjectionValue is the same focusable popover pattern as the actual score
+   breakdown. It has an opaque raised surface so matchup rows never show
+   through the explanation, and it clamps to the viewport on small screens. */
+.matchups-page .projection-value {
+  position: relative;
+  min-width: 0;
+  cursor: help;
+}
+
+.matchups-page .projection-value:focus-visible {
+  outline: 2px solid var(--color-accent-cyan);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.matchups-page .projection-tip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 0.45rem);
+  z-index: 70;
+  display: none;
+  width: max-content;
+  max-width: min(22rem, calc(100vw - 2rem));
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text-secondary);
+  box-shadow: var(--shadow-panel);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.matchups-page .projection-value:hover .projection-tip,
+.matchups-page .projection-value:focus .projection-tip,
+.matchups-page .projection-value:focus-within .projection-tip {
+  display: block;
+}
+
+.matchups-page .projection-tip__heading,
+.matchups-page .projection-tip__value,
+.matchups-page .projection-tip__note {
+  display: block;
+}
+
+.matchups-page .projection-tip__heading {
+  margin-bottom: 0.2rem;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  letter-spacing: 0.06em;
+}
+
+.matchups-page .projection-tip__value {
+  color: var(--color-text-primary);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.matchups-page .projection-tip__note {
+  margin-top: 0.25rem;
+  color: var(--color-text-muted);
+}
+
+.matchups-page .starter-cell[data-right="true"] .projection-tip {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+/* Ten-piece starter progress ring. A piece is a small raised tile around the
+   circumference; its four internal bars are quarter marks and are updated
+   by GoSX text binds without requiring a full page navigation. */
+.matchups-page .starter-progress {
+  width: 100%;
+  min-width: 0;
+  margin-top: var(--space-xs);
+  text-align: center;
+}
+
+.matchups-page .starter-progress__ring {
+  position: relative;
+  width: 8rem;
+  height: 8rem;
+  margin: 0 auto var(--space-xs);
+}
+
+.matchups-page .starter-progress__piece {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 1.15rem;
+  margin: -0.575rem -1rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel-deep);
+  transform: rotate(var(--piece-angle)) translateY(-3rem) rotate(var(--piece-counter-angle));
+  transition: border-color var(--duration-standard) var(--ease-out), background var(--duration-standard) var(--ease-out);
+}
+
+.matchups-page .starter-progress__piece[data-active="false"] {
+  opacity: 0.4;
+}
+
+.matchups-page .starter-progress__piece[data-piece="0"] { --piece-angle: 0deg; --piece-counter-angle: 0deg; }
+.matchups-page .starter-progress__piece[data-piece="1"] { --piece-angle: 36deg; --piece-counter-angle: -36deg; }
+.matchups-page .starter-progress__piece[data-piece="2"] { --piece-angle: 72deg; --piece-counter-angle: -72deg; }
+.matchups-page .starter-progress__piece[data-piece="3"] { --piece-angle: 108deg; --piece-counter-angle: -108deg; }
+.matchups-page .starter-progress__piece[data-piece="4"] { --piece-angle: 144deg; --piece-counter-angle: -144deg; }
+.matchups-page .starter-progress__piece[data-piece="5"] { --piece-angle: 180deg; --piece-counter-angle: -180deg; }
+.matchups-page .starter-progress__piece[data-piece="6"] { --piece-angle: 216deg; --piece-counter-angle: -216deg; }
+.matchups-page .starter-progress__piece[data-piece="7"] { --piece-angle: 252deg; --piece-counter-angle: -252deg; }
+.matchups-page .starter-progress__piece[data-piece="8"] { --piece-angle: 288deg; --piece-counter-angle: -288deg; }
+.matchups-page .starter-progress__piece[data-piece="9"] { --piece-angle: 324deg; --piece-counter-angle: -324deg; }
+
+.matchups-page .starter-progress__quarters {
+  display: flex;
+  gap: 2px;
+}
+
+.matchups-page .starter-progress__quarter {
+  display: block;
+  width: 0.3rem;
+  height: 0.62rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 2px;
+  font-size: 0;
+}
+
+.matchups-page .starter-progress__quarter:not(:empty) {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  box-shadow: 0 0 5px var(--color-accent-haze);
+}
+
+.matchups-page .starter-progress__center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: 3.5rem;
+  height: 3.5rem;
+  place-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  letter-spacing: 0.06em;
+  line-height: 1.25;
+  text-align: center;
+  transform: translate(-50%, -50%);
+}
+
+.matchups-page .starter-progress__summary {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  line-height: 1.35;
+}
+
+.matchups-page .matchup-insight-line {
+  display: block;
+  max-width: 100%;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.matchups-page .win-prob-label {
+  color: var(--color-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Show the original reference beneath a live/final score as well as in the
+   pregame centre position, so managers can compare projected vs actual after
+   a game closes. */
+.matchups-page .my-matchup__score.state--final .my-matchup__proj-sub {
+  display: inline;
+}
+
+.matchups-page details.scorebug[data-phase="state--live"] .scorebug__proj-value,
+.matchups-page details.scorebug[data-phase="state--final"] .scorebug__proj-value {
+  display: inline;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+}
+
+@media (width <= 80rem) {
+  .matchups-page .starter-cell__proj,
+  .matchups-page .starter-cell__pts {
+    justify-content: space-between;
+    text-align: right;
+  }
+
+  .matchups-page .starter-cell[data-right="true"] .starter-cell__proj,
+  .matchups-page .starter-cell[data-right="true"] .starter-cell__pts {
+    justify-content: flex-end;
+  }
+
+  .matchups-page .starter-progress__ring {
+    width: 7rem;
+    height: 7rem;
+  }
+
+  .matchups-page .starter-progress__piece {
+    transform: rotate(var(--piece-angle)) translateY(-2.6rem) rotate(var(--piece-counter-angle));
+  }
+}
+
 /* Phone (<=899px, the shell's own breakpoint), AND the 900-1100px rail
    band: two visual lines per row, the pool row's own pattern — line 1
    is slot chip · name · PROJ/PTS at the right (a real CSS grid row,
@@ -19625,8 +19938,7 @@ body.is-on-clock .draft-command__pill-sentence {
    source phrase, games-final count, and a four-clause freshness
    sentence) rendered ahead of the featured matchup card — six wrapped
    lines above any score. The freshness clause (liveStatus/checkedAt/
-   refreshLabel — "Waiting for kickoff · Weekly ledger opens after the
-   first game · Checked … · Push · 60 s fallback") restates the same
+   refreshLabel) restates the same
    kickoff fact the masthead's own plain-language state line
    (.matchups-masthead__state, always rendered above both) already
    carries; hiding it here compacts the strip to the one line that is
