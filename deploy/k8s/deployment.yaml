@@ -30,15 +30,15 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.11-bb8d451; built from
-          # bb8d451433f9c0e23b0871d218ddee41d1f9ae9c (main, 2026-09-11): GoSX v0.56.3 —
+          # release-2026.09.11-8468d4e; built from
+          # 8468d4ef092e011ed243e9de12625a5782f9f623 (main, 2026-09-11): GoSX v0.56.3 —
           # stable weekly projections, per-team starter progress rings, team
           # navigation, and active-slate polling. No schema change: `rollout undo` to the
           # previous revision is valid.
-          # Release build: 2026-09-11T09:00:00Z.
+          # Release build: 2026-09-11T16:02:26Z.
           # Stable Kernel did not form for 2026; this flagship-only release does not
           # alter the SK template or run an SK canary.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:2b183eda82c1f55cc380728eaa432543bad4124803a93ae60cf08d421f71efe5
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:a3c355e93bcb56f1cb509a7ce26de5de57ba8362556e9c4a720a0023140f4f4e
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
