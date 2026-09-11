@@ -11162,14 +11162,15 @@ body.is-on-clock .draft-clock-panel {
   width: max-content;
   /* 15rem was measured against the wrong thing. The rows are monospaced and
      space-padded into a column, and the widest line the scoring rules can
-     produce — "Punting yards, 40+ yard punts only (per yard) x123.5" plus
-     its value — is 59 characters, measured at 464px on a 390px viewport and
-     496px on desktop. pre-wrap below now keeps that inside the card, but at
-     a 240px cap it wrapped almost every ordinary rule onto two lines, so
-     the explanation read as a cramped column barely wider than the score it
-     hangs off (owner report, 2026-09-10: "not formatted correctly or with a
-     big enough background to matter"). 24rem holds every ordinary rule on
-     one line and still yields to the viewport clamp on a phone. */
+     produce is the punt-yardage rule at a realistic single-game stat:
+     "Punting yards, 40+ yard punts only (per yard) x250" plus two pad
+     spaces and "5.0" — 55 characters, about 460px at --type-xs. pre-wrap
+     below keeps that inside the card, but at a 240px cap it wrapped almost
+     every ordinary rule onto two lines, so the explanation read as a
+     cramped column barely wider than the score it hangs off (owner report,
+     2026-09-10: "not formatted correctly or with a big enough background to
+     matter"). 24rem holds every ordinary rule on one line and still yields
+     to the viewport clamp on a phone. */
   max-width: min(24rem, calc(100vw - 2rem));
   padding: var(--space-xs) var(--space-sm);
   border: 1px solid var(--color-border-strong);
