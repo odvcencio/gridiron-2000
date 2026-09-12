@@ -19070,6 +19070,8 @@ a.skip-link {
   width: min(100%, 8rem);
   aspect-ratio: 1;
   isolation: isolate;
+  overflow: hidden;
+  border-radius: 50%;
 }
 
 .matchups-page .starter-progress__piece,
@@ -19269,6 +19271,37 @@ a.skip-link {
     justify-content: flex-end;
   }
 }
+
+/* Sidebar scorebugs are narrow even on a wide monitor. Their expanded
+   comparison therefore always uses the compact two-team layout. */
+.matchups-page .scorebug > .starter-progress {
+  padding: var(--space-sm);
+  margin-top: 0;
+}
+
+.matchups-page .scorebug .slot-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: auto auto auto auto auto;
+  row-gap: 2px;
+  min-height: 0;
+}
+
+.matchups-page .scorebug .slot-row__slot { grid-column: 1 / -1; grid-row: 1; }
+.matchups-page .scorebug .starter-cell .matchup-ledger { grid-column: 1; grid-row: 2; }
+.matchups-page .scorebug .starter-cell .starter-cell__state { grid-column: 1; grid-row: 3; }
+.matchups-page .scorebug .starter-cell .starter-cell__proj { grid-column: 1; grid-row: 4; }
+.matchups-page .scorebug .starter-cell .starter-cell__pts { grid-column: 1; grid-row: 5; }
+.matchups-page .scorebug .starter-cell[data-right="true"] .matchup-ledger,
+.matchups-page .scorebug .starter-cell[data-right="true"] .starter-cell__state,
+.matchups-page .scorebug .starter-cell[data-right="true"] .starter-cell__proj,
+.matchups-page .scorebug .starter-cell[data-right="true"] .starter-cell__pts { grid-column: 2; }
+
+.matchups-page .scorebug .starter-cell__proj,
+.matchups-page .scorebug .starter-cell__pts { justify-content: space-between; }
+.matchups-page .scorebug .starter-cell[data-right="true"] .starter-cell__proj,
+.matchups-page .scorebug .starter-cell[data-right="true"] .starter-cell__pts { justify-content: flex-end; }
+.matchups-page .scorebug .starter-cell__proj::before { content: "PROJ "; color: var(--color-text-muted); font-size: var(--type-xs); }
+.matchups-page .scorebug .starter-cell__pts::before { content: "PTS "; color: var(--color-text-muted); font-size: var(--type-xs); }
 
 /* Phone (<=899px, the shell's own breakpoint), AND the 900-1100px rail
    band: two visual lines per row, the pool row's own pattern — line 1
