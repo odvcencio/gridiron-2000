@@ -4159,6 +4159,9 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	starterProgressQ3 := make(map[string]string)
 	starterProgressQ4 := make(map[string]string)
 	starterProgressSummaryBind := make(map[string]string, len(live.Matchups)*2)
+	starterProgressComplete := make(map[string]string, len(live.Matchups)*2)
+	starterProgressLabel := make(map[string]string)
+	starterProgressPlayers := make(map[string]string)
 	liveStatusValue, hasLive := s.liveStatus()
 	pool := s.pool()
 	projectionByID, _, projectionNote := s.projectionPoolForWeek(pool, live.Week)
@@ -4240,8 +4243,11 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 			{side: "home", segments: starterProgressSegmentsForTeam(matchup.Home.StarterLedger, liveStatusValue)},
 		} {
 			starterProgressSummaryBind[matchup.ID+"-"+progressSide.side] = starterProgressSummary(progressSide.segments)
+			starterProgressComplete[matchup.ID+"-"+progressSide.side] = fmt.Sprintf("%d/%d", starterProgressCompleted(progressSide.segments), len(progressSide.segments))
 			for _, segment := range progressSide.segments {
 				key := starterProgressTeamBindKey(matchup.ID, progressSide.side, segment.Index)
+				starterProgressLabel[key] = segment.ProgressLabel
+				starterProgressPlayers[key] = segment.PlayerNames
 				starterProgressQ1[key] = starterProgressMark(segment.Progress, 1)
 				starterProgressQ2[key] = starterProgressMark(segment.Progress, 2)
 				starterProgressQ3[key] = starterProgressMark(segment.Progress, 3)
@@ -4269,60 +4275,63 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		// contract external readers and the sim timeline match on. The
 		// chip binds liveStateLabel instead — changing this key's meaning
 		// would have broken that contract while claiming to preserve it.
-		"liveState":              live.LiveState,
-		"liveStateLabel":         LiveStateLabel(live.LiveState, live.State == MatchupStateFinal),
-		"sourceLine":             live.SourceLine,
-		"slateLine":              live.SlateLine,
-		"gamesFinal":             live.GamesFinal,
-		"scores":                 scores,
-		"matchupStatus":          matchupStatus,
-		"matchupClock":           matchupClock,
-		"matchupIndicator":       matchupIndicator,
-		"matchupLiveState":       matchupLiveStateBind,
-		"matchupLiveStateLabel":  matchupLiveStateLabelBind,
-		"projected":              projected,
-		"originalProjected":      originalProjected,
-		"winProb":                winProb,
-		"stillToPlay":            stillToPlayBind,
-		"stillToPlayTotal":       stillToPlayTotalBind,
-		"stillToPlaySentence":    stillToPlaySentenceBind,
-		"starterPoints":          starterPoints,
-		"starterProj":            starterProjBind,
-		"starterOriginalProj":    starterOriginalProjBind,
-		"starterProgressQ1":      starterProgressQ1,
-		"starterProgressQ2":      starterProgressQ2,
-		"starterProgressQ3":      starterProgressQ3,
-		"starterProgressQ4":      starterProgressQ4,
-		"starterProgressSummary": starterProgressSummaryBind,
-		"starterPlayerName":      starterPlayerName,
-		"starterPosition":        starterPosition,
-		"starterNFLTeam":         starterNFLTeam,
-		"starterProvenance":      starterProvenance,
-		"starterJoinState":       starterJoinState,
-		"starterDetail":          starterDetail,
-		"starterSource":          starterSource,
-		"starterProvenanceText":  starterProvenanceText,
-		"starterJoinStateText":   starterJoinStateText,
-		"starterSourceText":      starterSourceText,
-		"starterGameState":       starterGameStateBind,
-		"starterBreakdown":       starterBreakdownBind,
-		"starterPointsTotal":     starterPointsTotalBind,
-		"starterInjury":          starterInjuryBind,
-		"starterInjuryLabel":     starterInjuryLabelBind,
-		"starterPossession":      starterPossessionBind,
-		"liveStatus":             liveStatus,
-		"liveUpdated":            checked,
-		"lastUpdated":            statsUpdated,
-		"checkedAt":              checked,
-		"statsUpdatedAt":         statsUpdated,
-		"liveStatsUpdated":       statsUpdated,
-		"liveIndicator":          liveIndicatorToken(live.State),
-		"headlineTop":            presentation["headline_top"],
-		"headlineBottom":         presentation["headline_bottom"],
-		"refreshLabel":           presentation["refresh_label"],
-		"projectionNote":         projectionNote,
-		"noteTitle":              presentation["note_title"],
-		"noteBody":               presentation["note_body"],
+		"liveState":               live.LiveState,
+		"liveStateLabel":          LiveStateLabel(live.LiveState, live.State == MatchupStateFinal),
+		"sourceLine":              live.SourceLine,
+		"slateLine":               live.SlateLine,
+		"gamesFinal":              live.GamesFinal,
+		"scores":                  scores,
+		"matchupStatus":           matchupStatus,
+		"matchupClock":            matchupClock,
+		"matchupIndicator":        matchupIndicator,
+		"matchupLiveState":        matchupLiveStateBind,
+		"matchupLiveStateLabel":   matchupLiveStateLabelBind,
+		"projected":               projected,
+		"originalProjected":       originalProjected,
+		"winProb":                 winProb,
+		"stillToPlay":             stillToPlayBind,
+		"stillToPlayTotal":        stillToPlayTotalBind,
+		"stillToPlaySentence":     stillToPlaySentenceBind,
+		"starterPoints":           starterPoints,
+		"starterProj":             starterProjBind,
+		"starterOriginalProj":     starterOriginalProjBind,
+		"starterProgressQ1":       starterProgressQ1,
+		"starterProgressQ2":       starterProgressQ2,
+		"starterProgressQ3":       starterProgressQ3,
+		"starterProgressQ4":       starterProgressQ4,
+		"starterProgressSummary":  starterProgressSummaryBind,
+		"starterProgressComplete": starterProgressComplete,
+		"starterProgressLabel":    starterProgressLabel,
+		"starterProgressPlayers":  starterProgressPlayers,
+		"starterPlayerName":       starterPlayerName,
+		"starterPosition":         starterPosition,
+		"starterNFLTeam":          starterNFLTeam,
+		"starterProvenance":       starterProvenance,
+		"starterJoinState":        starterJoinState,
+		"starterDetail":           starterDetail,
+		"starterSource":           starterSource,
+		"starterProvenanceText":   starterProvenanceText,
+		"starterJoinStateText":    starterJoinStateText,
+		"starterSourceText":       starterSourceText,
+		"starterGameState":        starterGameStateBind,
+		"starterBreakdown":        starterBreakdownBind,
+		"starterPointsTotal":      starterPointsTotalBind,
+		"starterInjury":           starterInjuryBind,
+		"starterInjuryLabel":      starterInjuryLabelBind,
+		"starterPossession":       starterPossessionBind,
+		"liveStatus":              liveStatus,
+		"liveUpdated":             checked,
+		"lastUpdated":             statsUpdated,
+		"checkedAt":               checked,
+		"statsUpdatedAt":          statsUpdated,
+		"liveStatsUpdated":        statsUpdated,
+		"liveIndicator":           liveIndicatorToken(live.State),
+		"headlineTop":             presentation["headline_top"],
+		"headlineBottom":          presentation["headline_bottom"],
+		"refreshLabel":            presentation["refresh_label"],
+		"projectionNote":          projectionNote,
+		"noteTitle":               presentation["note_title"],
+		"noteBody":                presentation["note_body"],
 	}
 }
 

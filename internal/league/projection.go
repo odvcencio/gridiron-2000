@@ -603,13 +603,17 @@ func starterProgressMark(progress, quarter int) string {
 }
 
 func starterProgressSummary(segments []starterProgressSegment) string {
+	return fmt.Sprintf("%d of %d starter pieces complete", starterProgressCompleted(segments), len(segments))
+}
+
+func starterProgressCompleted(segments []starterProgressSegment) int {
 	complete := 0
 	for _, segment := range segments {
 		if segment.Progress >= 4 && segment.Active {
 			complete++
 		}
 	}
-	return fmt.Sprintf("%d of %d starter pieces complete", complete, len(segments))
+	return complete
 }
 
 func starterProgressMaps(mineRows, theirsRows []StarterLedgerRow, status LiveStatus) []map[string]any {

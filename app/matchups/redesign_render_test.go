@@ -163,8 +163,19 @@ func TestRedesignedFeaturedTableRendersSlotProjTotalsAndBenches(t *testing.T) {
 	if teams := strings.Count(body, `class="starter-progress__team"`); teams < 2 {
 		t.Fatalf("featured matchup rendered %d starter progress team wrapper(s), want two", teams)
 	}
-	if !strings.Contains(body, `data-gosx-live-bind="starterProgressSummary.`) || !strings.Contains(body, `-mine"`) || !strings.Contains(body, `-theirs"`) {
-		t.Fatalf("featured matchup rings are missing side-specific summary bindings: %s", body)
+	if !strings.Contains(body, `data-gosx-live-bind="starterProgressSummary.`) || !strings.Contains(body, `-home"`) || !strings.Contains(body, `-away"`) {
+		t.Fatalf("featured matchup rings are missing canonical home/away summary bindings: %s", body)
+	}
+	for _, key := range []string{"starterProgressComplete", "starterProgressLabel", "starterProgressPlayers"} {
+		if !strings.Contains(body, `data-gosx-live-bind="`+key+`.`) {
+			t.Errorf("wheel disclosure missing %s binding", key)
+		}
+	}
+	if !strings.Contains(body, `<details class="starter-progress__details">`) || !strings.Contains(body, `<summary class="starter-progress__toggle">`) {
+		t.Error("wheel needs a native touch/keyboard disclosure")
+	}
+	if strings.Contains(body, "25% per quarter") || strings.Contains(body, "STARTER<br") {
+		t.Error("wheel retained crowded center or unwanted quarter explanation")
 	}
 
 	// The Benches <details> is closed by default (no "open" attribute) so
@@ -218,6 +229,21 @@ func TestMatchupProjectionAndNavigationAffordancesRender(t *testing.T) {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("matchup fixture retained meaningless polling copy %q", forbidden)
 		}
+	}
+}
+
+func TestScorebugWheelDisclosureIsOutsideCardSummary(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := strings.SplitN(string(source), "func Scorebug(props", 2)[1]
+	summary := strings.SplitN(card, "</summary>", 2)[0]
+	if strings.Contains(summary, "<StarterProgress") {
+		t.Fatal("interactive starter disclosure cannot be nested in the card summary")
+	}
+	if !strings.Contains(card, "</summary>\n\t\t<StarterProgress") {
+		t.Fatal("expanded matchup card is missing its team wheels")
 	}
 }
 

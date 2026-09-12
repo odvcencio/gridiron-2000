@@ -18842,9 +18842,11 @@ a.skip-link {
 .matchups-page .starter-cell__pts .score-value,
 .matchups-page .matchup-pairs-totals__side b {
   display: inline-block;
+  flex: 0 0 auto;
   min-inline-size: 3.4ch;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .matchups-page .matchup-pairs-totals__projection {
@@ -18860,6 +18862,24 @@ a.skip-link {
 .matchups-page .slot-row--head-desktop .section-index:nth-child(7) {
   justify-self: stretch;
   text-align: right;
+}
+
+/* Empty game-state cells must not shift later values into a neighboring
+   column. Fixed placement also keeps decimal points aligned for negatives. */
+@media (width > 80rem) {
+  .matchups-page .slot-row {
+    grid-template-columns: minmax(0, 1fr) 5rem 3.5rem 3.5rem 3.25rem 3.5rem 3.5rem 5rem minmax(0, 1fr);
+  }
+  .matchups-page .starter-cell .matchup-ledger { grid-column: 1; grid-row: 1; }
+  .matchups-page .starter-cell .starter-cell__state { grid-column: 2; grid-row: 1; }
+  .matchups-page .starter-cell .starter-cell__proj { grid-column: 3; grid-row: 1; }
+  .matchups-page .starter-cell .starter-cell__pts { grid-column: 4; grid-row: 1; }
+  .matchups-page .slot-row__slot { grid-column: 5; grid-row: 1; }
+  .matchups-page .starter-cell[data-right="true"] .starter-cell__pts { grid-column: 6; }
+  .matchups-page .starter-cell[data-right="true"] .starter-cell__proj { grid-column: 7; }
+  .matchups-page .starter-cell[data-right="true"] .starter-cell__state { grid-column: 8; }
+  .matchups-page .starter-cell[data-right="true"] .matchup-ledger { grid-column: 9; }
+  .matchups-page .my-matchup__summary { align-items: start; }
 }
 
 .matchups-page .my-matchup__totals {
@@ -18953,171 +18973,264 @@ a.skip-link {
   transform: none;
 }
 
-/* Two team-owned ten-piece starter progress rings. Each piece is a readable
-   tile around its team's ring; its four internal bars are quarter marks and
-   are updated by GoSX text binds without requiring a full page navigation. */
+/* Two independent starter wheels. Every arc shares the same percentage-based
+   circle: no fixed-radius tiles to collide at a narrow card width. Four small
+   arcs make a slot; the larger gap separates the ten starter segments. */
+.matchups-page .my-matchup__score {
+  /* State-chip tint belongs on chips, not behind the entire scoreboard. */
+  background: transparent;
+}
+
 .matchups-page .starter-progress {
   width: 100%;
   min-width: 0;
-  margin-top: var(--space-xs);
+  margin-top: var(--space-sm);
+  container: starter-wheels / inline-size;
+  font-style: normal;
 }
 
 .matchups-page .starter-progress__teams {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: clamp(var(--space-sm), 3vw, var(--space-lg));
+  gap: 0.75rem;
   align-items: start;
 }
 
 .matchups-page .starter-progress__team {
-  display: grid;
+  --wheel-accent: var(--color-accent);
   min-width: 0;
-  justify-items: center;
-  gap: 0.35rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel-deep);
   text-align: center;
 }
 
+.matchups-page .starter-progress__team:nth-child(2) {
+  --wheel-accent: var(--color-accent-cyan);
+}
+
 .matchups-page .starter-progress__team-head {
-  display: flex;
+  display: grid;
+  gap: 0.3rem;
   min-width: 0;
-  max-width: 100%;
-  align-items: baseline;
-  justify-content: center;
-  gap: 0.4rem;
+  margin-bottom: 0.35rem;
 }
 
 .matchups-page .starter-progress__team-side {
-  flex: 0 0 auto;
-  color: var(--color-text-muted);
-  font-size: var(--type-xs);
-  letter-spacing: 0.08em;
+  color: var(--wheel-accent);
+  font-size: 0.6875rem;
+  letter-spacing: 0.09em;
+  line-height: 1.4;
 }
 
 .matchups-page .starter-progress__team-name {
   min-width: 0;
-  overflow: hidden;
+  min-height: 2.6em;
   color: var(--color-text-primary);
-  font-family: var(--font-display);
+  font-family: var(--font-body);
   font-size: var(--type-sm);
   font-weight: 700;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  text-decoration: none;
 }
 
 .matchups-page a.starter-progress__team-name:hover,
 .matchups-page a.starter-progress__team-name:focus-visible {
-  color: var(--color-accent);
+  color: var(--wheel-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.matchups-page .starter-progress__toggle {
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  list-style: none;
+}
+
+.matchups-page .starter-progress__toggle::-webkit-details-marker {
+  display: none;
+}
+
+.matchups-page .starter-progress__toggle:focus-visible,
+.matchups-page a.starter-progress__team-name:focus-visible {
+  outline: 2px solid var(--wheel-accent);
+  outline-offset: 3px;
 }
 
 .matchups-page .starter-progress__ring {
   position: relative;
-  box-sizing: border-box;
-  width: clamp(7rem, 18vw, 9rem);
+  display: block;
+  width: min(100%, 8rem);
   aspect-ratio: 1;
-  margin: 0 auto;
-  border: 1px solid var(--color-border);
-  border-radius: 50%;
-  background: radial-gradient(circle, var(--color-panel-deep) 0 52%, transparent 53%);
   isolation: isolate;
 }
 
-.matchups-page .starter-progress__ring::before {
+.matchups-page .starter-progress__piece,
+.matchups-page .starter-progress__quarters,
+.matchups-page .starter-progress__quarter {
   position: absolute;
-  inset: 0.72rem;
-  z-index: 0;
-  border: 1px solid var(--color-border);
+  inset: 0;
   border-radius: 50%;
-  content: "";
-  pointer-events: none;
 }
 
 .matchups-page .starter-progress__piece {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  width: 2.15rem;
-  height: 1.4rem;
-  margin: -0.7rem -1.075rem;
-  z-index: 1;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 0.45rem;
-  background: var(--color-panel-deep);
-  transform: rotate(var(--piece-angle)) translateY(-3.35rem) rotate(var(--piece-counter-angle));
-  transition: border-color var(--duration-standard) var(--ease-out), background var(--duration-standard) var(--ease-out);
-}
-
-.matchups-page .starter-progress__piece[data-active="true"] {
-  border-color: var(--color-border);
+  transform: rotate(var(--piece-angle));
 }
 
 .matchups-page .starter-progress__piece[data-active="false"] {
-  opacity: 0.32;
+  opacity: 0.4;
 }
 
-.matchups-page .starter-progress__piece[data-piece="0"] { --piece-angle: 0deg; --piece-counter-angle: 0deg; }
-.matchups-page .starter-progress__piece[data-piece="1"] { --piece-angle: 36deg; --piece-counter-angle: -36deg; }
-.matchups-page .starter-progress__piece[data-piece="2"] { --piece-angle: 72deg; --piece-counter-angle: -72deg; }
-.matchups-page .starter-progress__piece[data-piece="3"] { --piece-angle: 108deg; --piece-counter-angle: -108deg; }
-.matchups-page .starter-progress__piece[data-piece="4"] { --piece-angle: 144deg; --piece-counter-angle: -144deg; }
-.matchups-page .starter-progress__piece[data-piece="5"] { --piece-angle: 180deg; --piece-counter-angle: -180deg; }
-.matchups-page .starter-progress__piece[data-piece="6"] { --piece-angle: 216deg; --piece-counter-angle: -216deg; }
-.matchups-page .starter-progress__piece[data-piece="7"] { --piece-angle: 252deg; --piece-counter-angle: -252deg; }
-.matchups-page .starter-progress__piece[data-piece="8"] { --piece-angle: 288deg; --piece-counter-angle: -288deg; }
-.matchups-page .starter-progress__piece[data-piece="9"] { --piece-angle: 324deg; --piece-counter-angle: -324deg; }
+.matchups-page .starter-progress__piece[data-piece="0"] { --piece-angle: 2deg; }
+.matchups-page .starter-progress__piece[data-piece="1"] { --piece-angle: 38deg; }
+.matchups-page .starter-progress__piece[data-piece="2"] { --piece-angle: 74deg; }
+.matchups-page .starter-progress__piece[data-piece="3"] { --piece-angle: 110deg; }
+.matchups-page .starter-progress__piece[data-piece="4"] { --piece-angle: 146deg; }
+.matchups-page .starter-progress__piece[data-piece="5"] { --piece-angle: 182deg; }
+.matchups-page .starter-progress__piece[data-piece="6"] { --piece-angle: 218deg; }
+.matchups-page .starter-progress__piece[data-piece="7"] { --piece-angle: 254deg; }
+.matchups-page .starter-progress__piece[data-piece="8"] { --piece-angle: 290deg; }
+.matchups-page .starter-progress__piece[data-piece="9"] { --piece-angle: 326deg; }
 
 .matchups-page .starter-progress__quarters {
-  display: flex;
-  gap: 0.16rem;
+  -webkit-mask-image: radial-gradient(closest-side, transparent 67%, #000 68%, #000 95%, transparent 96%);
+  mask-image: radial-gradient(closest-side, transparent 67%, #000 68%, #000 95%, transparent 96%);
 }
 
 .matchups-page .starter-progress__quarter {
-  display: block;
-  width: 0.31rem;
-  height: 0.7rem;
-  border: 0;
-  border-radius: 0.18rem;
-  background: transparent;
+  --quarter-angle: 0deg;
+  --quarter-color: var(--color-border-strong);
+  background: conic-gradient(from var(--quarter-angle), var(--quarter-color) 0deg 7.3deg, transparent 7.3deg);
   font-size: 0;
 }
 
+.matchups-page .starter-progress__quarter:nth-child(2) { --quarter-angle: 8deg; }
+.matchups-page .starter-progress__quarter:nth-child(3) { --quarter-angle: 16deg; }
+.matchups-page .starter-progress__quarter:nth-child(4) { --quarter-angle: 24deg; }
+
 .matchups-page .starter-progress__quarter:not(:empty) {
-  background: var(--color-accent);
-  box-shadow: 0 0 5px var(--color-accent-haze);
+  --quarter-color: var(--wheel-accent);
 }
 
 .matchups-page .starter-progress__center {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  display: grid;
-  width: 3.9rem;
-  height: 3.9rem;
-  place-items: center;
-  z-index: 2;
-  border: 1px solid var(--color-border);
-  border-radius: 50%;
-  background: var(--color-panel-deep);
-  color: var(--color-text-muted);
+  inset: 22%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
   font-family: var(--font-mono);
-  font-size: var(--type-xs);
-  letter-spacing: 0.06em;
-  line-height: 1.25;
-  text-align: center;
-  transform: translate(-50%, -50%);
+  line-height: 1;
 }
 
-.matchups-page .starter-progress__summary {
-  display: block;
-  max-width: 100%;
+.matchups-page .starter-progress__center b {
+  color: var(--color-text-primary);
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+}
+
+.matchups-page .starter-progress__center > span {
   color: var(--color-text-muted);
-  font-size: var(--type-xs);
-  line-height: 1.35;
-  text-align: center;
+  font-size: 0.625rem;
+  letter-spacing: 0.02em;
+}
+
+.matchups-page .starter-progress__hint {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.matchups-page .starter-progress__toggle:hover .starter-progress__hint {
+  color: var(--wheel-accent);
+}
+
+.matchups-page .starter-progress__hint > span {
+  display: inline-block;
+}
+
+.matchups-page .starter-progress__details[open] .starter-progress__hint > span {
+  transform: rotate(180deg);
+}
+
+.matchups-page .starter-progress__lineup {
+  display: grid;
+  gap: 0;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+
+.matchups-page .starter-progress__lineup li {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.65rem 0;
+  border-top: 1px solid var(--color-border);
+  line-height: 1.4;
+}
+
+.matchups-page .starter-progress__slot,
+.matchups-page .starter-progress__status,
+.matchups-page .starter-progress__note {
+  color: var(--color-text-muted);
+  font-size: 0.6875rem;
+}
+
+.matchups-page .starter-progress__slot {
+  color: var(--wheel-accent);
+  overflow-wrap: anywhere;
+}
+
+.matchups-page .starter-progress__player {
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.matchups-page .starter-progress__note {
+  margin: 0.25rem 0 0;
+  line-height: 1.5;
+  text-align: left;
+}
+
+/* Size against the available card, including narrow desktop score columns. */
+@container starter-wheels (max-width: 22rem) {
+  .matchups-page .starter-progress__teams {
+    gap: 0.5rem;
+  }
+
+  .matchups-page .starter-progress__team {
+    padding: 0.65rem 0.5rem;
+  }
+
+  .matchups-page .starter-progress__ring {
+    width: min(100%, 6.75rem);
+  }
+
+  .matchups-page .starter-progress__team-name {
+    font-size: 0.8125rem;
+  }
+
+  .matchups-page .starter-progress__center b {
+    font-size: 1.3rem;
+  }
 }
 
 .matchups-page .matchup-insight-line {
@@ -19133,9 +19246,6 @@ a.skip-link {
   text-transform: uppercase;
 }
 
-/* Show the original reference beneath a live/final score as well as in the
-   pregame centre position, so managers can compare projected vs actual after
-   a game closes. */
 .matchups-page .my-matchup__score.state--final .my-matchup__proj-sub {
   display: inline;
 }
@@ -19157,111 +19267,6 @@ a.skip-link {
   .matchups-page .starter-cell[data-right="true"] .starter-cell__proj,
   .matchups-page .starter-cell[data-right="true"] .starter-cell__pts {
     justify-content: flex-end;
-  }
-
-  .matchups-page .starter-progress__ring {
-    width: clamp(6.2rem, 30vw, 7.5rem);
-  }
-
-  .matchups-page .starter-progress__piece {
-    width: 1.85rem;
-    height: 1.25rem;
-    margin: -0.625rem -0.925rem;
-    transform: rotate(var(--piece-angle)) translateY(-2.9rem) rotate(var(--piece-counter-angle));
-  }
-
-  .matchups-page .starter-progress__quarter {
-    width: 0.25rem;
-    height: 0.58rem;
-  }
-
-  .matchups-page .starter-progress__center {
-    width: 3.25rem;
-    height: 3.25rem;
-    font-size: 0.8125rem;
-  }
-}
-
-/* Phone wheel layout: give each side its own compact row so the two rings
-   stay legible without forcing a tiny two-column race. The team identity and
-   summary occupy the text column while the ring keeps a consistent visual
-   anchor on the right. */
-@media (width <= 30rem) {
-  .matchups-page .starter-progress__teams {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-sm);
-  }
-
-  .matchups-page .starter-progress__team {
-    grid-template-columns: minmax(0, 1fr) clamp(6.75rem, 34vw, 7.5rem);
-    grid-template-areas:
-      "head ring"
-      "summary ring";
-    column-gap: var(--space-sm);
-    row-gap: 0.2rem;
-    align-items: center;
-    justify-items: stretch;
-    padding: var(--space-xs) var(--space-sm);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-panel-deep);
-    text-align: left;
-  }
-
-  .matchups-page .starter-progress__team-head {
-    grid-area: head;
-    justify-content: flex-start;
-    flex-wrap: wrap;
-    gap: 0.2rem 0.35rem;
-  }
-
-  .matchups-page .starter-progress__team-side {
-    font-size: var(--type-xs);
-  }
-
-  .matchups-page .starter-progress__team-name {
-    max-width: 100%;
-    overflow-wrap: anywhere;
-    text-align: left;
-    white-space: normal;
-  }
-
-  .matchups-page .starter-progress__ring {
-    grid-area: ring;
-    width: clamp(6.75rem, 34vw, 7.5rem);
-    margin: 0;
-    justify-self: end;
-  }
-
-  .matchups-page .starter-progress__summary {
-    grid-area: summary;
-    padding-right: var(--space-xs);
-    text-align: left;
-  }
-}
-
-@media (width <= 24rem) {
-  .matchups-page .starter-progress__teams {
-    gap: var(--space-xs);
-  }
-
-  .matchups-page .starter-progress__team {
-    grid-template-columns: minmax(0, 1fr) 6.2rem;
-    column-gap: var(--space-xs);
-    padding: 0.4rem 0.5rem;
-  }
-
-  .matchups-page .starter-progress__team-side,
-  .matchups-page .starter-progress__team-name {
-    font-size: var(--type-xs);
-  }
-
-  .matchups-page .starter-progress__ring {
-    width: 6.2rem;
-  }
-
-  .matchups-page .starter-progress__piece {
-    transform: rotate(var(--piece-angle)) translateY(-2.7rem) rotate(var(--piece-counter-angle));
   }
 }
 

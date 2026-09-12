@@ -365,6 +365,7 @@ type StarterProgressTeamData struct {
 	TeamHref  string
 	Segments  []StarterProgressSegmentData
 	Summary   string
+	Complete  string
 	AriaLabel string
 	BindID    string
 }
@@ -413,7 +414,11 @@ func starterProgressData(raw any, summaryRaw any, matchupID string, teamRaws map
 	for _, side := range sides {
 		rawSegments, _ := rawTeams[side].([]map[string]any)
 		segments := make([]StarterProgressSegmentData, 0, len(rawSegments))
+		complete := 0
 		for _, rawSegment := range rawSegments {
+			if boolField(rawSegment, "active") && stringField(rawSegment, "q4") != "" {
+				complete++
+			}
 			index := intField(rawSegment, "index")
 			bindKey := stringField(rawSegment, "bind_key")
 			if bindKey == "" {
@@ -444,16 +449,36 @@ func starterProgressData(raw any, summaryRaw any, matchupID string, teamRaws map
 		if teamName != "" {
 			ariaLabel = teamName + " starter progress"
 		}
-		if summary != "" {
-			ariaLabel += ": " + summary + ". Each piece fills one quarter as its slot's NFL game advances."
-		}
 		teams = append(teams, StarterProgressTeamData{
 			SideLabel: starterProgressSideLabel(side), TeamID: teamID, TeamName: teamName,
 			TeamHref: teamHref, Segments: segments, Summary: summary, AriaLabel: ariaLabel,
-			BindID: matchupID + "-" + side,
+			Complete: strconv.Itoa(complete) + "/" + strconv.Itoa(len(segments)),
+			BindID:   matchupID + "-" + side,
 		})
 	}
 	return StarterProgressData{Teams: teams, AriaLabel: "Starter progress by team"}
+}
+
+// The featured view orders teams relative to the viewer; the live endpoint
+// always keys progress by home/away. Keep presentation labels separate from
+// those canonical keys, including when a manager browses another matchup.
+func featuredStarterProgressData(raw map[string]any) StarterProgressData {
+	progress := starterProgressData(raw["starter_progress"], raw["starter_progress_summary"], stringField(raw, "id"), map[string]any{"mine": raw["mine"], "theirs": raw["theirs"]})
+	sides := []string{"away", "home"}
+	if boolField(raw, "mine_is_home") {
+		sides = []string{"home", "away"}
+	}
+	for i := range progress.Teams {
+		team := &progress.Teams[i]
+		team.BindID = stringField(raw, "id") + "-" + sides[i]
+		if !boolField(raw, "is_viewer") {
+			team.SideLabel = strings.ToUpper(sides[i])
+		}
+		for j := range team.Segments {
+			team.Segments[j].BindKey = team.BindID + "-" + team.Segments[j].Index
+		}
+	}
+	return progress
 }
 
 // BenchRowData is one Benches-disclosure row (A4, matchup redesign
@@ -563,7 +588,7 @@ func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
 		Pairs:               pairs,
 		MineBench:           benchRowsData(mineBenchRaw),
 		TheirsBench:         benchRowsData(theirsBenchRaw),
-		StarterProgress:     starterProgressData(raw["starter_progress"], raw["starter_progress_summary"], stringField(raw, "id"), map[string]any{"mine": raw["mine"], "theirs": raw["theirs"]}),
+		StarterProgress:     featuredStarterProgressData(raw),
 	}
 }
 
