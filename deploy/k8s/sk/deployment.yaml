@@ -40,12 +40,12 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.11-ebec1a5; built from
-          # ebec1a55fd302fab36c00c2fc620b217430f5e34 (main, 2026-09-11): GoSX v0.56.3 —
-          # stable weekly projections, per-team starter progress rings, team navigation,
-          # and active-slate polling. This instance remains intentionally scaled
+          # release-2026.09.12-103f3f0; built from
+          # 103f3f036043b52a94d9077b80135417623dec78 (main): GoSX v0.56.3.
+          # Responsive starter wheels, canonical live bindings, and contained
+          # matchup layouts. This instance remains intentionally scaled
           # to zero for 2026; the digest stays ready for a future reactivation.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:bee2d40bd105623647bf9c5ef5ccad621bc81474da13981568adb84a3050f62e
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:b16e37e20ac234df6cb0450120092432a9f732b79e8729927048595e95ac8613
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
