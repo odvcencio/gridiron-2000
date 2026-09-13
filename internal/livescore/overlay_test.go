@@ -47,6 +47,9 @@ func TestMergeLinesLiveWinsWhileTheGameIsInProgress(t *testing.T) {
 	if dst.Source != league.StatSourceLive || dst.Stats["dstSack"] != 2 {
 		t.Fatalf("D/ST = %+v", dst)
 	}
+	if got := league.ScoreBreakdownText(dst.Stats, nil); got == "" {
+		t.Fatal("a live D/ST row with a running allowance total produced an empty 0.0 tooltip")
+	}
 	// The comma-ok form proves the in-progress gate actually withholds
 	// the shutout key, rather than merely reading a map-miss zero value
 	// that would pass this check either way (round-2 note 12).

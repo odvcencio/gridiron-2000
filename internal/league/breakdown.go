@@ -91,15 +91,23 @@ var tank01DSTRows = []breakdownRow{
 	{statKey: "safeties", ruleKey: "dstSafety"},
 }
 
+// These keys carry live D/ST context through WeekStatLine without changing
+// the score. They are intentionally absent from defaultScoringRules, so the
+// running points and yards allowed can explain a 0.0 tooltip while the two
+// allowance ladders remain gated until the game is final.
+const (
+	liveDSTPointsAllowedKey = "liveDSTPointsAllowed"
+	liveDSTYardsAllowedKey  = "liveDSTYardsAllowed"
+)
+
 // RuleStatsFromTank01 maps a Tank01-keyed stat line onto the league's
 // scoring-rule keys: breakdownRows for a player, tank01DSTRows plus
 // ptsAllowed for a D/ST unit. dstShutout is written only when the game is
 // final and zero points were allowed; an in-progress or non-shutout final
-// result carries no shutout key at all, not a zero. Every other zero
-// value is dropped too, so an empty result means "no data" for offense
-// and D/ST alike: the overlay's precedence rule (Task 3,
-// livescore.MergeLines) keys on the poller's game status, never on
-// len(stats), so this omission is safe.
+// result carries no shutout key at all, not a zero. Zero scoring stats are
+// dropped, but an in-progress D/ST retains explicitly reported points and
+// yards allowed under non-scoring context keys. That lets its tooltip explain
+// a real 0.0 without awarding a final-only allowance band early.
 func RuleStatsFromTank01(stats map[string]float64, final bool) map[string]float64 {
 	out := make(map[string]float64, len(stats))
 	for _, table := range [][]breakdownRow{breakdownRows, tank01DSTRows} {
@@ -128,6 +136,13 @@ func RuleStatsFromTank01(stats map[string]float64, final bool) map[string]float6
 				out[key] = 1
 			}
 		}
+	} else {
+		if allowed, ok := stats["ptsAllowed"]; ok && allowed >= 0 && finiteScoringPoints(allowed) {
+			out[liveDSTPointsAllowedKey] = allowed
+		}
+		if yards, ok := stats["ydsAllowed"]; ok && yards >= 0 && finiteScoringPoints(yards) {
+			out[liveDSTYardsAllowedKey] = yards
+		}
 	}
 	return out
 }
@@ -151,8 +166,9 @@ func RuleStatsFromTank01(stats map[string]float64, final bool) map[string]float6
 // a score, and hiding it would leave a reader hunting for points that
 // were never there.
 //
-// Returns "" when nothing contributed, so a caller can render the empty
-// case however it likes rather than showing an empty label.
+// An in-progress D/ST also lists its running points and yards allowed, plus a
+// pending marker for the final-only allowance bands. Those context rows score
+// no points. Returns "" when there is neither scoring nor live context.
 func ScoreBreakdownText(stats map[string]float64, values map[string]float64) string {
 	if len(stats) == 0 {
 		return ""
@@ -162,8 +178,6 @@ func ScoreBreakdownText(stats map[string]float64, values map[string]float64) str
 	}
 	type row struct{ left, right string }
 	var rows []row
-	widest := 0
-	valueWidth := 0
 	for _, rule := range defaultScoringRules() {
 		stat, ok := stats[rule.Key]
 		if !ok || stat == 0 || !finiteScoringPoints(stat) {
@@ -173,17 +187,33 @@ func ScoreBreakdownText(stats map[string]float64, values map[string]float64) str
 		if stat != 1 {
 			left += " x" + trimFloat(stat)
 		}
-		if len(left) > widest {
-			widest = len(left)
-		}
 		right := fmt.Sprintf("%.1f", stat*scoringPoints(values, rule.Key))
-		if len(right) > valueWidth {
-			valueWidth = len(right)
-		}
 		rows = append(rows, row{left: left, right: right})
+	}
+	context := false
+	if allowed, ok := stats[liveDSTPointsAllowedKey]; ok && allowed >= 0 && finiteScoringPoints(allowed) {
+		rows = append(rows, row{left: "Points allowed so far", right: trimFloat(allowed)})
+		context = true
+	}
+	if yards, ok := stats[liveDSTYardsAllowedKey]; ok && yards >= 0 && finiteScoringPoints(yards) {
+		rows = append(rows, row{left: "Yards allowed so far", right: trimFloat(yards)})
+		context = true
+	}
+	if context {
+		rows = append(rows, row{left: "Allowance bands", right: "PENDING"})
 	}
 	if len(rows) == 0 {
 		return ""
+	}
+	widest := 0
+	valueWidth := 0
+	for _, row := range rows {
+		if len(row.left) > widest {
+			widest = len(row.left)
+		}
+		if len(row.right) > valueWidth {
+			valueWidth = len(row.right)
+		}
 	}
 	var b strings.Builder
 	for i, r := range rows {
