@@ -115,6 +115,9 @@ func main() {
 	}
 	runtimeContext, stopRuntime := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopRuntime()
+	if err := startRuntimeDiagnostics(runtimeContext, os.Getenv("RUNTIME_DIAGNOSTICS_ADDR")); err != nil {
+		log.Fatal(err)
+	}
 	app, rt, err := BuildApp(cfg)
 	if err != nil {
 		log.Fatal(err)
