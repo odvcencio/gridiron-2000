@@ -115,9 +115,9 @@ func ledgerPlayerDetail(row *StarterLedgerRow) {
 			row.Detail = "No live punting row yet; 0.0 is provisional until punt aggregates arrive."
 		}
 	case "stats-unavailable":
-		row.Detail = "Player-stat source is unavailable; points are not being treated as an official zero."
+		row.Detail = "Player-stat source is unavailable; showing 0.0 until scoring data returns."
 	case "stats-empty":
-		row.Detail = "No player-stat rows are available for this week; points are not being treated as an official zero."
+		row.Detail = "No player-stat rows are available for this week; showing 0.0 until scoring data arrives."
 	case "empty":
 		row.Detail = "No player is configured in this starting slot."
 	}
@@ -510,29 +510,14 @@ func starterGameKnownZeroSoFar(player Player, week int, snapshot matchupStatsSna
 // starter rows, its starter rows too) used to format player.Points
 // directly: a field nothing in this codebase ever populates from a real
 // source, so it always read the false "0.0", scored week or not. This
-// renders the exact same "—" a starter's own row renders before the
-// weekly ledger has anything to say about that player, so the two
-// surfaces can never disagree about whether a week has posted.
+// keeps score text numeric before the weekly ledger has anything to say about
+// that player. Source and join-state fields carry availability separately.
 func weeklyPlayerPointsText(player Player, snapshot matchupStatsSnapshot, values map[string]float64, lineByKey map[string]WeekStatLine, now time.Time) string {
-	if snapshot.sourceErr != nil {
-		return "—"
-	}
-	if len(snapshot.lines) == 0 {
-		return "—"
-	}
 	if line, joined := lineByKey[playerStatKey(player)]; joined {
 		return fmt.Sprintf("%.1f", scorePlayerStats(line.Stats, values))
 	}
-	if snapshot.hasLive && snapshot.live.Degraded {
-		return "—"
-	}
-	// An explicit 0.0 needs a positive reason: this player's game is
-	// known to have started and the ledger simply has nothing for them
-	// yet. Every other case — not kicked off, or no signal at all — is
-	// the dash (starterGameStarted's own doc comment).
-	if !starterGameStarted(player.NFLTeam, snapshot, now) {
-		return "—"
-	}
+	// Score cells are always numeric. Source and join state disclose why a
+	// stat row is unavailable; the score itself never becomes an error glyph.
 	return "0.0"
 }
 
@@ -692,22 +677,6 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 			}
 		}
 		row.PointsText = fmt.Sprintf("%.1f", row.Points)
-		switch {
-		case row.JoinState == "matched":
-			// scored above; PointsText already reflects it.
-		case snapshot.hasLive && snapshot.live.Degraded:
-			// A known live-poller outage is not "unknown": never render an
-			// implicit 0.0 while the poller itself reports it cannot see the
-			// game right now (round-2 review of commit 8a4ffea, finding 2).
-			row.PointsText = "—"
-		case starterGameNotStarted(row.NFLTeam, snapshot, now):
-			// R3: a starter with no live row yet and no ledger line either
-			// only reads as an honest "—" once the game is known not to
-			// have started; once it is live (or we cannot tell), the
-			// explicit 0.0 above stands — the player is simply scoreless
-			// so far, not unaccounted for.
-			row.PointsText = "—"
-		}
 		ledgerPlayerDetail(&row)
 		rows = append(rows, row)
 	}
@@ -719,7 +688,7 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 		TeamID:      teamID,
 		Week:        week,
 		Total:       total,
-		TotalText:   map[bool]string{true: fmt.Sprintf("%.1f", total), false: "—"}[known],
+		TotalText:   fmt.Sprintf("%.1f", total),
 		Known:       known,
 		Final:       final,
 		SourceState: sourceState,

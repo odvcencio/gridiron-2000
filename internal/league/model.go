@@ -682,7 +682,9 @@ type StarterLedgerRow struct {
 // poller (starterGameKnownZeroSoFar) — a genuine gap, not a partial join
 // presented as a complete authoritative zero. A starter whose game is
 // known pre-kickoff or in progress contributes an honest 0.0 to a KNOWN
-// total instead (rider on the review of ae1a525, item 1).
+// total instead (rider on the review of ae1a525, item 1). TotalText remains
+// numeric even when Known is false; callers use Known and row detail for
+// provenance rather than turning the score itself into an error glyph.
 type TeamWeekLedger struct {
 	TeamID      string             `json:"teamId"`
 	Week        int                `json:"week"`

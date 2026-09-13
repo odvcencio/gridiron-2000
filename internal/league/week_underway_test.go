@@ -81,10 +81,9 @@ func TestWeekOneEveningReadsTruthfully(t *testing.T) {
 	if got := weeklyPlayerPointsText(patriots, snapshot, values, byKey, now); got != "8.0" {
 		t.Errorf("the benched defense from the same game scored %q, want %q", got, "8.0")
 	}
-	// A defense whose game is still days away has not scored zero — it
-	// has not played. An explicit zero is a claim, and nothing supports it.
-	if got := weeklyPlayerPointsText(bills, snapshot, values, byKey, now); got != "—" {
-		t.Errorf("a defense that has not played scored %q, want %q", got, "—")
+	// Score text remains numeric before kickoff; game state carries timing.
+	if got := weeklyPlayerPointsText(bills, snapshot, values, byKey, now); got != "0.0" {
+		t.Errorf("a defense that has not played scored %q, want %q", got, "0.0")
 	}
 	// A finished game names its result from each side's own perspective.
 	if got := starterGameState(seattle, 1, snapshot, time.UTC); got != "W 13-10" {
@@ -177,17 +176,17 @@ func TestLiveGameInProgressStillReadsLive(t *testing.T) {
 	}
 }
 
-// TestNoSignalNeverRendersAZero covers the unwired case: with no schedule
-// and no poller, every roster row used to read a confident 0.0.
-func TestNoSignalNeverRendersAZero(t *testing.T) {
+// TestNoSignalStillRendersNumericScore covers the unwired case: availability
+// is separate from score text.
+func TestNoSignalStillRendersNumericScore(t *testing.T) {
 	now := time.Date(2026, 9, 9, 23, 30, 0, 0, time.UTC)
 	blind := matchupStatsSnapshot{
 		lines: []WeekStatLine{{Key: "someoneelse|QB", Stats: map[string]float64{"passTD": 1}}},
 		known: true,
 	}
 	player := Player{ID: "p-1", Name: "Drake Maye", Position: "QB", NFLTeam: "NE"}
-	if got := weeklyPlayerPointsText(player, blind, breakdownDefaultValues(), weekStatLinesByKey(blind.lines), now); got != "—" {
-		t.Fatalf("with no schedule and no poller, points read %q, want %q", got, "—")
+	if got := weeklyPlayerPointsText(player, blind, breakdownDefaultValues(), weekStatLinesByKey(blind.lines), now); got != "0.0" {
+		t.Fatalf("with no schedule and no poller, points read %q, want %q", got, "0.0")
 	}
 	if starterGameStarted("NE", blind, now) {
 		t.Fatal("starterGameStarted claimed a game began with no signal at all")

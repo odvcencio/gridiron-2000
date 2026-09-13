@@ -627,12 +627,10 @@ func TestWindowOpenAndClosedLogOncePerTransition(t *testing.T) {
 // covers round-2 review finding 3: the earlier test above finals a game
 // through isFinalDone (the poller's own post-fetch tracking), which was
 // already excluded from windowGames correctly. This covers the other
-// path: the schedule row's own Final flag, set (by the schedule source)
-// before the poller ever fetches it. inWindow used to check game.Final
-// too, so windowGames dropped the game the instant its schedule row
-// turned final — even minutes after kickoff, hours before its own
-// kickoff+windowAfter — and logged "window closed" too early. windowGames
-// must be a pure clock fact, independent of game.Final.
+// path: the schedule row's own Final flag. A restarted poller has no saved
+// box-score rows, so it must fetch that final game once to rehydrate them;
+// only its own finalDone state may remove the target. The clock window stays
+// open independently.
 func TestWindowStaysOpenWhenAScheduleRowIsFinalBeforeItsOwnWindowCloses(t *testing.T) {
 	now := kickoff.Add(30 * time.Minute) // inside the window: kickoff-5m..kickoff+5h
 	final := false
@@ -674,14 +672,22 @@ func TestWindowStaysOpenWhenAScheduleRowIsFinalBeforeItsOwnWindowCloses(t *testi
 	// The schedule marks the game final while now stays well inside its
 	// own window (kickoff+30m; kickoff+windowAfter is still 4.5h away).
 	final = true
+	now = now.Add(61 * time.Second) // make the final box due at baseline
+	fetcher.mu.Lock()
+	fetcher.boxes["20250907_BAL@BUF"] = fantasy.BoxScore{GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "2", Final: true, Period: "Final"}
+	fetcher.mu.Unlock()
+	beforeFinalFetch := fetcher.callsFor("20250907_BAL@BUF")
 	for i := 0; i < 3; i++ {
 		poller.Tick(context.Background())
+	}
+	if got := fetcher.callsFor("20250907_BAL@BUF") - beforeFinalFetch; got != 1 {
+		t.Fatalf("schedule-final game fetched %d times, want one rehydrating final fetch", got)
 	}
 	if n := count("livescore: window closed"); n != 0 {
 		t.Fatalf("window closed logged after the schedule marked the game final early, while still inside its own window: %v", logs)
 	}
 	if inWindowNow := poller.Health().InWindow; inWindowNow != 0 {
-		t.Fatalf("a schedule-final game must still leave the poll targets: InWindow = %d, want 0", inWindowNow)
+		t.Fatalf("a rehydrated final game must leave the poll targets: InWindow = %d, want 0", inWindowNow)
 	}
 
 	now = kickoff.Add(windowAfter + time.Minute) // past the game's own window now too

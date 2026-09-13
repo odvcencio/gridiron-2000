@@ -158,16 +158,10 @@ func TestStarterRowsCarryGameStateLabels(t *testing.T) {
 	}
 }
 
-// TestStarterZeroPointsRendersHonestDashBeforeKickoffOrOnDegradedOutage
-// covers rider R3 and round-2 review finding 2 (commit 8a4ffea): a starter
-// absent from the live frame (preseasonPlayerStats drops a player with
-// zero stats so far, so no WeekStatLine exists for them yet) renders an
-// explicit 0.0 once their game is in progress and the poller reports no
-// outage, an honest "—" when their game has not started and no ledger
-// row exists either, and the same honest "—" — never an implicit 0.0 —
-// once the poller itself reports Degraded, since a known outage is not
-// the same claim as "unknown".
-func TestStarterZeroPointsRendersHonestDashBeforeKickoffOrOnDegradedOutage(t *testing.T) {
+// TestStarterScoreTextAlwaysStaysNumeric covers the display invariant across
+// in-progress, pre-kickoff, and degraded source states. Availability remains
+// in JoinState and the disclosure text; a score cell never becomes a dash.
+func TestStarterScoreTextAlwaysStaysNumeric(t *testing.T) {
 	t.Run("in progress with no known outage", func(t *testing.T) {
 		status := LiveStatus{Enabled: true, Games: map[string]LiveGameState{"BUF": {GameID: "g1", Period: "Q2", Clock: "3:10", InProgress: true}}}
 		_, snapshot := liveStateFixture(t, status, nil)
@@ -183,8 +177,8 @@ func TestStarterZeroPointsRendersHonestDashBeforeKickoffOrOnDegradedOutage(t *te
 						}
 					case "PHI":
 						sawPHI = true
-						if row.PointsText != "—" {
-							t.Fatalf("pre-kickoff starter with no ledger row = %+v, want an honest dash", row)
+						if row.PointsText != "0.0" {
+							t.Fatalf("pre-kickoff starter with no ledger row = %+v, want numeric 0.0", row)
 						}
 					}
 				}
@@ -196,10 +190,8 @@ func TestStarterZeroPointsRendersHonestDashBeforeKickoffOrOnDegradedOutage(t *te
 	})
 
 	t.Run("in progress but the poller reports a known outage", func(t *testing.T) {
-		// The same in-progress BUF game, but the poller itself reports
-		// Degraded. A known outage is not "unknown", so the unmatched
-		// starter must never render an implicit 0.0 that reads like a real,
-		// official zero.
+		// The same in-progress BUF game, but the poller reports Degraded.
+		// The score remains numeric while JoinState carries the outage.
 		status := LiveStatus{Enabled: true, Degraded: true, Reason: "daily budget exhausted", Games: map[string]LiveGameState{"BUF": {GameID: "g1", Period: "Q2", Clock: "3:10", InProgress: true}}}
 		_, snapshot := liveStateFixture(t, status, nil)
 		sawBUF := false
@@ -208,8 +200,8 @@ func TestStarterZeroPointsRendersHonestDashBeforeKickoffOrOnDegradedOutage(t *te
 				for _, row := range team.StarterLedger {
 					if row.NFLTeam == "BUF" {
 						sawBUF = true
-						if row.PointsText != "—" {
-							t.Fatalf("in-progress starter during a known poller outage = %+v, want an honest dash", row)
+						if row.PointsText != "0.0" {
+							t.Fatalf("in-progress starter during a known poller outage = %+v, want numeric 0.0", row)
 						}
 					}
 				}

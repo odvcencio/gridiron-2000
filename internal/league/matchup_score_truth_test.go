@@ -397,8 +397,8 @@ func TestTeamWeekLedgerStaysUnknownOnDegradedPoller(t *testing.T) {
 		return []WeekStatLine{{Key: normalizePlayerKey("Someone Else", "WR"), Stats: map[string]float64{"recTD": 1}}}
 	})
 	ledger := svc.teamWeekLedger(svc.store.Snapshot(), "team-1", 1)
-	if ledger.Known || ledger.TotalText != "—" {
-		t.Fatalf("degraded ledger = %+v, want an unknown dash total", ledger)
+	if ledger.Known || ledger.TotalText != "0.0" {
+		t.Fatalf("degraded ledger = %+v, want unknown provenance with numeric score text", ledger)
 	}
 	if got := winProbabilityText(50, 40, ledger.Known, true); got != "—" {
 		t.Fatalf("winProbabilityText for the degraded/unknown side = %q, want the dash", got)
@@ -486,11 +486,11 @@ func TestMatchupsDataCarriesStarterLedgerAndUnavailableScoreState(t *testing.T) 
 			}
 		}
 	}
-	// No WeekStatsSource is wired: an active matchup must expose an unknown
-	// score marker, never claim an official 0.0 while rows are unavailable.
+	// No WeekStatsSource is wired: provenance remains unknown, but score text
+	// stays numeric.
 	firstAway, _ := matchups[0]["away"].(map[string]any)
-	if firstAway["score"] != "—" {
-		t.Fatalf("unavailable active score = %#v, want an honest em dash", firstAway["score"])
+	if firstAway["score"] != "0.0" {
+		t.Fatalf("unavailable active score = %#v, want numeric 0.0", firstAway["score"])
 	}
 	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
 		return []WeekStatLine{{Key: normalizePlayerKey("Ja'Marr Chase", "WR"), Stats: map[string]float64{"recTD": 1}}}
