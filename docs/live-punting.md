@@ -11,10 +11,12 @@ them to the punter's player identity.
 - Inside-20 and touchback counts feed their actual scoring rules.
 - A longest punt of at least 50 yards confirms one 50+ bonus. Aggregates do
   not prove the number of additional 50+ punts.
-- With exactly one punt and matching total/longest yardage, the individual
-  distance is known, so a punt of at least 40 yards earns its yardage points.
-- With multiple punts, total yardage cannot prove which punts passed the
-  40-yard gate. The parser does not score that aggregate as qualifying yards.
+- The longest punt identifies one individual distance. If it is at least
+  40 yards, that distance earns verified yardage points. With exactly one
+  punt, total and longest yardage must match.
+- With multiple punts, this is a conservative contribution from the longest
+  punt, not the full distance total. Aggregate yardage cannot prove which
+  other punts passed the 40-yard gate, so it is not scored as qualifying yards.
 - Coffin-corner, inside-the-5, blocked-punt attribution, and full distance
   bonuses settle through the existing weekly play-by-play adapter.
 
