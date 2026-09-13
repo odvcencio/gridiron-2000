@@ -120,3 +120,38 @@ func TestScoreBreakdownHonoursCommissionerValues(t *testing.T) {
 		t.Fatalf("ScoreBreakdownText = %q, want the league's own 3-point interception", got)
 	}
 }
+
+func TestScoreBreakdownExplainsLiveDefenseZero(t *testing.T) {
+	stats := RuleStatsFromTank01(map[string]float64{
+		"ptsAllowed": 0,
+		"ydsAllowed": 187,
+	}, false)
+	if score := scorePlayerStats(stats, breakdownDefaultValues()); score != 0 {
+		t.Fatalf("live allowance context scored %v points, want 0", score)
+	}
+
+	got := ScoreBreakdownText(stats, breakdownDefaultValues())
+	if strings.Contains(got, "PENDING") {
+		t.Fatalf("live D/ST breakdown retained the removed pending row: %q", got)
+	}
+	for _, want := range []string{
+		"Points allowed so far",
+		"Yards allowed so far",
+		"187",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("live D/ST breakdown %q does not contain %q", got, want)
+		}
+	}
+
+	final := ScoreBreakdownText(RuleStatsFromTank01(map[string]float64{
+		"ptsAllowed": 0,
+		"ydsAllowed": 187,
+	}, true), breakdownDefaultValues())
+	if strings.Contains(final, "so far") {
+		t.Fatalf("final D/ST breakdown retained live-only context: %q", final)
+	}
+	if !strings.Contains(final, "Shutout (0 points allowed)") || !strings.Contains(final, "100-199 yards allowed") {
+		t.Fatalf("final D/ST breakdown did not replace context with allowance bands: %q", final)
+	}
+}

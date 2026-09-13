@@ -127,7 +127,7 @@ func TestStarterGameKnownZeroSoFar(t *testing.T) {
 			name:     "schedule final, no poller wired",
 			player:   player,
 			snapshot: matchupStatsSnapshot{games: []GameInfo{{Away: "CIN", Home: "CLE", Kickoff: now.Add(-3 * time.Hour), Final: true}}},
-			want:     false,
+			want:     true,
 		},
 		{
 			name:     "live in progress, healthy poller",
@@ -139,7 +139,7 @@ func TestStarterGameKnownZeroSoFar(t *testing.T) {
 			name:     "live final",
 			player:   player,
 			snapshot: matchupStatsSnapshot{hasLive: true, live: LiveStatus{Games: map[string]LiveGameState{"CIN": {Final: true}}}},
-			want:     false,
+			want:     true,
 		},
 		{
 			name:     "poller degraded, even with an in-progress entry",

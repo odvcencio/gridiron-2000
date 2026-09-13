@@ -42,8 +42,8 @@ func TestRuleStatsFromTank01CrosswalkAndDST(t *testing.T) {
 	if final := RuleStatsFromTank01(map[string]float64{"ydsAllowed": 302}, true); final["dstYardsAllowed300"] != 1 {
 		t.Fatalf("302 yards allowed = %v, want the 300-399 band", final)
 	}
-	if running := RuleStatsFromTank01(map[string]float64{"ydsAllowed": 302}, false); len(running) != 0 {
-		t.Fatalf("an in-progress yards total banded a defense: %v", running)
+	if running := RuleStatsFromTank01(map[string]float64{"ydsAllowed": 302}, false); len(running) != 1 || running[liveDSTYardsAllowedKey] != 302 {
+		t.Fatalf("an in-progress yards total must stay as non-scoring context: %v", running)
 	}
 }
 

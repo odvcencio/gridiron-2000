@@ -110,9 +110,9 @@ func ledgerPlayerDetail(row *StarterLedgerRow) {
 			row.Detail = "Matched to the mirrored player-stat ledger."
 		}
 	case "missing-join":
-		row.Detail = "No matching player-stat row for this name and position; 0.0 is an explicit join miss."
+		row.Detail = "No matching player-stat row for this name and position; the located game currently contributes 0.0."
 		if row.Position == "P" {
-			row.Detail = "Punting stats have not arrived yet; points are pending, not a confirmed zero."
+			row.Detail = "No live punting row yet; 0.0 is provisional until punt aggregates arrive."
 		}
 	case "stats-unavailable":
 		row.Detail = "Player-stat source is unavailable; points are not being treated as an official zero."
@@ -462,13 +462,15 @@ func starterGameFinal(team string, snapshot matchupStatsSnapshot) bool {
 }
 
 // starterGameKnownZeroSoFar reports whether a missing-join starter's game
-// state is affirmatively known — a true bye (starterOnBye), under a
+// state is affirmatively known. The name is historical: for a punter whose
+// aggregates have not arrived, this is a provisional zero. It covers a true
+// bye (starterOnBye), under a
 // healthy live poller, or (via starterGameNotStarted's own fallback)
 // from the NFL schedule when the poller has no entry yet — to be a bye,
-// pre-kickoff, or in progress. In every one of those states the starter's
-// box score genuinely has nothing to report: the missing ledger join is
-// an honest 0.0, not an unaccounted-for gap, and the team total may count
-// it toward a KNOWN sum instead of going UNKNOWN for hours until
+// pre-kickoff, in progress, or final. In every one of those states the
+// starter's game is located and a missing row currently contributes 0.0,
+// so the team total may count it toward a KNOWN sum instead of going UNKNOWN
+// for hours until
 // nflverse posts the week (rider on the review of ae1a525, item 1 —
 // today one such starter alone forced the whole team total, its
 // projection, and its win probability to read "—" for the entire game;
@@ -476,10 +478,8 @@ func starterGameFinal(team string, snapshot matchupStatsSnapshot) bool {
 // known regardless of poller health — there is no game for the poller to
 // be degraded about. It answers false — leaving the total UNKNOWN, same
 // as before this rider — when the live poller itself reports Degraded,
-// when the game located for this team is already Final (a missing
-// ledger row for a finished game is a real gap the ledger has not
-// closed yet, not an honest zero), or when no signal at all locates the
-// game for this starter (no live entry and no scheduled kickoff,
+// or when no signal at all locates the game for this starter (no live
+// entry and no scheduled kickoff,
 // including an unconfigured/unrecognized NFL team).
 func starterGameKnownZeroSoFar(player Player, week int, snapshot matchupStatsSnapshot, now time.Time) bool {
 	if starterOnBye(player, week, snapshot) {
@@ -492,12 +492,12 @@ func starterGameKnownZeroSoFar(player Player, week int, snapshot matchupStatsSna
 	if starterGameNotStarted(team, snapshot, now) {
 		return true
 	}
+	if starterGameFinal(team, snapshot) {
+		return true
+	}
 	if snapshot.hasLive {
 		if game, ok := snapshot.live.Games[team]; ok {
-			// A missing punter row can be an unsupported or delayed feed,
-			// not evidence that no punts have earned points. The parser now
-			// retains confirmed zero-punt rows explicitly.
-			return game.InProgress && player.Position != "P"
+			return game.InProgress
 		}
 	}
 	return false
@@ -525,9 +525,6 @@ func weeklyPlayerPointsText(player Player, snapshot matchupStatsSnapshot, values
 	}
 	if snapshot.hasLive && snapshot.live.Degraded {
 		return "—"
-	}
-	if player.Position == "P" {
-		return "—" // no matching punting row is not a confirmed zero
 	}
 	// An explicit 0.0 needs a positive reason: this player's game is
 	// known to have started and the ledger simply has nothing for them
@@ -703,8 +700,6 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 			// implicit 0.0 while the poller itself reports it cannot see the
 			// game right now (round-2 review of commit 8a4ffea, finding 2).
 			row.PointsText = "—"
-		case row.Position == "P":
-			row.PointsText = "—" // punting data has not been accounted for
 		case starterGameNotStarted(row.NFLTeam, snapshot, now):
 			// R3: a starter with no live row yet and no ledger line either
 			// only reads as an honest "—" once the game is known not to
