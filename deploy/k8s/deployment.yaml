@@ -50,6 +50,12 @@ spec:
           env:
             - name: APP_ENV
               value: "production"
+            # Keep Go's working heap below the pod's hard limit, leaving room
+            # for transient allocations and non-heap runtime memory.
+            - name: GOMEMLIMIT
+              value: "384MiB"
+            - name: GODEBUG
+              value: "gctrace=1"
             - name: DEMO_MODE
               value: "false"
             - name: PORT
@@ -137,7 +143,7 @@ spec:
               memory: 128Mi
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 1Gi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
