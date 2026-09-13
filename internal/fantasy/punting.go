@@ -10,8 +10,9 @@ import (
 // team-level totals. A valid punts count retains a real zero-stat row too.
 // Aggregates cannot reconstruct every 40+/50+ punt or its landing position:
 // only the known scoring components are emitted, then week-close PBP settles
-// the remaining bonuses. In a one-punt game, matching yards and longest
-// distance identify that individual punt exactly.
+// the remaining bonuses. The longest distance identifies one individual
+// punt, so it contributes verified qualifying yards even in a multi-punt
+// game. This is exact for one punt and conservative for multiple punts.
 func addLivePuntingStats(stats map[string]float64, entry map[string]any) bool {
 	group, ok := entry["Punting"].(map[string]any)
 	if !ok {
@@ -32,8 +33,8 @@ func addLivePuntingStats(stats map[string]float64, entry map[string]any) bool {
 		if longest >= 50 {
 			stats["puntLong50"] = 1 // at least this longest punt is confirmed
 		}
-		if punts == 1 && longest == yards && yards >= 40 {
-			stats["puntYards"] = yards
+		if longest >= 40 && (punts != 1 || longest == yards) {
+			stats["puntYards"] = longest
 		}
 	}
 	return true

@@ -14,13 +14,21 @@ func TestParseLivePuntingAggregates(t *testing.T) {
 func TestLivePuntingDoesNotInventPerPuntBonuses(t *testing.T) {
 	stats := map[string]float64{}
 	entry := map[string]any{"Punting": map[string]any{"punts": "3", "puntYds": "146", "puntLong": "51", "puntsin20": "2", "puntTouchBacks": "1"}}
-	if !addLivePuntingStats(stats, entry) || stats["puntIn20"] != 2 || stats["puntTouchback"] != 1 || stats["puntLong50"] != 1 {
+	if !addLivePuntingStats(stats, entry) || stats["puntIn20"] != 2 || stats["puntTouchback"] != 1 || stats["puntLong50"] != 1 || stats["puntYards"] != 51 {
 		t.Fatalf("known aggregates = %v", stats)
 	}
-	for _, key := range []string{"puntYards", "coffinCorner", "puntDownedInside5", "puntBlocked"} {
+	for _, key := range []string{"coffinCorner", "puntDownedInside5", "puntBlocked"} {
 		if _, invented := stats[key]; invented {
 			t.Fatalf("aggregate invented %s: %v", key, stats)
 		}
+	}
+}
+
+func TestMultiplePuntsRetainVerifiedQualifyingDistance(t *testing.T) {
+	stats := map[string]float64{}
+	entry := map[string]any{"Punting": map[string]any{"punts": "2", "puntYds": "90", "puntLong": "45", "puntsin20": "0", "puntTouchBacks": "0"}}
+	if !addLivePuntingStats(stats, entry) || stats["puntYards"] != 45 || len(stats) != 1 {
+		t.Fatalf("known longest punt must earn points, without scoring all aggregate yards: %v", stats)
 	}
 }
 
