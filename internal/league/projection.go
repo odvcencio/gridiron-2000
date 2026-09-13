@@ -5,6 +5,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+
+	"gridiron-2000/internal/gameclock"
 )
 
 // remainingFractionByPeriod holds the fixed remaining-time-of-game
@@ -48,7 +50,7 @@ func remainingFraction(state LiveGameState, known bool) float64 {
 	if !known {
 		return 1
 	}
-	if fraction, ok := remainingFractionByPeriod[state.Period]; ok {
+	if fraction, ok := remainingFractionByPeriod[gameclock.NormalizePeriod(state.Period)]; ok {
 		return fraction
 	}
 	if state.InProgress {
@@ -496,15 +498,14 @@ func starterProgressQuarter(row StarterLedgerRow, status LiveStatus) int {
 }
 
 func progressQuarterFromPeriod(period string) int {
-	period = strings.ToUpper(strings.TrimSpace(period))
-	switch {
-	case strings.HasPrefix(period, "Q1"):
+	switch gameclock.NormalizePeriod(period) {
+	case "Q1":
 		return 1
-	case strings.HasPrefix(period, "Q2") || strings.HasPrefix(period, "HALF"):
+	case "Q2", "HALF":
 		return 2
-	case strings.HasPrefix(period, "Q3"):
+	case "Q3":
 		return 3
-	case strings.HasPrefix(period, "Q4") || strings.HasPrefix(period, "OT") || strings.HasPrefix(period, "OVERTIME"):
+	case "Q4", "OT":
 		return 4
 	default:
 		return 0

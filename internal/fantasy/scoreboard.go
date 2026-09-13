@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+
+	"gridiron-2000/internal/gameclock"
 )
 
 // ScoreboardGame is one game's row from getNFLScoresOnly — Tank01's
@@ -24,7 +26,7 @@ type ScoreboardGame struct {
 	HomePoints float64
 	Status     string // gameStatus text
 	StatusCode string // gameStatusCode: "2" final, "1" in progress, "0"/"" pre-game
-	Period     string // lineScore.period: "", "Q1".."Q4", "OT", "Final"
+	Period     string // normalized lineScore.period: "", "Q1".."Q4", "HALF", "OT", "Final"
 	Clock      string // gameClock: "8:12" or ""
 	Final      bool
 	InProgress bool
@@ -68,7 +70,7 @@ func ParseScoresOnly(raw []byte) []ScoreboardGame {
 			game.GameID = key
 		}
 		if lineScore, ok := entry["lineScore"].(map[string]any); ok {
-			game.Period = strings.TrimSpace(flexString(lineScore["period"]))
+			game.Period = gameclock.NormalizePeriod(flexString(lineScore["period"]))
 			if game.Clock == "" {
 				game.Clock = strings.TrimSpace(flexString(lineScore["gameClock"]))
 			}

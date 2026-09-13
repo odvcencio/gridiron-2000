@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gridiron-2000/internal/gameclock"
 )
 
 // PreseasonGame is one Tank01 preseason game from getNFLGamesForWeek,
@@ -155,7 +157,7 @@ type BoxScore struct {
 	HomePoints float64
 	Status     string // gameStatus text
 	StatusCode string // gameStatusCode: "2" final, "1" in progress, "0"/"" pre-game
-	Period     string // currentPeriod: "", "Q1".."Q4", "OT", "Final"
+	Period     string // normalized currentPeriod: "", "Q1".."Q4", "HALF", "OT", "Final"
 	Clock      string // gameClock: "8:12" or ""
 	Final      bool
 	InProgress bool                          // code "1", or any non-final code with a non-empty period
@@ -222,7 +224,7 @@ func parseBoxScore(raw json.RawMessage) BoxScore {
 	box.HomePoints = flexFloat(body["homePts"])
 	box.Status = flexString(body["gameStatus"])
 	box.StatusCode = strings.TrimSpace(flexString(body["gameStatusCode"]))
-	box.Period = strings.TrimSpace(flexString(body["currentPeriod"]))
+	box.Period = gameclock.NormalizePeriod(flexString(body["currentPeriod"]))
 	box.Clock = strings.TrimSpace(flexString(body["gameClock"]))
 	box.Final = preseasonFinal(box.Status, box.StatusCode) || strings.EqualFold(box.Period, "final")
 	box.InProgress = !box.Final && (box.StatusCode == "1" || (box.StatusCode != "0" && box.StatusCode != "" && box.Period != ""))
