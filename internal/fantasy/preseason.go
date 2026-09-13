@@ -207,10 +207,10 @@ func ParseBoxScore(raw []byte) BoxScore { return parseBoxScore(unwrapEnvelope(ra
 // verbatim, adds kickingStatKeys for the P5 fields, synthesizes returnTD
 // from the overloaded Kicking/Punting groups (P6, keyed by field name,
 // never by group identity), and parses fumblesLost from both candidate
-// locations (P9, unverified — see R2). Defense-only rows and punter-only
-// rows carry no scored offense/kicking stats and are dropped from Players
-// entirely, matching the projectionStats idiom (F5) of never emitting an
-// all-zero entry.
+// locations (P9, unverified — see R2). Defense-only rows carry no scored
+// offense/kicking stats and are dropped from Players.
+// Punter rows instead retain validated per-player punting aggregates,
+// including confirmed zero-punt rows, through addLivePuntingStats.
 func parseBoxScore(raw json.RawMessage) BoxScore {
 	box := BoxScore{Players: map[string]PlayerLine{}, DST: map[string]map[string]float64{}}
 	var body map[string]any
@@ -236,7 +236,8 @@ func parseBoxScore(raw json.RawMessage) BoxScore {
 			continue
 		}
 		stats := preseasonPlayerStats(entry)
-		if len(stats) == 0 {
+		puntingKnown := addLivePuntingStats(stats, entry)
+		if len(stats) == 0 && !puntingKnown {
 			continue
 		}
 		box.Players[playerID] = PlayerLine{
@@ -297,8 +298,8 @@ func parsePreseasonBoxScore(raw json.RawMessage) (map[string]map[string]float64,
 
 // preseasonPlayerStats flattens one playerStats row into the section 4.3
 // stat-key space. Zero values are dropped (the projectionStats idiom, F5),
-// so a row with no scored group at all (Defense only, or a punter's Punting
-// group) returns an empty map and the caller drops it.
+// so a row with no offense/kicking group returns an empty map. The caller
+// separately adds punting aggregates and retains confirmed zero-punt rows.
 //
 // Decision: an all-zero row and an absent row are equivalent for the live
 // overlay's precedence rule. A live cumulative stat line only grows over

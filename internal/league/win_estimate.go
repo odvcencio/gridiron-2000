@@ -56,7 +56,12 @@ func remainingScoreDistribution(rows []StarterLedgerRow, pool map[string]Player,
 		}
 		game, found := status.Games[normalizeNFLAbbreviation(row.NFLTeam)]
 		final := row.GameFinal || (hasLive && found && game.Final)
-		if (final || row.Points != 0 || (hasLive && found && game.InProgress)) && row.JoinState != "matched" {
+		// A scoreless live starter may have no scoring row yet. Reuse the
+		// ledger's explicit known-zero decision, never infer it from 0 points.
+		// Missing final actuals, source failures, and unexplained nonzero
+		// scores still hold back the estimate.
+		knownLiveZero := row.ZeroSoFarKnown && row.Points == 0 && !final && !status.Degraded
+		if (final || row.Points != 0 || (hasLive && found && game.InProgress)) && row.JoinState != "matched" && !knownLiveZero {
 			return 0, 0, false
 		}
 		mean += row.Points
@@ -81,7 +86,7 @@ func WinEstimateCaption(value string) string {
 	case "WON", "LOST", "TIED":
 		return "Final"
 	case "", winProbabilityDashText:
-		return "Unavailable"
+		return "Estimate pending"
 	default:
 		return "Est. to win"
 	}

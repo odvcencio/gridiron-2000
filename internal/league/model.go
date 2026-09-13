@@ -645,6 +645,9 @@ type StarterLedgerRow struct {
 	JoinState  string  `json:"joinState"`
 	Source     string  `json:"source,omitempty"`    // StatSource* of the matched line
 	GameState  string  `json:"gameState,omitempty"` // "Q3 8:12", "W 27-20", "FINAL", "SUN 4:25 PM", "BYE", ""
+	// ZeroSoFarKnown carries the ledger's affirmative bye/pre-kickoff/healthy
+	// live-game fallback. It is not a matched stat row or a final actual.
+	ZeroSoFarKnown bool `json:"zeroSoFarKnown,omitempty"`
 	// Injury is this starter's canonical designation, compacted to the
 	// chip code the row has room for ("O", "D", "Q", "IR"); InjuryLabel is
 	// the plain word behind it. Both empty for a player with no reported

@@ -559,7 +559,7 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 func scoringGroupNote(group string) string {
 	switch group {
 	case "PUNTING":
-		return "Punting yards score only on punts of 40 or more yards. Coffin-corner, inside-the-5, and blocked-punt rules score from play-by-play data at week close; a week without full play data scores those three at zero until the data arrives."
+		return "Punting yards score only on punts of 40 or more yards. Live punt aggregates are provisional; a missing punter stat row means pending, not a confirmed zero. Full per-punt distance, coffin-corner, inside-the-5, and blocked-punt bonuses settle from play-by-play data at week close."
 	case "DEFENSE":
 		return "Sacks, interceptions, fumble recoveries, defensive touchdowns, and safeties score live. Forced fumbles, blocked kicks, defensive two-point returns, and special-teams touchdowns score at week close: the live box score does not report them."
 	case "POINTS ALLOWED":

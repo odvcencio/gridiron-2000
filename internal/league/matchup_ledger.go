@@ -111,12 +111,18 @@ func ledgerPlayerDetail(row *StarterLedgerRow) {
 		}
 	case "missing-join":
 		row.Detail = "No matching player-stat row for this name and position; 0.0 is an explicit join miss."
+		if row.Position == "P" {
+			row.Detail = "Punting stats have not arrived yet; points are pending, not a confirmed zero."
+		}
 	case "stats-unavailable":
 		row.Detail = "Player-stat source is unavailable; points are not being treated as an official zero."
 	case "stats-empty":
 		row.Detail = "No player-stat rows are available for this week; points are not being treated as an official zero."
 	case "empty":
 		row.Detail = "No player is configured in this starting slot."
+	}
+	if row.Position == "P" && row.JoinState == "matched" && (row.Source == StatSourceLive || row.Source == StatSourceLiveFinal) {
+		row.Detail += " Live punt aggregates are provisional. Inside-20 and touchback counts are known; the longest confirms one 50+ bonus. Full distance and landing-position bonuses settle with play-by-play."
 	}
 }
 
@@ -488,7 +494,10 @@ func starterGameKnownZeroSoFar(player Player, week int, snapshot matchupStatsSna
 	}
 	if snapshot.hasLive {
 		if game, ok := snapshot.live.Games[team]; ok {
-			return game.InProgress
+			// A missing punter row can be an unsupported or delayed feed,
+			// not evidence that no punts have earned points. The parser now
+			// retains confirmed zero-punt rows explicitly.
+			return game.InProgress && player.Position != "P"
 		}
 	}
 	return false
@@ -516,6 +525,9 @@ func weeklyPlayerPointsText(player Player, snapshot matchupStatsSnapshot, values
 	}
 	if snapshot.hasLive && snapshot.live.Degraded {
 		return "—"
+	}
+	if player.Position == "P" {
+		return "—" // no matching punting row is not a confirmed zero
 	}
 	// An explicit 0.0 needs a positive reason: this player's game is
 	// known to have started and the ledger simply has nothing for them
@@ -677,7 +689,8 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 			total += row.Points
 		} else {
 			row.JoinState = "missing-join"
-			if !starterGameKnownZeroSoFar(assignment.Player, week, snapshot, now) {
+			row.ZeroSoFarKnown = starterGameKnownZeroSoFar(assignment.Player, week, snapshot, now)
+			if !row.ZeroSoFarKnown {
 				complete = false
 			}
 		}
@@ -690,6 +703,8 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 			// implicit 0.0 while the poller itself reports it cannot see the
 			// game right now (round-2 review of commit 8a4ffea, finding 2).
 			row.PointsText = "—"
+		case row.Position == "P":
+			row.PointsText = "—" // punting data has not been accounted for
 		case starterGameNotStarted(row.NFLTeam, snapshot, now):
 			// R3: a starter with no live row yet and no ledger line either
 			// only reads as an honest "—" once the game is known not to
