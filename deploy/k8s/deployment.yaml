@@ -30,14 +30,14 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.13-a1a4e67; built from
-          # a1a4e675822034bebc5fa31a8ea80472f83c5063 (main): GoSX v0.56.3.
-          # Show available original starter forecasts as a marked partial
-          # subtotal, with live coverage and missing-forecast explanations.
+          # release-2026.09.13-f6c52f9; built from
+          # f6c52f9d6e80b5c076afd35e31ac176cb3cba9f1 (main): GoSX v0.56.3.
+          # Retain marked partial forecasts and align score-tooltip decimal
+          # columns with TOTAL, including negative and wrapped amounts.
           # No schema change; rollback to the previous image remains valid.
-          # Release build: 2026-09-13T19:03:58Z.
+          # Release build: 2026-09-13T19:11:16Z.
           # Only flagship rolls. The inactive SK deployment remains untouched.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:14d5401270a4436366bb05e4123ddb09feaba4645bd8f16163c600a4d2282b1d
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:425aece4accb36848922316604a0b9fda232372b4b3a883b042ac62af07d32cc
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
