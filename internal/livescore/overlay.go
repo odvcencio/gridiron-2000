@@ -12,8 +12,10 @@ type Resolver func(tank01ID, longName string) (league.Player, bool)
 // wins while its game is in progress (a stale all-zero ledger row must
 // not hide live points). A ledger row wins once the game is final, or
 // when live has no data for it — unless the ledger row is itself a
-// partial mirror of the final live row (ledgerBehind), in which case the
-// final live row wins until the ledger catches up. When the ledger wins
+// partial mirror of the available live row (ledgerBehind), in which case
+// the live row wins until the ledger catches up. If the scoreboard ends
+// the game before its box is final, keep those available stats provisional;
+// only a final box enables final-only scoring categories. When the ledger wins
 // outright (final and not behind), it still absorbs any category the
 // final live row carries that the ledger's own stat mapping never
 // reports at all (mergeLedgerOnlyCategories, GC-1 fix 4) — otherwise a
@@ -27,10 +29,19 @@ func MergeLines(base []league.WeekStatLine, week int, snapshot Snapshot, resolve
 	}
 	inProgress := map[string]bool{}
 	inProgressGame := map[string]bool{}
+	finalByTeam := map[string]bool{}
+	finalByGame := map[string]bool{}
 	for _, game := range snapshot.Games {
-		if game.Week == week && game.InProgress && !game.Final {
+		if game.Week != week {
+			continue
+		}
+		if game.InProgress && !game.Final {
 			inProgress[game.Away], inProgress[game.Home] = true, true
 			inProgressGame[game.ID] = true
+		}
+		if game.Final {
+			finalByTeam[game.Away], finalByTeam[game.Home] = true, true
+			finalByGame[game.ID] = true
 		}
 	}
 	index := make(map[string]int, len(base))
@@ -44,18 +55,21 @@ func MergeLines(base []league.WeekStatLine, week int, snapshot Snapshot, resolve
 		// note 3); fall back to the game's own in-progress state so an
 		// empty team never reads as "not in progress" by default.
 		inProgressNow := inProgress[team]
+		finalNow := finalByTeam[team]
 		if team == "" {
 			inProgressNow = inProgressGame[gameID]
+			finalNow = finalByGame[gameID]
 		}
 		line := league.WeekStatLine{Key: key, Stats: league.RuleStatsFromTank01(stats, final), Source: sourceFor(final)}
 		if at, seen := index[key]; seen {
 			switch {
 			case inProgressNow:
 				// live wins while the game runs
-			case final && ledgerBehind(out[at].Stats, line.Stats):
-				// the live side is final but the ledger mirror still holds a
-				// partial (or all-zero) row; a final live row is never below
-				// the truth, so it wins until the ledger catches up
+			case (final || finalNow) && ledgerBehind(out[at].Stats, line.Stats):
+				// The game ended but the ledger still trails the available
+				// box stats. Preserve them even if the final box fetch is
+				// delayed; line still uses the box's own final flag for its
+				// source and final-only defense bands.
 			case final:
 				// The ledger is complete and wins for every category it
 				// reports (see ledgerBehind above). But the ledger's own

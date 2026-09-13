@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -208,7 +209,9 @@ func ParseBoxScore(raw []byte) BoxScore { return parseBoxScore(unwrapEnvelope(ra
 // from the overloaded Kicking/Punting groups (P6, keyed by field name,
 // never by group identity), and parses fumblesLost from both candidate
 // locations (P9, unverified — see R2). Defense-only rows carry no scored
-// offense/kicking stats and are dropped from Players.
+// offense/kicking stats and are dropped from Players. Explicit zero-valued
+// offense/kicking fields retain a scoreless player's row, so a final box
+// score can account for the player without an invented missing-stat gap.
 // Punter rows instead retain validated per-player punting aggregates,
 // including confirmed zero-punt rows, through addLivePuntingStats.
 func parseBoxScore(raw json.RawMessage) BoxScore {
@@ -235,7 +238,7 @@ func parseBoxScore(raw json.RawMessage) BoxScore {
 		if !ok {
 			continue
 		}
-		stats := preseasonPlayerStats(entry)
+		stats := livePlayerStats(entry)
 		puntingKnown := addLivePuntingStats(stats, entry)
 		if len(stats) == 0 && !puntingKnown {
 			continue
@@ -295,7 +298,7 @@ func parsePreseasonBoxScore(raw json.RawMessage) (map[string]map[string]float64,
 	for playerID, line := range box.Players {
 		stats := make(map[string]float64, len(line.Stats))
 		for key, value := range line.Stats {
-			if !strings.HasPrefix(key, "punt") {
+			if !strings.HasPrefix(key, "punt") && value != 0 {
 				stats[key] = value
 			}
 		}
@@ -306,17 +309,35 @@ func parsePreseasonBoxScore(raw json.RawMessage) (map[string]map[string]float64,
 	return out, box.Final
 }
 
+// livePlayerStats keeps explicit offense/kicking zeroes as scoring evidence.
+// An absent, null, malformed, or non-finite value cannot establish a row.
+// Return-only groups and a standalone zero fumble count do not establish
+// offense/kicking participation; punting has its own validated-count path.
+func livePlayerStats(entry map[string]any) map[string]float64 {
+	stats := preseasonPlayerStats(entry)
+	for key, value := range stats {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			delete(stats, key)
+		}
+	}
+	for groupKey, keyMap := range map[string]map[string]string{
+		"Passing": passingStatKeys, "Rushing": rushingStatKeys,
+		"Receiving": receivingStatKeys, "Kicking": kickingStatKeys,
+	} {
+		group, _ := entry[groupKey].(map[string]any)
+		for rawKey, normalized := range keyMap {
+			if value, valid := flexFloatOK(group[rawKey]); valid && value == 0 {
+				stats[normalized] = value
+			}
+		}
+	}
+	return stats
+}
+
 // preseasonPlayerStats flattens one playerStats row into the section 4.3
-// stat-key space. Zero values are dropped (the projectionStats idiom, F5),
-// so a row with no offense/kicking group returns an empty map. The caller
-// separately adds punting aggregates and retains confirmed zero-punt rows.
-//
-// Decision: an all-zero row and an absent row are equivalent for the live
-// overlay's precedence rule. A live cumulative stat line only grows over
-// the course of a game, so it is never below a ledger (mirror) row's
-// value; dropping the zero row costs the overlay nothing, since a caller
-// that finds no live row simply keeps its ledger row instead, the same
-// outcome as if this returned a present-but-zero map.
+// stat-key space. Zero values are dropped for the Blitz shape. The general
+// live parser retains explicit offense/kicking zeroes through livePlayerStats
+// and separately adds validated punting aggregates, including zero-punt rows.
 //
 // Two-point conversions (GC-1 fix 3) score at week close only: Tank01's
 // box score carries no per-player two-point field at all (verified
