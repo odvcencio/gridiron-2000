@@ -405,10 +405,9 @@ func starterProjectedText(row StarterLedgerRow, byID map[string]Player, status L
 
 // originalStarterProjectedTotal is the source forecast for one starting
 // slot, without the rest-of-game adjustment projectedTotal uses while games
-// are underway. Matchups presents this number as the original weekly
-// projection so a manager can compare it with the final score after the
-// week closes instead of watching the reference number move underneath
-// them.
+// are underway. This is the matching-week pool's forecast, not an actual
+// score or a live remaining estimate. There is not yet a persisted pregame
+// snapshot: a later source refresh can revise this reference value.
 func originalStarterProjectedTotal(row StarterLedgerRow, byID map[string]Player) (float64, bool) {
 	if row.PlayerID == "" {
 		return 0, false
@@ -438,23 +437,10 @@ func originalStarterProjectedText(row StarterLedgerRow, byID map[string]Player) 
 // reports whether every filled starter has one. This is intentionally
 // separate from projectedTotal: the latter is a useful live, rest-of-game
 // estimate for win-probability heuristics, while the Matchups PROJ value is
-// the stable number managers saw before kickoff and should still see after
-// FINAL.
+// matching-week source reference and never substitutes the FINAL score.
 func originalProjectedTotal(rows []StarterLedgerRow, byID map[string]Player) (float64, bool) {
-	total := 0.0
-	hasStarter := false
-	for _, row := range rows {
-		if row.PlayerID == "" {
-			continue
-		}
-		hasStarter = true
-		value, ok := originalStarterProjectedTotal(row, byID)
-		if !ok {
-			return total, false
-		}
-		total += value
-	}
-	return total, hasStarter
+	summary := summarizeOriginalProjections(rows, byID)
+	return summary.Total, summary.complete()
 }
 
 // starterProgressSegment is one of the ten pieces shown beside a matchup.

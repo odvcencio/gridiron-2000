@@ -384,7 +384,7 @@ func TestMatchupsPageFixtureProcess(t *testing.T) {
 			return []league.GameInfo{{ID: "future", Week: 1, Kickoff: kickoff, Away: "BUF", Home: "MIA"}}
 		})
 	}
-	if fixture == "live" {
+	if fixture == "live" || fixture == "partial" {
 		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
 		if _, err := svc.AdminGenerateSchedule(request, 14, 1, 42); err != nil {
 			t.Fatal(err)
@@ -427,6 +427,30 @@ func TestMatchupsPageFixtureProcess(t *testing.T) {
 			}
 			return league.LiveStatus{Enabled: true, CheckedAt: time.Now().Add(-4 * time.Second), Games: games}
 		})
+		if fixture == "partial" {
+			pool := []league.Player{
+				{ID: "p-09", Name: "Josh Allen", Position: "QB", NFLTeam: "BUF"},
+				{ID: "coverage-extra", Name: "Available Forecast", Position: "WR", NFLTeam: "SF", Projection: 12},
+				{ID: "p-06", Name: "Lamar Jackson", Position: "QB", NFLTeam: "BAL", Projection: 20},
+			}
+			svc.SetPlayerSource(func() ([]league.Player, int64, string) { return pool, 99, "test" })
+			// The public harness still enforces snake order. Finish this
+			// round and reverse back to team-1 before adding its second slot.
+			teams := svc.Teams()
+			for i := 2; i < len(teams); i++ {
+				if err := svc.SeedStarterForTest(teams[i].ID, 1, "QB", fmt.Sprintf("coverage-fill-a-%d", i)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for i := len(teams) - 1; i > 0; i-- {
+				if err := svc.SeedStarterForTest(teams[i].ID, 1, "WR1", fmt.Sprintf("coverage-fill-b-%d", i)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := svc.SeedStarterForTest("team-1", 1, "WR1", "coverage-extra"); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	fmt.Print(renderMatchupsPage(t))
 }

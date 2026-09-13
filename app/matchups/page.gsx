@@ -38,22 +38,28 @@ func TeamMark(props TeamMarkProps) Node {
 
 // ProjectionValue is the source weekly forecast, paired with the same kind
 // of focusable explanation the actual score cells use. The bind is kept on
-// the source value rather than the live rest-of-game estimate, so a finished
-// game never rewrites the number a manager saw before kickoff.
+// the source value rather than the live rest-of-game estimate. Actual scores
+// never replace missing forecasts. Source refreshes may revise a forecast.
 type ProjectionValueProps struct {
 	ClassName string
 	Value     string
 	Bind      string
 	TipID     string
+	Coverage string
+	CoverageBind string
+	Note string
+	NoteBind string
 }
 
 func ProjectionValue(props ProjectionValueProps) Node {
 	return <span class={props.ClassName + " projection-value"} tabindex="0" aria-describedby={"projection-tip-" + props.TipID}>
 		<span class="projection-value__number" data-gosx-live-bind={props.Bind}>{props.Value}</span>
+		<If cond={props.CoverageBind != ""}><small class="projection-value__coverage mono" data-gosx-live-bind={props.CoverageBind}>{props.Coverage}</small></If>
 		<span class="projection-tip" id={"projection-tip-" + props.TipID} role="tooltip">
 			<span class="projection-tip__heading">ORIGINAL PROJECTION</span>
 			<span class="projection-tip__value" data-gosx-live-bind={props.Bind}>{props.Value}</span>
-			<span class="projection-tip__note">Weekly source forecast · stays fixed after kickoff and final.</span>
+			<If cond={props.NoteBind != ""}><span class="projection-tip__note" data-gosx-live-bind={props.NoteBind}>{props.Note}</span></If>
+			<If cond={props.NoteBind == ""}><span class="projection-tip__note">Weekly source forecast · independent of actual score.</span></If>
 		</span>
 	</span>
 }
@@ -235,10 +241,10 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 				<span class="my-matchup__phase-label mono muted">{props.PhaseLabel}</span>
 				<div class="my-matchup__totals">
 					<b class="score score--large mono my-matchup__score-value" data-score-team={props.Mine.ID} data-gosx-live-bind={"scores." + props.Mine.ID} data-gosx-live-flash-class="score-flash">{props.Mine.Score}</b>
-					<ProjectionValue ClassName="my-matchup__proj-value mono" Value={props.Mine.Projected} Bind={"originalProjected." + props.Mine.ID} TipID={props.Mine.ID}></ProjectionValue>
+					<ProjectionValue ClassName="my-matchup__proj-value mono" Value={props.Mine.Projected} Bind={"originalProjected." + props.Mine.ID} TipID={props.Mine.ID} Coverage={props.Mine.ProjectionCoverage} CoverageBind={"originalProjectionCoverage." + props.Mine.ID} Note={props.Mine.ProjectionNote} NoteBind={"originalProjectionNote." + props.Mine.ID}></ProjectionValue>
 					<span class="muted">–</span>
 					<b class="score score--large mono my-matchup__score-value" data-score-team={props.Theirs.ID} data-gosx-live-bind={"scores." + props.Theirs.ID} data-gosx-live-flash-class="score-flash">{props.Theirs.Score}</b>
-					<ProjectionValue ClassName="my-matchup__proj-value mono" Value={props.Theirs.Projected} Bind={"originalProjected." + props.Theirs.ID} TipID={props.Theirs.ID}></ProjectionValue>
+					<ProjectionValue ClassName="my-matchup__proj-value mono" Value={props.Theirs.Projected} Bind={"originalProjected." + props.Theirs.ID} TipID={props.Theirs.ID} Coverage={props.Theirs.ProjectionCoverage} CoverageBind={"originalProjectionCoverage." + props.Theirs.ID} Note={props.Theirs.ProjectionNote} NoteBind={"originalProjectionNote." + props.Theirs.ID}></ProjectionValue>
 				</div>
 				<small class="my-matchup__proj-sub mono muted">original proj <span data-gosx-live-bind={"originalProjected." + props.Mine.ID}>{props.Mine.Projected}</span> – <span data-gosx-live-bind={"originalProjected." + props.Theirs.ID}>{props.Theirs.Projected}</span></small>
 				<span class="visually-hidden" data-gosx-live-bind={"stillToPlaySentence." + props.ID}>{props.StillToPlaySentence}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlay." + props.ID}>{props.StillToPlay}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlayTotal." + props.ID}>{props.StillToPlayTotal}</span>
@@ -271,9 +277,9 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 			</Each>
 		</ul>
 		<div class="matchup-pairs-totals" role="row">
-			<span class="matchup-pairs-totals__side" role="cell">PROJ <ProjectionValue ClassName="matchup-pairs-totals__projection mono" Value={props.Mine.Projected} Bind={"originalProjected." + props.Mine.ID} TipID={"total-" + props.Mine.ID}></ProjectionValue> · PTS <b data-gosx-live-bind={"scores." + props.Mine.ID}>{props.Mine.Score}</b></span>
+			<span class="matchup-pairs-totals__side" role="cell">PROJ <ProjectionValue ClassName="matchup-pairs-totals__projection mono" Value={props.Mine.Projected} Bind={"originalProjected." + props.Mine.ID} TipID={"total-" + props.Mine.ID} Coverage={props.Mine.ProjectionCoverage} CoverageBind={"originalProjectionCoverage." + props.Mine.ID} Note={props.Mine.ProjectionNote} NoteBind={"originalProjectionNote." + props.Mine.ID}></ProjectionValue> · PTS <b data-gosx-live-bind={"scores." + props.Mine.ID}>{props.Mine.Score}</b></span>
 			<span class="matchup-pairs-totals__label" role="cell">Total</span>
-			<span class="matchup-pairs-totals__side matchup-pairs-totals__side--right" role="cell">PROJ <ProjectionValue ClassName="matchup-pairs-totals__projection mono" Value={props.Theirs.Projected} Bind={"originalProjected." + props.Theirs.ID} TipID={"total-" + props.Theirs.ID}></ProjectionValue> · PTS <b data-gosx-live-bind={"scores." + props.Theirs.ID}>{props.Theirs.Score}</b></span>
+			<span class="matchup-pairs-totals__side matchup-pairs-totals__side--right" role="cell">PROJ <ProjectionValue ClassName="matchup-pairs-totals__projection mono" Value={props.Theirs.Projected} Bind={"originalProjected." + props.Theirs.ID} TipID={"total-" + props.Theirs.ID} Coverage={props.Theirs.ProjectionCoverage} CoverageBind={"originalProjectionCoverage." + props.Theirs.ID} Note={props.Theirs.ProjectionNote} NoteBind={"originalProjectionNote." + props.Theirs.ID}></ProjectionValue> · PTS <b data-gosx-live-bind={"scores." + props.Theirs.ID}>{props.Theirs.Score}</b></span>
 		</div>
 		</div>
 		<details class="matchup-benches">
@@ -340,7 +346,7 @@ func Scorebug(props ScorebugData) Node {
 				<div><a class="matchup-team-link" href={props.Away.Href} data-gosx-link><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Away.Name} /></a><small class="muted matchup-team-line"><span class="side-chip">AWAY</span><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Away.Manager} /><span class="matchup-team-line__meta"> · {props.Away.Record}</span></small></div>
 				<div class="mini__score">
 					<b class="pts score scorebug__score-value" data-score-team={props.Away.ID} data-gosx-live-bind={"scores." + props.Away.ID} data-gosx-live-flash-class="score-flash">{props.Away.Score}</b>
-					<ProjectionValue ClassName="pts proj scorebug__proj-value mono" Value={props.ProjectedAway} Bind={"originalProjected." + props.Away.ID} TipID={props.Away.ID}></ProjectionValue>
+					<ProjectionValue ClassName="pts proj scorebug__proj-value mono" Value={props.ProjectedAway} Bind={"originalProjected." + props.Away.ID} TipID={props.Away.ID} Coverage={props.ProjectedAwayCoverage} CoverageBind={"originalProjectionCoverage." + props.Away.ID} Note={props.ProjectedAwayNote} NoteBind={"originalProjectionNote." + props.Away.ID}></ProjectionValue>
 				</div>
 			</div>
 			<div class="mini">
@@ -348,7 +354,7 @@ func Scorebug(props ScorebugData) Node {
 				<div><a class="matchup-team-link" href={props.Home.Href} data-gosx-link><TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Home.Name} /></a><small class="muted matchup-team-line"><span class="side-chip side-chip--home">HOME</span><TextBlock as="span" class="matchup-team-line__manager" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={props.Home.Manager} /><span class="matchup-team-line__meta"> · {props.Home.Record}</span></small></div>
 				<div class="mini__score">
 					<b class="pts score scorebug__score-value" data-score-team={props.Home.ID} data-gosx-live-bind={"scores." + props.Home.ID} data-gosx-live-flash-class="score-flash">{props.Home.Score}</b>
-					<ProjectionValue ClassName="pts proj scorebug__proj-value mono" Value={props.ProjectedHome} Bind={"originalProjected." + props.Home.ID} TipID={props.Home.ID}></ProjectionValue>
+					<ProjectionValue ClassName="pts proj scorebug__proj-value mono" Value={props.ProjectedHome} Bind={"originalProjected." + props.Home.ID} TipID={props.Home.ID} Coverage={props.ProjectedHomeCoverage} CoverageBind={"originalProjectionCoverage." + props.Home.ID} Note={props.ProjectedHomeNote} NoteBind={"originalProjectionNote." + props.Home.ID}></ProjectionValue>
 				</div>
 			</div>
 			<StarterProgress {...props.StarterProgress}></StarterProgress>

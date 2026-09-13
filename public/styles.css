@@ -18914,6 +18914,18 @@ a.skip-link {
   border-radius: var(--radius-sm);
 }
 
+.matchups-page .projection-value__coverage {
+  display: block;
+  color: var(--color-accent-cyan);
+  font-size: 0.8125rem;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.matchups-page .projection-value__coverage:empty {
+  display: none;
+}
+
 .matchups-page .projection-tip {
   position: absolute;
   left: 50%;

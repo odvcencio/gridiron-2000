@@ -4135,6 +4135,8 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	matchupLiveStateLabelBind := make(map[string]string, len(live.Matchups))
 	projected := make(map[string]string, len(live.Matchups)*2)
 	originalProjected := make(map[string]string, len(live.Matchups)*2)
+	originalProjectionCoverage := make(map[string]string, len(live.Matchups)*2)
+	originalProjectionNote := make(map[string]string, len(live.Matchups)*2)
 	// winProb is keyed by TEAM ID, not matchup ID: each side's own win
 	// probability is published under its own key (round-2 review of
 	// commit 133d1d7, finding 1). A matchup-keyed value could only ever
@@ -4225,10 +4227,12 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		homeHasProjection := hasKnownStarterProjections(matchup.Home.StarterLedger, projectionByID)
 		projected[matchup.Away.ID] = projectedText(awayProjected, awayHasProjection)
 		projected[matchup.Home.ID] = projectedText(homeProjected, homeHasProjection)
-		awayOriginalProjected, awayOriginalKnown := originalProjectedTotal(matchup.Away.StarterLedger, projectionByID)
-		homeOriginalProjected, homeOriginalKnown := originalProjectedTotal(matchup.Home.StarterLedger, projectionByID)
-		originalProjected[matchup.Away.ID] = projectedText(awayOriginalProjected, awayOriginalKnown)
-		originalProjected[matchup.Home.ID] = projectedText(homeOriginalProjected, homeOriginalKnown)
+		for _, side := range []ScoreTeam{matchup.Away, matchup.Home} {
+			summary := summarizeOriginalProjections(side.StarterLedger, projectionByID)
+			originalProjected[side.ID] = summary.text()
+			originalProjectionCoverage[side.ID] = summary.coverage()
+			originalProjectionNote[side.ID] = summary.note()
+		}
 		winProb[matchup.Home.ID] = matchupWinEstimate(matchup.Home, matchup.Away, matchup.State, projectionByID, liveStatusValue, hasLive)
 		winProb[matchup.Away.ID] = matchupWinEstimate(matchup.Away, matchup.Home, matchup.State, projectionByID, liveStatusValue, hasLive)
 		winProbCaption[matchup.Home.ID] = WinEstimateCaption(winProb[matchup.Home.ID])
@@ -4278,64 +4282,66 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		// contract external readers and the sim timeline match on. The
 		// chip binds liveStateLabel instead — changing this key's meaning
 		// would have broken that contract while claiming to preserve it.
-		"liveState":               live.LiveState,
-		"liveStateLabel":          LiveStateLabel(live.LiveState, live.State == MatchupStateFinal),
-		"sourceLine":              live.SourceLine,
-		"slateLine":               live.SlateLine,
-		"gamesFinal":              live.GamesFinal,
-		"scores":                  scores,
-		"matchupStatus":           matchupStatus,
-		"matchupClock":            matchupClock,
-		"matchupIndicator":        matchupIndicator,
-		"matchupLiveState":        matchupLiveStateBind,
-		"matchupLiveStateLabel":   matchupLiveStateLabelBind,
-		"projected":               projected,
-		"originalProjected":       originalProjected,
-		"winProb":                 winProb,
-		"winProbCaption":          winProbCaption,
-		"stillToPlay":             stillToPlayBind,
-		"stillToPlayTotal":        stillToPlayTotalBind,
-		"stillToPlaySentence":     stillToPlaySentenceBind,
-		"starterPoints":           starterPoints,
-		"starterProj":             starterProjBind,
-		"starterOriginalProj":     starterOriginalProjBind,
-		"starterProgressQ1":       starterProgressQ1,
-		"starterProgressQ2":       starterProgressQ2,
-		"starterProgressQ3":       starterProgressQ3,
-		"starterProgressQ4":       starterProgressQ4,
-		"starterProgressSummary":  starterProgressSummaryBind,
-		"starterProgressComplete": starterProgressComplete,
-		"starterProgressLabel":    starterProgressLabel,
-		"starterProgressPlayers":  starterProgressPlayers,
-		"starterPlayerName":       starterPlayerName,
-		"starterPosition":         starterPosition,
-		"starterNFLTeam":          starterNFLTeam,
-		"starterProvenance":       starterProvenance,
-		"starterJoinState":        starterJoinState,
-		"starterDetail":           starterDetail,
-		"starterSource":           starterSource,
-		"starterProvenanceText":   starterProvenanceText,
-		"starterJoinStateText":    starterJoinStateText,
-		"starterSourceText":       starterSourceText,
-		"starterGameState":        starterGameStateBind,
-		"starterBreakdown":        starterBreakdownBind,
-		"starterPointsTotal":      starterPointsTotalBind,
-		"starterInjury":           starterInjuryBind,
-		"starterInjuryLabel":      starterInjuryLabelBind,
-		"starterPossession":       starterPossessionBind,
-		"liveStatus":              liveStatus,
-		"liveUpdated":             checked,
-		"lastUpdated":             statsUpdated,
-		"checkedAt":               checked,
-		"statsUpdatedAt":          statsUpdated,
-		"liveStatsUpdated":        statsUpdated,
-		"liveIndicator":           liveIndicatorToken(live.State),
-		"headlineTop":             presentation["headline_top"],
-		"headlineBottom":          presentation["headline_bottom"],
-		"refreshLabel":            presentation["refresh_label"],
-		"projectionNote":          projectionNote,
-		"noteTitle":               presentation["note_title"],
-		"noteBody":                presentation["note_body"],
+		"liveState":                  live.LiveState,
+		"liveStateLabel":             LiveStateLabel(live.LiveState, live.State == MatchupStateFinal),
+		"sourceLine":                 live.SourceLine,
+		"slateLine":                  live.SlateLine,
+		"gamesFinal":                 live.GamesFinal,
+		"scores":                     scores,
+		"matchupStatus":              matchupStatus,
+		"matchupClock":               matchupClock,
+		"matchupIndicator":           matchupIndicator,
+		"matchupLiveState":           matchupLiveStateBind,
+		"matchupLiveStateLabel":      matchupLiveStateLabelBind,
+		"projected":                  projected,
+		"originalProjected":          originalProjected,
+		"originalProjectionCoverage": originalProjectionCoverage,
+		"originalProjectionNote":     originalProjectionNote,
+		"winProb":                    winProb,
+		"winProbCaption":             winProbCaption,
+		"stillToPlay":                stillToPlayBind,
+		"stillToPlayTotal":           stillToPlayTotalBind,
+		"stillToPlaySentence":        stillToPlaySentenceBind,
+		"starterPoints":              starterPoints,
+		"starterProj":                starterProjBind,
+		"starterOriginalProj":        starterOriginalProjBind,
+		"starterProgressQ1":          starterProgressQ1,
+		"starterProgressQ2":          starterProgressQ2,
+		"starterProgressQ3":          starterProgressQ3,
+		"starterProgressQ4":          starterProgressQ4,
+		"starterProgressSummary":     starterProgressSummaryBind,
+		"starterProgressComplete":    starterProgressComplete,
+		"starterProgressLabel":       starterProgressLabel,
+		"starterProgressPlayers":     starterProgressPlayers,
+		"starterPlayerName":          starterPlayerName,
+		"starterPosition":            starterPosition,
+		"starterNFLTeam":             starterNFLTeam,
+		"starterProvenance":          starterProvenance,
+		"starterJoinState":           starterJoinState,
+		"starterDetail":              starterDetail,
+		"starterSource":              starterSource,
+		"starterProvenanceText":      starterProvenanceText,
+		"starterJoinStateText":       starterJoinStateText,
+		"starterSourceText":          starterSourceText,
+		"starterGameState":           starterGameStateBind,
+		"starterBreakdown":           starterBreakdownBind,
+		"starterPointsTotal":         starterPointsTotalBind,
+		"starterInjury":              starterInjuryBind,
+		"starterInjuryLabel":         starterInjuryLabelBind,
+		"starterPossession":          starterPossessionBind,
+		"liveStatus":                 liveStatus,
+		"liveUpdated":                checked,
+		"lastUpdated":                statsUpdated,
+		"checkedAt":                  checked,
+		"statsUpdatedAt":             statsUpdated,
+		"liveStatsUpdated":           statsUpdated,
+		"liveIndicator":              liveIndicatorToken(live.State),
+		"headlineTop":                presentation["headline_top"],
+		"headlineBottom":             presentation["headline_bottom"],
+		"refreshLabel":               presentation["refresh_label"],
+		"projectionNote":             projectionNote,
+		"noteTitle":                  presentation["note_title"],
+		"noteBody":                   presentation["note_body"],
 	}
 }
 
@@ -6042,10 +6048,14 @@ func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, 
 			m := live.Matchups[i]
 			// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2):
 			// see the LiveScoresView call site above.
-			awayOriginalProjected, awayOriginalKnown := originalProjectedTotal(m.Away.StarterLedger, projectionByID)
-			homeOriginalProjected, homeOriginalKnown := originalProjectedTotal(m.Home.StarterLedger, projectionByID)
-			entry["projected_away"] = projectedText(awayOriginalProjected, awayOriginalKnown)
-			entry["projected_home"] = projectedText(homeOriginalProjected, homeOriginalKnown)
+			awayProjection := summarizeOriginalProjections(m.Away.StarterLedger, projectionByID)
+			homeProjection := summarizeOriginalProjections(m.Home.StarterLedger, projectionByID)
+			entry["projected_away"] = awayProjection.text()
+			entry["projected_home"] = homeProjection.text()
+			entry["projected_away_coverage"] = awayProjection.coverage()
+			entry["projected_home_coverage"] = homeProjection.coverage()
+			entry["projected_away_note"] = awayProjection.note()
+			entry["projected_home_note"] = homeProjection.note()
 			// win_prob_home/win_prob_home_width give every around-the-league
 			// scorebug its own accessible win-probability meter (A1, matchup
 			// redesign 2026-09-07) — the same figure the featured card already
@@ -6125,8 +6135,8 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 	if isViewer && m.Away.ID == teamID {
 		mine, theirs = m.Away, m.Home
 	}
-	mineOriginalProjected, mineOriginalKnown := originalProjectedTotal(mine.StarterLedger, byID)
-	theirsOriginalProjected, theirsOriginalKnown := originalProjectedTotal(theirs.StarterLedger, byID)
+	mineProjection := summarizeOriginalProjections(mine.StarterLedger, byID)
+	theirsProjection := summarizeOriginalProjections(theirs.StarterLedger, byID)
 	// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2): see the
 	// LiveScoresView call site above.
 	winProbText := matchupWinEstimate(mine, theirs, m.State, byID, status, hasLive)
@@ -6209,8 +6219,8 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 		"next_lineup_href":         fmt.Sprintf("/team?week=%d#lineup", nextWeek),
 		"next_week":                nextWeek,
 		"has_next_week":            hasNextWeek,
-		"mine":                     s.featuredTeamMap(state, mine, mineOriginalProjected, mineOriginalKnown),
-		"theirs":                   s.featuredTeamMap(state, theirs, theirsOriginalProjected, theirsOriginalKnown),
+		"mine":                     s.featuredTeamMap(state, mine, mineProjection),
+		"theirs":                   s.featuredTeamMap(state, theirs, theirsProjection),
 		"pairs":                    featuredStarterPairs(mine.StarterLedger, theirs.StarterLedger, byID, status, hasLive),
 		"mine_bench":               mineBench,
 		"theirs_bench":             theirsBench,
@@ -6241,7 +6251,7 @@ func benchRowMapsWithProjection(bench []Player, projectionAvailable bool) []map[
 }
 
 // featuredTeamMap is my_matchup's mine/theirs team shape.
-func (s *Service) featuredTeamMap(state PersistedState, side ScoreTeam, projected float64, hasProjection bool) map[string]any {
+func (s *Service) featuredTeamMap(state PersistedState, side ScoreTeam, projection originalProjectionSummary) map[string]any {
 	team := s.teamView(state, side.ID)
 	_, hasImage, avatarURL := s.avatarView(team.ID, team.Tone)
 	_, hasLargeImage, avatarLargeURL := s.avatarViewLarge(team.ID, team.Tone)
@@ -6258,7 +6268,8 @@ func (s *Service) featuredTeamMap(state PersistedState, side ScoreTeam, projecte
 		"id": side.ID, "name": side.Name, "manager": team.Manager, "record": s.currentTeamRecord(state, side.ID),
 		// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2): see
 		// the LiveScoresView call site above.
-		"score": matchupScoreText(side), "projected": projectedText(projected, hasProjection),
+		"score": matchupScoreText(side), "projected": projection.text(),
+		"projection_coverage": projection.coverage(), "projection_note": projection.note(),
 		"tone": team.Tone, "abbreviation": side.Abbreviation,
 		"has_avatar_image": hasImage, "avatar_image_url": avatarURL, "avatar_image_large_url": avatarLargeURL,
 		"team_href": "/team?team=" + url.QueryEscape(team.ID),

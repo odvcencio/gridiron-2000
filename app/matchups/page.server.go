@@ -302,6 +302,8 @@ type FeaturedTeamData struct {
 	Record              string
 	Score               string
 	Projected           string
+	ProjectionCoverage  string
+	ProjectionNote      string
 	Tone                string
 	Abbreviation        string
 	HasAvatarImage      bool
@@ -332,6 +334,8 @@ func featuredTeamData(raw any) FeaturedTeamData {
 		Record:              stringField(team, "record"),
 		Score:               stringField(team, "score"),
 		Projected:           stringField(team, "projected"),
+		ProjectionCoverage:  stringField(team, "projection_coverage"),
+		ProjectionNote:      stringField(team, "projection_note"),
 		Tone:                stringField(team, "tone"),
 		Abbreviation:        stringField(team, "abbreviation"),
 		HasAvatarImage:      boolField(team, "has_avatar_image"),
@@ -681,17 +685,21 @@ type ScorebugData struct {
 	// "AWAITING FINAL", "FINAL"), not the raw token — see
 	// league.LiveStateLabel. StateClass and PhaseLabel still switch on the
 	// token, which arrives separately as LiveStateToken.
-	LiveState      string
-	LiveStateToken string
-	StateClass     string
-	PhaseLabel     string
-	LiveIndicator  string
-	Status         string
-	Clock          string
-	Away           ScorebugTeamData
-	Home           ScorebugTeamData
-	ProjectedAway  string
-	ProjectedHome  string
+	LiveState             string
+	LiveStateToken        string
+	StateClass            string
+	PhaseLabel            string
+	LiveIndicator         string
+	Status                string
+	Clock                 string
+	Away                  ScorebugTeamData
+	Home                  ScorebugTeamData
+	ProjectedAway         string
+	ProjectedHome         string
+	ProjectedAwayCoverage string
+	ProjectedHomeCoverage string
+	ProjectedAwayNote     string
+	ProjectedHomeNote     string
 	// WinProbHome/WinProbHomeWidth/WinProbHomeAriaLabel/WinProbHomeAriaValue
 	// (A1, matchup redesign 2026-09-07) give every around-the-league card
 	// its own accessible win-probability meter, expressed from the home
@@ -739,29 +747,33 @@ func matchupsPageScorebugs(raw []map[string]any) []ScorebugData {
 		}
 		liveState := stringField(entry, "live_state")
 		out = append(out, ScorebugData{
-			ID:                   stringField(entry, "id"),
-			LiveState:            stringField(entry, "live_state_label"),
-			LiveStateToken:       liveState,
-			StateClass:           matchupStateClass(liveState),
-			PhaseLabel:           matchupPhaseLabel(liveState),
-			LiveIndicator:        stringField(entry, "live_indicator"),
-			Status:               stringField(entry, "status"),
-			Clock:                stringField(entry, "clock"),
-			Away:                 scorebugTeamData(away),
-			Home:                 scorebugTeamData(home),
-			ProjectedAway:        stringField(entry, "projected_away"),
-			ProjectedHome:        stringField(entry, "projected_home"),
-			WinProbHome:          stringField(entry, "win_prob_home"),
-			WinProbHomeWidth:     stringField(entry, "win_prob_home_width"),
-			WinProbHomeAriaLabel: league.WinProbabilityAriaLabel(stringField(entry, "win_prob_home")),
-			WinProbHomeAriaValue: league.WinProbabilityAriaValue(stringField(entry, "win_prob_home_width")),
-			StillToPlay:          intField(entry, "still_to_play"),
-			StillToPlayTotal:     intField(entry, "still_to_play_total"),
-			StillToPlaySentence:  stringField(entry, "still_to_play_sentence"),
-			WinProbTeam:          stringField(entry, "win_prob_team"),
-			Pairs:                pairs,
-			FocusHref:            stringField(entry, "focus_href"),
-			StarterProgress:      starterProgressWinChances(starterProgressData(entry["starter_progress"], entry["starter_progress_summary"], stringField(entry, "id"), map[string]any{"away": entry["away"], "home": entry["home"]}), stringField(entry, "win_prob_home"), true),
+			ID:                    stringField(entry, "id"),
+			LiveState:             stringField(entry, "live_state_label"),
+			LiveStateToken:        liveState,
+			StateClass:            matchupStateClass(liveState),
+			PhaseLabel:            matchupPhaseLabel(liveState),
+			LiveIndicator:         stringField(entry, "live_indicator"),
+			Status:                stringField(entry, "status"),
+			Clock:                 stringField(entry, "clock"),
+			Away:                  scorebugTeamData(away),
+			Home:                  scorebugTeamData(home),
+			ProjectedAway:         stringField(entry, "projected_away"),
+			ProjectedHome:         stringField(entry, "projected_home"),
+			ProjectedAwayCoverage: stringField(entry, "projected_away_coverage"),
+			ProjectedHomeCoverage: stringField(entry, "projected_home_coverage"),
+			ProjectedAwayNote:     stringField(entry, "projected_away_note"),
+			ProjectedHomeNote:     stringField(entry, "projected_home_note"),
+			WinProbHome:           stringField(entry, "win_prob_home"),
+			WinProbHomeWidth:      stringField(entry, "win_prob_home_width"),
+			WinProbHomeAriaLabel:  league.WinProbabilityAriaLabel(stringField(entry, "win_prob_home")),
+			WinProbHomeAriaValue:  league.WinProbabilityAriaValue(stringField(entry, "win_prob_home_width")),
+			StillToPlay:           intField(entry, "still_to_play"),
+			StillToPlayTotal:      intField(entry, "still_to_play_total"),
+			StillToPlaySentence:   stringField(entry, "still_to_play_sentence"),
+			WinProbTeam:           stringField(entry, "win_prob_team"),
+			Pairs:                 pairs,
+			FocusHref:             stringField(entry, "focus_href"),
+			StarterProgress:       starterProgressWinChances(starterProgressData(entry["starter_progress"], entry["starter_progress_summary"], stringField(entry, "id"), map[string]any{"away": entry["away"], "home": entry["home"]}), stringField(entry, "win_prob_home"), true),
 		})
 	}
 	return out
