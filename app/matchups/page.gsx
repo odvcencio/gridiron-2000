@@ -58,11 +58,8 @@ func ProjectionValue(props ProjectionValueProps) Node {
 	</span>
 }
 
-// StarterProgress renders one ten-piece ring per team. Each piece represents
-// one configured starter slot (the final K/P piece groups special teams).
-// Quarter marks remain text-bound so updates paint the arcs without replacing
-// the disclosure or stealing focus. Native details works on touch/keyboard
-// and keeps the per-slot explanation available without hover-only tooltips.
+// StarterProgress pairs each team's live win chance with its game-progress
+// ring. This is a read-only graphic, not an expandable menu.
 func StarterProgress(props StarterProgressData) Node {
 	return <section class="starter-progress" aria-label={props.AriaLabel}>
 		<div class="starter-progress__teams">
@@ -73,31 +70,20 @@ func StarterProgress(props StarterProgressData) Node {
 						<If cond={team.TeamHref != ""}><a class="starter-progress__team-name" href={team.TeamHref} data-gosx-link><TextBlock as="span" mode="native" font="700 14px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" text={team.TeamName} /></a></If>
 						<If cond={team.TeamHref == ""}><span class="starter-progress__team-name"><TextBlock as="span" mode="native" font="700 14px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" text={team.TeamName} /></span></If>
 					</header>
-					<details class="starter-progress__details">
-						<summary class="starter-progress__toggle">
-							<span class="visually-hidden">{team.AriaLabel + ": "}</span>
-							<span class="starter-progress__ring" aria-hidden="true">
+					<div class="starter-progress__visual">
+						<span class="starter-progress__ring">
+							<span aria-hidden="true">
 								<Each of={team.Segments} as="segment">
 									<span class="starter-progress__piece" data-piece={segment.Index} data-active={segment.Active}>
 										<span class="starter-progress__quarters"><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ1." + segment.BindKey}>{segment.Q1}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ2." + segment.BindKey}>{segment.Q2}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ3." + segment.BindKey}>{segment.Q3}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ4." + segment.BindKey}>{segment.Q4}</span></span>
 									</span>
 								</Each>
-								<span class="starter-progress__center"><b data-gosx-live-bind={"starterProgressComplete." + team.BindID}>{team.Complete}</b><span>complete</span></span>
 							</span>
-							<span class="visually-hidden" data-gosx-live-bind={"starterProgressSummary." + team.BindID}>{team.Summary}</span>
-							<span class="starter-progress__hint">Starters <span aria-hidden="true">⌄</span></span>
-						</summary>
-						<ol class="starter-progress__lineup" aria-label={team.TeamName + " starter breakdown"}>
-							<Each of={team.Segments} as="segment">
-								<li>
-									<span class="starter-progress__slot mono">{segment.Label}</span>
-									<span class="starter-progress__player" data-gosx-live-bind={"starterProgressPlayers." + segment.BindKey}>{segment.PlayerNames}</span>
-									<small class="starter-progress__status mono" data-gosx-live-bind={"starterProgressLabel." + segment.BindKey}>{segment.ProgressLabel}</small>
-								</li>
-							</Each>
-						</ol>
-						<p class="starter-progress__note">K/P share the final segment.</p>
-					</details>
+							<span class="starter-progress__center"><b data-gosx-live-bind={"winProb." + team.TeamID}>{team.WinChance}</b><span>to win</span></span>
+						</span>
+						<small class="starter-progress__completion mono" aria-hidden="true"><span data-gosx-live-bind={"starterProgressComplete." + team.BindID}>{team.Complete}</span> complete</small>
+						<span class="visually-hidden" data-gosx-live-bind={"starterProgressSummary." + team.BindID}>{team.Summary}</span>
+					</div>
 				</article>
 			</Each>
 		</div>
@@ -230,19 +216,10 @@ func StarterCell(props StarterCellData) Node {
 }
 
 // FeaturedMatchup is the summary-first "my matchup" card (A6): score,
-// projection, win-probability bar, then every configured starter slot by
+// projection, team wheels, then every configured starter slot by
 // slot, mine and theirs side by side. IsViewer selects the labels ("Your
 // team"/"Opponent" versus "Featured"/"Versus" when the week has no seated
 // viewer matchup to show).
-//
-// The win-probability bar's fill width (the <i style={"width: " +
-// props.WinProbWidth}>...</i> below) is set once, from WinProbWidth, at
-// full render only: gosx's live-bind only ever patches an element's text,
-// never a style attribute, so a poll can never move the fill in place.
-// The percentage text right beside it (winProb.<id>) is the live-bound
-// half of that same number — it keeps ticking every poll even though the
-// bar it sits next to does not, until the next full render redraws both
-// together.
 func FeaturedMatchup(props FeaturedMatchupData) Node {
 	return <section class="my-matchup card" data-live-matchup={props.ID}>
 		<header class="my-matchup__summary">
@@ -264,8 +241,7 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 					<ProjectionValue ClassName="my-matchup__proj-value mono" Value={props.Theirs.Projected} Bind={"originalProjected." + props.Theirs.ID} TipID={props.Theirs.ID}></ProjectionValue>
 				</div>
 				<small class="my-matchup__proj-sub mono muted">original proj <span data-gosx-live-bind={"originalProjected." + props.Mine.ID}>{props.Mine.Projected}</span> – <span data-gosx-live-bind={"originalProjected." + props.Theirs.ID}>{props.Theirs.Projected}</span></small>
-				<div class="bar"><i style={"width: " + props.WinProbWidth} role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow={props.WinProbAriaValue} aria-label={props.WinProbAriaLabel}></i></div>
-				<small class="mono muted matchup-insight-line"><span class="win-prob-label">Win chance</span> · <span class="win-prob-team">{props.WinProbTeam}</span> <span data-gosx-live-bind={"winProb." + props.Mine.ID}>{props.WinProb}</span><span class="visually-hidden"> chance of winning this matchup</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlaySentence." + props.ID}>{props.StillToPlaySentence}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlay." + props.ID}>{props.StillToPlay}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlayTotal." + props.ID}>{props.StillToPlayTotal}</span></small>
+				<span class="visually-hidden" data-gosx-live-bind={"stillToPlaySentence." + props.ID}>{props.StillToPlaySentence}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlay." + props.ID}>{props.StillToPlay}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlayTotal." + props.ID}>{props.StillToPlayTotal}</span>
 				<StarterProgress {...props.StarterProgress}></StarterProgress>
 				<span class={"state-chip " + props.StateClass}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span><span data-gosx-live-bind={"matchupLiveStateLabel." + props.ID}>{props.LiveState}</span></span>
 			</div>
@@ -336,8 +312,8 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 // .mini team rows are copied from MiniMatchup (app/page.gsx:32-58) and
 // then diverge (a state-chip instead of a bare live-dot, a projection
 // line, a record, and — A1 of the 2026-09-07 matchup redesign — the same
-// win-probability meter and still-to-play sentence the featured card
-// carries), so no shared component is extracted.
+// team-owned progress/win-chance wheels), so the team-row markup remains
+// local while the wheel component is shared with FeaturedMatchup.
 //
 // The role="table" wrapper and its visually-hidden column-header row
 // (gap-audit item 7, wave 4 — linden) match FeaturedMatchup's own fix
@@ -375,17 +351,10 @@ func Scorebug(props ScorebugData) Node {
 					<ProjectionValue ClassName="pts proj scorebug__proj-value mono" Value={props.ProjectedHome} Bind={"originalProjected." + props.Home.ID} TipID={props.Home.ID}></ProjectionValue>
 				</div>
 			</div>
-			<div class="scorebug__prob">
-				<div class="bar"><i style={"width: " + props.WinProbHomeWidth} role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow={props.WinProbHomeAriaValue} aria-label={props.WinProbHomeAriaLabel}></i></div>
-				{/* The percentage names its own team (2026-09-10). It always
-				    describes the HOME side here, and a bare number gave a
-				    reader no way to tell which of the two it meant. */}
-				<small class="mono muted matchup-insight-line"><span class="win-prob-label">Win chance</span> · <span class="win-prob-team">{props.WinProbTeam}</span> <span data-gosx-live-bind={"winProb." + props.Home.ID}>{props.WinProbHome}</span><span class="visually-hidden"> chance of winning this matchup</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlaySentence." + props.ID}>{props.StillToPlaySentence}</span></small>
-			</div>
+			<StarterProgress {...props.StarterProgress}></StarterProgress>
 			<span class="visually-hidden" data-gosx-live-bind={"matchupStatus." + props.ID}>{props.Status}</span>
 			<span class="visually-hidden" data-gosx-live-bind={"matchupClock." + props.ID}>{props.Clock}</span>
 		</summary>
-		<StarterProgress {...props.StarterProgress}></StarterProgress>
 		<div class="matchup-pairs-table" role="table" aria-label={"Starting lineup comparison: " + props.Away.Name + " versus " + props.Home.Name}>
 		<div class="slot-row slot-row--head visually-hidden" role="row">
 			<span class="section-index" role="columnheader" aria-label={props.Away.Name + " starter"}>Starter</span><span class="section-index" role="columnheader" aria-label={props.Away.Name + " game"}>Game</span><span class="section-index" role="columnheader" aria-label={props.Away.Name + " projected points"}>Proj</span><span class="section-index" role="columnheader" aria-label={props.Away.Name + " points"}>Pts</span><span class="section-index" role="columnheader">Slot</span><span class="section-index" role="columnheader" aria-label={props.Home.Name + " points"}>Pts</span><span class="section-index" role="columnheader" aria-label={props.Home.Name + " projected points"}>Proj</span><span class="section-index" role="columnheader" aria-label={props.Home.Name + " game"}>Game</span><span class="section-index right" role="columnheader" aria-label={props.Home.Name + " starter"}>Starter</span>

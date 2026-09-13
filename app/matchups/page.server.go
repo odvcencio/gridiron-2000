@@ -366,6 +366,7 @@ type StarterProgressTeamData struct {
 	Segments  []StarterProgressSegmentData
 	Summary   string
 	Complete  string
+	WinChance string
 	AriaLabel string
 	BindID    string
 }
@@ -477,6 +478,24 @@ func featuredStarterProgressData(raw map[string]any) StarterProgressData {
 		for j := range team.Segments {
 			team.Segments[j].BindKey = team.BindID + "-" + team.Segments[j].Index
 		}
+	}
+	return starterProgressWinChances(progress, stringField(raw, "win_prob"), false)
+}
+
+// Win chance belongs to the team, independently of the ring's game progress.
+// Unknown projections remain unavailable on both sides, never a made-up 50/50.
+func starterProgressWinChances(progress StarterProgressData, chance string, second bool) StarterProgressData {
+	chances := []string{"—", "—"}
+	if strings.HasSuffix(chance, "%") {
+		if n, err := strconv.Atoi(strings.TrimSuffix(chance, "%")); err == nil && n >= 0 && n <= 100 {
+			chances = []string{strconv.Itoa(n) + "%", strconv.Itoa(100-n) + "%"}
+		}
+	}
+	if second {
+		chances[0], chances[1] = chances[1], chances[0]
+	}
+	for i := range progress.Teams {
+		progress.Teams[i].WinChance = chances[i]
 	}
 	return progress
 }
@@ -732,7 +751,7 @@ func matchupsPageScorebugs(raw []map[string]any) []ScorebugData {
 			WinProbTeam:          stringField(entry, "win_prob_team"),
 			Pairs:                pairs,
 			FocusHref:            stringField(entry, "focus_href"),
-			StarterProgress:      starterProgressData(entry["starter_progress"], entry["starter_progress_summary"], stringField(entry, "id"), map[string]any{"away": entry["away"], "home": entry["home"]}),
+			StarterProgress:      starterProgressWinChances(starterProgressData(entry["starter_progress"], entry["starter_progress_summary"], stringField(entry, "id"), map[string]any{"away": entry["away"], "home": entry["home"]}), stringField(entry, "win_prob_home"), true),
 		})
 	}
 	return out

@@ -19044,21 +19044,14 @@ a.skip-link {
   text-underline-offset: 0.2em;
 }
 
-.matchups-page .starter-progress__toggle {
+.matchups-page .starter-progress__visual {
   display: grid;
   justify-items: center;
   gap: 0.4rem;
   padding: 0.25rem 0;
   border-radius: var(--radius-sm);
-  cursor: pointer;
-  list-style: none;
 }
 
-.matchups-page .starter-progress__toggle::-webkit-details-marker {
-  display: none;
-}
-
-.matchups-page .starter-progress__toggle:focus-visible,
 .matchups-page a.starter-progress__team-name:focus-visible {
   outline: 2px solid var(--wheel-accent);
   outline-offset: 3px;
@@ -19146,70 +19139,10 @@ a.skip-link {
   letter-spacing: 0.02em;
 }
 
-.matchups-page .starter-progress__hint {
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-secondary);
-  font-family: var(--font-body);
-  font-size: 0.75rem;
-  line-height: 1.5;
-}
-
-.matchups-page .starter-progress__toggle:hover .starter-progress__hint {
-  color: var(--wheel-accent);
-}
-
-.matchups-page .starter-progress__hint > span {
-  display: inline-block;
-}
-
-.matchups-page .starter-progress__details[open] .starter-progress__hint > span {
-  transform: rotate(180deg);
-}
-
-.matchups-page .starter-progress__lineup {
-  display: grid;
-  gap: 0;
-  margin: 0.75rem 0 0;
-  padding: 0;
-  list-style: none;
-  text-align: left;
-}
-
-.matchups-page .starter-progress__lineup li {
-  display: grid;
-  gap: 0.25rem;
-  min-width: 0;
-  padding: 0.65rem 0;
-  border-top: 1px solid var(--color-border);
-  line-height: 1.4;
-}
-
-.matchups-page .starter-progress__slot,
-.matchups-page .starter-progress__status,
-.matchups-page .starter-progress__note {
+.matchups-page .starter-progress__completion {
   color: var(--color-text-muted);
   font-size: 0.6875rem;
-}
-
-.matchups-page .starter-progress__slot {
-  color: var(--wheel-accent);
-  overflow-wrap: anywhere;
-}
-
-.matchups-page .starter-progress__player {
-  color: var(--color-text-primary);
-  font-family: var(--font-body);
-  font-size: 0.8125rem;
-  overflow-wrap: anywhere;
-}
-
-.matchups-page .starter-progress__note {
-  margin: 0.25rem 0 0;
   line-height: 1.5;
-  text-align: left;
 }
 
 /* Size against the available card, including narrow desktop score columns. */

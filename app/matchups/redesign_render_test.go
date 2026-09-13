@@ -166,13 +166,13 @@ func TestRedesignedFeaturedTableRendersSlotProjTotalsAndBenches(t *testing.T) {
 	if !strings.Contains(body, `data-gosx-live-bind="starterProgressSummary.`) || !strings.Contains(body, `-home"`) || !strings.Contains(body, `-away"`) {
 		t.Fatalf("featured matchup rings are missing canonical home/away summary bindings: %s", body)
 	}
-	for _, key := range []string{"starterProgressComplete", "starterProgressLabel", "starterProgressPlayers"} {
+	for _, key := range []string{"starterProgressComplete", "winProb"} {
 		if !strings.Contains(body, `data-gosx-live-bind="`+key+`.`) {
-			t.Errorf("wheel disclosure missing %s binding", key)
+			t.Errorf("wheel missing %s binding", key)
 		}
 	}
-	if !strings.Contains(body, `<details class="starter-progress__details">`) || !strings.Contains(body, `<summary class="starter-progress__toggle">`) {
-		t.Error("wheel needs a native touch/keyboard disclosure")
+	if strings.Contains(body, `starter-progress__details`) || strings.Contains(body, `starter-progress__toggle`) || strings.Contains(body, `starter-progress__hint`) {
+		t.Error("wheel must not render a collapsible menu or Starters hint")
 	}
 	if strings.Contains(body, "25% per quarter") || strings.Contains(body, "STARTER<br") {
 		t.Error("wheel retained crowded center or unwanted quarter explanation")
@@ -232,18 +232,18 @@ func TestMatchupProjectionAndNavigationAffordancesRender(t *testing.T) {
 	}
 }
 
-func TestScorebugWheelDisclosureIsOutsideCardSummary(t *testing.T) {
+func TestScorebugSummaryShowsNoninteractiveWheels(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {
 		t.Fatal(err)
 	}
 	card := strings.SplitN(string(source), "func Scorebug(props", 2)[1]
 	summary := strings.SplitN(card, "</summary>", 2)[0]
-	if strings.Contains(summary, "<StarterProgress") {
-		t.Fatal("interactive starter disclosure cannot be nested in the card summary")
+	if !strings.Contains(summary, "<StarterProgress") {
+		t.Fatal("win chances should remain visible on collapsed matchup cards")
 	}
-	if !strings.Contains(card, "</summary>\n\t\t<StarterProgress") {
-		t.Fatal("expanded matchup card is missing its team wheels")
+	if strings.Contains(string(source), `class="starter-progress__details"`) {
+		t.Fatal("the wheel must remain noninteractive")
 	}
 }
 

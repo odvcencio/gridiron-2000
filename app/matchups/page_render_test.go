@@ -248,18 +248,9 @@ func TestMatchupsLiveFixtureIsSummaryFirstWithOneStatusLine(t *testing.T) {
 	}
 }
 
-// TestMatchupsWinProbabilityBarCarriesMeterSemantics covers the sumac
-// comb re-audit item 5: the win-probability bar (<i style="width:...">)
-// carried no role or accessible name at all — a screen reader had no
-// way to learn "59% to win" (or, before either side has a lineup to
-// project, the honest "not yet known" sentence) from it, the same text
-// a sighted manager already reads in the small.mono line right beside
-// it. This proves role="meter" and its aria-valuemin/max/now/aria-label
-// render, and that the label/value pair is internally consistent
-// whichever case the fixture's own win_prob text happens to be in — a
-// dash renders the fallback pair (aria-valuenow="0", the neutral
-// sentence), never a misleading "0% to win".
-func TestMatchupsWinProbabilityBarCarriesMeterSemantics(t *testing.T) {
+// Both sighted readers and assistive technology receive the same live-bound
+// percentage text, rather than a separate meter with stale ARIA attributes.
+func TestMatchupsWheelCarriesLiveWinChanceText(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestMatchupsPageFixtureProcess$")
 	cmd.Env = append(os.Environ(), "MATCHUPS_RENDER_FIXTURE=live",
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=true", "GOOGLE_CLIENT_ID=")
@@ -268,28 +259,13 @@ func TestMatchupsWinProbabilityBarCarriesMeterSemantics(t *testing.T) {
 		t.Fatalf("fixture process: %v\n%s", err, output)
 	}
 	body := string(output)
-	for _, want := range []string{
-		`role="meter"`, `aria-valuemin="0"`, `aria-valuemax="100"`, `aria-valuenow="`, `aria-label="`,
-	} {
+	for _, want := range []string{`class="starter-progress__center"><b data-gosx-live-bind="winProb.`, `<span>to win</span>`, `class="starter-progress__completion mono"`} {
 		if !strings.Contains(body, want) {
-			t.Errorf("live fixture's win-probability bar missing %q: %s", want, body)
+			t.Errorf("wheel missing %q", want)
 		}
 	}
-	winProbDash := strings.Contains(body, `data-gosx-live-bind="winProb.team-1">—`)
-	if winProbDash {
-		if !strings.Contains(body, `aria-valuenow="0" aria-label="Win probability not yet known"`) {
-			t.Errorf("win_prob is the dash placeholder; the meter must fall back to aria-valuenow=0 and the not-yet-known label: %s", body)
-		}
-		return
-	}
-	if strings.Contains(body, `aria-valuenow="0"`) {
-		t.Error("win_prob is a real computed percentage; aria-valuenow must not be the not-yet-known fallback (0)")
-	}
-	if strings.Contains(body, `aria-label="Win probability not yet known"`) {
-		t.Error("win_prob is a real computed percentage; aria-label must not be the not-yet-known fallback")
-	}
-	if !strings.Contains(body, `% to win"`) {
-		t.Errorf("win_prob is a real computed percentage; aria-label must read \"N%% to win\": %s", body)
+	if strings.Contains(body, `role="meter"`) || strings.Contains(body, `class="win-prob-label"`) {
+		t.Error("separate win-chance bar should not duplicate the wheel")
 	}
 }
 
