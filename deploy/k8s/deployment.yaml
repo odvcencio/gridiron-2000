@@ -30,15 +30,15 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.13-622a663; built from
-          # 622a6634b2f4ae5ad2301da84700cfd9aaa2f551 (main): GoSX v0.56.3.
-          # Passive team wheels combine live win chances and game progress;
-          # no starter disclosure or duplicate win-chance bar.
+          # release-2026.09.13-37c1cda; built from
+          # 37c1cdaa212f38423b1758695a2936d186b56ddd (main): GoSX v0.56.3.
+          # Time-aware wheel estimates with remaining-player uncertainty,
+          # honest missing-data states and verified final results.
           # No schema change; rollback to the previous image remains valid.
-          # Release build: 2026-09-13T04:39:41Z.
+          # Release build: 2026-09-13T05:47:00Z.
           # Only flagship rolls. SK's reference image is updated in source,
           # but the inactive deployment is not applied or used as a canary.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:2c3ea0106fa73a81248bc630bebe0c09ff1338d522867fef39351c1307af1cd8
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:cbe5eb3f2e98de279de7780c909a7059390d69a74a27d3451ce85bfea07872dd
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
