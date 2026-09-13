@@ -259,7 +259,7 @@ func TestMatchupsWheelCarriesLiveWinChanceText(t *testing.T) {
 		t.Fatalf("fixture process: %v\n%s", err, output)
 	}
 	body := string(output)
-	for _, want := range []string{`class="starter-progress__center"><b data-gosx-live-bind="winProb.`, `<span>to win</span>`, `class="starter-progress__completion mono"`} {
+	for _, want := range []string{`class="starter-progress__center"><b data-gosx-live-bind="winProb.`, `data-gosx-live-bind="winProbCaption.`, `class="starter-progress__completion mono"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("wheel missing %q", want)
 		}

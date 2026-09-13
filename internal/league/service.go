@@ -4143,6 +4143,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	// flip the shown percentage to the wrong side's number the first
 	// time the viewer's team is Away.
 	winProb := make(map[string]string, len(live.Matchups)*2)
+	winProbCaption := make(map[string]string, len(live.Matchups)*2)
 	// stillToPlay/stillToPlayTotal are the bare count and the total,
 	// matching my_matchup/other_matchups' own two int fields (round-2
 	// review of commit 133d1d7, finding 2); the page composes the "N of
@@ -4228,8 +4229,10 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		homeOriginalProjected, homeOriginalKnown := originalProjectedTotal(matchup.Home.StarterLedger, projectionByID)
 		originalProjected[matchup.Away.ID] = projectedText(awayOriginalProjected, awayOriginalKnown)
 		originalProjected[matchup.Home.ID] = projectedText(homeOriginalProjected, homeOriginalKnown)
-		winProb[matchup.Home.ID] = winProbabilityText(homeProjected, awayProjected, homeHasProjection, awayHasProjection)
-		winProb[matchup.Away.ID] = winProbabilityText(awayProjected, homeProjected, awayHasProjection, homeHasProjection)
+		winProb[matchup.Home.ID] = matchupWinEstimate(matchup.Home, matchup.Away, matchup.State, projectionByID, liveStatusValue, hasLive)
+		winProb[matchup.Away.ID] = matchupWinEstimate(matchup.Away, matchup.Home, matchup.State, projectionByID, liveStatusValue, hasLive)
+		winProbCaption[matchup.Home.ID] = WinEstimateCaption(winProb[matchup.Home.ID])
+		winProbCaption[matchup.Away.ID] = WinEstimateCaption(winProb[matchup.Away.ID])
 		combined := append(append([]StarterLedgerRow{}, matchup.Away.StarterLedger...), matchup.Home.StarterLedger...)
 		stillToPlayCount := stillToPlay(combined, liveStatusValue)
 		stillToPlayBind[matchup.ID] = strconv.Itoa(stillToPlayCount)
@@ -4289,6 +4292,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"projected":               projected,
 		"originalProjected":       originalProjected,
 		"winProb":                 winProb,
+		"winProbCaption":          winProbCaption,
 		"stillToPlay":             stillToPlayBind,
 		"stillToPlayTotal":        stillToPlayTotalBind,
 		"stillToPlaySentence":     stillToPlaySentenceBind,
@@ -6036,12 +6040,8 @@ func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, 
 		}
 		if i < len(live.Matchups) {
 			m := live.Matchups[i]
-			awayProjected := projectedTotal(m.Away.StarterLedger, starterProjections(m.Away.StarterLedger, projectionByID), status, hasLive)
-			homeProjected := projectedTotal(m.Home.StarterLedger, starterProjections(m.Home.StarterLedger, projectionByID), status, hasLive)
 			// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2):
 			// see the LiveScoresView call site above.
-			awayHasProjection := hasKnownStarterProjections(m.Away.StarterLedger, projectionByID)
-			homeHasProjection := hasKnownStarterProjections(m.Home.StarterLedger, projectionByID)
 			awayOriginalProjected, awayOriginalKnown := originalProjectedTotal(m.Away.StarterLedger, projectionByID)
 			homeOriginalProjected, homeOriginalKnown := originalProjectedTotal(m.Home.StarterLedger, projectionByID)
 			entry["projected_away"] = projectedText(awayOriginalProjected, awayOriginalKnown)
@@ -6051,7 +6051,7 @@ func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, 
 			// redesign 2026-09-07) — the same figure the featured card already
 			// shows for the viewer's own matchup, expressed from the home
 			// side's perspective since neither side of a scorebug is "mine".
-			entry["win_prob_home"] = winProbabilityText(homeProjected, awayProjected, homeHasProjection, awayHasProjection)
+			entry["win_prob_home"] = matchupWinEstimate(m.Home, m.Away, m.State, projectionByID, status, hasLive)
 			// The scorebug reports the HOME side's probability; name it, so
 			// the number is attributable to a team instead of floating free.
 			entry["win_prob_team"] = m.Home.Name
@@ -6125,13 +6125,11 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 	if isViewer && m.Away.ID == teamID {
 		mine, theirs = m.Away, m.Home
 	}
-	mineProjected := projectedTotal(mine.StarterLedger, starterProjections(mine.StarterLedger, byID), status, hasLive)
-	theirsProjected := projectedTotal(theirs.StarterLedger, starterProjections(theirs.StarterLedger, byID), status, hasLive)
 	mineOriginalProjected, mineOriginalKnown := originalProjectedTotal(mine.StarterLedger, byID)
 	theirsOriginalProjected, theirsOriginalKnown := originalProjectedTotal(theirs.StarterLedger, byID)
 	// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2): see the
 	// LiveScoresView call site above.
-	winProbText := winProbabilityText(mineProjected, theirsProjected, hasKnownStarterProjections(mine.StarterLedger, byID), hasKnownStarterProjections(theirs.StarterLedger, byID))
+	winProbText := matchupWinEstimate(mine, theirs, m.State, byID, status, hasLive)
 	// win_prob_width is a literal CSS width set once at render (not
 	// live-bound, page.gsx's comment beside the bar), so it can never hold
 	// the "—" placeholder winProbText renders for an unknown side; "0%"

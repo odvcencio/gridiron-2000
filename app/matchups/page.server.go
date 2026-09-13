@@ -359,16 +359,17 @@ type StarterProgressSegmentData struct {
 }
 
 type StarterProgressTeamData struct {
-	SideLabel string
-	TeamID    string
-	TeamName  string
-	TeamHref  string
-	Segments  []StarterProgressSegmentData
-	Summary   string
-	Complete  string
-	WinChance string
-	AriaLabel string
-	BindID    string
+	SideLabel  string
+	TeamID     string
+	TeamName   string
+	TeamHref   string
+	Segments   []StarterProgressSegmentData
+	Summary    string
+	Complete   string
+	WinChance  string
+	WinCaption string
+	AriaLabel  string
+	BindID     string
 }
 
 type StarterProgressData struct {
@@ -486,6 +487,14 @@ func featuredStarterProgressData(raw map[string]any) StarterProgressData {
 // Unknown projections remain unavailable on both sides, never a made-up 50/50.
 func starterProgressWinChances(progress StarterProgressData, chance string, second bool) StarterProgressData {
 	chances := []string{"—", "—"}
+	switch chance {
+	case "WON":
+		chances = []string{"WON", "LOST"}
+	case "LOST":
+		chances = []string{"LOST", "WON"}
+	case "TIED":
+		chances = []string{"TIED", "TIED"}
+	}
 	if strings.HasSuffix(chance, "%") {
 		if n, err := strconv.Atoi(strings.TrimSuffix(chance, "%")); err == nil && n >= 0 && n <= 100 {
 			chances = []string{strconv.Itoa(n) + "%", strconv.Itoa(100-n) + "%"}
@@ -496,6 +505,7 @@ func starterProgressWinChances(progress StarterProgressData, chance string, seco
 	}
 	for i := range progress.Teams {
 		progress.Teams[i].WinChance = chances[i]
+		progress.Teams[i].WinCaption = league.WinEstimateCaption(chances[i])
 	}
 	return progress
 }

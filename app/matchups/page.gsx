@@ -79,7 +79,7 @@ func StarterProgress(props StarterProgressData) Node {
 									</span>
 								</Each>
 							</span>
-							<span class="starter-progress__center"><b data-gosx-live-bind={"winProb." + team.TeamID}>{team.WinChance}</b><span>to win</span></span>
+							<span class="starter-progress__center"><b data-gosx-live-bind={"winProb." + team.TeamID}>{team.WinChance}</b><span data-gosx-live-bind={"winProbCaption." + team.TeamID}>{team.WinCaption}</span></span>
 						</span>
 						<small class="starter-progress__completion mono" aria-hidden="true"><span data-gosx-live-bind={"starterProgressComplete." + team.BindID}>{team.Complete}</span> complete</small>
 						<span class="visually-hidden" data-gosx-live-bind={"starterProgressSummary." + team.BindID}>{team.Summary}</span>
