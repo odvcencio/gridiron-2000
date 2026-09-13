@@ -195,7 +195,8 @@ type JoinMiss struct {
 }
 
 // normalizePlayerKey mirrors openstats.NormalizePlayerKey exactly:
-// lowercase letters/digits only, then "|", then the upper-cased position.
+// lowercase letters/digits only with a trailing generational suffix removed,
+// then "|", then the upper-cased position.
 // internal/league must not import internal/openstats (see WeekStatLine's
 // doc comment), so this is a deliberate, tested duplicate — keep it in
 // lockstep; scorer_test.go asserts parity directly against the openstats
@@ -242,11 +243,21 @@ func playerStatKey(player Player) string {
 }
 
 func normalizePlayerKey(name, position string) string {
-	var b strings.Builder
-	for _, r := range name {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(unicode.ToLower(r))
+	parts := strings.FieldsFunc(name, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	for i := range parts {
+		parts[i] = strings.ToLower(parts[i])
+	}
+	if len(parts) > 1 {
+		switch parts[len(parts)-1] {
+		case "jr", "sr", "ii", "iii", "iv", "v":
+			parts = parts[:len(parts)-1]
 		}
+	}
+	var b strings.Builder
+	for _, part := range parts {
+		b.WriteString(part)
 	}
 	b.WriteByte('|')
 	b.WriteString(strings.ToUpper(strings.TrimSpace(position)))

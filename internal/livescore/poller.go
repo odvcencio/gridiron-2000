@@ -270,8 +270,10 @@ func (p *Poller) Tick(ctx context.Context) {
 	// a pure clock fact) is open right now, independent of game.Final and
 	// isFinalDone; targets narrows that to the ones Tick will actually
 	// fetch this pass. A game that reaches final early — in the
-	// schedule's own Final flag or via isFinalDone — leaves targets but
-	// stays in windowGames until its own kickoff+windowAfter passes —
+	// isFinalDone leaves targets but stays in windowGames until its own
+	// kickoff+windowAfter passes. A schedule Final flag alone does not skip
+	// the game: after a process restart the poller must rehydrate the final
+	// box score before it can safely stop fetching —
 	// see windowLastOpen's doc comment for why the two must be tracked
 	// apart, and inTimeWindow's doc comment for why this loop reads
 	// inTimeWindow here, not inWindow (round-2 review finding 3).
@@ -284,7 +286,7 @@ func (p *Poller) Tick(ctx context.Context) {
 			continue
 		}
 		windowGames = append(windowGames, game)
-		if game.Final || p.isFinalDone(game.ID) {
+		if p.isFinalDone(game.ID) {
 			continue
 		}
 		targets = append(targets, game)

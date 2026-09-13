@@ -238,8 +238,8 @@ func TestFeaturedMatchupMapShowsProjectionBeforeKickoff(t *testing.T) {
 	if !ok {
 		t.Fatalf("my_matchup.mine = %#v, want a team map", myMatchup["mine"])
 	}
-	if mine["score"] != "—" {
-		t.Fatalf("pre-kickoff score = %#v, want the honest dash (ScoreKnown is false)", mine["score"])
+	if mine["score"] != "0.0" {
+		t.Fatalf("pre-kickoff score = %#v, want numeric 0.0 even while ScoreKnown is false", mine["score"])
 	}
 	if mine["projected"] == "—" || mine["projected"] == "" {
 		t.Fatalf("pre-kickoff projected = %#v, want a real projected total even though the score itself is unknown", mine["projected"])

@@ -43,9 +43,9 @@ func TestRosterRowsCarryAScoredBreakdown(t *testing.T) {
 			t.Errorf("breakdown line %d = %q, want it to start with %q", i, lines[i], prefix)
 		}
 	}
-	// Has not played: a dash, and nothing to explain.
-	if got := rows[1]["points"]; got != "—" {
-		t.Errorf("unplayed defense points = %v, want a dash", got)
+	// Has not played: numeric zero, and nothing to explain.
+	if got := rows[1]["points"]; got != "0.0" {
+		t.Errorf("unplayed defense points = %v, want 0.0", got)
 	}
 	if got, _ := rows[1]["points_breakdown"].(string); got != "" {
 		t.Errorf("unplayed defense carried a breakdown %q, want none", got)

@@ -52,3 +52,11 @@ func TestNormalizePlayerKeyExactFormat(t *testing.T) {
 		t.Fatalf("NormalizePlayerKey = %q, want %q", got, want)
 	}
 }
+
+func TestNormalizePlayerKeyJoinsNamesWithAndWithoutSuffix(t *testing.T) {
+	withSuffix := NormalizePlayerKey("Travis Etienne Jr.", "RB")
+	withoutSuffix := NormalizePlayerKey("Travis Etienne", "RB")
+	if withSuffix != withoutSuffix {
+		t.Fatalf("suffix variants did not join: %q != %q", withSuffix, withoutSuffix)
+	}
+}

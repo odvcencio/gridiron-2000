@@ -153,6 +153,8 @@ func TestNormalizePlayerKeyParityWithOpenstats(t *testing.T) {
 		{"  Patrick Mahomes  ", "qb"},
 		{"AJ Brown", "WR"},
 		{"Michael Pittman Jr.", "wr"},
+		{"Travis Etienne", "RB"},
+		{"Travis Etienne Jr.", "RB"},
 	}
 	for _, c := range cases {
 		want := openstats.NormalizePlayerKey(c.name, c.position)
@@ -160,6 +162,21 @@ func TestNormalizePlayerKeyParityWithOpenstats(t *testing.T) {
 		if got != want {
 			t.Errorf("normalizePlayerKey(%q, %q) = %q, want %q (openstats parity)", c.name, c.position, got, want)
 		}
+	}
+}
+
+func TestScorePlayerPointsJoinsEtienneSuffixVariant(t *testing.T) {
+	player := Player{Name: "Travis Etienne Jr.", Position: "RB"}
+	stats := map[string]map[string]float64{
+		normalizePlayerKey("Travis Etienne", "RB"): {
+			"rushYards": 46,
+			"reception": 7,
+			"recYards":  32,
+		},
+	}
+	points, joined := scorePlayerPoints(player, stats, breakdownDefaultValues())
+	if !joined || points != 11.3 {
+		t.Fatalf("Etienne suffix join = points %v joined %v, want 11.3 true", points, joined)
 	}
 }
 

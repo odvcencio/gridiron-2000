@@ -913,14 +913,15 @@ func TestTeamDataBenchProjectionLabelsPartialAndWeekMismatch(t *testing.T) {
 	}
 }
 
-// TestTeamDataBenchPointsReadDashUntilLedgerPosts pins J3 F12: /team's
+// TestTeamDataBenchPointsStayNumericUntilLedgerPosts pins the score-display
+// invariant: /team's
 // bench rows used to format player.Points directly — a field nothing in
 // this codebase ever populates from a real source, so a bench row read
-// "0.0" whether or not the weekly ledger had posted, contradicting
-// /matchups' own honest "—" for the identical not-yet-known case. This
+// "0.0" whether or not the weekly ledger had posted. Score cells now remain
+// numeric while their source state separately discloses availability. This
 // fixture guarantees a genuine bench player (rbD; the other seven fill
 // every starting slot with nothing left over).
-func TestTeamDataBenchPointsReadDashUntilLedgerPosts(t *testing.T) {
+func TestTeamDataBenchPointsStayNumericUntilLedgerPosts(t *testing.T) {
 	svc := newTestService(t, true)
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 	svc.now = func() time.Time { return now }
@@ -956,8 +957,8 @@ func TestTeamDataBenchPointsReadDashUntilLedgerPosts(t *testing.T) {
 	}
 
 	before := benchRowFor(svc.TeamData(httptestNewGET("/team")))
-	if before["points"] != "—" {
-		t.Fatalf("bench points before the ledger posts = %#v, want the honest dash, not a false 0.0", before["points"])
+	if before["points"] != "0.0" {
+		t.Fatalf("bench points before the ledger posts = %#v, want numeric 0.0", before["points"])
 	}
 
 	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
