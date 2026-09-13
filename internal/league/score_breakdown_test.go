@@ -131,12 +131,13 @@ func TestScoreBreakdownExplainsLiveDefenseZero(t *testing.T) {
 	}
 
 	got := ScoreBreakdownText(stats, breakdownDefaultValues())
+	if strings.Contains(got, "PENDING") {
+		t.Fatalf("live D/ST breakdown retained the removed pending row: %q", got)
+	}
 	for _, want := range []string{
 		"Points allowed so far",
 		"Yards allowed so far",
 		"187",
-		"Allowance bands",
-		"PENDING",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("live D/ST breakdown %q does not contain %q", got, want)
@@ -147,7 +148,7 @@ func TestScoreBreakdownExplainsLiveDefenseZero(t *testing.T) {
 		"ptsAllowed": 0,
 		"ydsAllowed": 187,
 	}, true), breakdownDefaultValues())
-	if strings.Contains(final, "so far") || strings.Contains(final, "PENDING") {
+	if strings.Contains(final, "so far") {
 		t.Fatalf("final D/ST breakdown retained live-only context: %q", final)
 	}
 	if !strings.Contains(final, "Shutout (0 points allowed)") || !strings.Contains(final, "100-199 yards allowed") {

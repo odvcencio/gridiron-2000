@@ -166,9 +166,9 @@ func RuleStatsFromTank01(stats map[string]float64, final bool) map[string]float6
 // a score, and hiding it would leave a reader hunting for points that
 // were never there.
 //
-// An in-progress D/ST also lists its running points and yards allowed, plus a
-// pending marker for the final-only allowance bands. Those context rows score
-// no points. Returns "" when there is neither scoring nor live context.
+// An in-progress D/ST also lists its running points and yards allowed. Those
+// context rows score no points. Returns "" when there is neither scoring nor
+// live context.
 func ScoreBreakdownText(stats map[string]float64, values map[string]float64) string {
 	if len(stats) == 0 {
 		return ""
@@ -190,17 +190,11 @@ func ScoreBreakdownText(stats map[string]float64, values map[string]float64) str
 		right := fmt.Sprintf("%.1f", stat*scoringPoints(values, rule.Key))
 		rows = append(rows, row{left: left, right: right})
 	}
-	context := false
 	if allowed, ok := stats[liveDSTPointsAllowedKey]; ok && allowed >= 0 && finiteScoringPoints(allowed) {
 		rows = append(rows, row{left: "Points allowed so far", right: trimFloat(allowed)})
-		context = true
 	}
 	if yards, ok := stats[liveDSTYardsAllowedKey]; ok && yards >= 0 && finiteScoringPoints(yards) {
 		rows = append(rows, row{left: "Yards allowed so far", right: trimFloat(yards)})
-		context = true
-	}
-	if context {
-		rows = append(rows, row{left: "Allowance bands", right: "PENDING"})
 	}
 	if len(rows) == 0 {
 		return ""

@@ -13,6 +13,7 @@ func TestTeamWeekLedgerPreservesParserConfirmedFinalZero(t *testing.T) {
 		wantKnown        bool
 		wantTotalText    string
 		wantZeroJoin     string
+		wantZeroFallback bool
 	}{
 		{
 			name:          "explicit final zero keeps earned team total",
@@ -22,9 +23,11 @@ func TestTeamWeekLedgerPreservesParserConfirmedFinalZero(t *testing.T) {
 			wantZeroJoin:  "matched",
 		},
 		{
-			name:          "absent final row keeps team total unknown",
-			wantTotalText: "—",
-			wantZeroJoin:  "missing-join",
+			name:             "absent final row contributes zero to a located final game",
+			wantKnown:        true,
+			wantTotalText:    "6.0",
+			wantZeroJoin:     "missing-join",
+			wantZeroFallback: true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -73,8 +76,8 @@ func TestTeamWeekLedgerPreservesParserConfirmedFinalZero(t *testing.T) {
 					}
 				case "p-02":
 					sawZero = true
-					if row.JoinState != tc.wantZeroJoin || row.Points != 0 || !row.GameFinal || row.ZeroSoFarKnown {
-						t.Fatalf("scoreless final row = %+v, want join=%q and no in-progress zero assumption", row, tc.wantZeroJoin)
+					if row.JoinState != tc.wantZeroJoin || row.Points != 0 || !row.GameFinal || row.ZeroSoFarKnown != tc.wantZeroFallback {
+						t.Fatalf("scoreless final row = %+v, want join=%q zeroFallback=%v", row, tc.wantZeroJoin, tc.wantZeroFallback)
 					}
 				}
 			}
