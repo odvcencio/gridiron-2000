@@ -75,8 +75,10 @@ func scoreboardDates(matched map[string]string) []string {
 // tiers and the wire trigger still govern on their own, exactly the
 // pre-scoreboard behavior. An empty reply is a real answer (an off date),
 // never a failure. A game the reply does not cover keeps its previous
-// record untouched.
-func (p *Poller) refreshScoreboard(ctx context.Context, matched map[string]string, now time.Time) {
+// record untouched. The return value reports display changes so Tick
+// invalidates memoized snapshots even when no box score changes. Clock
+// changes count for display, but remain outside the box-fetch delta key.
+func (p *Poller) refreshScoreboard(ctx context.Context, matched map[string]string, now time.Time) bool {
 	rowsByTank01 := map[string]fantasy.ScoreboardGame{}
 	for _, date := range scoreboardDates(matched) {
 		rows, err := p.fetcher.FetchScoresOnly(ctx, date)
@@ -92,13 +94,14 @@ func (p *Poller) refreshScoreboard(ctx context.Context, matched map[string]strin
 		}
 	}
 	if len(rowsByTank01) == 0 {
-		return
+		return false
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.scoreboard == nil {
 		p.scoreboard = map[string]scoreboardRecord{}
 	}
+	displayChanged := false
 	for gameID, tank01ID := range matched {
 		row, ok := rowsByTank01[tank01ID]
 		if !ok {
@@ -113,11 +116,16 @@ func (p *Poller) refreshScoreboard(ctx context.Context, matched map[string]strin
 			possession: possession, possessionKnown: possessionKnown, deltaKey: deltaKey}
 		if previous, seen := p.scoreboard[gameID]; seen && previous.deltaKey == deltaKey {
 			record.changedAt = previous.changedAt
+			if previous.row.Clock != row.Clock {
+				displayChanged = true
+			}
 		} else {
 			record.changedAt = now
+			displayChanged = true
 		}
 		p.scoreboard[gameID] = record
 	}
+	return displayChanged
 }
 
 // recordScoreboardFailure tracks one failed FetchScoresOnly call, apart

@@ -369,7 +369,7 @@ func (p *Poller) Tick(ctx context.Context) {
 	// fresh scoreboard. Runs after the matched maps are stored — the
 	// scoreboard keys rows by Tank01 ID, and matched is the bridge back to
 	// schedule game IDs.
-	p.refreshScoreboard(ctx, matched, now)
+	changed := p.refreshScoreboard(ctx, matched, now)
 
 	// boxTargets narrows targets to GC-2 layer 2's own gate, refined by
 	// GC-2b's tiered cadence (boxFetchTier/boxFetchDue): an idle game
@@ -402,7 +402,6 @@ func (p *Poller) Tick(ctx context.Context) {
 
 	sem := make(chan struct{}, p.cfg.MaxInflight)
 	var wg sync.WaitGroup
-	changed := false
 	var changedMu sync.Mutex
 	for _, game := range boxTargets {
 		tank01ID := matched[game.ID]
@@ -756,6 +755,13 @@ func (p *Poller) Snapshot() Snapshot {
 			continue
 		}
 		row := scoreboardRec.row
+		// A final box ends polling for this game. The scoreboard was
+		// fetched first with the same tick timestamp and may still show
+		// overtime, so it must never reopen the game or restore its old
+		// score and possession after the final box has arrived.
+		if game.Final && !row.Final {
+			continue
+		}
 		if !row.InProgress && !row.Final {
 			continue
 		}
