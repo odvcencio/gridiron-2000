@@ -30,15 +30,14 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.13-37c1cda; built from
-          # 37c1cdaa212f38423b1758695a2936d186b56ddd (main): GoSX v0.56.3.
-          # Time-aware wheel estimates with remaining-player uncertainty,
-          # honest missing-data states and verified final results.
+          # release-2026.09.13-f8d9b93; built from
+          # f8d9b93cba65aa12ef879ccf551ea964f756f23a (main): GoSX v0.56.3.
+          # Normalize live ordinal quarters for wheel progress and estimates;
+          # score verified punt components and disclose provisional totals.
           # No schema change; rollback to the previous image remains valid.
-          # Release build: 2026-09-13T05:47:00Z.
-          # Only flagship rolls. SK's reference image is updated in source,
-          # but the inactive deployment is not applied or used as a canary.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:cbe5eb3f2e98de279de7780c909a7059390d69a74a27d3451ce85bfea07872dd
+          # Release build: 2026-09-13T18:29:45Z.
+          # Only flagship rolls. The inactive SK deployment remains untouched.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:a31205a61066917b2fe58bc15f63dccbeb9b3823c965017ed8d895173ed855a2
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -54,8 +53,6 @@ spec:
             # for transient allocations and non-heap runtime memory.
             - name: GOMEMLIMIT
               value: "384MiB"
-            - name: GODEBUG
-              value: "gctrace=1"
             - name: DEMO_MODE
               value: "false"
             - name: PORT
