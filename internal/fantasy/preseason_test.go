@@ -122,6 +122,21 @@ func TestParsePreseasonBoxScoreDropsPunterOnlyRow(t *testing.T) {
 	}
 }
 
+func TestPreseasonBlitzExcludesPuntingWithoutDiscardingOffense(t *testing.T) {
+	raw := json.RawMessage(`{"playerStats":{"mixed":{"Rushing":{"rushYds":"12"},"Punting":{"punts":"1","puntYds":"51","puntLong":"51","puntsin20":"1"}},"zero":{"Punting":{"punts":"0"}}}}`)
+	stats, _ := parsePreseasonBoxScore(raw)
+	if len(stats) != 1 || len(stats["mixed"]) != 1 || stats["mixed"]["rushYds"] != 12 {
+		t.Fatalf("Blitz stat shape must retain offense only: %+v", stats)
+	}
+	live := ParseBoxScore(raw)
+	if live.Players["mixed"].Stats["puntYards"] != 51 {
+		t.Fatalf("general live parser must retain punting: %+v", live.Players)
+	}
+	if _, ok := live.Players["zero"]; !ok {
+		t.Fatal("general live parser must retain confirmed zero-punt row")
+	}
+}
+
 // TestSelectPreseasonGamesOffsetDefense is T3: a getNFLGamesForWeek fixture
 // whose "week" param disagrees with its labels must still bucket games by
 // gameWeek label only (P1); a response carrying zero games with the target

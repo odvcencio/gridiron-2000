@@ -286,12 +286,22 @@ func parseBoxScore(raw json.RawMessage) BoxScore {
 	return box
 }
 
-// parsePreseasonBoxScore keeps the Blitz shape over the general parser.
+// parsePreseasonBoxScore keeps the offense/kicking Blitz shape over the
+// general live parser. Punter scoring belongs to the weekly league ledger,
+// not the preseason entry-builder's section 4.3 stat space.
 func parsePreseasonBoxScore(raw json.RawMessage) (map[string]map[string]float64, bool) {
 	box := parseBoxScore(raw)
 	out := make(map[string]map[string]float64, len(box.Players))
 	for playerID, line := range box.Players {
-		out[playerID] = line.Stats
+		stats := make(map[string]float64, len(line.Stats))
+		for key, value := range line.Stats {
+			if !strings.HasPrefix(key, "punt") {
+				stats[key] = value
+			}
+		}
+		if len(stats) > 0 {
+			out[playerID] = stats
+		}
 	}
 	return out, box.Final
 }
