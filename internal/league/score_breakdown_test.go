@@ -66,7 +66,7 @@ func TestScoreBreakdownTextExplainsAScore(t *testing.T) {
 			if len(lines) != len(tc.want) {
 				t.Fatalf("got %d lines, want %d:\n%s", len(lines), len(tc.want), got)
 			}
-			valueColumn := -1
+			decimalColumn := -1
 			for i, line := range lines {
 				label, value := tc.want[i][0], tc.want[i][1]
 				if !strings.HasPrefix(line, label) {
@@ -75,13 +75,13 @@ func TestScoreBreakdownTextExplainsAScore(t *testing.T) {
 				if !strings.HasSuffix(line, value) {
 					t.Errorf("line %d = %q, want it to end with %q", i, line, value)
 				}
-				// Every value starts in the same column, so the numbers
-				// read down the tooltip as a column rather than a sentence.
-				at := len(line) - len(value)
-				if valueColumn == -1 {
-					valueColumn = at
-				} else if at != valueColumn {
-					t.Errorf("line %d puts its value at column %d, want %d (values must align):\n%s", i, at, valueColumn, got)
+				// Decimal points share one column, including signed and
+				// multi-digit values. Their left edges need not align.
+				at := len(line) - len(value) + strings.IndexByte(value, '.')
+				if decimalColumn == -1 {
+					decimalColumn = at
+				} else if at != decimalColumn {
+					t.Errorf("line %d puts its decimal at column %d, want %d:\n%s", i, at, decimalColumn, got)
 				}
 				// The gap is real whitespace, never a squashed join.
 				if !strings.HasSuffix(strings.TrimSuffix(line, value), "  ") {

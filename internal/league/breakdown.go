@@ -163,6 +163,7 @@ func ScoreBreakdownText(stats map[string]float64, values map[string]float64) str
 	type row struct{ left, right string }
 	var rows []row
 	widest := 0
+	valueWidth := 0
 	for _, rule := range defaultScoringRules() {
 		stat, ok := stats[rule.Key]
 		if !ok || stat == 0 || !finiteScoringPoints(stat) {
@@ -175,7 +176,11 @@ func ScoreBreakdownText(stats map[string]float64, values map[string]float64) str
 		if len(left) > widest {
 			widest = len(left)
 		}
-		rows = append(rows, row{left: left, right: fmt.Sprintf("%.1f", stat*scoringPoints(values, rule.Key))})
+		right := fmt.Sprintf("%.1f", stat*scoringPoints(values, rule.Key))
+		if len(right) > valueWidth {
+			valueWidth = len(right)
+		}
+		rows = append(rows, row{left: left, right: right})
 	}
 	if len(rows) == 0 {
 		return ""
@@ -185,13 +190,12 @@ func ScoreBreakdownText(stats map[string]float64, values map[string]float64) str
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		// Pad the label so every value lands in the same column. The
-		// tooltip renders this in a monospaced face with white-space: pre,
-		// so the padding is what makes the numbers line up (2026-09-10:
-		// one run-on line separated by middots was unreadable — a reader
-		// had to parse the separators to find where one rule ended).
+		// Align the right edge, not the start of each amount. Every amount
+		// has one decimal place, so signs and additional integer digits
+		// expand left without moving the decimal column. Keep labels in
+		// their own left-aligned column for the monospaced native fallback.
 		b.WriteString(r.left)
-		for pad := len(r.left); pad < widest+2; pad++ {
+		for pad := len(r.left); pad < widest+2+valueWidth-len(r.right); pad++ {
 			b.WriteByte(' ')
 		}
 		b.WriteString(r.right)

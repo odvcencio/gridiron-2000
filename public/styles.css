@@ -11237,6 +11237,13 @@ body.is-on-clock .draft-clock-panel {
   overflow-wrap: anywhere;
   max-width: 100%;
   color: var(--color-text-secondary);
+  /* Amounts have one decimal place and a shared right edge. This also
+     aligns a wrapped rule's last line with TOTAL instead of leaving its
+     amount floating at the beginning of the continuation line. Soft-
+     wrapped label lines remain left-aligned and inside the solid card. */
+  text-align: left;
+  text-align-last: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .points-tip__total {
@@ -11248,6 +11255,7 @@ body.is-on-clock .draft-clock-panel {
   border-top: 1px solid var(--color-border);
   font-weight: 700;
   color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 .points-tip__total-label {
