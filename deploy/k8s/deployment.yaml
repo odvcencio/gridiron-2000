@@ -30,14 +30,14 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.13-f6c52f9; built from
-          # f6c52f9d6e80b5c076afd35e31ac176cb3cba9f1 (main): GoSX v0.56.3.
-          # Retain marked partial forecasts and align score-tooltip decimal
-          # columns with TOTAL, including negative and wrapped amounts.
+          # release-2026.09.13-df97e7d; built from
+          # df97e7da6b04bfc3833eef7425dffa61dfae94a9 (main): GoSX v0.56.3.
+          # Finalize overtime games from authoritative box scores, invalidate
+          # scoreboard-only page changes, and retain explicit zero stat lines.
           # No schema change; rollback to the previous image remains valid.
-          # Release build: 2026-09-13T19:11:16Z.
+          # Release build: 2026-09-13T22:51:07Z.
           # Only flagship rolls. The inactive SK deployment remains untouched.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:425aece4accb36848922316604a0b9fda232372b4b3a883b042ac62af07d32cc
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:4107ddf5cb6d78f2385ea3c356633ccf69d2b5fb41379e190ede1834baa64249
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
