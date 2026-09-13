@@ -30,14 +30,14 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.13-f8d9b93; built from
-          # f8d9b93cba65aa12ef879ccf551ea964f756f23a (main): GoSX v0.56.3.
-          # Normalize live ordinal quarters for wheel progress and estimates;
-          # score verified punt components and disclose provisional totals.
+          # release-2026.09.13-a1a4e67; built from
+          # a1a4e675822034bebc5fa31a8ea80472f83c5063 (main): GoSX v0.56.3.
+          # Show available original starter forecasts as a marked partial
+          # subtotal, with live coverage and missing-forecast explanations.
           # No schema change; rollback to the previous image remains valid.
-          # Release build: 2026-09-13T18:29:45Z.
+          # Release build: 2026-09-13T19:03:58Z.
           # Only flagship rolls. The inactive SK deployment remains untouched.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:a31205a61066917b2fe58bc15f63dccbeb9b3823c965017ed8d895173ed855a2
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:14d5401270a4436366bb05e4123ddb09feaba4645bd8f16163c600a4d2282b1d
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
