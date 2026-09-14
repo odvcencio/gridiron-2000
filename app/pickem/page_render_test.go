@@ -189,7 +189,7 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 	if !strings.Contains(body, "name=\"week\" value=\"2\"") {
 		t.Fatalf("pick forms must carry the selected week as a hidden field, got: %s", body)
 	}
-	for _, want := range []string{"FROZEN LINE", "BUF +3.5", "MIA -3.5", "WIN · BUF COVERED", "1 - 0 - 0", "THE LINE FREEZES THURSDAY"} {
+	for _, want := range []string{"FROZEN LINE", "BUF +3.5", "MIA -3.5", "WIN · BUF COVERED", "1 - 0", "THE LINE FREEZES THURSDAY"} {
 		if !strings.Contains(compactBody, want) {
 			t.Fatalf("expected ATS Pick'em contract %q in rendered page, got: %s", want, body)
 		}

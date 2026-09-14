@@ -89,7 +89,6 @@ const (
 	pickemPending    PickemOutcome = "pending"
 	pickemWin        PickemOutcome = "win"
 	pickemLoss       PickemOutcome = "loss"
-	pickemPush       PickemOutcome = "push"
 	pickemMissedLoss PickemOutcome = "missed_loss"
 	pickemVoid       PickemOutcome = "void"
 )
@@ -102,7 +101,6 @@ type pickemGrade struct {
 type PickemATSRecord struct {
 	Wins         int
 	Losses       int
-	Pushes       int
 	Participated bool
 }
 
@@ -170,7 +168,7 @@ func gradePickemAt(game GameInfo, market PickemMarket, pick string, enteredAt, n
 	}
 	adjustedHomeMarginTenths := (game.HomeScore-game.AwayScore)*10 - market.LineTenths
 	if adjustedHomeMarginTenths == 0 {
-		return pickemGrade{Outcome: pickemPush}
+		return pickemGrade{Outcome: pickemLoss}
 	}
 	cover := game.Away
 	if adjustedHomeMarginTenths > 0 {
@@ -272,16 +270,14 @@ func tallyPicks(games []GameInfo, markets map[string]PickemMarket, picks map[str
 			record.Wins++
 		case pickemLoss, pickemMissedLoss:
 			record.Losses++
-		case pickemPush:
-			record.Pushes++
 		}
 	}
 	return record
 }
 
 // pickemStreak computes the viewer's current streak of consecutive ATS wins,
-// walking from the most recent kickoff backward. Losses and missed losses
-// break the streak; pushes, voids, and pending games are neutral. The streak
+// walking from the most recent kickoff backward. Losses and missed losses,
+// including games tied against the spread, break the streak; voids and pending games are neutral. The streak
 // resets to 0 when there are no graded wins yet. Ties
 // on kickoff (an early or late slate's several simultaneous games) break
 // by ID, descending, the same stable tie-break sortGamesByKickoff uses —
@@ -311,7 +307,7 @@ func pickemStreak(games []GameInfo, markets map[string]PickemMarket, picks map[s
 streakEntries:
 	for _, entry := range entries {
 		switch entry.outcome {
-		case pickemPush, pickemVoid:
+		case pickemVoid:
 			continue
 		case pickemLoss, pickemMissedLoss:
 			break streakEntries
@@ -407,7 +403,6 @@ type PickemGameRow struct {
 	Winner         string
 	Correct        bool
 	Wrong          bool
-	Push           bool
 	MissedLoss     bool
 	Void           bool
 	// MarketUnavailable means the durable market has no eligible line for
@@ -499,9 +494,10 @@ func pickemResultLabel(grade pickemGrade, locked, marketUnavailable, picked bool
 	case pickemWin:
 		return "WIN · " + grade.Cover + " COVERED"
 	case pickemLoss:
+		if grade.Cover == "" {
+			return "LOSS · TIE AGAINST SPREAD"
+		}
 		return "LOSS · " + grade.Cover + " COVERED"
-	case pickemPush:
-		return "PUSH"
 	case pickemMissedLoss:
 		return "MISSED LOSS"
 	case pickemVoid:
@@ -707,7 +703,6 @@ func (s *Service) pickemData(r *http.Request, reconcile bool) map[string]any {
 			Winner:            grade.Cover,
 			Correct:           grade.Outcome == pickemWin,
 			Wrong:             grade.Outcome == pickemLoss || grade.Outcome == pickemMissedLoss,
-			Push:              grade.Outcome == pickemPush,
 			MissedLoss:        grade.Outcome == pickemMissedLoss,
 			Void:              marketUnavailable || grade.Outcome == pickemVoid,
 			MarketUnavailable: marketUnavailable,
@@ -752,15 +747,13 @@ func (s *Service) pickemData(r *http.Request, reconcile bool) map[string]any {
 		"unpicked_count":    unpickedCount,
 		"record": map[string]any{
 			"week_correct":   weekRecord.Wins,
-			"week_total":     weekRecord.Wins + weekRecord.Losses + weekRecord.Pushes,
+			"week_total":     weekRecord.Wins + weekRecord.Losses,
 			"week_wins":      weekRecord.Wins,
 			"week_losses":    weekRecord.Losses,
-			"week_pushes":    weekRecord.Pushes,
 			"season_correct": seasonRecord.Wins,
-			"season_total":   seasonRecord.Wins + seasonRecord.Losses + seasonRecord.Pushes,
+			"season_total":   seasonRecord.Wins + seasonRecord.Losses,
 			"season_wins":    seasonRecord.Wins,
 			"season_losses":  seasonRecord.Losses,
-			"season_pushes":  seasonRecord.Pushes,
 			"has_record":     seasonRecord.Participated,
 			"streak":         streak,
 			"has_streak":     streak > 0,
@@ -785,7 +778,6 @@ type PickemLeaderboardEntry struct {
 	Total   int
 	Wins    int
 	Losses  int
-	Pushes  int
 }
 
 // assignSharedRanks sets each entry's Rank from its position in an
@@ -833,10 +825,9 @@ func (s *Service) pickemLeaderboard(state PersistedState, games, entryGames []Ga
 			Name:    name,
 			Team:    team,
 			Correct: entry.Wins,
-			Total:   entry.Wins + entry.Losses + entry.Pushes,
+			Total:   entry.Wins + entry.Losses,
 			Wins:    entry.Wins,
 			Losses:  entry.Losses,
-			Pushes:  entry.Pushes,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -981,10 +972,9 @@ func (s *Service) pickemHomeSummaryFromSnapshot(r *http.Request, state Persisted
 		"has_next_open_lock":    !nextOpenLock.IsZero(),
 		"next_open_lock_at":     nextOpenLockAt,
 		"season_correct":        record.Wins,
-		"season_total":          record.Wins + record.Losses + record.Pushes,
+		"season_total":          record.Wins + record.Losses,
 		"season_wins":           record.Wins,
 		"season_losses":         record.Losses,
-		"season_pushes":         record.Pushes,
 		"has_record":            record.Participated,
 		"streak":                streak,
 		"has_streak":            streak > 0,

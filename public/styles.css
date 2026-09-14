@@ -20660,6 +20660,80 @@ body.is-on-clock .draft-command__pill-sentence {
   min-width: 0;
 }
 
+.user-weekly-awards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.user-weekly-award {
+  max-width: 100%;
+  padding: 0.15rem 0.35rem;
+  overflow: hidden;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-pill);
+  color: var(--color-accent);
+  background: var(--color-accent-haze);
+  font: 700 var(--type-2xs)/1.2 var(--font-mono);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.user-weekly-award:hover,
+.user-weekly-award:focus-visible {
+  color: var(--color-canvas-deep);
+  background: var(--color-accent);
+}
+
+.team-trophy-case {
+  margin-top: var(--space-md);
+}
+
+.team-trophy-case__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: var(--space-sm);
+}
+
+.team-trophy {
+  min-width: 0;
+  padding: var(--space-md);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-panel-glass);
+}
+
+.team-trophy__icon {
+  display: grid;
+  width: 2.5rem;
+  aspect-ratio: 1;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-pill);
+  color: var(--color-accent);
+  background: var(--color-accent-haze);
+  font-size: var(--type-lg);
+}
+
+.team-trophy > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.team-trophy strong {
+  color: var(--color-text-primary);
+}
+
+.team-trophy small {
+  color: var(--color-text-muted);
+}
+
 /* overflow-wrap: normal (not "anywhere") lets the browser and the
    text-layout runtime alike prefer a word-boundary break; a single word
    that still cannot fit its own line clamps with an ellipsis (the

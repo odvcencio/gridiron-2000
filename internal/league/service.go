@@ -2038,10 +2038,13 @@ func (s *Service) Viewer(r *http.Request) map[string]any {
 			"seat_claim_eligible": false,
 			"is_commissioner":     s.demoMode,
 			"is_co_manager":       false,
+			"has_active_awards":   false,
+			"active_awards":       []WeeklyAwardView{},
 		}
 	}
 	member, memberExists := s.store.MemberByEmail(user.Email)
-	_, pendingCoInvite := s.store.Snapshot().CoInvites[user.Email]
+	state := s.store.Snapshot()
+	_, pendingCoInvite := state.CoInvites[user.Email]
 	hasSeat := member.TeamID != ""
 	seatClaimEligible := memberExists && !hasSeat && !pendingCoInvite
 	teamID, teamName := "", ""
@@ -2053,6 +2056,8 @@ func (s *Service) Viewer(r *http.Request) map[string]any {
 	if name == "" {
 		name = strings.Split(user.Email, "@")[0]
 	}
+	currentWeek := s.pickemWeek(s.schedule(), s.clock())
+	activeAwards := s.activeWeeklyAwards(state, member, user.Email, currentWeek)
 	return map[string]any{
 		"signed_in":           true,
 		"demo":                false,
@@ -2065,6 +2070,8 @@ func (s *Service) Viewer(r *http.Request) map[string]any {
 		"seat_claim_eligible": seatClaimEligible,
 		"is_commissioner":     s.IsCommissioner(r),
 		"is_co_manager":       member.Role == "co",
+		"has_active_awards":   len(activeAwards) > 0,
+		"active_awards":       activeAwards,
 	}
 }
 
@@ -2696,6 +2703,7 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	applyWeeklyProjectionText(benchRows, general, weekFacts)
 	addBenchActionOptions(benchRows, lineup.Bench, lineup, games, week, now)
 	draftClass := s.draftClassTeaser(state, teamID, 3)
+	trophyCase := s.weeklyAwardsForTeam(state, teamID)
 
 	data := map[string]any{
 		"viewer":                        viewer,
@@ -2729,6 +2737,9 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		// what the identity/co-manager/badge state already withholds.
 		"hero_manager_name": interventionManagerName(team, lineupTarget.Intervention),
 		"team":              teamMap,
+		"trophy_case":       trophyCase,
+		"has_trophies":      len(trophyCase) > 0,
+		"trophy_case_count": len(trophyCase),
 		// has_team_streak (wave-8 audit item 6) guards the hero record
 		// line's own "· {streak}" segment: team.Streak reads the em-dash
 		// placeholder "—" (defaultTeams', computeStreak's own "no results

@@ -1311,8 +1311,6 @@ func pickemOutcomeLabel(outcome PickemOutcome) string {
 		return "LOSS"
 	case pickemMissedLoss:
 		return "MISSED — LOSS"
-	case pickemPush:
-		return "PUSH"
 	case pickemVoid:
 		return "VOID"
 	default:
@@ -1379,12 +1377,12 @@ func (s *Service) buildPickemResults(member Member, week int, games []GameInfo, 
 		}
 		rows = append(rows, []string{game.Away + " @ " + game.Home, pick, pickemOutcomeLabel(grade.Outcome)})
 	}
-	subject := fmt.Sprintf("PICK'EM RESULTS — week %d is in the books (%d-%d-%d)", week, record.Wins, record.Losses, record.Pushes)
+	subject := fmt.Sprintf("PICK'EM RESULTS — week %d is in the books (%d-%d)", week, record.Wins, record.Losses)
 	shell := s.shellFor(categoryPickem, fmt.Sprintf("WEEK %d // PICK'EM RESULTS", week))
 	blocks := []emailkit.Block{
 		emailkit.Headline{
 			Title: "THE SLATE IS SETTLED.",
-			Lede:  fmt.Sprintf("Your week-%d against-the-spread record: %d wins, %d losses, %d pushes.", week, record.Wins, record.Losses, record.Pushes),
+			Lede:  fmt.Sprintf("Your week-%d against-the-spread record: %d wins, %d losses.", week, record.Wins, record.Losses),
 		},
 		emailkit.StatTable{Title: "YOUR RESULTS", Header: []string{"MATCHUP", "PICK", "RESULT"}, Rows: rows},
 		emailkit.CTA{Label: "REVIEW PICK'EM →", URL: s.notificationWeekURL("pickem", week)},
@@ -1613,8 +1611,21 @@ func (s *Service) buildMatchupRecap(state PersistedState, member Member, week Sc
 	shell := s.shellFor(categoryWeeklyRecap, fmt.Sprintf("WEEK %d // MATCHUP RECAP", week.Week))
 	blocks := []emailkit.Block{
 		emailkit.Headline{Title: "THE WEEK IS FINAL.", Lede: fmt.Sprintf("Your week-%d result: %s. The full league slate is below.", week.Week, memberResult)},
+	}
+	memberAwards := s.weeklyAwardsForMember(state, member, week.Week)
+	if len(memberAwards) > 0 {
+		awardRows := make([][]string, 0, len(memberAwards))
+		for _, award := range memberAwards {
+			awardRows = append(awardRows, []string{award.Icon + " " + award.Title, award.Detail})
+		}
+		blocks = append(blocks, emailkit.StatTable{Title: "YOUR WEEKLY AWARDS", Header: []string{"AWARD", "RESULT"}, Rows: awardRows})
+	}
+	blocks = append(blocks,
 		emailkit.StatTable{Title: "FINAL MATCHUPS", Header: []string{"MATCHUP", "SCORE", "STATUS"}, Rows: rows},
 		emailkit.CTA{Label: "REVIEW MATCHUPS →", URL: s.notificationWeekURL("matchups", week.Week)},
+	)
+	if len(memberAwards) > 0 {
+		blocks = append(blocks, emailkit.CTA{Label: "OPEN YOUR TROPHY CASE →", URL: s.leaguePathURL("team") + "#trophy-case"})
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{

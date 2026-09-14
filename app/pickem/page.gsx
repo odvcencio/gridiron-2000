@@ -70,7 +70,6 @@ type PickemGameRow struct {
 	Winner         string
 	Correct        bool
 	Wrong          bool
-	Push           bool
 	MissedLoss     bool
 	Void           bool
 	MarketUnavailable bool
@@ -198,7 +197,6 @@ type PickemLeaderboardEntry struct {
 	Total   int
 	Wins    int
 	Losses  int
-	Pushes  int
 }
 
 component LeaderboardRow(props: PickemLeaderboardEntry) {
@@ -212,8 +210,6 @@ component LeaderboardRow(props: PickemLeaderboardEntry) {
 			{props.Wins}
 			-
 			{props.Losses}
-			-
-			{props.Pushes}
 		</b>
 	</div>
 }
@@ -274,8 +270,6 @@ func PickemLiveRegion() Node {
 					{data.record.week_wins}
 					-
 					{data.record.week_losses}
-					-
-					{data.record.week_pushes}
 				</strong>
 			</div>
 			<div class="pickem-record__stat">
@@ -284,8 +278,6 @@ func PickemLiveRegion() Node {
 					{data.record.season_wins}
 					-
 					{data.record.season_losses}
-					-
-					{data.record.season_pushes}
 				</strong>
 			</div>
 			<div class="pickem-record__stat">

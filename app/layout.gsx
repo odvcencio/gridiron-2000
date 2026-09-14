@@ -1,5 +1,15 @@
 package app
 
+// WeeklyAwardView mirrors the league viewer's active award shape. These are
+// last week's honors and intentionally expire from the account badge when the
+// following NFL week ends; the permanent history lives in /team's trophy case.
+type WeeklyAwardView struct {
+	Icon   string
+	Title  string
+	Label  string
+	Detail string
+}
+
 // PrimaryNavigation is the single typed information architecture for every
 // authenticated/demo navigation surface. Desktop rail, enhanced mobile
 // dialog, and static no-JavaScript mobile disclosure all invoke this exact
@@ -66,6 +76,8 @@ type PrimaryNavigationProps struct {
 	RoleCommissioner bool
 	RoleManager      bool
 	RoleNoSeat       bool
+	HasActiveAwards  bool
+	ActiveAwards     []WeeklyAwardView
 }
 
 // PrimaryNavigation's sign-out form posts to /auth/logout as a plain,
@@ -282,6 +294,16 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 						<If cond={props.RoleManager}>Manager</If>
 						<If cond={props.RoleNoSeat}>No seat</If>
 					</span>
+					<If cond={props.HasActiveAwards}>
+						<div class="user-weekly-awards" aria-label="Last week's awards">
+							<Each of={props.ActiveAwards} as="award">
+								<a href="/team#trophy-case" data-gosx-link class="user-weekly-award" title={award.Detail} aria-label={award.Label + ": " + award.Detail}>
+									<span aria-hidden="true">{award.Icon}</span>
+									{award.Title}
+								</a>
+							</Each>
+						</div>
+					</If>
 					</div>
 				</div>
 				<Link href="/settings" class="access-link">Notification settings</Link>
@@ -459,6 +481,8 @@ func Layout() Node {
 					RoleCommissioner={data.viewer.is_commissioner}
 					RoleManager={data.viewer.is_commissioner == false && data.viewer.has_seat}
 					RoleNoSeat={data.viewer.is_commissioner == false && data.viewer.has_seat == false}
+					HasActiveAwards={data.viewer.has_active_awards}
+					ActiveAwards={data.viewer.active_awards}
 				></PrimaryNavigation>
 			</aside>
 			<header class="mobile-navigation-enhanced" data-navigation-surface="mobile-enhanced-bar">
@@ -539,6 +563,8 @@ func Layout() Node {
 					RoleCommissioner={data.viewer.is_commissioner}
 					RoleManager={data.viewer.is_commissioner == false && data.viewer.has_seat}
 					RoleNoSeat={data.viewer.is_commissioner == false && data.viewer.has_seat == false}
+					HasActiveAwards={data.viewer.has_active_awards}
+					ActiveAwards={data.viewer.active_awards}
 				></PrimaryNavigation>
 			</aside>
 			<details class="mobile-navigation-static" data-navigation-surface="mobile-static">
@@ -568,6 +594,8 @@ func Layout() Node {
 					RoleCommissioner={data.viewer.is_commissioner}
 					RoleManager={data.viewer.is_commissioner == false && data.viewer.has_seat}
 					RoleNoSeat={data.viewer.is_commissioner == false && data.viewer.has_seat == false}
+					HasActiveAwards={data.viewer.has_active_awards}
+					ActiveAwards={data.viewer.active_awards}
 				></PrimaryNavigation>
 			</details>
 			<nav class="app-tabbar" aria-label="Quick navigation" data-navigation-surface="mobile-tabbar">

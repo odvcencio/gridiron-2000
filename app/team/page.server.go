@@ -129,6 +129,25 @@ type BadgeCard struct {
 	RedirectTo    string
 }
 
+// AwardCard is the team page's permanent weekly-award display shape. It is
+// copied from league.WeeklyAwardView so the template receives a local,
+// concrete slice just like badge_grid and roster rows do.
+type AwardCard struct {
+	Icon   string
+	Title  string
+	Label  string
+	Detail string
+	Week   int
+}
+
+func awardCards(raw []league.WeeklyAwardView) []AwardCard {
+	out := make([]AwardCard, 0, len(raw))
+	for _, award := range raw {
+		out = append(out, AwardCard{Icon: award.Icon, Title: award.Title, Label: award.Label, Detail: award.Detail, Week: award.Week})
+	}
+	return out
+}
+
 func stringField(m map[string]any, key string) string {
 	value, _ := m[key].(string)
 	return value
@@ -386,6 +405,9 @@ func configuredTeamName(teamID string) string {
 }
 
 func prepareTeamData(data map[string]any, request *http.Request) map[string]any {
+	if awards, ok := data["trophy_case"].([]league.WeeklyAwardView); ok {
+		data["trophy_case"] = awardCards(awards)
+	}
 	if starters, ok := data["starters"].([]map[string]any); ok {
 		for _, slot := range starters {
 			slot["matchup_ordinal"] = matchupOrdinal(stringField(slot, "matchup_chip"), stringField(slot, "matchup_tier"))
