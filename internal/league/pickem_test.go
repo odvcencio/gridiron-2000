@@ -909,7 +909,7 @@ func TestGradePickemAgainstFrozenSpread(t *testing.T) {
 		{name: "home favorite fails", line: 35, pick: "BUF", want: pickemWin},
 		{name: "away favorite home covers", line: -25, pick: "MIA", want: pickemWin},
 		{name: "pick em home wins", line: 0, pick: "MIA", want: pickemWin},
-		{name: "exact push", line: 30, pick: "BUF", want: pickemPush},
+		{name: "tie against spread is loss", line: 30, pick: "BUF", want: pickemLoss},
 		{name: "wrong side", line: 25, pick: "BUF", want: pickemLoss},
 	}
 	for _, tt := range tests {
@@ -1027,7 +1027,7 @@ func TestPickemSeasonEntryPenalizesEveryLaterStartedGameAndPreservesFuture(t *te
 	}
 
 	record := tallyPicks(games, markets, picks, enteredAt, now)
-	if record.Wins != 1 || record.Losses != 1 || record.Pushes != 0 || !record.Participated {
+	if record.Wins != 1 || record.Losses != 1 || !record.Participated {
 		t.Fatalf("season record = %+v, want one later win and one missed loss", record)
 	}
 
@@ -1109,7 +1109,7 @@ func TestPickemSetAndDataUseInjectedPerGameClock(t *testing.T) {
 	}
 }
 
-func TestPickemStreakMissBreaksPushAndVoidNeutral(t *testing.T) {
+func TestPickemStreakTieAgainstSpreadAndMissBreakWhileVoidIsNeutral(t *testing.T) {
 	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
 	games := []GameInfo{
 		{ID: "win-old", Week: 1, Kickoff: now.Add(-4 * time.Hour), Away: "A", Home: "B", AwayScore: 10, HomeScore: 20, Final: true, ScoresPresent: true},
@@ -1123,12 +1123,12 @@ func TestPickemStreakMissBreaksPushAndVoidNeutral(t *testing.T) {
 	markets["push"] = push
 	picks := map[string]string{"win-old": "B", "push": "E", "win-new": "H"}
 	if got := pickemStreak(games, markets, picks, games[0].Kickoff.Add(-time.Hour), now); got != 1 {
-		t.Fatalf("streak = %d, want latest win then neutral push then missed-loss break", got)
+		t.Fatalf("streak = %d, want latest win then tie-against-spread loss break", got)
 	}
 	void := markets["miss"]
 	void.Void, void.Frozen, void.LinePresent = true, false, false
 	markets["miss"] = void
-	if got := pickemStreak(games, markets, picks, games[0].Kickoff.Add(-time.Hour), now); got != 2 {
-		t.Fatalf("streak with void miss = %d, want two wins across neutral push/void", got)
+	if got := pickemStreak(games, markets, picks, games[0].Kickoff.Add(-time.Hour), now); got != 1 {
+		t.Fatalf("streak with void miss = %d, want tie-against-spread loss to break the streak", got)
 	}
 }

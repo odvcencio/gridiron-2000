@@ -455,7 +455,7 @@ Compose, respond to, and track a trade without guessing its boundary.
 
 `pickem` · category `pickem` · owning route `/pickem`
 
-Choose against the displayed market line with per-game locks and an independent W-L-P record.
+Choose against the displayed market line with per-game locks and an independent W-L record.
 
 - Audiences: `admitted member`, `primary manager`, `co-manager`, `seatless member`, `commissioner`
 - Actor: An admitted member with Pick'em capability for the current week/slate.
@@ -467,9 +467,9 @@ Choose against the displayed market line with per-game locks and an independent 
 - Phases: `pre-draft`, `draft`, `preseason`, `regular-season`, `post-season`, `complete`, `unknown`
 - Data states: `loading`, `empty`, `no-results`, `pending`, `saved`, `locked`, `disabled`, `stale`, `degraded`, `offline`, `unavailable`, `failed`, `permission-denied`, `not-applicable`
 - Privacy: Pick visibility follows configured pre/post-lock policy.
-- Consequence: After week entry, a missed kickoff is a loss; a push is neutral and a void has no result.
+- Consequence: After week entry, a missed kickoff is a loss; a game tied against the spread is also a loss, and a void has no result.
 - Reversibility: Edits stop at each game's runtime lock; scored/corrected results persist.
-- Result: Each game reports saved, locked, missed, push, void, or scored state.
+- Result: Each game reports saved, locked, missed, loss, void, or scored state.
 - Failure: Stale slate, unavailable line, validation, and authorization preserve unaffected picks.
 - Recovery: Return to Pick'em with week context, reread market/locks, retry open games only.
 - Runtime source: Pick'em config, market/slate, schedule/kickoffs, entries, result processor.
@@ -482,7 +482,7 @@ Choose against the displayed market line with per-game locks and an independent 
 2. Select a side.
 3. Save/submit per form semantics.
 4. Review per-game lock/result; later games remain open.
-5. Read W-L-P separately from fantasy scoring.
+5. Read W-L separately from fantasy scoring.
 
 ## Preseason Blitz
 
@@ -792,7 +792,7 @@ The table is derived from the executable glossary entries and keeps each related
 | person |  | This is you, the person using the app. The human using Gridiron. | `/login` |
 | PF | points for | This is the total points your team has scored all season. PF (points for) is the running season total; a single week's matchup score is separate. | `/team` |
 | pick |  | This is one player your team drafted, in order. One persisted draft selection with team/player/order. | `/draft` |
-| Pick'em |  | Independent against-the-spread game with per-game locks and W-L-P. | `/pickem` |
+| Pick'em |  | Independent against-the-spread game with per-game locks and W-L. | `/pickem` |
 | player |  | A canonical football participant in the pool. | `/players` |
 | player pool |  | This is every player the league can draft or add. Source-backed players available to the league. | `/players` |
 | Players |  | Route showing pool, free agents, waivers, and claims. | `/players` |

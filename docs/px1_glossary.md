@@ -21,7 +21,7 @@ page wins.
 | waiver | A delayed acquisition process for a player not immediately addable. | `players-free-agents-waivers-and-faab` |
 | FAAB units | Non-currency units used by a configured claim processor; the runtime owns budget and processing. | `players-free-agents-waivers-and-faab` |
 | trade review | The configured period and authority evaluating an accepted trade. | `trades-review-and-processing` |
-| Pick'em | An independent against-the-spread game with per-game locks and W-L-P results. | `pickem` |
+| Pick'em | An independent against-the-spread game with per-game locks and W-L results; a tie against the spread is a loss. | `pickem` |
 | Preseason Blitz | A bounded preseason side contest with its own slate and locks. | `preseason-blitz` |
 | Signal Wire | Provisional mixed-source signals that never mutate fantasy scores. | `data-state-and-freshness` |
 | live | A fresh successful source or active workflow state; read its adjacent context. | `data-state-and-freshness` |

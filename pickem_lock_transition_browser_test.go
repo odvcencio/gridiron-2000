@@ -16,7 +16,7 @@ import (
 // pickemLockQAScheduleCSV is a small real schedule snapshot rather than an
 // in-memory rendering fixture.  The first game starts Thursday evening, the
 // next one starts Friday evening, and the remaining games provide the final
-// ATS, push, void, and missed-loss states after the fixture clock advances.
+// ATS win/loss, void, and missed-loss states after the fixture clock advances.
 const pickemLockQAScheduleCSV = "game_id,season,game_type,week,gameday,gametime,away_team,away_score,home_team,home_score,spread_line\n" +
 	"g-win,2026,REG,1,2026-09-10,19:00,BUF,,MIA,,3.5\n" +
 	"g-loss,2026,REG,1,2026-09-11,19:00,KC,,DEN,,3.5\n" +
@@ -364,7 +364,7 @@ func TestBrowserPickemLockTransitionAndFinalOutcomes(t *testing.T) {
 			assertPickemLockQARowContains(t, ctx, "g-loss", "KC +3.5", "DEN -3.5", "FROZEN LINE")
 			assertPickemLockQARowContains(t, ctx, "g-win", "20-27", "WIN · MIA COVERED")
 			assertPickemLockQARowContains(t, ctx, "g-loss", "24-20", "LOSS · KC COVERED")
-			assertPickemLockQARowContains(t, ctx, "g-push", "17-17", "PUSH")
+			assertPickemLockQARowContains(t, ctx, "g-push", "17-17", "LOSS")
 			assertPickemLockQARowContains(t, ctx, "g-void", "17-20", "NO PICK · MARKET VOID")
 			assertPickemLockQARowContains(t, ctx, "g-missed", "24-20", "MISSED LOSS")
 			assertPickemLockQAOverflow(t, ctx, viewport, "final-outcomes")

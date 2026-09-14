@@ -506,6 +506,31 @@ func Page() Node {
 					</small>
 				</div>
 			</section>
+			<section class="score-command team-trophy-case" id="trophy-case" aria-labelledby="trophy-case-heading">
+				<header class="section-heading section-heading--split">
+					<div>
+						<span class="section-index">TEAM HISTORY // WEEKLY AWARDS</span>
+						<h2 id="trophy-case-heading">Trophy case</h2>
+					</div>
+					<If cond={data.has_trophies}><span class="position-chip">{data.trophy_case_count} WON</span></If>
+				</header>
+				<If cond={data.has_trophies}>
+					<div class="team-trophy-case__grid">
+						<Each of={data.trophy_case} as="award">
+							<article class="team-trophy" title={award.Detail}>
+								<span class="team-trophy__icon" aria-hidden="true">{award.Icon}</span>
+								<div>
+									<strong>{award.Title}</strong>
+									<small class="mono">{award.Detail}</small>
+								</div>
+							</article>
+						</Each>
+					</div>
+				</If>
+				<If cond={data.has_trophies == false}>
+					<p class="scoring-note">Weekly awards will collect here after the league closes each week.</p>
+				</If>
+			</section>
 			<div
 				class="team-lineup-sync"
 				data-gosx-region
