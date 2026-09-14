@@ -30,14 +30,15 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.13-17de387; built from
-          # 17de38785397dace3c65e2fee9d1203b6785ff8f (main): GoSX v0.56.3.
-          # Rehydrate final boxes after restart, join names across generational
-          # suffix differences, and keep every displayed score numeric.
+          # release-2026.09.13-bca6edc; built from
+          # bca6edc6ded4c9736a90f02799189ba907eacc04 (main): GoSX v0.56.3.
+          # Settle final-game DNPs at numeric zero, restore final scores after
+          # restart, grade ATS ties as losses, and show weekly award badges
+          # with a permanent team trophy case and recap-email recognition.
           # No schema change; rollback to the previous image remains valid.
-          # Release build: 2026-09-13T23:49:54Z.
+          # Release build: 2026-09-14T03:21:00Z.
           # Only flagship rolls. The inactive SK deployment remains untouched.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:a61022108ea9331d7ababce34021d51406c1fecaf75f9860764d537093cdae3c
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:670fd56c5f542cc9c973608a50bba64f72274f88e38d9c7cb27a758dca32395d
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
