@@ -16,7 +16,7 @@ func TestWinEstimateUsesLedgersKnownLiveZero(t *testing.T) {
 	}
 	status, hasLive := svc.liveStatus()
 	pool := map[string]Player{"p-09": {ID: "p-09", Projection: 20}, "p-11": {ID: "p-11", Projection: 15}}
-	if got := matchupWinEstimate(ScoreTeam{StarterLedger: a.Rows}, ScoreTeam{StarterLedger: b.Rows}, MatchupStateInProgress, pool, status, hasLive); got == "—" {
+	if got := matchupWinEstimate(ScoreTeam{StarterLedger: a.Rows}, ScoreTeam{StarterLedger: b.Rows}, MatchupStateInProgress, pool, status, hasLive); got == "" {
 		t.Fatal("healthy live zero suppressed the entire estimate")
 	}
 }
@@ -39,13 +39,13 @@ func TestWinEstimateKnownZeroDoesNotHideActualDataGaps(t *testing.T) {
 			row, copyStatus := a.StarterLedger[0], status
 			tc.mutate(&row, &copyStatus)
 			copyTeam := ScoreTeam{StarterLedger: []StarterLedgerRow{row}}
-			if got := matchupWinEstimate(copyTeam, b, MatchupStateInProgress, pool, copyStatus, true); got != "—" {
+			if got := matchupWinEstimate(copyTeam, b, MatchupStateInProgress, pool, copyStatus, true); got != "" {
 				t.Fatalf("actual-data gap produced estimate %q", got)
 			}
 		})
 	}
 	delete(pool, "a")
-	if got := matchupWinEstimate(a, b, MatchupStateInProgress, pool, status, true); got != "—" {
+	if got := matchupWinEstimate(a, b, MatchupStateInProgress, pool, status, true); got != "" {
 		t.Fatalf("missing projection produced estimate %q", got)
 	}
 }
@@ -63,18 +63,18 @@ func TestWinEstimateAcceptsPlayerOmittedFromConfirmedFinalBoxAsZero(t *testing.T
 		"MIN": {Final: true, BoxFinal: true},
 		"DEN": {},
 	}}
-	if got := matchupWinEstimate(a, b, MatchupStateInProgress, pool, status, true); got == "—" {
+	if got := matchupWinEstimate(a, b, MatchupStateInProgress, pool, status, true); got == "" {
 		t.Fatal("a player omitted from a confirmed final box suppressed the matchup estimate")
 	}
 
 	status.Games["MIN"] = LiveGameState{Final: true}
-	if got := matchupWinEstimate(a, b, MatchupStateInProgress, pool, status, true); got != "—" {
+	if got := matchupWinEstimate(a, b, MatchupStateInProgress, pool, status, true); got != "" {
 		t.Fatalf("scoreboard-only finality produced estimate %q before the final box arrived", got)
 	}
 }
 
-func TestWinEstimatePendingCaption(t *testing.T) {
-	for value, want := range map[string]string{"": "Estimate pending", "—": "Estimate pending", "63%": "Est. to win", "WON": "Final", "LOST": "Final", "TIED": "Final"} {
+func TestUnavailableWinEstimateHasNoCaption(t *testing.T) {
+	for value, want := range map[string]string{"": "", "—": "", "63%": "Est. to win", "WON": "Final", "LOST": "Final", "TIED": "Final"} {
 		if got := WinEstimateCaption(value); got != want {
 			t.Errorf("caption %q = %q, want %q", value, got, want)
 		}

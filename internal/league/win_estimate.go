@@ -13,7 +13,7 @@ import (
 func matchupWinEstimate(mine, theirs ScoreTeam, state string, pool map[string]Player, status LiveStatus, hasLive bool) string {
 	if state == MatchupStateFinal {
 		if !mine.ScoreKnown || !theirs.ScoreKnown {
-			return winProbabilityDashText
+			return ""
 		}
 		switch {
 		case mine.Score > theirs.Score:
@@ -25,13 +25,13 @@ func matchupWinEstimate(mine, theirs ScoreTeam, state string, pool map[string]Pl
 		}
 	}
 	if state == MatchupStateDegraded {
-		return winProbabilityDashText
+		return ""
 	}
 	meanA, varianceA, knownA := remainingScoreDistribution(mine.StarterLedger, pool, status, hasLive)
 	meanB, varianceB, knownB := remainingScoreDistribution(theirs.StarterLedger, pool, status, hasLive)
 	if !knownA || !knownB || varianceA+varianceB <= 0 {
 		// Completed games alone are not authoritative matchup finality.
-		return winProbabilityDashText
+		return ""
 	}
 	z := (meanA - meanB) / math.Sqrt(varianceA+varianceB)
 	p := 0.5 * (1 + math.Erf(z/math.Sqrt2))
@@ -88,7 +88,7 @@ func WinEstimateCaption(value string) string {
 	case "WON", "LOST", "TIED":
 		return "Final"
 	case "", winProbabilityDashText:
-		return "Estimate pending"
+		return ""
 	default:
 		return "Est. to win"
 	}
