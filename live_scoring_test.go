@@ -22,7 +22,7 @@ import (
 func TestLiveStatusSourceMapsGamesToBothTeams(t *testing.T) {
 	kickoff := time.Now().Add(-time.Hour)
 	snapshot := livescore.Snapshot{Version: 7, Games: map[string]livescore.GameState{
-		"g1": {ID: "g1", Away: "BAL", Home: "BUF", Period: "Q2", Clock: "3:10", InProgress: true, Kickoff: kickoff},
+		"g1": {ID: "g1", Away: "BAL", Home: "BUF", Period: "Final", Clock: "", Final: true, BoxFinal: true, Kickoff: kickoff},
 	}}
 	health := livescore.Health{Enabled: true, LastSuccess: kickoff.Add(time.Minute)}
 	status := liveStatusFromPoller(func() livescore.Snapshot { return snapshot }, func() livescore.Health { return health }, func() time.Time { return kickoff.Add(time.Minute) })()
@@ -30,7 +30,7 @@ func TestLiveStatusSourceMapsGamesToBothTeams(t *testing.T) {
 		t.Fatalf("status = %+v", status)
 	}
 	for _, team := range []string{"BAL", "BUF"} {
-		if game := status.Games[team]; game.Period != "Q2" || !game.InProgress {
+		if game := status.Games[team]; game.Period != "Final" || !game.Final || !game.BoxFinal {
 			t.Fatalf("%s = %+v", team, game)
 		}
 	}

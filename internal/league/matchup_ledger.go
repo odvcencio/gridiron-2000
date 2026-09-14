@@ -461,6 +461,19 @@ func starterGameFinal(team string, snapshot matchupStatsSnapshot) bool {
 	return false
 }
 
+// starterFinalBoxKnown reports the stronger form of finality needed for an
+// omitted player row to become a settled zero. The weekly schedule or the
+// lightweight scoreboard can say a game ended before the final player box is
+// available; only BoxFinal confirms that the omission is part of a complete
+// final response rather than a lagging source.
+func starterFinalBoxKnown(team string, snapshot matchupStatsSnapshot) bool {
+	if !snapshot.hasLive || snapshot.live.Degraded {
+		return false
+	}
+	game, ok := snapshot.live.Games[normalizeNFLAbbreviation(team)]
+	return ok && game.BoxFinal
+}
+
 // starterGameKnownZeroSoFar reports whether a missing-join starter's game
 // state is affirmatively known. The name is historical: for a punter whose
 // aggregates have not arrived, this is a provisional zero. It covers a true
@@ -678,6 +691,12 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 		}
 		row.PointsText = fmt.Sprintf("%.1f", row.Points)
 		ledgerPlayerDetail(&row)
+		if row.JoinState == "missing-join" && starterFinalBoxKnown(assignment.Player.NFLTeam, snapshot) {
+			row.Detail = "The final box contains no scoring row for this player; 0.0 is final."
+			if row.Position == "P" {
+				row.Detail = "The final box contains no punting row for this player; 0.0 is final."
+			}
+		}
 		rows = append(rows, row)
 	}
 	if known && !complete {

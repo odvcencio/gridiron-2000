@@ -20,8 +20,9 @@ type Game struct {
 type ScheduleSource func() []Game
 
 const (
-	windowBefore = 5 * time.Minute
-	windowAfter  = 5 * time.Hour
+	windowBefore        = 5 * time.Minute
+	windowAfter         = 5 * time.Hour
+	finalRehydrateAfter = 12 * time.Hour
 )
 
 // inTimeWindow reports whether now falls inside a game's own poll window:
@@ -52,6 +53,19 @@ func inWindow(game Game, now time.Time) bool {
 		return false
 	}
 	return inTimeWindow(game, now)
+}
+
+// inFinalRehydrateWindow gives a restarted poller one bounded chance to
+// recover a final box after the ordinary live window has closed. Deployments
+// commonly happen between the Sunday afternoon and evening slates, while the
+// weekly mirror can still trail the just-finished games. Keeping this separate
+// from inTimeWindow avoids turning completed games into continuously polled
+// live games: finalDone removes each recovered box after its first fetch.
+func inFinalRehydrateWindow(game Game, now time.Time) bool {
+	if !game.Final || game.Kickoff.IsZero() {
+		return false
+	}
+	return !now.Before(game.Kickoff) && !now.After(game.Kickoff.Add(finalRehydrateAfter))
 }
 
 // WindowClosed reports whether kickoff+windowAfter has passed. Every

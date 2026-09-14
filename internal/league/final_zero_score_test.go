@@ -58,7 +58,7 @@ func TestTeamWeekLedgerPreservesParserConfirmedFinalZero(t *testing.T) {
 			svc.SetWeekStatsSource(func(int) []WeekStatLine { return lines })
 			svc.SetLiveStatusSource(func() LiveStatus {
 				game := LiveGameState{GameID: box.GameID, Away: box.Away, Home: box.Home,
-					Period: box.Period, Clock: box.Clock, Final: box.Final, Kickoff: now.Add(-4 * time.Hour)}
+					Period: box.Period, Clock: box.Clock, Final: box.Final, BoxFinal: box.Final, Kickoff: now.Add(-4 * time.Hour)}
 				return LiveStatus{Enabled: true, Games: map[string]LiveGameState{"CIN": game, "ATL": game}}
 			})
 
@@ -78,6 +78,9 @@ func TestTeamWeekLedgerPreservesParserConfirmedFinalZero(t *testing.T) {
 					sawZero = true
 					if row.JoinState != tc.wantZeroJoin || row.Points != 0 || !row.GameFinal || row.ZeroSoFarKnown != tc.wantZeroFallback {
 						t.Fatalf("scoreless final row = %+v, want join=%q zeroFallback=%v", row, tc.wantZeroJoin, tc.wantZeroFallback)
+					}
+					if tc.wantZeroFallback && row.Detail != "The final box contains no scoring row for this player; 0.0 is final." {
+						t.Fatalf("confirmed final zero detail = %q", row.Detail)
 					}
 				}
 			}

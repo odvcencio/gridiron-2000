@@ -157,7 +157,7 @@ func liveStatusFromPoller(snapshot func() livescore.Snapshot, health func() live
 		games := make(map[string]league.LiveGameState, len(s.Games)*2)
 		for _, game := range s.Games {
 			state := league.LiveGameState{GameID: game.ID, Away: game.Away, Home: game.Home, Period: game.Period, Clock: game.Clock,
-				AwayPoints: game.AwayPoints, HomePoints: game.HomePoints, Final: game.Final, InProgress: game.InProgress, Kickoff: game.Kickoff,
+				AwayPoints: game.AwayPoints, HomePoints: game.HomePoints, Final: game.Final, BoxFinal: game.BoxFinal, InProgress: game.InProgress, Kickoff: game.Kickoff,
 				Possession: game.Possession, PossessionKnown: game.PossessionKnown}
 			games[game.Away], games[game.Home] = state, state
 		}
