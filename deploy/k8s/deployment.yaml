@@ -30,15 +30,14 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.13-bca6edc; built from
-          # bca6edc6ded4c9736a90f02799189ba907eacc04 (main): GoSX v0.56.3.
-          # Settle final-game DNPs at numeric zero, restore final scores after
-          # restart, grade ATS ties as losses, and show weekly award badges
-          # with a permanent team trophy case and recap-email recognition.
+          # release-2026.09.13-d251565; built from
+          # d25156542268c4405a465a4a4ea09ed6b93b369f (main): GoSX v0.56.3.
+          # Hide the inactive postseason card from regular-season Matchups,
+          # while retaining the final-score, Pick'em, and weekly-award fixes.
           # No schema change; rollback to the previous image remains valid.
-          # Release build: 2026-09-14T03:21:00Z.
+          # Release build: 2026-09-14T05:12:17Z.
           # Only flagship rolls. The inactive SK deployment remains untouched.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:670fd56c5f542cc9c973608a50bba64f72274f88e38d9c7cb27a758dca32395d
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:392a1a20bb46ba323ccdbe33c8fb56ea9dba06f6e587d88c6cab66bfe42a36ab
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
