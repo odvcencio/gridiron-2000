@@ -226,10 +226,14 @@ func TestPlayoffCorrectionRecordsSameWinnerStatAdjustment(t *testing.T) {
 func TestPlayoffTruthProjectionHidesPreviewAndRejectsDegradedSource(t *testing.T) {
 	svc := newPostseasonLedgerService(t, filepath.Join(t.TempDir(), "state.json"))
 	now := time.Date(2026, time.December, 8, 12, 0, 0, 0, time.UTC)
+	regular := svc.playoffTruthMap(PersistedState{Phase: PhaseRegularSeason}, now, false)
+	if regular["show_on_matchups"] != false {
+		t.Fatalf("regular-season playoff visibility = %+v, want hidden on Matchups", regular["show_on_matchups"])
+	}
 	preview := ps1Preview(t, 2)
 	state := PersistedState{Phase: PhasePlayoffs, Playoffs: &preview}
 	manager := svc.playoffTruthMap(state, now, false)
-	if manager["status"] != "waiting" || manager["has_bracket"] != false || len(manager["seeds"].([]map[string]any)) != 0 {
+	if manager["status"] != "waiting" || manager["has_bracket"] != false || manager["show_on_matchups"] != true || len(manager["seeds"].([]map[string]any)) != 0 {
 		t.Fatalf("manager preview projection = %+v", manager)
 	}
 	commissioner := svc.playoffTruthMap(state, now, true)
