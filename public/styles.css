@@ -21314,3 +21314,155 @@ body.is-on-clock .draft-command__pill-sentence {
     justify-self: end;
   }
 }
+
+/* The Pick'em sheet as a permanent record.
+
+   .pickem-week-record names which record the sheet is serving (OPEN, IN
+   PROGRESS, FINAL) and, once graded, who took the week. .pickem-ledger is
+   the per-game version of the same idea: the consensus bar above it says
+   how many of the league took each side, the ledger says who took it and
+   how it graded. Both mount only after a game locks, so neither leaks a
+   pick while a game is still open, and neither empties again afterwards —
+   an old week's sheet keeps serving the record it settled on.
+
+   The outcome colors reuse .pickem-hit/.pickem-miss's own accent and
+   accent-hot rather than introducing a fourth state palette, and every
+   outcome also carries its own word (WIN, LOSS, MISSED LOSS, VOID), so
+   the state never rests on color alone. */
+.pickem-week-record {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-white-faint);
+}
+
+.pickem-week-record[data-state="FINAL"] {
+  border-left-color: var(--color-accent);
+}
+
+.pickem-week-record[data-state="IN PROGRESS"] {
+  border-left-color: var(--color-accent-cyan);
+}
+
+.pickem-week-record p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.pickem-week-record__winner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem var(--space-xs);
+  margin-top: 0.15rem;
+}
+
+.pickem-week-record__mark {
+  color: var(--color-accent);
+  font-size: var(--type-md);
+  line-height: 1;
+}
+
+.pickem-week-record__winner b {
+  color: var(--color-accent);
+}
+
+/* The settled note replaces the pick rule note on a closed week, so it
+   reads as a record rather than an instruction: the same block, keyed to
+   the FINAL state color .pickem-week-record already uses. */
+.pickem-rule-note--settled {
+  border-left-color: var(--color-accent-cyan);
+}
+
+.pickem-ledger {
+  /* .pickem-row is a five-column grid at desktop width and a wrapping
+     flex row inside the 54rem, 56.25-68.75rem, and short-viewport
+     queries, so the ledger claims a full line of its own both ways:
+     grid-column for the grid, flex-basis for the flex rows (each is
+     inert in the other layout). */
+  grid-column: 1 / -1;
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.45rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.pickem-ledger__lead {
+  color: var(--color-text-muted);
+  font-size: var(--type-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.pickem-ledger__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pickem-ledger__entry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  min-width: 0;
+  /* A chip never outgrows the row it wraps inside, whatever the name
+     length: the phone slate measures 390px, and the row already sits
+     inside the page's own side padding. */
+  max-width: 100%;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-white-faint);
+  font-size: var(--type-2xs);
+}
+
+.pickem-ledger__entry[data-viewer="true"] {
+  border-color: var(--color-accent-cyan);
+}
+
+/* A long manager name (the textflow wave's own "Management Committee of
+   the Norte y Sur Division" fixture) clamps here in CSS rather than
+   through <TextBlock>, because this label repeats once per entrant per
+   locked game inside a region that re-polls every four seconds — see the
+   measured comparison on the ledger entry in app/pickem/page.gsx. The vw
+   term keeps a chip inside a 390px phone row; the rem term keeps a full
+   name readable on a wide one. */
+.pickem-ledger__who {
+  min-width: 0;
+  max-width: min(14rem, 38vw);
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pickem-ledger__call {
+  color: var(--color-text-primary);
+  font-weight: 700;
+}
+
+.pickem-ledger__state {
+  color: var(--color-text-muted);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.pickem-ledger__entry[data-outcome="win"] .pickem-ledger__state {
+  color: var(--color-accent);
+}
+
+.pickem-ledger__entry[data-outcome="loss"] .pickem-ledger__state,
+.pickem-ledger__entry[data-outcome="missed_loss"] .pickem-ledger__state {
+  color: var(--color-accent-hot);
+}

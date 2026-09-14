@@ -238,3 +238,146 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 		t.Fatalf("open row's YOUR PICK glyph must render inside the picked (aria-pressed=true) button: %s", neighborRow)
 	}
 }
+
+// TestPickemSheetServesTheLeagueRecordAfterLock is the permanent-record
+// contract: once a game locks, its row names every entrant's call and how
+// it graded, and that record stays for good — a past week's sheet is the
+// archive of that week, not an expired form. Before lock the row must
+// carry no ledger at all, the same no-leak rule the consensus split
+// already follows (pickemConsensus's own doc comment).
+func TestPickemSheetServesTheLeagueRecordAfterLock(t *testing.T) {
+	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
+	t.Setenv("DEMO_MODE", "true")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+
+	// A fixed Monday, for the same reason the fixture above pins one: the
+	// week's market lock is the first Thursday kickoff in Eastern time, so
+	// a real wall clock can move a relative offset across that boundary.
+	now := time.Date(2026, time.June, 8, 15, 0, 0, 0, time.UTC)
+	league.Default().SetClockForTest(func() time.Time { return now })
+	t.Cleanup(func() { league.Default().SetClockForTest(nil) })
+
+	games := []league.GameInfo{
+		{ID: "r-final", Week: 3, Kickoff: now.Add(time.Hour), Away: "BUF", Home: "MIA", SpreadLinePresent: true, SpreadLineTenths: 35, SourceObservedAt: now.Add(-14 * 24 * time.Hour), SourceURL: "https://github.com/nflverse"},
+		{ID: "r-open", Week: 3, Kickoff: now.Add(3 * time.Hour), Away: "KC", Home: "DEN", SpreadLinePresent: true, SpreadLineTenths: -25, SourceObservedAt: now.Add(-14 * 24 * time.Hour), SourceURL: "https://github.com/nflverse"},
+	}
+	league.Default().SetScheduleSource(func() []league.GameInfo { return games })
+	// league.Default() is a process-wide singleton, so this fixture must
+	// hand the schedule back empty rather than leave a week-3-only mirror
+	// standing for whatever test runs next (page_server_test.go's own
+	// selected-week redirect reads the same resolver).
+	t.Cleanup(func() { league.Default().SetScheduleSource(nil) })
+
+	pickReq := httptest.NewRequest(http.MethodGet, "/pickem", nil)
+	if _, err := league.Default().PickemSet(pickReq, "r-final", "BUF"); err != nil {
+		t.Fatalf("seed pick: %v", err)
+	}
+	if _, err := league.Default().PickemSet(pickReq, "r-open", "KC"); err != nil {
+		t.Fatalf("seed open pick: %v", err)
+	}
+	// r-final now plays out: locked, final, and BUF covers +3.5.
+	games[0].Kickoff = now.Add(-72 * time.Hour)
+	games[0].Final = true
+	games[0].ScoresPresent = true
+	games[0].AwayScore = 24
+	games[0].HomeScore = 17
+
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
+	})
+	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
+		t.Fatalf("AddDir: %v", err)
+	}
+	handler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/?week=3", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /?week=3 = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	compact := strings.Join(strings.Fields(body), " ")
+
+	lockedRow := pickemRowMarkup(t, body, "r-final")
+	for _, want := range []string{"pickem-ledger", "LEAGUE CALLS", "demo-guest", "BUF", "WIN"} {
+		if !strings.Contains(lockedRow, want) {
+			t.Fatalf("a locked row must serve the league record; missing %q in: %s", want, lockedRow)
+		}
+	}
+	if !strings.Contains(strings.Join(strings.Fields(lockedRow), " "), "LEAGUE CALLS · 1 HIT · 0 MISSED") {
+		t.Fatalf("the ledger lead must count the league's hits and misses: %s", lockedRow)
+	}
+
+	openRow := pickemRowMarkup(t, body, "r-open")
+	if strings.Contains(openRow, "pickem-ledger") {
+		t.Fatalf("an unlocked row must ship no league record — a pick would leak before kickoff: %s", openRow)
+	}
+
+	// The sheet says which record it is serving. One game is still open,
+	// so week 3 is IN PROGRESS, and the graded pick already names a leader.
+	if !strings.Contains(body, `class="pickem-week-record" data-state="IN PROGRESS"`) {
+		t.Fatalf("expected the week record header to report IN PROGRESS, got: %s", body)
+	}
+	for _, want := range []string{"WEEK LEADER", "1-0"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("expected the week record header to name the leader (%q), got: %s", want, body)
+		}
+	}
+	// A week still holding an open game keeps the pick rule note and the
+	// slate action; only a settled week trades them for the record note.
+	if !strings.Contains(compact, "THE LINE FREEZES THURSDAY") {
+		t.Fatalf("an unsettled week keeps the pick rule note, got: %s", body)
+	}
+	if strings.Contains(compact, "THIS WEEK IS SETTLED") {
+		t.Fatalf("a week with an open game must not claim to be settled, got: %s", body)
+	}
+
+	// Settle the week: the last open game kicks off and goes final. The
+	// sheet must now read as the record.
+	games[1].Kickoff = now.Add(-48 * time.Hour)
+	games[1].Final = true
+	games[1].ScoresPresent = true
+	games[1].AwayScore = 30
+	games[1].HomeScore = 20
+
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?week=3", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("settled GET /?week=3 = %d, want 200", rec.Code)
+	}
+	settled := rec.Body.String()
+	settledCompact := strings.Join(strings.Fields(settled), " ")
+	if !strings.Contains(settled, `class="pickem-week-record" data-state="FINAL"`) {
+		t.Fatalf("a settled week must report FINAL, got: %s", settled)
+	}
+	if !strings.Contains(settledCompact, "THIS WEEK IS SETTLED") {
+		t.Fatalf("a settled week must trade the pick rule note for the record note, got: %s", settled)
+	}
+	if strings.Contains(settledCompact, "THE LINE FREEZES THURSDAY") {
+		t.Fatalf("a settled week must not still advertise an open sheet, got: %s", settled)
+	}
+	// Every row now carries the record, the previously open one included.
+	if !strings.Contains(pickemRowMarkup(t, settled, "r-open"), "pickem-ledger") {
+		t.Fatalf("a settled week's every row must serve the record, got: %s", settled)
+	}
+}
+
+// pickemRowMarkup returns the rendered <article> for one game row.
+func pickemRowMarkup(t *testing.T, body, gameID string) string {
+	t.Helper()
+	start := strings.Index(body, `data-game-id="`+gameID+`"`)
+	if start < 0 {
+		t.Fatalf("game row %q did not render: %s", gameID, body)
+	}
+	end := strings.Index(body[start:], "</article>")
+	if end < 0 {
+		t.Fatalf("game row %q was not closed: %s", gameID, body)
+	}
+	return body[start : start+end]
+}

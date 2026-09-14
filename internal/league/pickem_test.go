@@ -3,6 +3,7 @@ package league
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -1130,5 +1131,122 @@ func TestPickemStreakTieAgainstSpreadAndMissBreakWhileVoidIsNeutral(t *testing.T
 	markets["miss"] = void
 	if got := pickemStreak(games, markets, picks, games[0].Kickoff.Add(-time.Hour), now); got != 1 {
 		t.Fatalf("streak with void miss = %d, want tie-against-spread loss to break the streak", got)
+	}
+}
+
+// TestPickemGamePickLedgerRecordsEveryObligation is the permanent-record
+// rule at the source: a locked game's ledger names every entrant who owed
+// that game a pick, the ones who made one and the one who did not, and
+// leaves out anyone whose season entry started after that game kicked off.
+// It grades from the same gradePickemAt authority the leaderboard uses, so
+// the record and the standings can never disagree.
+func TestPickemGamePickLedgerRecordsEveryObligation(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Now()
+	games := pickemFixture(now)
+	final := games[0] // g-final: BUF 24, MIA 17, a pick'em line of zero.
+
+	state := PersistedState{
+		Members: map[string]Member{
+			"hit@example.com":  {Email: "hit@example.com", Name: "Hit Taker", TeamID: "team-1"},
+			"miss@example.com": {Email: "miss@example.com", Name: "Miss Taker", TeamID: "team-2"},
+			"late@example.com": {Email: "late@example.com", Name: "Late Arrival", TeamID: "team-3"},
+			"none@example.com": {Email: "none@example.com", Name: "No Show", TeamID: "team-4"},
+		},
+		Pickems: map[string]map[string]string{
+			"hit@example.com":  {"g-final": "BUF"},
+			"miss@example.com": {"g-final": "MIA"},
+			"late@example.com": {"g-open": "KC"},
+			"none@example.com": {"g-open": "DEN"},
+		},
+		PickemEnteredAt: map[string]time.Time{
+			"hit@example.com":  now.Add(-96 * time.Hour),
+			"miss@example.com": now.Add(-96 * time.Hour),
+			// Entered after g-final kicked off, so g-final was never this
+			// entrant's obligation and must not appear against them.
+			"late@example.com": now.Add(-time.Hour),
+			// Entered before g-final but never picked it: a missed loss,
+			// and the record must show the miss rather than hide it.
+			"none@example.com": now.Add(-96 * time.Hour),
+		},
+		PickemMarkets: frozenPickemMarkets(games),
+	}
+
+	ledger := service.pickemGamePickLedger(state, final, state.PickemMarkets["g-final"], games, "hit@example.com", now)
+
+	got := make(map[string]PickemGamePickView, len(ledger))
+	for _, entry := range ledger {
+		got[entry.Name] = entry
+	}
+	if len(ledger) != 3 {
+		t.Fatalf("ledger listed %d entrants, want 3 (the late entrant owed this game nothing): %+v", len(ledger), ledger)
+	}
+	if _, listed := got["Late Arrival"]; listed {
+		t.Fatal("an entrant who entered after kickoff must not appear on that game's record")
+	}
+
+	hit := got["Hit Taker"]
+	if !hit.Correct || hit.StateLabel != "WIN" || hit.PickLabel != "BUF" || !hit.HasPick {
+		t.Fatalf("covering pick recorded as %+v, want a WIN on the away side", hit)
+	}
+	if !hit.IsViewer {
+		t.Fatal("the viewer's own line must be marked so the record can highlight it")
+	}
+
+	miss := got["Miss Taker"]
+	if !miss.Wrong || miss.StateLabel != "LOSS" || miss.PickLabel != "MIA" || !miss.HasPick {
+		t.Fatalf("losing pick recorded as %+v, want a LOSS on the home side", miss)
+	}
+	if miss.IsViewer {
+		t.Fatal("another entrant's line must not be marked as the viewer's")
+	}
+
+	none := got["No Show"]
+	if !none.Wrong || none.StateLabel != "MISSED LOSS" || none.PickLabel != "NO PICK" || none.HasPick {
+		t.Fatalf("missed obligation recorded as %+v, want an explicit NO PICK missed loss", none)
+	}
+
+	// Ordering is by name so two renders of the same settled week produce
+	// the same record, not a map-iteration shuffle.
+	for index := 1; index < len(ledger); index++ {
+		if ledger[index-1].Name > ledger[index].Name {
+			t.Fatalf("ledger must be stably ordered by name, got %+v", ledger)
+		}
+	}
+}
+
+// TestPickemDataOpensTheRecordOnlyAfterKickoff pins the no-leak boundary:
+// PickemData is the single place that decides a ledger may exist at all,
+// and it must not build one for a game that has not kicked off.
+func TestPickemDataOpensTheRecordOnlyAfterKickoff(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Now()
+	games := pickemFixture(now)
+	service.now = func() time.Time { return now }
+	service.SetScheduleSource(func() []GameInfo { return games })
+	if err := service.store.ReconcilePickemMarkets(now, games, nil); err != nil {
+		t.Fatalf("reconcile markets: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/pickem?week=1", nil)
+	if _, err := service.PickemSet(request, "g-open", "KC"); err != nil {
+		t.Fatalf("seed open pick: %v", err)
+	}
+	if _, err := service.PickemSet(request, "g-locked", "DAL"); err == nil {
+		t.Log("g-locked already kicked off, as the fixture intends")
+	}
+
+	data := service.PickemData(request)
+	rows, ok := data["games"].([]PickemGameRow)
+	if !ok {
+		t.Fatalf("games = %T, want []PickemGameRow", data["games"])
+	}
+	for _, row := range rows {
+		if row.Locked {
+			continue
+		}
+		if row.HasLeaguePicks || len(row.LeaguePicks) > 0 {
+			t.Fatalf("game %q has not kicked off and must ship no league record: %+v", row.ID, row.LeaguePicks)
+		}
 	}
 }

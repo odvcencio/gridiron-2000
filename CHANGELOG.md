@@ -5,6 +5,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Each Pick'em week sheet is now the permanent record of that week. After a game kicks off, its row names every entrant's call and how that call graded. A member who owed the game a pick and made none shows as NO PICK, so the record shows the miss. Before kickoff the row ships no record at all, under the same rule that already hides the consensus split.
+- The Pick'em sheet now states which record it serves: OPEN, IN PROGRESS, or FINAL. A graded week also names the week leader and that leader's record, read off the same weekly leaderboard below it.
+
+### Changed
+- A settled Pick'em week no longer offers a "Make your picks" action or the pick rule note. Both are replaced by a note that says the week is closed and the sheet now keeps the record.
+- A void Pick'em game now shows the member's own call. The row previously dropped it, which made a voided game look unplayed.
+
 ## [release-2026.09.10-a89ac36-season11] — 2026-09-10
 
 Scope: season-11 readability and runtime truth: scoring explanations stay inside their raised tooltip on narrow screens, the Matchups tab uses an American-football icon, finished games no longer receive future projections, and the application pins GoSX v0.56.3 with its fail-closed action return-target validation. No schema change.

@@ -34,7 +34,9 @@ func TestPickemWeekSelectSharesTheBoardButtonChipRecipe(t *testing.T) {
 // TestPickemPrimaryActionLinksToTheSlateWhenPickable is item 9's own
 // primary_action contract: /pickem has no single "submit picks" form (each
 // game posts its own small managed form), so the bar action is a link to
-// the weekly slate section, set only when the viewer can actually pick.
+// the weekly slate section, set only when the viewer can actually pick
+// AND the week still holds a game that accepts one. A settled week's
+// sheet is the record, not a form, so it offers no pick action.
 func TestPickemPrimaryActionLinksToTheSlateWhenPickable(t *testing.T) {
 	source, err := os.ReadFile("page.server.go")
 	if err != nil {
@@ -42,7 +44,9 @@ func TestPickemPrimaryActionLinksToTheSlateWhenPickable(t *testing.T) {
 	}
 	text := string(source)
 	for _, want := range []string{
-		`if canPick, _ := data["can_pick"].(bool); canPick {`,
+		`canPick, _ := data["can_pick"].(bool)`,
+		`hasOpenGames, _ := data["has_open_games"].(bool)`,
+		`if canPick && hasOpenGames {`,
 		`"href":  "#pickem-slate"`,
 		`"kind":  "link"`,
 	} {
