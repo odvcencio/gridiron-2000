@@ -488,9 +488,10 @@ func featuredStarterProgressData(raw map[string]any) StarterProgressData {
 }
 
 // Win chance belongs to the team, independently of the ring's game progress.
-// Unknown projections remain unavailable on both sides, never a made-up 50/50.
+// Unknown projections leave the center empty on both sides. A later live
+// update can fill the existing bindings once the estimate becomes available.
 func starterProgressWinChances(progress StarterProgressData, chance string, second bool) StarterProgressData {
-	chances := []string{"—", "—"}
+	chances := []string{"", ""}
 	switch chance {
 	case "WON":
 		chances = []string{"WON", "LOST"}

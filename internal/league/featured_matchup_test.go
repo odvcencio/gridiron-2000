@@ -96,8 +96,8 @@ func TestLiveScoresViewWinProbIsKeyedPerTeamNotPerMatchup(t *testing.T) {
 	// fixed to one side or keyed by the matchup ID itself. A matchup where
 	// NEITHER side has ever set a lineup (this fixture only drafts and
 	// starts players for team-1/team-2 — every other team's roster is
-	// still empty) has nothing to project, so both sides honestly dash
-	// together (wave-8 audit item 2) instead of a meaningless 50/50.
+	// still empty) has nothing to project, so both sides stay empty together
+	// instead of showing a placeholder or a meaningless 50/50.
 	for _, matchup := range live.Matchups {
 		away, ok := winProb[matchup.Away.ID]
 		if !ok {
@@ -107,9 +107,9 @@ func TestLiveScoresViewWinProbIsKeyedPerTeamNotPerMatchup(t *testing.T) {
 		if !ok {
 			t.Fatalf("winProb missing home team key %q for matchup %q", matchup.Home.ID, matchup.ID)
 		}
-		if away == winProbabilityDashText || home == winProbabilityDashText {
+		if away == "" || home == "" {
 			if away != home {
-				t.Fatalf("matchup %q: away %q vs home %q, want both sides to dash together when neither has a lineup", matchup.ID, away, home)
+				t.Fatalf("matchup %q: away %q vs home %q, want both unavailable estimates to stay empty together", matchup.ID, away, home)
 			}
 		} else if sum := parse(away) + parse(home); sum < 99 || sum > 101 {
 			t.Fatalf("matchup %q: away %q + home %q = %v, want the two complementary probabilities to sum to ~100%%", matchup.ID, away, home, sum)
@@ -119,7 +119,7 @@ func TestLiveScoresViewWinProbIsKeyedPerTeamNotPerMatchup(t *testing.T) {
 		}
 		// Only the matchup pairing BOTH fixture teams has a lineup on both
 		// sides (this fixture only drafts and starts a player for team-1
-		// and team-2); any matchup with just one of them still dashes,
+		// and team-2); any matchup with just one of them stays empty,
 		// since the OTHER side has nothing to project.
 		bothFixtureTeams := (matchup.Away.ID == "team-1" && matchup.Home.ID == "team-2") || (matchup.Away.ID == "team-2" && matchup.Home.ID == "team-1")
 		if bothFixtureTeams && away == home {
@@ -244,7 +244,7 @@ func TestFeaturedMatchupMapShowsProjectionBeforeKickoff(t *testing.T) {
 	if mine["projected"] == "—" || mine["projected"] == "" {
 		t.Fatalf("pre-kickoff projected = %#v, want a real projected total even though the score itself is unknown", mine["projected"])
 	}
-	if myMatchup["win_prob"] == winProbabilityDashText {
+	if myMatchup["win_prob"] == winProbabilityDashText || myMatchup["win_prob"] == "" {
 		t.Fatalf("pre-kickoff win_prob = %#v, want a computed percentage", myMatchup["win_prob"])
 	}
 	if myMatchup["win_prob_width"] == "0%" {

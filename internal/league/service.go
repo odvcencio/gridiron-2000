@@ -6077,7 +6077,7 @@ func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, 
 			// the number is attributable to a team instead of floating free.
 			entry["win_prob_team"] = m.Home.Name
 			winProbHomeWidth := entry["win_prob_home"].(string)
-			if winProbHomeWidth == winProbabilityDashText {
+			if winProbHomeWidth == "" || winProbHomeWidth == winProbabilityDashText {
 				winProbHomeWidth = "0%"
 			}
 			entry["win_prob_home_width"] = winProbHomeWidth
@@ -6156,7 +6156,7 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 	// the "—" placeholder winProbText renders for an unknown side; "0%"
 	// is the same safe fallback emptyFeaturedMatchup already uses.
 	winProbWidth := winProbText
-	if winProbWidth == winProbabilityDashText {
+	if winProbWidth == "" || winProbWidth == winProbabilityDashText {
 		winProbWidth = "0%"
 	}
 	combined := append(append([]StarterLedgerRow{}, mine.StarterLedger...), theirs.StarterLedger...)
