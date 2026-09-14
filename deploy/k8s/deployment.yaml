@@ -30,14 +30,14 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.13-d251565; built from
-          # d25156542268c4405a465a4a4ea09ed6b93b369f (main): GoSX v0.56.3.
-          # Hide the inactive postseason card from regular-season Matchups,
-          # while retaining the final-score, Pick'em, and weekly-award fixes.
+          # release-2026.09.13-bdf28bd; built from
+          # bdf28bd4f7edacc233973004940dbbe2bce7bd93 (main): GoSX v0.56.3.
+          # Hide unavailable win estimates instead of showing a dash and
+          # "Estimate pending", while retaining the prior Matchups fixes.
           # No schema change; rollback to the previous image remains valid.
-          # Release build: 2026-09-14T05:12:17Z.
+          # Release build: 2026-09-14T05:39:39Z.
           # Only flagship rolls. The inactive SK deployment remains untouched.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:392a1a20bb46ba323ccdbe33c8fb56ea9dba06f6e587d88c6cab66bfe42a36ab
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:b3a0d2229fdcaaab4ebfed26059819a1c173c2b0abbae9b514c6f0d31f3bfcdf
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
