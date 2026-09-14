@@ -266,14 +266,17 @@ func (p *Poller) Tick(ctx context.Context) {
 		return
 	}
 	schedule := p.schedule() // no lock held here (see the lock-order note)
-	// windowGames is every schedule game whose time window (inTimeWindow,
-	// a pure clock fact) is open right now, independent of game.Final and
-	// isFinalDone; targets narrows that to the ones Tick will actually
-	// fetch this pass. A game that reaches final early — in the
-	// isFinalDone leaves targets but stays in windowGames until its own
+	// windowGames is every schedule game whose ordinary time window
+	// (inTimeWindow, a pure clock fact) is open right now, independent of
+	// game.Final and isFinalDone; targets narrows that to the games Tick
+	// will actually fetch this pass. A game that reaches final early leaves
+	// targets through isFinalDone but stays in windowGames until its own
 	// kickoff+windowAfter passes. A schedule Final flag alone does not skip
 	// the game: after a process restart the poller must rehydrate the final
-	// box score before it can safely stop fetching —
+	// box score before it can safely stop fetching. A just-finished game may
+	// also be recovered for the bounded finalRehydrateAfter period after its
+	// ordinary live window closes; that catch-up game is a target but does
+	// not keep the ordinary window-open state alive —
 	// see windowLastOpen's doc comment for why the two must be tracked
 	// apart, and inTimeWindow's doc comment for why this loop reads
 	// inTimeWindow here, not inWindow (round-2 review finding 3).
@@ -282,11 +285,16 @@ func (p *Poller) Tick(ctx context.Context) {
 	weeks := map[int]bool{}
 	currentWeek := 0
 	for _, game := range schedule {
-		if !inTimeWindow(game, now) {
+		inLiveWindow := inTimeWindow(game, now)
+		finalDone := p.isFinalDone(game.ID)
+		catchUpFinal := !finalDone && inFinalRehydrateWindow(game, now)
+		if !inLiveWindow && !catchUpFinal {
 			continue
 		}
-		windowGames = append(windowGames, game)
-		if p.isFinalDone(game.ID) {
+		if inLiveWindow {
+			windowGames = append(windowGames, game)
+		}
+		if finalDone {
 			continue
 		}
 		targets = append(targets, game)

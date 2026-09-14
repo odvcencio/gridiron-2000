@@ -38,6 +38,10 @@ type GameState struct {
 	AwayPoints float64
 	HomePoints float64
 	Final      bool
+	// BoxFinal distinguishes a final box-score response from a scoreboard
+	// row that announced final before the last box fetch caught up. Consumers
+	// may treat a player omitted from a BoxFinal game as a confirmed zero.
+	BoxFinal   bool
 	InProgress bool
 	Kickoff    time.Time
 	FetchedAt  time.Time
@@ -134,7 +138,7 @@ func addBoxToSnapshot(out *Snapshot, game Game, box fantasy.BoxScore, at time.Ti
 		possession, possessionKnown = ExtractPossession(box.Raw)
 	}
 	out.Games[game.ID] = GameState{ID: game.ID, Tank01ID: box.GameID, Week: game.Week, Away: NormalizeTeam(box.Away), Home: NormalizeTeam(box.Home),
-		Period: box.Period, Clock: box.Clock, AwayPoints: box.AwayPoints, HomePoints: box.HomePoints, Final: box.Final, InProgress: box.InProgress, Kickoff: game.Kickoff, FetchedAt: at,
+		Period: box.Period, Clock: box.Clock, AwayPoints: box.AwayPoints, HomePoints: box.HomePoints, Final: box.Final, BoxFinal: box.Final, InProgress: box.InProgress, Kickoff: game.Kickoff, FetchedAt: at,
 		Possession: possession, PossessionKnown: possessionKnown}
 }
 

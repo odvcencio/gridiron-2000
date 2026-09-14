@@ -18,6 +18,9 @@ type LiveGameState struct {
 	AwayPoints float64
 	HomePoints float64
 	Final      bool
+	// BoxFinal is true only when the underlying box-score response itself
+	// was final. It stays false when the lighter scoreboard gets there first.
+	BoxFinal   bool
 	InProgress bool
 	Kickoff    time.Time
 	// Possession and PossessionKnown are GC-2b's possession display seam:

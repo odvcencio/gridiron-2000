@@ -50,6 +50,29 @@ func TestWinEstimateKnownZeroDoesNotHideActualDataGaps(t *testing.T) {
 	}
 }
 
+func TestWinEstimateAcceptsPlayerOmittedFromConfirmedFinalBoxAsZero(t *testing.T) {
+	pool := map[string]Player{"hekker": {ID: "hekker", Projection: 7.5}, "waddle": {ID: "waddle", Projection: 11.6}}
+	a := ScoreTeam{StarterLedger: []StarterLedgerRow{{
+		PlayerID: "hekker", NFLTeam: "MIN", GameFinal: true,
+		JoinState: "missing-join", ZeroSoFarKnown: true,
+	}}}
+	b := ScoreTeam{StarterLedger: []StarterLedgerRow{{
+		PlayerID: "waddle", NFLTeam: "DEN", JoinState: "missing-join", ZeroSoFarKnown: true,
+	}}}
+	status := LiveStatus{Games: map[string]LiveGameState{
+		"MIN": {Final: true, BoxFinal: true},
+		"DEN": {},
+	}}
+	if got := matchupWinEstimate(a, b, MatchupStateInProgress, pool, status, true); got == "—" {
+		t.Fatal("a player omitted from a confirmed final box suppressed the matchup estimate")
+	}
+
+	status.Games["MIN"] = LiveGameState{Final: true}
+	if got := matchupWinEstimate(a, b, MatchupStateInProgress, pool, status, true); got != "—" {
+		t.Fatalf("scoreboard-only finality produced estimate %q before the final box arrived", got)
+	}
+}
+
 func TestWinEstimatePendingCaption(t *testing.T) {
 	for value, want := range map[string]string{"": "Estimate pending", "—": "Estimate pending", "63%": "Est. to win", "WON": "Final", "LOST": "Final", "TIED": "Final"} {
 		if got := WinEstimateCaption(value); got != want {

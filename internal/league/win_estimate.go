@@ -58,10 +58,12 @@ func remainingScoreDistribution(rows []StarterLedgerRow, pool map[string]Player,
 		final := row.GameFinal || (hasLive && found && game.Final)
 		// A scoreless live starter may have no scoring row yet. Reuse the
 		// ledger's explicit known-zero decision, never infer it from 0 points.
-		// Missing final actuals, source failures, and unexplained nonzero
-		// scores still hold back the estimate.
-		knownLiveZero := row.ZeroSoFarKnown && row.Points == 0 && !final && !status.Degraded
-		if (final || row.Points != 0 || (hasLive && found && game.InProgress)) && row.JoinState != "matched" && !knownLiveZero {
+		// A player omitted from a confirmed final box is also a settled zero;
+		// schedule-only finality and a scoreboard that outran its box are not.
+		// Source failures and unexplained nonzero scores still hold back the
+		// estimate.
+		knownZero := row.ZeroSoFarKnown && row.Points == 0 && !status.Degraded && (!final || (hasLive && found && game.BoxFinal))
+		if (final || row.Points != 0 || (hasLive && found && game.InProgress)) && row.JoinState != "matched" && !knownZero {
 			return 0, 0, false
 		}
 		mean += row.Points

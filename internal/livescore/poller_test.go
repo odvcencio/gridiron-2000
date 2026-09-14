@@ -132,7 +132,7 @@ func fixtureSchedule() []Game {
 	return []Game{
 		{ID: "2025_01_BAL_BUF", Week: 1, Kickoff: kickoff, Away: "BAL", Home: "BUF"},
 		{ID: "2025_01_HOU_LA", Week: 1, Kickoff: kickoff.Add(-4 * time.Hour), Away: "HOU", Home: "LA"},
-		{ID: "2025_01_NYG_WAS", Week: 1, Kickoff: kickoff.Add(-7 * time.Hour), Away: "NYG", Home: "WAS", Final: true},
+		{ID: "2025_01_NYG_WAS", Week: 1, Kickoff: kickoff.Add(-13 * time.Hour), Away: "NYG", Home: "WAS", Final: true},
 	}
 }
 
@@ -183,6 +183,50 @@ func TestWindowSelectsKickoffMinusFiveMinutesToPlusFiveHours(t *testing.T) {
 	game.Final = true
 	if inWindow(game, kickoff.Add(time.Hour)) {
 		t.Fatal("a final game is never in the window")
+	}
+}
+
+func TestFinalRehydrateWindowIsBoundedBeyondLiveWindow(t *testing.T) {
+	game := fixtureSchedule()[0]
+	game.Final = true
+	for _, tc := range []struct {
+		at   time.Time
+		want bool
+	}{
+		{kickoff.Add(-time.Minute), false},
+		{kickoff.Add(5*time.Hour + time.Minute), true},
+		{kickoff.Add(12 * time.Hour), true},
+		{kickoff.Add(12*time.Hour + time.Minute), false},
+	} {
+		if got := inFinalRehydrateWindow(game, tc.at); got != tc.want {
+			t.Fatalf("inFinalRehydrateWindow at %v = %v want %v", tc.at, got, tc.want)
+		}
+	}
+	game.Final = false
+	if inFinalRehydrateWindow(game, kickoff.Add(8*time.Hour)) {
+		t.Fatal("a non-final game must not enter the final rehydration window")
+	}
+}
+
+func TestRestartRehydratesScheduleFinalAfterLiveWindowOnce(t *testing.T) {
+	now := kickoff.Add(8 * time.Hour)
+	game := fixtureSchedule()[0]
+	game.Final = true
+	fetcher := &fakeFetcher{listings: fixtureListings(), boxes: map[string]fantasy.BoxScore{
+		"20250907_BAL@BUF": {GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "2", Final: true, Period: "Final"},
+	}}
+	cfg := Config{Enabled: true, MaxInflight: 2, DailyBudget: 1000, Season: 2025, Now: func() time.Time { return now }}
+	poller := New(cfg, fetcher, func() []Game { return []Game{game} })
+
+	for i := 0; i < 3; i++ {
+		poller.Tick(context.Background())
+	}
+	if got := fetcher.callsFor("20250907_BAL@BUF"); got != 1 {
+		t.Fatalf("post-window final rehydration fetched %d boxes, want exactly one", got)
+	}
+	snapshot := poller.Snapshot()
+	if got := snapshot.Games[game.ID]; !got.Final || !got.BoxFinal {
+		t.Fatalf("rehydrated game = %+v, want final box provenance", got)
 	}
 }
 
