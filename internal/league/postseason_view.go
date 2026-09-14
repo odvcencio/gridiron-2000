@@ -61,6 +61,10 @@ func (s *Service) playoffTruthMap(state PersistedState, now time.Time, commissio
 		"runner_up_name":            "",
 		"toilet_team_id":            "",
 		"toilet_name":               "",
+		// The Matchups page is about the active weekly slate during the
+		// regular season. Its bracket card becomes relevant only once the
+		// league enters a postseason phase or a bracket already exists.
+		"show_on_matchups": phase == PhasePlayoffs || phase == PhaseSeasonComplete || state.Playoffs != nil,
 	}
 	truth := state.Playoffs
 	if truth == nil {

@@ -459,14 +459,16 @@ func MatchupScoreBlock() Node {
 		<aside class="around-league">
 			<header class="around-league__head"><span class="section-index">Around the league</span><span class="mono muted">{data.other_count_label}</span></header>
 			<div class="matchup-grid"><Each of={data.other_matchups} as="other"><Scorebug {...other}></Scorebug></Each></div>
-			<section class="score-command playoff-truth-card card" aria-labelledby="matchups-playoff-truth-heading">
-				<header class="section-heading section-heading--split"><div><span class="section-index">POSTSEASON // BRACKET</span><h2 id="matchups-playoff-truth-heading">{data.playoff_truth.headline}</h2></div><span class="position-chip">{data.playoff_truth.status_label}</span></header>
-				<p>{data.playoff_truth.detail}</p>
-				<If cond={data.playoff_truth.source != ""}><p class="scoring-note mono">SOURCE {data.playoff_truth.source} · {data.playoff_truth.source_state} · FINAL WEEK {data.playoff_truth.final_week}</p></If>
-				<If cond={data.playoff_truth.recovery != ""}><p class="demo-message"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
-				<If cond={data.playoff_truth.has_matchups}><div class="activity-feed"><Each of={data.playoff_truth.matchups} as="matchup"><div class="activity-item"><p><strong>{matchup.bracket} · ROUND {matchup.round} · WEEK {matchup.week}</strong> {matchup.home_team_name} {matchup.home_score_text} — {matchup.away_team_name} {matchup.away_score_text}</p><small>{matchup.tie_break_explanation}</small></div></Each></div></If>
-				<a href="/help/commissioner-operations" data-gosx-link class="access-link">Read postseason and recovery help →</a>
-			</section>
+			<If cond={data.playoff_truth.show_on_matchups}>
+				<section class="score-command playoff-truth-card card" aria-labelledby="matchups-playoff-truth-heading">
+					<header class="section-heading section-heading--split"><div><span class="section-index">POSTSEASON // BRACKET</span><h2 id="matchups-playoff-truth-heading">{data.playoff_truth.headline}</h2></div><span class="position-chip">{data.playoff_truth.status_label}</span></header>
+					<p>{data.playoff_truth.detail}</p>
+					<If cond={data.playoff_truth.source != ""}><p class="scoring-note mono">SOURCE {data.playoff_truth.source} · {data.playoff_truth.source_state} · FINAL WEEK {data.playoff_truth.final_week}</p></If>
+					<If cond={data.playoff_truth.recovery != ""}><p class="demo-message"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
+					<If cond={data.playoff_truth.has_matchups}><div class="activity-feed"><Each of={data.playoff_truth.matchups} as="matchup"><div class="activity-item"><p><strong>{matchup.bracket} · ROUND {matchup.round} · WEEK {matchup.week}</strong> {matchup.home_team_name} {matchup.home_score_text} — {matchup.away_team_name} {matchup.away_score_text}</p><small>{matchup.tie_break_explanation}</small></div></Each></div></If>
+					<a href="/help/commissioner-operations" data-gosx-link class="access-link">Read postseason and recovery help →</a>
+				</section>
+			</If>
 			<div class="data-note"><span data-gosx-live-bind="noteTitle">{data.live.note_title}</span><p data-gosx-live-bind="noteBody">{data.live.note_body}</p></div>
 		</aside>
 	</div>

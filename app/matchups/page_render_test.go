@@ -243,8 +243,8 @@ func TestMatchupsLiveFixtureIsSummaryFirstWithOneStatusLine(t *testing.T) {
 	if strings.Index(body, `class="my-matchup card"`) > strings.Index(body, `class="matchup-grid"`) {
 		t.Error("the featured matchup must render before the other matchups")
 	}
-	if strings.Index(body, `class="matchup-grid"`) > strings.Index(body, "playoff-truth-card") {
-		t.Error("the bracket must stay below the week's matchups")
+	if strings.Contains(body, "playoff-truth-card") {
+		t.Error("the regular-season Matchups page must not advertise an inactive playoff bracket")
 	}
 }
 
