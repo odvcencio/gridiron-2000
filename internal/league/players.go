@@ -817,6 +817,9 @@ func (s *Service) AddPlayer(r *http.Request, requestedTeam, addID, dropID, confi
 		if status.Reason == "kickoff" { // W13
 			return "", fmt.Errorf("%s locked at kickoff; file a claim — it resolves %s", addPlayer.Name, resolves)
 		}
+		if status.Reason == waiverReasonGameWeek {
+			return "", fmt.Errorf("this week's games are underway, so %s is signed by claim rather than first click — file one and it resolves %s in waiver order", addPlayer.Name, resolves)
+		}
 		// W12
 		return "", fmt.Errorf("%s is on waivers; claims resolve %s", addPlayer.Name, resolves)
 	}

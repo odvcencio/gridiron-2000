@@ -13,6 +13,7 @@ package league
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -309,6 +310,25 @@ func cleanTradePlayerIDs(ids []string) []string {
 }
 
 // validateTradeAsset applies T5 (ownership) and T6 (no locked players) to
+// ErrTradeAssetLocked marks the one execution failure that is temporary
+// rather than terminal: a player whose game is in progress, or whose week
+// has not closed, cannot move yet but will be able to. Since an agreed
+// trade now waits for the league's next processing run (tradeExecutesAt),
+// that wait can land on a lock the accept instant did not have — so the
+// roster-ops tick must DEFER such a trade to the next run, exactly as it
+// already defers on a pool outage, never mark it failed. A manager who
+// agreed a legal trade must not lose it to scheduling.
+var ErrTradeAssetLocked = errors.New("trade asset locked")
+
+// lockedAssetError carries a lock failure without changing one character
+// of the sentence a manager reads. Wrapping with %w would prefix every
+// message with the sentinel's own text; this keeps Error() exactly as it
+// was and lets errors.Is find the sentinel through Unwrap.
+type lockedAssetError struct{ message string }
+
+func (e lockedAssetError) Error() string { return e.message }
+func (e lockedAssetError) Unwrap() error { return ErrTradeAssetLocked }
+
 // one player ID against expectedTeamID.
 func validateTradeAsset(state PersistedState, games []GameInfo, poolByID map[string]Player, week int, now time.Time, owner map[string]string, playerID, expectedTeamID, teamName string) error {
 	player, known := poolByID[playerID]
@@ -320,7 +340,7 @@ func validateTradeAsset(state PersistedState, games []GameInfo, poolByID map[str
 		return fmt.Errorf("%s is not on %s's roster", name, teamName)
 	}
 	if playerLockedForRosterMutation(state, games, week, player, now) { // T6
-		return fmt.Errorf("%s is locked until the week closes", name)
+		return lockedAssetError{message: fmt.Sprintf("%s is locked until the week closes", name)}
 	}
 	return nil
 }
@@ -1224,7 +1244,11 @@ func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string
 		row.ExpiryRelative = deadlineRelativeTime(s.clock(), expiry)
 	}
 	if offer.Status == TradeStatusAccepted {
-		reviewAt := offer.AcceptedAt.Add(time.Duration(s.cfg.Trades.ReviewHours) * time.Hour)
+		// The instant the trade actually moves players: review elapses,
+		// then it waits for the league's next processing run
+		// (tradeExecutesAt). Showing the bare review expiry here would
+		// promise a moment nothing happens at.
+		reviewAt := tradeExecutesAt(s.cfg, offer.AcceptedAt)
 		row.HasReviewDeadline = true
 		row.ReviewDeadline = formatResolvesAt(s.cfg, reviewAt)
 		row.ReviewDeadlineRelative = deadlineRelativeTime(s.clock(), reviewAt)

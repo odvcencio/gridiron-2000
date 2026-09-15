@@ -175,9 +175,72 @@ const (
 type waiverStatus struct {
 	State      Availability
 	ResolvesAt time.Time
-	// Reason is "dropped" or "kickoff" — which of section 5.1's two
-	// ON WAIVERS conditions applies. Empty outside AvailabilityOnWaivers.
+	// Reason is "dropped", "kickoff", or "game-week" — which ON WAIVERS
+	// condition applies. Empty outside AvailabilityOnWaivers. The first
+	// two are section 5.1's own; "game-week" is the 2026-09-15 owner
+	// directive (see gameWeekUnderway) and differs from them in one way
+	// that matters: it changes how a player is ACQUIRED, never whether a
+	// filed claim may resolve, so waiverStatusBlocksAward reports it as
+	// non-blocking and the daily run awards straight through it.
 	Reason string
+}
+
+// waiverReasonGameWeek marks the ON WAIVERS state that exists only to
+// route an acquisition through the claim queue instead of an instant
+// signing. Unlike a drop's clear window or a live kickoff lock, it never
+// defers a claim at the processing run.
+const waiverReasonGameWeek = "game-week"
+
+// waiverStatusHoldsPlayer reports whether a player genuinely cannot move
+// right now: a drop's clear window has not elapsed, or his own game is in
+// progress. The game-week state is neither — it only routes a MANAGER's
+// acquisition through the claim queue instead of an instant signing, so
+// it must not defer a claim at the processing run (which would defer
+// every claim filed during a game week forever) and must not stop a
+// commissioner correction, which is an administrative fix rather than an
+// acquisition competing for waiver order.
+func waiverStatusHoldsPlayer(status waiverStatus) bool {
+	return status.State == AvailabilityOnWaivers && status.Reason != waiverReasonGameWeek
+}
+
+// gameWeekUnderway reports whether the NFL week that now falls in has
+// started playing and has not yet been processed past: true from the
+// week's first kickoff until the first daily waiver run at or after its
+// last game goes final.
+//
+// Inside that window an unrostered player is acquired by CLAIM, resolved
+// in waiver order at the next run, not by whoever clicks first (owner
+// directive, 2026-09-15). Outside it — the dead window between the run
+// that settles a week and the next week's first kickoff — an instant
+// signing is still the right move: nobody has learned anything from a
+// game nobody has played.
+//
+// The window deliberately reads the week's own games rather than a
+// calendar weekday: a Thursday opener, a Saturday slate, and an
+// international Sunday-morning game all move the boundary, and the league
+// should follow the games it actually scores.
+func gameWeekUnderway(cfg Config, games []GameInfo, now time.Time) (bool, time.Time) {
+	week := pickemWeekAt(games, now)
+	var first, lastFinal time.Time
+	for _, game := range games {
+		if game.Week != week || game.Kickoff.IsZero() {
+			continue
+		}
+		if first.IsZero() || game.Kickoff.Before(first) {
+			first = game.Kickoff
+		}
+		if end := gameFinalAt(game); lastFinal.IsZero() || end.After(lastFinal) {
+			lastFinal = end
+		}
+	}
+	if first.IsZero() || now.Before(first) {
+		return false, time.Time{}
+	}
+	settles := firstRunAtOrAfter(cfg, lastFinal)
+	if !now.Before(settles) {
+		return false, time.Time{}
+	}
+	return true, firstRunAtOrAfter(cfg, now)
 }
 
 // waiverResolutionPhrase (J3 F17) is the one shared sentence /team's
@@ -322,6 +385,13 @@ func playerWaiverStatus(state PersistedState, cfg Config, games []GameInfo, play
 			State:      AvailabilityOnWaivers,
 			ResolvesAt: firstRunAtOrAfter(cfg, gameFinalAt(game)),
 			Reason:     "kickoff",
+		}
+	}
+	if underway, resolves := gameWeekUnderway(cfg, games, now); underway {
+		return waiverStatus{
+			State:      AvailabilityOnWaivers,
+			ResolvesAt: resolves,
+			Reason:     waiverReasonGameWeek,
 		}
 	}
 	return waiverStatus{State: AvailabilityFreeAgent}

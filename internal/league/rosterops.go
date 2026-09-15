@@ -5,6 +5,7 @@ package league
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -220,8 +221,13 @@ func (s *Service) evalTradeTick(now time.Time) {
 				log.Printf("roster ops: ExpireTradeOffer(%s) failed: %v", offer.ID, err)
 			}
 		case TradeStatusAccepted:
-			reviewDeadline := offer.AcceptedAt.Add(time.Duration(s.cfg.Trades.ReviewHours) * time.Hour)
-			if now.Before(reviewDeadline) {
+			// An agreed trade runs at the league's next processing window,
+			// not the instant its review clock expires (owner directive,
+			// 2026-09-15). Review still has to elapse; the trade then
+			// waits for the same daily run that resolves waivers, so a
+			// roster never changes shape in the middle of a slate of
+			// games and every move in a day lands together.
+			if now.Before(tradeExecutesAt(s.cfg, offer.AcceptedAt)) {
 				continue
 			}
 			if playerPoolIsUnavailable(pool) {
@@ -231,6 +237,14 @@ func (s *Service) evalTradeTick(now time.Time) {
 				continue
 			}
 			txn, err := s.store.ExecuteTradeOffer(offer.ID, s.cfg, games, pool.byID, now, starterCount, rosterCap)
+			if errors.Is(err, ErrTradeAssetLocked) {
+				// Temporary, not terminal: the trade now waits for a
+				// processing run, and that wait can land on a lock the
+				// accept instant did not have. Hold it for the next run
+				// rather than destroying an agreement over scheduling.
+				log.Printf("roster ops: ExecuteTradeOffer(%s) deferred: %v", offer.ID, err)
+				continue
+			}
 			if err != nil {
 				s.notifyTradeFailed(offer)
 				continue
@@ -238,6 +252,16 @@ func (s *Service) evalTradeTick(now time.Time) {
 			s.notifyTradeExecuted(offer, txn)
 		}
 	}
+}
+
+// tradeExecutesAt is the single answer to "when does this agreed trade
+// actually move players". Review elapses first, then the trade waits for
+// the first daily processing run at or after that — the same instant
+// ProcessWaivers uses, so waivers and trades settle together rather than
+// a trade landing alone at 3am mid-slate.
+func tradeExecutesAt(cfg Config, acceptedAt time.Time) time.Time {
+	review := acceptedAt.Add(time.Duration(cfg.Trades.ReviewHours) * time.Hour)
+	return firstRunAtOrAfter(cfg, review)
 }
 
 // evalWaiverRun implements section 5.4 step 1: resolve nextRun from

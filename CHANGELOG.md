@@ -10,6 +10,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The league week now advances on its own. A week closes automatically once every one of its NFL games is final and the player-stat ledger has settled 24 hours past the last kickoff — the same readiness a commissioner already had to wait for. Before this, nothing advanced the fantasy week without a button press, so Matchups showed a finished week while the Team page had already rolled to the next one. The manual close and the force-close override are unchanged, and a week never closes ahead of an open earlier week.
 
 ### Changed
+- A free-agent signing is now an outright move only in the dead window between the run that settles a week and the next week's first kickoff. Once that week's games are being played, the same acquisition is a claim, resolved in waiver order at the next daily run, so a manager watching a breakout cannot take him by clicking first. The refusal says so and names when the claim resolves.
+- An agreed trade now executes at the league's next daily processing run after its review clock expires, rather than the instant the clock runs out. Waivers and trades settle together and a roster never changes shape in the middle of a slate. A player lock met during that wait now defers the trade to the following run instead of failing it: an agreed, legal trade is no longer lost to scheduling.
 - The player pool's points column now reads LAST WEEK instead of "W1 PTS", and each figure explains itself rule by rule in the same panel a starter's score uses on Matchups, revealed on hover or on focus. A week still being played reads THIS WEEK, because it is not last week yet.
 
 ### Added

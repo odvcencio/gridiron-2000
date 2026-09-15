@@ -3837,7 +3837,7 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 		c.FirstDeferredAt = time.Time{}
 		player := poolByID[c.AddID]
 		status := playerWaiverStatus(s.state, cfg, games, c.AddID, player.NFLTeam, now)
-		if status.State == AvailabilityOnWaivers {
+		if waiverStatusHoldsPlayer(status) {
 			notYetDue = append(notYetDue, c)
 			continue
 		}
@@ -4138,6 +4138,14 @@ func (s *Store) ExecuteTradeOffer(offerID string, cfg Config, games []GameInfo, 
 		return Transaction{}, fmt.Errorf("%s", playerDataUnavailableMessage)
 	}
 	if err := validateTradeAssetsForExecution(s.state, cfg, games, poolByID, now, offer, starterCount, rosterCap); err != nil {
+		if errors.Is(err, ErrTradeAssetLocked) {
+			// A lock is temporary. The offer stays accepted and due, and
+			// the roster-ops tick retries it at the next processing run —
+			// the same shape as the player-data outage above, and the
+			// reason an agreed trade cannot be lost to the scheduling
+			// wait tradeExecutesAt introduced.
+			return Transaction{}, err
+		}
 		s.state.TradeOffers[index].Status = TradeStatusFailed
 		s.state.TradeOffers[index].FailReason = err.Error()
 		s.state.TradeOffers[index].ResolvedAt = now.UTC()

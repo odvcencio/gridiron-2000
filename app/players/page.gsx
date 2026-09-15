@@ -509,6 +509,15 @@ func PlayerPoolRegion() Node {
 								<input type="hidden" name="sort" value={data.sort}></input>
 								<input type="hidden" name="page" value={data.pool_page}></input>
 								<If cond={player.needs_drop}>
+									{/* At a full roster the only way to sign anyone is
+									    add-and-drop, and the row used to open with a bare
+									    "Choose a player to drop" select — the verb the
+									    manager came for never appeared, so the control
+									    read as a drop tool rather than the pickup it is
+									    (owner report, 2026-09-15). Naming the move first
+									    makes the row answer "how do I pick someone up?"
+									    on its own. */}
+									<span class="pool-sign-label section-index">SIGN · NEEDS A DROP</span>
 									<select name="drop_id" aria-label={"Choose a player to drop for " + player.name}>
 										<option value="">Choose a player to drop</option>
 										<Each of={data.drop_options} as="opt">

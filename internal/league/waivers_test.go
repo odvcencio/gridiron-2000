@@ -1234,10 +1234,24 @@ func TestPlayerWaiverStatusKickoffLockedFreeAgent(t *testing.T) {
 	if locked.State != AvailabilityOnWaivers || locked.Reason != "kickoff" {
 		t.Fatalf("in-progress-game status = %+v, want ON WAIVERS (kickoff)", locked)
 	}
+	// Once his own game is final the KICKOFF hold is gone, but the week is
+	// still being played, so he is acquired by claim rather than by
+	// whoever clicks first (2026-09-15 owner directive). The two states are
+	// deliberately distinguishable: only the kickoff hold defers a claim
+	// at the processing run.
 	final := GameInfo{ID: "g1", Week: 1, Kickoff: kickoff, Away: "PIT", Home: "NYJ", Final: true}
 	afterFinal := playerWaiverStatus(state, cfg, []GameInfo{final}, "p-1", "PIT", kickoff.Add(6*time.Hour))
-	if afterFinal.State != AvailabilityFreeAgent {
-		t.Fatalf("post-final status = %+v, want FREE AGENT", afterFinal)
+	if afterFinal.State != AvailabilityOnWaivers || afterFinal.Reason != waiverReasonGameWeek {
+		t.Fatalf("post-final status = %+v, want ON WAIVERS (game-week)", afterFinal)
+	}
+	if waiverStatusHoldsPlayer(afterFinal) {
+		t.Fatal("the game-week routing state must never defer a claim at the run")
+	}
+	// Past the run that settles the week, the dead window returns and an
+	// instant signing is the right move again.
+	settled := firstRunAtOrAfter(cfg, gameFinalAt(final)).Add(time.Minute)
+	if dead := playerWaiverStatus(state, cfg, []GameInfo{final}, "p-1", "PIT", settled); dead.State != AvailabilityFreeAgent {
+		t.Fatalf("post-run status = %+v, want FREE AGENT", dead)
 	}
 }
 
@@ -2250,5 +2264,78 @@ func TestProcessWaiversZeroClaimsStillBaselinesProcessedThrough(t *testing.T) {
 	}
 	if !store.Snapshot().WaiversProcessedThrough.Equal(now.UTC()) {
 		t.Fatal("WaiversProcessedThrough must advance even with zero claims")
+	}
+}
+
+// TestGameWeekRoutesAcquisitionsThroughTheClaimQueue is the 2026-09-15
+// owner directive's own contract: once the week's games are being played,
+// an unrostered player is won in waiver order at the next processing run,
+// not by whoever clicks first. Before the week's first kickoff — the dead
+// window, when nobody has learned anything from a game nobody has played —
+// an instant signing is still the right move.
+func TestGameWeekRoutesAcquisitionsThroughTheClaimQueue(t *testing.T) {
+	cfg := DefaultConfig()
+	firstKickoff := time.Date(2026, 9, 17, 20, 15, 0, 0, time.UTC)
+	lastKickoff := firstKickoff.Add(4 * 24 * time.Hour)
+	games := []GameInfo{
+		{ID: "g-thu", Week: 1, Kickoff: firstKickoff, Away: "PHI", Home: "GB", Final: true},
+		{ID: "g-mon", Week: 1, Kickoff: lastKickoff, Away: "DEN", Home: "KC", Final: true},
+	}
+	state := PersistedState{}
+
+	// Dead window: the week has not started.
+	before := playerWaiverStatus(state, cfg, games, "p-1", "PIT", firstKickoff.Add(-time.Hour))
+	if before.State != AvailabilityFreeAgent {
+		t.Fatalf("pre-kickoff status = %+v, want FREE AGENT (instant signing)", before)
+	}
+
+	// The week is underway: an acquisition is a claim, resolved at the
+	// next run, and it must never defer itself at that run.
+	during := playerWaiverStatus(state, cfg, games, "p-1", "PIT", lastKickoff.Add(time.Hour))
+	if during.State != AvailabilityOnWaivers || during.Reason != waiverReasonGameWeek {
+		t.Fatalf("in-week status = %+v, want ON WAIVERS (game-week)", during)
+	}
+	if waiverStatusHoldsPlayer(during) {
+		t.Fatal("the game-week state must not defer a claim at the processing run")
+	}
+	if want := firstRunAtOrAfter(cfg, lastKickoff.Add(time.Hour)); !during.ResolvesAt.Equal(want) {
+		t.Fatalf("resolves at %v, want the next run %v", during.ResolvesAt, want)
+	}
+
+	// Past the run that settles the week, the dead window returns.
+	settled := firstRunAtOrAfter(cfg, gameFinalAt(games[1])).Add(time.Minute)
+	if after := playerWaiverStatus(state, cfg, games, "p-1", "PIT", settled); after.State != AvailabilityFreeAgent {
+		t.Fatalf("post-settle status = %+v, want FREE AGENT", after)
+	}
+}
+
+// TestAddPlayerDuringAGameWeekExplainsTheClaimQueue pins the sentence a
+// manager actually reads when they try to sign somebody mid-week. "On
+// waivers" alone never said why, or what to do instead.
+func TestAddPlayerDuringAGameWeekExplainsTheClaimQueue(t *testing.T) {
+	svc, now := newPlayersTestService(t)
+	// Move the fixture out of its dead window and into the game week, with
+	// the free agent's own game already FINAL — so the refusal under test
+	// is the game-week routing rule, not the narrower kickoff lock that
+	// only holds a player while his game is actually being played.
+	kickoff := now.Add(time.Hour)
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{
+			{ID: "g-tb", Week: 1, Kickoff: now.Add(-72 * time.Hour), Away: "TB", Home: "ATL", Final: true},
+			{ID: "g-pit", Week: 2, Kickoff: kickoff, Away: "PIT", Home: "NYJ", Final: true, ScoresPresent: true},
+		}
+	})
+	inWeek := kickoff.Add(time.Hour)
+	svc.now = func() time.Time { return inWeek }
+
+	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
+	_, err := svc.AddPlayer(request, "team-1", "fa-open", "wr-open", playerAddDropConfirmation)
+	if err == nil {
+		t.Fatal("an instant signing must not be available while the week's games are underway")
+	}
+	for _, want := range []string{"games are underway", "claim", "waiver order"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want it to mention %q", err, want)
+		}
 	}
 }

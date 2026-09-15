@@ -7415,7 +7415,10 @@ func (s *Service) actionCenterDataForSnapshot(r *http.Request, state PersistedSt
 				facts.Trades.IncomingOpen++
 			case offer.Status == TradeStatusAccepted && (offer.FromTeamID == teamID || offer.ToTeamID == teamID):
 				facts.Trades.AcceptedReview++
-				deadline := offer.AcceptedAt.Add(time.Duration(s.cfg.Trades.ReviewHours) * time.Hour)
+				// The date a manager is told to expect is the one the
+				// trade actually runs on (tradeExecutesAt), not the bare
+				// review expiry it now waits past.
+				deadline := tradeExecutesAt(s.cfg, offer.AcceptedAt)
 				if !facts.Trades.HasReviewDeadline || deadline.Before(facts.Trades.NextReviewDeadline) {
 					facts.Trades.NextReviewDeadline, facts.Trades.HasReviewDeadline = deadline, true
 				}

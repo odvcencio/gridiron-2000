@@ -60,9 +60,17 @@ func newPlayersTestServiceWithPicks(t *testing.T, pool []Player, extraPicks map[
 	svc = newTestService(t, true)
 	now = time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 	svc.now = func() time.Time { return now }
+	// The fixture sits in the league's DEAD WINDOW: week 1 has been played
+	// but not closed, and week 2 has not kicked off. That is the only part
+	// of the calendar where an instant free-agent signing still exists
+	// (gameWeekUnderway, waivers.go) — inside a game week an acquisition
+	// is a claim, so an instant-add fixture there would be testing a path
+	// no manager can reach. rb-locked (TB) stays drop-locked through the
+	// same window by week 1's own unfinalized close, which is exactly why
+	// that lock rule exists.
 	games := []GameInfo{
-		{ID: "g-pit", Week: 1, Kickoff: now.Add(time.Hour), Away: "PIT", Home: "NYJ"},
-		{ID: "g-tb", Week: 1, Kickoff: now.Add(-time.Hour), Away: "TB", Home: "ATL"},
+		{ID: "g-tb", Week: 1, Kickoff: now.Add(-72 * time.Hour), Away: "TB", Home: "ATL"},
+		{ID: "g-pit", Week: 2, Kickoff: now.Add(time.Hour), Away: "PIT", Home: "NYJ"},
 	}
 	svc.SetScheduleSource(func() []GameInfo { return games })
 	svc.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "test" })

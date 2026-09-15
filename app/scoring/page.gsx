@@ -373,7 +373,7 @@ func Page() Node {
 					<b class="mono">{data.free_agency_rules.roster_cap}</b>
 				</div>
 			</div>
-			<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis" text="Free agency opens the moment the draft fills every roster spot on every team. Signing a free agent onto a full roster requires naming a drop in the same move — one single step, never a separate add and drop." />
+			<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis" text="Free agency opens the moment the draft fills every roster spot on every team. Signing onto a full roster names a drop in the same move — one single step, never a separate add and drop. An instant signing is available only in the dead window between the run that settles a week and the next week's first kickoff; once that week's games are being played, the same move is a claim, resolved in waiver order at the next daily run." />
 			<a href="/players" data-gosx-link class="button button--compact">Open the player pool →</a>
 		</details>
 		<details class="player-pool" id="scoring-waivers" open>
