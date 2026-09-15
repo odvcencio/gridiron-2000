@@ -5,6 +5,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- The player pool no longer starves the punter, kicker, and defense/special-teams wire. Those floors were "rostered seats plus four headroom", which for an eight-team league meant twelve punters; no punter carries an average draft position, so for that position the floor was not a minimum the ranked list overshoots, it was the entire supply. Eight seats rostered one each and four were left for a whole season of byes and injuries. All three positions now floor at the NFL's own 32, so every team's starter is reachable.
+- The league week now advances on its own. A week closes automatically once every one of its NFL games is final and the player-stat ledger has settled 24 hours past the last kickoff — the same readiness a commissioner already had to wait for. Before this, nothing advanced the fantasy week without a button press, so Matchups showed a finished week while the Team page had already rolled to the next one. The manual close and the force-close override are unchanged, and a week never closes ahead of an open earlier week.
+
+### Changed
+- The player pool's points column now reads LAST WEEK instead of "W1 PTS", and each figure explains itself rule by rule in the same panel a starter's score uses on Matchups, revealed on hover or on focus. A week still being played reads THIS WEEK, because it is not last week yet.
+
 ### Added
 - The player pool now shows what each player actually scored in the most recent completed NFL week, under this league's own scoring, in a column beside the projection. A player with no posted stat line reads "—", which is a different claim from a real 0.0.
 - The player pool is ordered by that number, highest first. On the waiver wire the question is who is producing, not who was drafted highest. A player with no posted line sorts behind every player who has one. `?sort=rank` returns to the market rank order, and a "Rank" control beside the availability filter does the same.

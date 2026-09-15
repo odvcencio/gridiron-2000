@@ -1724,8 +1724,19 @@ func TestPlayersPoolOrdersByLastWeekPoints(t *testing.T) {
 	if rows[2]["has_week_points"] != false {
 		t.Fatal("a player with no posted stat line must not claim a week score")
 	}
-	if data["week_points_week"] != 1 || data["week_points_label"] != "W1 PTS" {
-		t.Fatalf("column header = %v / %v, want week 1 / W1 PTS", data["week_points_week"], data["week_points_label"])
+	if data["week_points_week"] != 1 || data["week_points_label"] != "LAST WEEK" {
+		t.Fatalf("column header = %v / %v, want week 1 / LAST WEEK", data["week_points_week"], data["week_points_label"])
+	}
+	// The header stays in plain words, so the tooltip is where the exact
+	// week and the rule-by-rule explanation live.
+	if data["week_points_total"] != "WEEK 1" {
+		t.Fatalf("tooltip total label = %v, want WEEK 1", data["week_points_total"])
+	}
+	if got, _ := rows[0]["week_points_breakdown"].(string); got == "" {
+		t.Fatal("a scored row must carry the rule-by-rule breakdown its tooltip renders")
+	}
+	if got, _ := rows[2]["week_points_breakdown"].(string); got != "" {
+		t.Fatalf("an unscored row must explain nothing, got %q", got)
 	}
 	if data["sort"] != "week" {
 		t.Fatalf("default sort = %v, want week", data["sort"])
@@ -1799,9 +1810,13 @@ func TestPoolScoredWeekPrefersACompletedWeek(t *testing.T) {
 	if week != 1 || complete {
 		t.Fatalf("running week = %d complete %v, want week 1 / not complete", week, complete)
 	}
-	note, _ := svc.PlayersData(mustPlayersRequest())["week_points_note"].(string)
+	running := svc.PlayersData(mustPlayersRequest())
+	note, _ := running["week_points_note"].(string)
 	if !strings.Contains(note, "still running") {
 		t.Fatalf("running-week note = %q, want it to say the week can still move", note)
+	}
+	if running["week_points_label"] != "THIS WEEK" {
+		t.Fatalf("running-week header = %v, want THIS WEEK — a week still being played is not last week", running["week_points_label"])
 	}
 
 	// No stats source at all leaves the pool in its own order, with a
@@ -1811,8 +1826,8 @@ func TestPoolScoredWeekPrefersACompletedWeek(t *testing.T) {
 		t.Fatalf("week with no stats source = %d, want 0", week)
 	}
 	data := svc.PlayersData(mustPlayersRequest())
-	if data["week_points_label"] != "PTS" || data["week_points_week"] != 0 {
-		t.Fatalf("no-stats header = %v / week %v, want PTS / week 0", data["week_points_label"], data["week_points_week"])
+	if data["week_points_label"] != "LAST WEEK" || data["week_points_week"] != 0 {
+		t.Fatalf("no-stats header = %v / week %v, want LAST WEEK / week 0", data["week_points_label"], data["week_points_week"])
 	}
 }
 

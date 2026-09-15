@@ -465,8 +465,28 @@ func PlayerPoolRegion() Node {
 					    beside the forecast for it. A player with no posted
 					    line reads "—": that is "did not play, or nothing
 					    posted", a different claim from a real 0.0, and the
-					    pool's order keeps the two apart the same way. */}
-					<b class="mono pool-week-points" data-scored={player.has_week_points}>{player.week_points}</b>
+					    pool's order keeps the two apart the same way.
+
+					    A scored figure explains itself the way /matchups'
+					    own starter score does (app/matchups/page.gsx): the
+					    same .points-tip panel, the same rule-by-rule text
+					    from the same engine, revealed on hover AND on
+					    focus. Focus matters as much as hover — a phone has
+					    no hover, so a tap or a Tab is the only way in. An
+					    unscored row renders no tip and takes no tab stop:
+					    there is nothing to explain about an em dash. */}
+					<If cond={player.has_week_points}>
+						<b class="mono pool-week-points" data-scored="true" tabindex="0" aria-describedby={"lastweek-tip-" + player.id}>
+							<span class="score-value">{player.week_points}</span>
+							<span class="points-tip" id={"lastweek-tip-" + player.id} role="tooltip">
+								<span class="points-tip__rows">{player.week_points_breakdown}</span>
+								<span class="points-tip__total"><span class="points-tip__total-label">{data.week_points_total}</span><span>{player.week_points}</span></span>
+							</span>
+						</b>
+					</If>
+					<If cond={player.has_week_points == false}>
+						<b class="mono pool-week-points" data-scored="false">{player.week_points}</b>
+					</If>
 					<If cond={player.rostered}>
 						<span class="position-chip position-chip--locked owner-chip pool-status-chip" title={player.owner_name} aria-label={"Rostered by " + player.owner_name}><span class="owner-chip__abbr">{player.owner_abbr}</span><span class="owner-chip__name">{player.owner_name}</span></span>
 					</If>

@@ -195,22 +195,38 @@ func TestPlayersPoolWeekPointsCellFixtureProcess(t *testing.T) {
 		t.Fatalf("status = %d; body: %s", response.Code, response.Body.String())
 	}
 	body := response.Body.String()
-	if !strings.Contains(body, "<span>W1 PTS</span>") {
-		t.Fatalf("header must name the week it reports: %s", body)
+	if !strings.Contains(body, "<span>LAST WEEK</span>") {
+		t.Fatal("header must name the column in plain words")
 	}
-	boomAt := strings.Index(body, `data-player-position="WR"`)
-	if boomAt < 0 {
-		t.Fatalf("no pool row rendered: %s", body)
+	// The figure explains itself the way a /matchups starter score does:
+	// the same panel, rule by rule, reachable by hover OR focus.
+	for _, want := range []string{
+		`aria-describedby="lastweek-tip-wr-boom"`,
+		`<span class="points-tip" id="lastweek-tip-wr-boom" role="tooltip">`,
+		`<span class="points-tip__rows">Receiving TD x2`,
+		`<span class="points-tip__total-label">WEEK 1</span>`,
+		`tabindex="0"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("scored figure must carry the Matchups-style explanation; missing %s", want)
+		}
 	}
-	if !strings.Contains(body, `class="mono pool-week-points" data-scored="true">12.0<`) {
-		t.Fatalf("a scored player must render the real week total: %s", body)
+	// Nothing to explain about an em dash, so it takes no tab stop.
+	if strings.Contains(body, `data-scored="false" tabindex`) {
+		t.Fatal("an unscored figure must not take a tab stop")
+	}
+	if !strings.Contains(body, `data-player-position="WR"`) {
+		t.Fatal("no pool row rendered")
+	}
+	if !strings.Contains(body, `<span class="score-value">12.0</span>`) {
+		t.Fatal("a scored player must render the real week total")
 	}
 	if !strings.Contains(body, `class="mono pool-week-points" data-scored="false">—<`) {
-		t.Fatalf("an unscored player must read an em dash, not a claimed 0.0: %s", body)
+		t.Fatal("an unscored player must read an em dash, not a claimed 0.0")
 	}
 	// The scoring order is the render order: the ADP-9 scorer leads the
 	// ADP-1 player who posted nothing.
 	if strings.Index(body, ">12.0<") > strings.Index(body, ">—<") {
-		t.Fatalf("pool rows must lead with last week's points: %s", body)
+		t.Fatal("pool rows must lead with last week's points")
 	}
 }

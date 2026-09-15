@@ -45,9 +45,63 @@ func (s *Service) StartRosterOps(ctx context.Context) {
 // trade execution and expiry (section 6.1's T-exec/T-expire steps), then
 // the healed-IR lifecycle (SK IR rule).
 func (s *Service) rosterOpsTick(now time.Time) {
+	s.evalWeekAutoClose(now)
 	s.evalWaiverRun(now)
 	s.evalTradeTick(now)
 	s.evalHealedIR(now)
+}
+
+// autoCloseActorEmail and autoCloseActorName attribute an automatic week
+// close in the commissioner ledger. The platform, not a person, took this
+// action, and the ledger says so rather than crediting a commissioner who
+// was asleep -- the same "system" actor zones.go already uses for the
+// healed-IR auto-cut.
+const (
+	autoCloseActorEmail = "system"
+	autoCloseActorName  = "Gridiron"
+)
+
+// evalWeekAutoClose closes a week as soon as it is genuinely settled:
+// every one of its NFL games final AND the stat ledger fetched at least 24
+// hours past the week's last kickoff, which is exactly the readiness gate
+// a commissioner already had to wait for (WeekCloseReady). Before this,
+// nothing advanced the fantasy week on its own, so a Monday with every
+// game final still showed the finished week on /matchups
+// (currentScheduleWeek reads matchup finality, which only a close sets)
+// while /team's own lineup week had already rolled on the NFL calendar --
+// the app disagreeing with itself for a day or more until somebody
+// remembered to press a button (owner report, 2026-09-15).
+//
+// The walk stops at the first week that is not ready, so weeks can only
+// ever close in order: week 3 never closes past an open week 2, whatever
+// the feed says about their games. A commissioner keeps the manual close
+// AND the force-close override for a stalled feed; this only removes the
+// need to press the button when nothing is stalled.
+func (s *Service) evalWeekAutoClose(now time.Time) {
+	state := s.store.Snapshot()
+	if state.Schedule == nil {
+		return
+	}
+	for _, scheduled := range state.Schedule.Weeks {
+		if scheduleWeekIsFinal(scheduled) {
+			continue
+		}
+		if !s.AdminWeekCloseInfo(scheduled.Week, now).Ready {
+			return
+		}
+		if _, _, err := s.closeWeek(scheduled.Week, now); err != nil {
+			log.Printf("roster ops: auto-close week %d: %v", scheduled.Week, err)
+			return
+		}
+		log.Printf("roster ops: closed week %d automatically; every game is final and player stats have settled", scheduled.Week)
+		if _, err := s.store.RecordCommissionerEvent(
+			autoCloseActorEmail, autoCloseActorName, "week.auto_close",
+			fmt.Sprintf("closed week %d automatically once every game was final and player stats had settled", scheduled.Week),
+			CommissionerEventRefs{Week: scheduled.Week}, now,
+		); err != nil {
+			log.Printf("commissioner event: week.auto_close: %v", err)
+		}
+	}
 }
 
 // ---------------------------------------------------------------------

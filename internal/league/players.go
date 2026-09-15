@@ -173,14 +173,25 @@ func positionFilterTabs(active, query, avail, order string) []map[string]any {
 	return tabs
 }
 
-// poolWeekPointsLabel is the pool's points column header: the week it
-// reports, named, so a manager never has to guess which week a number
-// belongs to. A zero week means nothing has posted yet.
-func poolWeekPointsLabel(week int) string {
-	if week <= 0 {
-		return "PTS"
+// poolWeekPointsLabel is the pool's points column header. It says which
+// week in plain words rather than a "W1 PTS" code, and it never calls a
+// week still being played "last week" -- the per-row tooltip carries the
+// exact week number and the rule-by-rule explanation behind the figure.
+func poolWeekPointsLabel(week int, complete bool) string {
+	if week > 0 && !complete {
+		return "THIS WEEK"
 	}
-	return fmt.Sprintf("W%d PTS", week)
+	return "LAST WEEK"
+}
+
+// poolWeekPointsTotalLabel names the week inside each row's tooltip, so
+// the column header can stay in plain words without the exact week
+// becoming unfindable.
+func poolWeekPointsTotalLabel(week int) string {
+	if week <= 0 {
+		return "TOTAL"
+	}
+	return fmt.Sprintf("WEEK %d", week)
 }
 
 // poolWeekPointsNote explains the column in one sentence, including the
@@ -190,9 +201,9 @@ func poolWeekPointsNote(week int, complete bool) string {
 	case week <= 0:
 		return "No week has posted stats yet, so the pool keeps its market rank order."
 	case complete:
-		return fmt.Sprintf("W%d PTS — what each player actually scored in week %d, under this league's scoring. The pool is ordered by it.", week, week)
+		return fmt.Sprintf("LAST WEEK — what each player actually scored in week %d, under this league's scoring. The pool is ordered by it, and each figure explains itself rule by rule.", week)
 	}
-	return fmt.Sprintf("W%d PTS — what each player has scored in week %d so far. That week is still running, so these totals can still move.", week, week)
+	return fmt.Sprintf("THIS WEEK — what each player has scored in week %d so far. That week is still running, so these totals can still move.", week)
 }
 
 // poolScoredWeekLookback bounds poolScoredWeek's walk back through the
@@ -515,9 +526,16 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 			}
 		}
 		row["week_points"] = "—"
+		weekBreakdown := ""
 		if scored {
 			row["week_points"] = fmt.Sprintf("%.1f", weekPoints)
+			// The same rule-by-rule text /matchups hangs off a starter's
+			// score (weeklyPlayerScoredBreakdown), from the same engine, so
+			// a pool figure and a matchup figure can never explain
+			// themselves differently.
+			weekBreakdown = ScoreBreakdownText(scoredByKey[playerStatKey(player)].Stats, scoringValues)
 		}
+		row["week_points_breakdown"] = weekBreakdown
 		row["has_week_points"] = scored
 		entries = append(entries, poolEntry{row: row, points: weekPoints, scored: scored})
 	}
@@ -689,7 +707,8 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		"sort_week_href":     playersSortHref(pos, rawQuery, availRaw, "week"),
 		"sort_rank_href":     playersSortHref(pos, rawQuery, availRaw, "rank"),
 		"week_points_week":   scoredWeek,
-		"week_points_label":  poolWeekPointsLabel(scoredWeek),
+		"week_points_label":  poolWeekPointsLabel(scoredWeek, scoredComplete),
+		"week_points_total":  poolWeekPointsTotalLabel(scoredWeek),
 		"week_points_note":   poolWeekPointsNote(scoredWeek, scoredComplete),
 		"players":            rows,
 		"players_empty":      pagination.Total == 0,

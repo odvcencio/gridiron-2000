@@ -836,11 +836,15 @@ func TestCSRFFailureBackTargetSanitizesReferer(t *testing.T) {
 }
 
 // TestFantasyPositionFloorsFlagshipShapeIncludesPunter is the
-// draft-blocking punter-pool fix's own wiring test: fed the flagship
-// league's actual shape (gridiron-house, 8 teams — internal/league's
-// rosterPresets), fantasyPositionFloors must produce a "P" floor of 12
-// (8 teams x 1 punter slot + 4 headroom), reproducing the exact number
-// that closed the 2026-09-02 draft-blocking incident.
+// draft-blocking punter-pool fix's own wiring test, updated 2026-09-15:
+// fed the flagship league's actual shape (gridiron-house, 8 teams —
+// internal/league's rosterPresets), fantasyPositionFloors floors every
+// ordinary position at "rostered plus four" and every single-starter
+// position (P, K, DST) at the NFL's own 32. The original 8x1+4 punter
+// floor closed the 2026-09-02 draft-blocking incident but left exactly
+// four punters on the wire once all eight seats rostered one, because no
+// punter carries ADP and the floor is therefore the whole supply, not a
+// minimum the ranked head overshoots.
 func TestFantasyPositionFloorsFlagshipShapeIncludesPunter(t *testing.T) {
 	flagshipSlots := map[string]int{
 		"QB": 1, "RB": 2, "WR": 2, "TE": 1, "FLEX": 1,
@@ -850,11 +854,11 @@ func TestFantasyPositionFloorsFlagshipShapeIncludesPunter(t *testing.T) {
 
 	floors := fantasyPositionFloors(flagshipTeams, flagshipSlots)
 
-	if floors["P"] != 12 {
-		t.Fatalf("floors[P] = %d, want 12 (8 teams x 1 slot + 4 headroom)", floors["P"])
+	if floors["P"] != 32 {
+		t.Fatalf("floors[P] = %d, want 32 (every NFL team's own punter)", floors["P"])
 	}
 	want := map[string]int{
-		"QB": 12, "RB": 20, "WR": 20, "TE": 12, "K": 12, "P": 12, "DST": 12,
+		"QB": 12, "RB": 20, "WR": 20, "TE": 12, "K": 32, "P": 32, "DST": 32,
 	}
 	if !reflect.DeepEqual(floors, want) {
 		t.Fatalf("fantasyPositionFloors(%d, flagshipSlots) = %+v, want %+v", flagshipTeams, floors, want)
@@ -907,5 +911,35 @@ func TestFaviconRouteServesTheICOFileLongCached(t *testing.T) {
 	}
 	if recorder.Body.Len() == 0 {
 		t.Fatal("GET /favicon.ico returned an empty body")
+	}
+}
+
+// TestFantasyPositionFloorsSingleStarterPositionsNeverFallBelowTheNFL is
+// the owner report's own guard (2026-09-15): however small the league,
+// the punter, kicker, and D/ST floors stay at the NFL's own 32, so the
+// free-agent wire at those positions can never collapse to "whatever the
+// rostered seats left over". A league big enough to need more than 32
+// keeps the ordinary rostered-plus-headroom rule, which is larger.
+func TestFantasyPositionFloorsSingleStarterPositionsNeverFallBelowTheNFL(t *testing.T) {
+	slots := map[string]int{"QB": 1, "RB": 2, "K": 1, "P": 1, "DST": 1}
+
+	small := fantasyPositionFloors(4, slots)
+	for _, position := range []string{"P", "K", "DST"} {
+		if small[position] != 32 {
+			t.Fatalf("4-team floors[%s] = %d, want 32", position, small[position])
+		}
+	}
+	if small["QB"] != 8 {
+		t.Fatalf("4-team floors[QB] = %d, want 8 (4 teams x 1 slot + 4 headroom)", small["QB"])
+	}
+
+	// 30 teams x 1 punter + 4 headroom = 34, past the NFL's own 32, so the
+	// ordinary rule wins and the single-starter floor never caps anything.
+	big := fantasyPositionFloors(30, slots)
+	if big["P"] != 34 {
+		t.Fatalf("30-team floors[P] = %d, want 34 (the ordinary rule, which is larger)", big["P"])
+	}
+	if big["RB"] != 64 {
+		t.Fatalf("30-team floors[RB] = %d, want 64", big["RB"])
 	}
 }
