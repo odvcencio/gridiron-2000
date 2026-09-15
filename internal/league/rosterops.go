@@ -83,24 +83,42 @@ func (s *Service) evalWeekAutoClose(now time.Time) {
 	if state.Schedule == nil {
 		return
 	}
+	games := s.schedule()
+	statsUpdatedAt := s.statsUpdatedAt()
 	for _, scheduled := range state.Schedule.Weeks {
 		if scheduleWeekIsFinal(scheduled) {
 			continue
 		}
-		if !s.AdminWeekCloseInfo(scheduled.Week, now).Ready {
-			return
+		info := s.AdminWeekCloseInfo(scheduled.Week, now)
+		kind := "week.auto_close"
+		summary := fmt.Sprintf("closed week %d automatically once every game was final and player stats had settled", scheduled.Week)
+		reason := "every game is final and player stats have settled"
+		if !info.Ready {
+			// The clean conditions never went green. A commissioner used
+			// to have to notice that and force the close; the backstop
+			// deadline does it instead, and the ledger records that this
+			// close settled on degraded data rather than clean data.
+			due, why := weekCloseBackstopDue(games, scheduled.Week, statsUpdatedAt, now)
+			if !due {
+				return
+			}
+			kind = "week.auto_close_backstop"
+			summary = fmt.Sprintf(
+				"closed week %d on the close deadline with %d of %d games reported final; %s",
+				scheduled.Week, info.GamesFinal, info.GamesTotal, info.Reason,
+			)
+			reason = why
 		}
 		if _, _, err := s.closeWeek(scheduled.Week, now); err != nil {
 			log.Printf("roster ops: auto-close week %d: %v", scheduled.Week, err)
 			return
 		}
-		log.Printf("roster ops: closed week %d automatically; every game is final and player stats have settled", scheduled.Week)
+		log.Printf("roster ops: closed week %d automatically; %s", scheduled.Week, reason)
 		if _, err := s.store.RecordCommissionerEvent(
-			autoCloseActorEmail, autoCloseActorName, "week.auto_close",
-			fmt.Sprintf("closed week %d automatically once every game was final and player stats had settled", scheduled.Week),
+			autoCloseActorEmail, autoCloseActorName, kind, summary,
 			CommissionerEventRefs{Week: scheduled.Week}, now,
 		); err != nil {
-			log.Printf("commissioner event: week.auto_close: %v", err)
+			log.Printf("commissioner event: %s: %v", kind, err)
 		}
 	}
 }
