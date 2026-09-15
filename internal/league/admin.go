@@ -756,6 +756,8 @@ func adminWeekCloseMap(info WeekCloseInfo, location *time.Location) map[string]a
 		// stat feed's last fetch predates this week's own last kickoff.
 		"stale_feed_notice":     info.StaleFeedNotice,
 		"has_stale_feed_notice": info.StaleFeedNotice != "",
+		"auto_close_notice":     info.AutoCloseNotice,
+		"has_auto_close_notice": info.AutoCloseNotice != "",
 	}
 }
 

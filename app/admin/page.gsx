@@ -1029,6 +1029,14 @@ func Page() Node {
 						<If cond={data.schedule.close.has_stale_feed_notice}>
 							<p class="scoring-note"><strong>STALE FEED:</strong> {data.schedule.close.stale_feed_notice} <a class="access-link" href="/help/data-state-and-freshness?state=stale" data-gosx-link>How should I read stale data? →</a></p>
 						</If>
+						{/* The answer to "do I have to force this?" — normally no,
+						    and this names the instant the week settles itself. It
+						    is a separate line from WHY above because that one
+						    names only the blocking condition, and the fleet
+						    summary allowlists it verbatim. */}
+						<If cond={data.schedule.close.has_auto_close_notice}>
+							<p class="scoring-note"><strong>CLOSES ITSELF:</strong> {data.schedule.close.auto_close_notice}</p>
+						</If>
 						<If cond={data.schedule.close.final}>
 							<p class="flash-message"><strong>ALREADY FINAL:</strong> Closing the week again changes nothing.</p>
 						</If>
