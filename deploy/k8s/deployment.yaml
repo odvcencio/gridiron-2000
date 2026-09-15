@@ -30,8 +30,8 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.15-6de625c; built from
-          # 6de625c3e66ebc4982b6176c3bf03111e0775866 (main): GoSX v0.56.3.
+          # release-2026.09.15-f6e75d8; built from
+          # f6e75d809b0f32199b58699949f975277ac87248 (main): GoSX v0.56.3.
           # Two manager-visible RULES changes, not only display: an outright
           # free-agent signing now exists only in the dead window between the
           # run that settles a week and the next week's first kickoff, and an
@@ -41,13 +41,17 @@ spec:
           # so a force close is no longer needed to rescue a stuck week;
           # punter/kicker/D-ST pool floors rise to the NFL's own 32.
           # No schema change; rollback to the previous image remains valid.
-          # Release build: 2026-09-15T06:55:59Z.
+          # Release build: 2026-09-15T07:03:08Z. This build also restores the
+          # week-close panel's own WHY line: the previous release folded the
+          # auto-close sentence into it, which broke the fleet summary's
+          # verbatim allowlist (safeWeekCloseReason) and replaced the real
+          # blocking cause with a generic "readiness is pending".
           # Only flagship rolls. The inactive SK deployment remains untouched.
           # The statrelay image is unchanged: cmd/statrelay has no dependency
           # on internal/league, so this release cannot reach it.
           # On rollout the roster-ops tick closes any week whose games are
           # final and whose stats have settled, within a minute of boot.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:6ba0ac9b8206507960f261bc441727d166cac07b44680e196a96e92c3a3ce8b7
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:3a0468d27519e8376660ad33de8703ccf5bf3d7feb777b8ad36a19b4eab0113d
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
