@@ -4168,6 +4168,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	// two bare figures above so a poll never leaves the visible sentence
 	// stale while the numbers behind it keep moving.
 	stillToPlaySentenceBind := make(map[string]string, len(live.Matchups))
+	starterProgressDetailBind := make(map[string]string)
 	starterProgressQ1 := make(map[string]string)
 	starterProgressQ2 := make(map[string]string)
 	starterProgressQ3 := make(map[string]string)
@@ -4266,6 +4267,11 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 				key := starterProgressTeamBindKey(matchup.ID, progressSide.side, segment.Index)
 				starterProgressLabel[key] = segment.ProgressLabel
 				starterProgressPlayers[key] = segment.PlayerNames
+				// The hover text is live-bound for the same reason the arc
+				// itself is: a title attribute would freeze at its
+				// render-time score and quietly disagree with the ring
+				// beside it during a game.
+				starterProgressDetailBind[key] = segment.Detail
 				starterProgressQ1[key] = starterProgressMark(segment.Progress, 1)
 				starterProgressQ2[key] = starterProgressMark(segment.Progress, 2)
 				starterProgressQ3[key] = starterProgressMark(segment.Progress, 3)
@@ -4316,6 +4322,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"starterPoints":              starterPoints,
 		"starterProj":                starterProjBind,
 		"starterOriginalProj":        starterOriginalProjBind,
+		"starterProgressDetail":      starterProgressDetailBind,
 		"starterProgressQ1":          starterProgressQ1,
 		"starterProgressQ2":          starterProgressQ2,
 		"starterProgressQ3":          starterProgressQ3,

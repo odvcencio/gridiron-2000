@@ -355,11 +355,15 @@ type StarterProgressSegmentData struct {
 	Label         string
 	PlayerNames   string
 	ProgressLabel string
-	Q1            string
-	Q2            string
-	Q3            string
-	Q4            string
-	Active        bool
+	// Detail is the arc's hover text: each player in the piece with the
+	// score they have posted. Live-bound, never a title attribute, so it
+	// cannot freeze at its render-time value during a game.
+	Detail string
+	Q1     string
+	Q2     string
+	Q3     string
+	Q4     string
+	Active bool
 }
 
 type StarterProgressTeamData struct {
@@ -436,6 +440,7 @@ func starterProgressData(raw any, summaryRaw any, matchupID string, teamRaws map
 				Label:         stringField(rawSegment, "label"),
 				PlayerNames:   stringField(rawSegment, "player_names"),
 				ProgressLabel: stringField(rawSegment, "progress_label"),
+				Detail:        stringField(rawSegment, "detail"),
 				Q1:            stringField(rawSegment, "q1"),
 				Q2:            stringField(rawSegment, "q2"),
 				Q3:            stringField(rawSegment, "q3"),

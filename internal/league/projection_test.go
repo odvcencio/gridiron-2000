@@ -1,7 +1,9 @@
 package league
 
 import (
+	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -442,5 +444,75 @@ func TestLiveMapForWeekLabelsFutureAsFuture(t *testing.T) {
 	past := svc.liveMapForWeek(LiveSnapshot{Week: 1, State: MatchupStateScheduled}, false, 2)
 	if past["refresh_label"] != "Past week" {
 		t.Fatalf("historical refresh_label = %#v, want Past week", past["refresh_label"])
+	}
+}
+
+// TestStarterProgressKickerPunterPieceIsHalfWeighted pins the owner's own
+// wheel rule (2026-09-15): the ring stays ten pieces, and the tenth holds
+// the kicker and the punter with each worth half. The arc moves when
+// either plays, rather than sitting still until the slower of the two
+// finishes, and it still only reads complete when both are done.
+func TestStarterProgressKickerPunterPieceIsHalfWeighted(t *testing.T) {
+	rows := make([]StarterLedgerRow, 0, 11)
+	for index := 0; index < 9; index++ {
+		rows = append(rows, StarterLedgerRow{
+			LiveKey: fmt.Sprintf("s%d", index), Slot: fmt.Sprintf("SLOT%d", index),
+			PlayerID: fmt.Sprintf("p%d", index), PlayerName: fmt.Sprintf("Player %d", index),
+			GameState: "FINAL",
+		})
+	}
+	// Kicker done, punter not started.
+	rows = append(rows,
+		StarterLedgerRow{LiveKey: "k", Slot: "K", PlayerID: "pk", PlayerName: "Kicker", PointsText: "9.0", GameState: "FINAL"},
+		StarterLedgerRow{LiveKey: "p", Slot: "P", PlayerID: "pp", PlayerName: "Punter", PointsText: "0.0", GameState: ""},
+	)
+
+	segments := starterProgressSegmentsForTeam(rows, LiveStatus{})
+	if len(segments) != 10 {
+		t.Fatalf("ring rendered %d pieces, want 10", len(segments))
+	}
+	tenth := segments[9]
+	if tenth.Label != "K/P" {
+		t.Fatalf("tenth piece label = %q, want K/P", tenth.Label)
+	}
+	if tenth.Progress != 2 {
+		t.Fatalf("tenth piece progress = %d, want 2 (kicker complete at half weight)", tenth.Progress)
+	}
+	// The hover text names both, with the score each has posted.
+	for _, want := range []string{"Kicker 9.0", "Punter 0.0"} {
+		if !strings.Contains(tenth.Detail, want) {
+			t.Fatalf("tenth piece detail = %q, want it to contain %q", tenth.Detail, want)
+		}
+	}
+
+	// Both done: the piece completes, never before.
+	rows[10].GameState = "FINAL"
+	if got := starterProgressSegmentsForTeam(rows, LiveStatus{})[9].Progress; got != 4 {
+		t.Fatalf("both complete = %d, want 4", got)
+	}
+	// Kicker through Q3, punter complete: 3 and 4 average DOWN to 3, so
+	// "complete" can never be claimed while one of them is still playing.
+	rows[9].GameState = "Q3 5:00"
+	if got := starterProgressSegmentsForTeam(rows, LiveStatus{})[9].Progress; got != 3 {
+		t.Fatalf("one still playing = %d, want 3 — complete must mean both complete", got)
+	}
+}
+
+// TestStarterProgressSingleSpecialTeamsSlotStillCompletes keeps the
+// half-weight rule honest for a roster that fields only a kicker: the
+// tenth piece averages by its real member count, so it completes on that
+// kicker alone rather than capping at half forever.
+func TestStarterProgressSingleSpecialTeamsSlotStillCompletes(t *testing.T) {
+	rows := make([]StarterLedgerRow, 0, 10)
+	for index := 0; index < 9; index++ {
+		rows = append(rows, StarterLedgerRow{
+			LiveKey: fmt.Sprintf("s%d", index), Slot: fmt.Sprintf("SLOT%d", index),
+			PlayerID: fmt.Sprintf("p%d", index), PlayerName: fmt.Sprintf("Player %d", index), GameState: "FINAL",
+		})
+	}
+	rows = append(rows, StarterLedgerRow{LiveKey: "k", Slot: "K", PlayerID: "pk", PlayerName: "Kicker", PointsText: "9.0", GameState: "FINAL"})
+
+	if got := starterProgressSegmentsForTeam(rows, LiveStatus{})[9].Progress; got != 4 {
+		t.Fatalf("lone kicker piece = %d, want 4", got)
 	}
 }

@@ -11172,7 +11172,8 @@ body.is-on-clock .draft-clock-panel {
   position: relative;
 }
 
-.points-tip {
+.points-tip,
+.matchups-page .starter-progress__tip {
   position: absolute;
   /* Anchored to the cell's LEFT edge by default so it opens into the row
      rather than off the screen. Measured at 390px: anchoring right meant a
@@ -19090,6 +19091,14 @@ a.skip-link {
 }
 
 .matchups-page .starter-progress__team-name {
+  /* The two-line clamp the markup used to ask <TextBlock> for. Doing it
+     here needs no measurement pass and cannot leave an unwrappable
+     white-space: pre behind — see the comment on the markup itself. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
   min-width: 0;
   min-height: 2.6em;
   color: var(--color-text-primary);
@@ -19146,6 +19155,81 @@ a.skip-link {
 
 .matchups-page .starter-progress__piece[data-active="false"] {
   opacity: 0.4;
+}
+
+/* The arc's own hover tip: who that piece is and what they have scored.
+   It shares .points-tip's panel rule above so the two read as one idiom,
+   but deliberately NOT its class: a wheel tip has no scoring rows and no
+   total, so a `querySelector('.points-tip')` looking for the starter
+   score tooltip must never find one of these instead. It anchors from the
+   ring's centre rather than a table cell — a piece is a rotated sliver with no useful box of its own,
+   so the tip hangs off the ring instead and stays upright. */
+/* The pieces stack as ten full-size circles, so none of them may take a
+   pointer: only the per-arc hit dot below does. */
+.matchups-page .starter-progress__piece {
+  pointer-events: none;
+}
+
+/* .starter-progress__hit rides the same rotation the quarters do, plus
+   half an arc (the four 7.3deg quarter marks span ~32deg from the piece's
+   own start), so its child dot lands in the MIDDLE of this piece's arc
+   rather than at its leading edge. */
+.matchups-page .starter-progress__hit {
+  position: absolute;
+  inset: 0;
+  transform: rotate(16deg);
+  pointer-events: none;
+}
+
+/* The dot covers the ring band at that angle: the mask above paints the
+   band between 68% and 95% of the radius, which from the top edge of the
+   box is 2.5% to 16% of its height. */
+.matchups-page .starter-progress__hit-dot {
+  position: absolute;
+  top: 2.5%;
+  left: 50%;
+  width: 13%;
+  height: 13.5%;
+  transform: translateX(-50%);
+  border-radius: var(--radius-sm);
+  cursor: help;
+  pointer-events: auto;
+}
+
+
+
+.matchups-page .starter-progress__tip {
+  position: absolute;
+  left: 50%;
+  bottom: 50%;
+  /* Undo the piece's own rotation so the text is never sideways. */
+  transform: rotate(calc(-1 * var(--piece-angle, 0deg))) translate(-50%, 0);
+  transform-origin: left bottom;
+  z-index: 70;
+  width: max-content;
+  /* The tip is centred on its ring's own centre, and at phone width two
+     rings sit side by side — so the widest it can be without running off
+     the card is about twice the gap between a ring centre and the nearest
+     screen edge. 44vw measured clear at 390px; 18rem is the desktop cap.
+     It wraps rather than overflows, which is the right trade for a hover
+     nicety whose content is also in the starter table below. */
+  max-width: min(18rem, 44vw);
+  text-align: left;
+  white-space: normal;
+}
+
+.matchups-page .starter-progress__tip-slot {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: var(--color-text-muted);
+  font-size: var(--type-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.matchups-page .starter-progress__piece:hover .starter-progress__tip {
+  display: block;
+  pointer-events: none;
 }
 
 .matchups-page .starter-progress__piece[data-piece="0"] { --piece-angle: 2deg; }

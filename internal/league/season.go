@@ -57,30 +57,33 @@ func weekCloseLastKickoff(games []GameInfo, week int) (time.Time, bool, bool) {
 	return lastKickoff, found, true
 }
 
-// weekCloseBackstopGrace is how long past a week's last kickoff the
-// automatic close waits before settling the week on whatever the feeds
-// did manage to report. Three days clears every ordinary stat correction
-// while still landing before the next week's Thursday game, so a stalled
-// feed can never carry an unclosed week into a week being played.
-const weekCloseBackstopGrace = 72 * time.Hour
+// weekCloseTurnWeekday and weekCloseTurnHour name the league's weekly
+// turn: Tuesday at midnight in league time (owner directive,
+// 2026-09-15). A fixed turn is the point — every manager knows when last
+// week becomes last week, rather than it depending on which feed settled
+// first.
+const (
+	weekCloseTurnWeekday = time.Tuesday
+	weekCloseTurnHour    = 0
+)
 
-// weekCloseBackstopAt is the instant after which week closes even though
-// its clean conditions never went green — the deadline that makes a
-// commissioner force-close unnecessary rather than merely unlikely.
+// weekCloseTurnAt is the instant week turns over: the first Tuesday
+// midnight, league time, strictly after that week's last kickoff. A week
+// ending Sunday night turns on the Tuesday about 28 hours later; a week
+// ending with a Monday night game turns a few hours after it, the same
+// Tuesday.
 //
-// It is the earlier of two anchors, because both express the same rule
-// from different directions: three days past the week's own last kickoff,
-// and the moment the NEXT week starts being played. A league must never
-// be scoring two open weeks at once, so whichever comes first wins.
-//
-// ok is false when neither anchor is knowable — a schedule with no
-// kickoff times at all. Nothing can be inferred then, and that is the one
-// remaining case a human has to judge.
-func weekCloseBackstopAt(games []GameInfo, week int) (time.Time, bool) {
+// A schedule with no kickoff times for the week falls back to the moment
+// the NEXT week starts being played, because a league must never score
+// two open weeks at once. ok is false when neither anchor is knowable;
+// that is the one case nothing can be inferred from.
+func weekCloseTurnAt(games []GameInfo, week int, loc *time.Location) (time.Time, bool) {
+	if loc == nil {
+		loc = time.UTC
+	}
 	lastKickoff, found, kickoffOK := weekCloseLastKickoff(games, week)
-	var grace time.Time
 	if found && kickoffOK && !lastKickoff.IsZero() {
-		grace = lastKickoff.Add(weekCloseBackstopGrace)
+		return firstTurnAfter(lastKickoff, loc), true
 	}
 	var nextWeekStart time.Time
 	for _, game := range games {
@@ -91,42 +94,65 @@ func weekCloseBackstopAt(games []GameInfo, week int) (time.Time, bool) {
 			nextWeekStart = game.Kickoff
 		}
 	}
-	switch {
-	case grace.IsZero() && nextWeekStart.IsZero():
+	if nextWeekStart.IsZero() {
 		return time.Time{}, false
-	case grace.IsZero():
-		return nextWeekStart, true
-	case nextWeekStart.IsZero():
-		return grace, true
-	case nextWeekStart.Before(grace):
-		return nextWeekStart, true
 	}
-	return grace, true
+	return nextWeekStart, true
 }
 
-// weekCloseBackstopDue reports whether week may now be settled on the
-// backstop rather than on its clean conditions, and why.
+// firstTurnAfter returns the first weekCloseTurnWeekday at
+// weekCloseTurnHour, in loc, strictly after from.
+func firstTurnAfter(from time.Time, loc *time.Location) time.Time {
+	local := from.In(loc)
+	candidate := time.Date(local.Year(), local.Month(), local.Day(), weekCloseTurnHour, 0, 0, 0, loc)
+	for candidate.Weekday() != weekCloseTurnWeekday || !candidate.After(local) {
+		candidate = candidate.AddDate(0, 0, 1)
+	}
+	return candidate
+}
+
+// weekCloseTurnDue reports whether week may now be closed on the weekly
+// turn, and why it cannot when it cannot.
 //
-// One guard survives the deadline: the stat ledger must have fetched at
-// or after the week's last kickoff. Closing a week from stats that
-// predate its own games would post a silently wrong score for every team,
-// which is worse than staying open — so a ledger that never caught up is
-// deliberately left for a person. Every other stall (a game the feed
-// never flips final, a ledger that caught up but never reached the 24
-// hour settle clause) closes here on its own.
-func weekCloseBackstopDue(games []GameInfo, week int, statsUpdatedAt, now time.Time) (bool, string) {
-	deadline, ok := weekCloseBackstopAt(games, week)
-	if !ok || now.Before(deadline) {
+// One guard survives the turn: the stat ledger must have fetched at or
+// after this week's last game is expected to have ENDED, not merely
+// kicked off. That distinction matters for a Monday night game, which is
+// still being played at Tuesday midnight — closing then would score it
+// from a partial ledger. Such a week closes on the first tick after the
+// ledger catches up, an hour or two past the turn rather than at it.
+//
+// A ledger that never catches up at all is deliberately left for a
+// person: closing from stats that predate a week's own games posts a
+// silently wrong score for every team, which is worse than staying open.
+func weekCloseTurnDue(games []GameInfo, week int, statsUpdatedAt, now time.Time, loc *time.Location) (bool, string) {
+	turn, ok := weekCloseTurnAt(games, week, loc)
+	if !ok || now.Before(turn) {
 		return false, ""
 	}
-	lastKickoff, found, kickoffOK := weekCloseLastKickoff(games, week)
 	if statsUpdatedAt.IsZero() {
 		return false, "the player-stat ledger has never reported for this week"
 	}
-	if found && kickoffOK && statsUpdatedAt.Before(lastKickoff) {
-		return false, "the player-stat ledger has not fetched since this week's last kickoff"
+	if settled, known := weekCloseStatsSettleFloor(games, week); known && statsUpdatedAt.Before(settled) {
+		return false, "the player-stat ledger has not fetched since this week's last game finished"
 	}
-	return true, "settled on the close deadline; the feeds never reported every condition"
+	return true, "the weekly turn passed and the stat ledger has reported since the last game"
+}
+
+// weekCloseStatsSettleFloor is the earliest ledger fetch that can honestly
+// describe a finished week: the estimated end of its last game
+// (gameFinalAt's kickoff-plus-five-hours rule, the same estimate every
+// other roster-ops surface uses).
+func weekCloseStatsSettleFloor(games []GameInfo, week int) (time.Time, bool) {
+	var end time.Time
+	for _, game := range games {
+		if game.Week != week || game.Kickoff.IsZero() {
+			continue
+		}
+		if candidate := gameFinalAt(game); end.IsZero() || candidate.After(end) {
+			end = candidate
+		}
+	}
+	return end, !end.IsZero()
 }
 
 // WeekCloseReady reports whether week's two auto-close conditions hold
@@ -205,10 +231,10 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 			info.StatsUpdatedAt.In(s.matchupLocation()).Format("Jan 2, 3:04 PM MST"),
 		)
 	}
-	if deadline, ok := weekCloseBackstopAt(games, week); ok {
-		info.AutoCloseAt, info.HasAutoCloseAt = deadline, true
-		if !now.Before(deadline) {
-			if due, why := weekCloseBackstopDue(games, week, info.StatsUpdatedAt, now); !due {
+	if turn, ok := weekCloseTurnAt(games, week, s.matchupLocation()); ok {
+		info.AutoCloseAt, info.HasAutoCloseAt = turn, true
+		if !now.Before(turn) {
+			if due, why := weekCloseTurnDue(games, week, info.StatsUpdatedAt, now, s.matchupLocation()); !due {
 				info.AutoCloseBlocked = why
 			}
 		}
@@ -568,7 +594,7 @@ type WeekCloseInfo struct {
 	StaleFeedNotice string
 	// AutoCloseAt / HasAutoCloseAt name the instant this week closes by
 	// itself even if its clean conditions never go green
-	// (weekCloseBackstopAt). A commissioner reads it as the answer to "do
+	// (weekCloseTurnAt). A commissioner reads it as the answer to "do
 	// I have to force this?" — no, not unless you want it sooner.
 	AutoCloseAt    time.Time
 	HasAutoCloseAt bool

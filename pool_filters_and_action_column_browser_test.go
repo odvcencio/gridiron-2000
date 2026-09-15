@@ -115,14 +115,21 @@ func TestBrowserPlayersPhoneFilterRailStillCollapsesAfterDesktopFix(t *testing.T
 }
 
 // TestBrowserPlayersActionColumnDoesNotOverlapStatusChip is F6's own
-// decisive check: .pool-row--status's ACTION column (the row's 6th grid
-// track) was a fixed 80px — once a manager opens the "Add and drop a
-// player" confirmation, the panel's own real content (a full sentence
-// plus a "CONFIRM ADD AND DROP" button) cannot shrink to fit, and
-// .board-controls' own justify-content: end packs it against the row's
-// right edge, so the overflow runs left across the STATUS chip beside
-// it. No add/drop confirm element's rect may intersect the status
-// chip's rect, at both 1440 and 1280.
+// decisive check: .pool-row--status's ACTION column was a fixed 80px —
+// once a manager opens an "…and drop a player" confirmation, the panel's
+// own real content (a full sentence plus a confirm button) cannot shrink
+// to fit, and .board-controls' own justify-content: end packs it against
+// the row's right edge, so the overflow runs left across the STATUS chip
+// beside it. No confirm element's rect may intersect the status chip's
+// rect, at both 1440 and 1280.
+//
+// It matches "and drop a player" rather than "Add and drop", because
+// which of the two the row offers now depends on the calendar: inside a
+// game week an acquisition is a CLAIM (2026-09-15 owner directive), so
+// the row renders "Claim and drop a player" instead. Both are the same
+// .action-confirmation in the same cell, which is what this guards;
+// pinning the add wording made the test unfindable mid-week rather than
+// failing on the layout it exists to protect.
 func TestBrowserPlayersActionColumnDoesNotOverlapStatusChip(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
@@ -146,7 +153,7 @@ func TestBrowserPlayersActionColumnDoesNotOverlapStatusChip(t *testing.T) {
 				if err := chromedp.Run(ctx, chromedp.Evaluate(`(function(){
 					var summaries = document.querySelectorAll('.action-confirmation > summary');
 					for (var i=0;i<summaries.length;i++) {
-						if (summaries[i].textContent.indexOf('Add and drop') >= 0) {
+						if (summaries[i].textContent.indexOf('and drop a player') >= 0) {
 							summaries[i].scrollIntoView({block: 'center'});
 							summaries[i].click();
 							return true;
@@ -158,7 +165,7 @@ func TestBrowserPlayersActionColumnDoesNotOverlapStatusChip(t *testing.T) {
 				}
 			}
 			if !opened {
-				t.Fatal("no free-agent row needing a drop was found across 6 pages of the pool")
+				t.Fatal("no acquisition row needing a drop was found across 6 pages of the pool")
 			}
 
 			var intersects bool
@@ -166,7 +173,7 @@ func TestBrowserPlayersActionColumnDoesNotOverlapStatusChip(t *testing.T) {
 				var summaries = document.querySelectorAll('.action-confirmation > summary');
 				var det = null;
 				for (var i=0;i<summaries.length;i++) {
-					if (summaries[i].textContent.indexOf('Add and drop') >= 0) { det = summaries[i].closest('.action-confirmation'); break; }
+					if (summaries[i].textContent.indexOf('and drop a player') >= 0) { det = summaries[i].closest('.action-confirmation'); break; }
 				}
 				if (!det) return true; // lost the row: fail loudly, not silently.
 				var row = det.closest('.pool-row--status');

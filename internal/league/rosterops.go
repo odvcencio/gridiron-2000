@@ -89,26 +89,30 @@ func (s *Service) evalWeekAutoClose(now time.Time) {
 		if scheduleWeekIsFinal(scheduled) {
 			continue
 		}
+		// The weekly turn is the rule: a week closes at the first Tuesday
+		// midnight, league time, after its own last kickoff, whether or
+		// not every clean condition went green. A fixed turn is the point
+		// — every manager knows when last week becomes last week, rather
+		// than it depending on which feed settled first, and a
+		// commissioner never has to force a stalled week closed.
+		due, why := weekCloseTurnDue(games, scheduled.Week, statsUpdatedAt, now, s.matchupLocation())
+		if !due {
+			return
+		}
 		info := s.AdminWeekCloseInfo(scheduled.Week, now)
 		kind := "week.auto_close"
-		summary := fmt.Sprintf("closed week %d automatically once every game was final and player stats had settled", scheduled.Week)
-		reason := "every game is final and player stats have settled"
+		summary := fmt.Sprintf("closed week %d on the weekly turn; every game was final and player stats had settled", scheduled.Week)
 		if !info.Ready {
-			// The clean conditions never went green. A commissioner used
-			// to have to notice that and force the close; the backstop
-			// deadline does it instead, and the ledger records that this
-			// close settled on degraded data rather than clean data.
-			due, why := weekCloseBackstopDue(games, scheduled.Week, statsUpdatedAt, now)
-			if !due {
-				return
-			}
-			kind = "week.auto_close_backstop"
+			// The turn arrived before the clean conditions did. The close
+			// still happens, and the ledger records that it settled on
+			// degraded data rather than clean data.
+			kind = "week.auto_close_degraded"
 			summary = fmt.Sprintf(
-				"closed week %d on the close deadline with %d of %d games reported final; %s",
+				"closed week %d on the weekly turn with %d of %d games reported final; %s",
 				scheduled.Week, info.GamesFinal, info.GamesTotal, info.Reason,
 			)
-			reason = why
 		}
+		reason := why
 		if _, _, err := s.closeWeek(scheduled.Week, now); err != nil {
 			log.Printf("roster ops: auto-close week %d: %v", scheduled.Week, err)
 			return

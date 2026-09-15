@@ -315,12 +315,12 @@ func weekOf(t *testing.T, svc *Service, week int) ScheduleWeek {
 	return wk
 }
 
-// TestEvalWeekAutoCloseBackstopSettlesAStalledWeek is the "never force
-// close again" contract (owner directive, 2026-09-15). A week whose clean
+// TestEvalWeekAutoCloseTurnSettlesAStalledWeek is the "never force close
+// again" contract (owner directive, 2026-09-15). A week whose clean
 // conditions never go green — a game the feed never flips final — still
-// closes by itself once the deadline passes, so a commissioner is never
-// the thing standing between a played week and its scores.
-func TestEvalWeekAutoCloseBackstopSettlesAStalledWeek(t *testing.T) {
+// closes by itself on the weekly turn, so a commissioner is never the
+// thing standing between a played week and its scores.
+func TestEvalWeekAutoCloseTurnSettlesAStalledWeek(t *testing.T) {
 	svc := newTestService(t, true)
 	lastKickoff := time.Date(2026, 9, 14, 20, 20, 0, 0, time.UTC)
 	games := []GameInfo{
@@ -341,28 +341,31 @@ func TestEvalWeekAutoCloseBackstopSettlesAStalledWeek(t *testing.T) {
 	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
 		return []WeekStatLine{{Key: "x|WR", Stats: map[string]float64{"recYards": 10}}}
 	})
-	// The ledger HAS fetched since the games were played; only the games
-	// feed is stuck.
-	statsAt := lastKickoff.Add(6 * time.Hour)
+	// The ledger HAS fetched since the games finished; only the games feed
+	// is stuck.
+	statsAt := lastKickoff.Add(8 * time.Hour)
 	svc.SetStatsUpdatedSource(func() time.Time { return statsAt })
 
-	// Before the deadline the week holds: a stall might still resolve.
-	svc.evalWeekAutoClose(lastKickoff.Add(30 * time.Hour))
+	// Before the turn the week holds: a stall might still resolve.
+	svc.evalWeekAutoClose(lastKickoff.Add(2 * time.Hour))
 	if scheduleWeekIsFinal(weekOf(t, svc, 1)) {
 		t.Fatal("a stalled week must not close before its deadline")
 	}
 
-	deadline, ok := weekCloseBackstopAt(games, 1)
+	turn, ok := weekCloseTurnAt(games, 1, svc.matchupLocation())
 	if !ok {
-		t.Fatal("a week with real kickoff times must have a close deadline")
+		t.Fatal("a week with real kickoff times must have a weekly turn")
 	}
-	svc.evalWeekAutoClose(deadline.Add(time.Minute))
+	if turn.In(svc.matchupLocation()).Weekday() != time.Tuesday {
+		t.Fatalf("turn = %v, want a Tuesday", turn.In(svc.matchupLocation()))
+	}
+	svc.evalWeekAutoClose(turn.Add(time.Minute))
 	if !scheduleWeekIsFinal(weekOf(t, svc, 1)) {
-		t.Fatal("past its deadline a stalled week must settle without a commissioner")
+		t.Fatal("past the weekly turn a stalled week must settle without a commissioner")
 	}
 	var backstopped bool
 	for _, event := range svc.store.Snapshot().CommissionerEvents {
-		if event.Kind == "week.auto_close_backstop" {
+		if event.Kind == "week.auto_close_degraded" {
 			backstopped = true
 		}
 	}
@@ -371,45 +374,78 @@ func TestEvalWeekAutoCloseBackstopSettlesAStalledWeek(t *testing.T) {
 	}
 }
 
-// TestWeekCloseBackstopHoldsWhenStatsPredateTheGames pins the one case
-// that still wants a person: closing a week from a ledger that never
-// fetched since its games would post a silently wrong score for every
-// team, which is worse than staying open.
-func TestWeekCloseBackstopHoldsWhenStatsPredateTheGames(t *testing.T) {
-	lastKickoff := time.Date(2026, 9, 14, 20, 20, 0, 0, time.UTC)
-	games := []GameInfo{{ID: "w1-b", Week: 1, Kickoff: lastKickoff, Away: "DEN", Home: "KC"}}
-	deadline, ok := weekCloseBackstopAt(games, 1)
-	if !ok {
-		t.Fatal("expected a deadline")
+// TestWeekCloseTurnIsTuesdayMidnightLeagueTime pins the weekly turn the
+// owner asked for (2026-09-15): a week ending Sunday night turns on the
+// Tuesday about 28 hours later, and a week ending with a Monday night
+// game turns a few hours after it, on that same Tuesday.
+func TestWeekCloseTurnIsTuesdayMidnightLeagueTime(t *testing.T) {
+	eastern, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skip("no tzdata")
 	}
-	if want := lastKickoff.Add(weekCloseBackstopGrace); !deadline.Equal(want) {
-		t.Fatalf("deadline = %v, want last kickoff plus the grace %v", deadline, want)
-	}
-
-	stale := lastKickoff.Add(-time.Hour)
-	if due, why := weekCloseBackstopDue(games, 1, stale, deadline.Add(time.Hour)); due || why == "" {
-		t.Fatalf("a ledger that predates the games must hold with a reason, got due=%v why=%q", due, why)
-	}
-	if due, _ := weekCloseBackstopDue(games, 1, time.Time{}, deadline.Add(time.Hour)); due {
-		t.Fatal("a ledger that never reported must hold")
-	}
-	fresh := lastKickoff.Add(time.Hour)
-	if due, _ := weekCloseBackstopDue(games, 1, fresh, deadline.Add(time.Hour)); !due {
-		t.Fatal("a ledger that fetched after the games must let the deadline settle the week")
+	for _, tc := range []struct {
+		name       string
+		lastKick   time.Time
+		wantTurnET string
+	}{
+		{"sunday night", time.Date(2026, 9, 13, 20, 20, 0, 0, eastern), "2026-09-15 00:00"},
+		{"monday night", time.Date(2026, 9, 14, 20, 15, 0, 0, eastern), "2026-09-15 00:00"},
+		{"thursday only", time.Date(2026, 9, 10, 20, 15, 0, 0, eastern), "2026-09-15 00:00"},
+	} {
+		games := []GameInfo{{ID: "g", Week: 1, Kickoff: tc.lastKick, Away: "DEN", Home: "KC"}}
+		turn, ok := weekCloseTurnAt(games, 1, eastern)
+		if !ok {
+			t.Fatalf("%s: expected a turn", tc.name)
+		}
+		if got := turn.In(eastern).Format("2006-01-02 15:04"); got != tc.wantTurnET {
+			t.Fatalf("%s: turn = %s ET, want %s ET", tc.name, got, tc.wantTurnET)
+		}
 	}
 }
 
-// TestWeekCloseBackstopNeverOutlivesTheNextWeek keeps a stalled week from
-// being scored alongside a week already being played.
-func TestWeekCloseBackstopNeverOutlivesTheNextWeek(t *testing.T) {
-	lastKickoff := time.Date(2026, 9, 14, 20, 20, 0, 0, time.UTC)
-	nextWeekStart := lastKickoff.Add(30 * time.Hour) // earlier than the 72h grace
+// TestWeekCloseTurnHoldsUntilTheLedgerCoversTheLastGame pins the one
+// guard that survives the turn. A Monday night game is still being played
+// at Tuesday midnight, so closing then would score it from a partial
+// ledger; that week closes on the first tick after the ledger catches up.
+func TestWeekCloseTurnHoldsUntilTheLedgerCoversTheLastGame(t *testing.T) {
+	eastern, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skip("no tzdata")
+	}
+	lastKickoff := time.Date(2026, 9, 14, 20, 15, 0, 0, eastern) // Monday night
+	games := []GameInfo{{ID: "w1", Week: 1, Kickoff: lastKickoff, Away: "DEN", Home: "KC"}}
+	turn, ok := weekCloseTurnAt(games, 1, eastern)
+	if !ok {
+		t.Fatal("expected a turn")
+	}
+
+	// At the turn the game is still being played: a ledger fetched during
+	// it must not settle the week.
+	midGame := lastKickoff.Add(90 * time.Minute)
+	if due, why := weekCloseTurnDue(games, 1, midGame, turn.Add(time.Minute), eastern); due || why == "" {
+		t.Fatalf("a mid-game ledger must hold with a reason, got due=%v why=%q", due, why)
+	}
+	if due, _ := weekCloseTurnDue(games, 1, time.Time{}, turn.Add(time.Minute), eastern); due {
+		t.Fatal("a ledger that never reported must hold")
+	}
+	// Once it has fetched past the game's own end, the week settles.
+	afterGame := gameFinalAt(games[0]).Add(time.Minute)
+	if due, _ := weekCloseTurnDue(games, 1, afterGame, afterGame, eastern); !due {
+		t.Fatal("a ledger past the last game's end must let the turn settle the week")
+	}
+}
+
+// TestWeekCloseTurnFallsBackToTheNextWeekWhenKickoffsAreUnknown keeps a
+// week with no kickoff times from being scored alongside a week already
+// being played.
+func TestWeekCloseTurnFallsBackToTheNextWeekWhenKickoffsAreUnknown(t *testing.T) {
+	nextWeekStart := time.Date(2026, 9, 17, 20, 15, 0, 0, time.UTC)
 	games := []GameInfo{
-		{ID: "w1", Week: 1, Kickoff: lastKickoff, Away: "DEN", Home: "KC"},
+		{ID: "w1", Week: 1, Away: "DEN", Home: "KC"}, // no kickoff time
 		{ID: "w2", Week: 2, Kickoff: nextWeekStart, Away: "NYJ", Home: "NE"},
 	}
-	deadline, ok := weekCloseBackstopAt(games, 1)
-	if !ok || !deadline.Equal(nextWeekStart) {
-		t.Fatalf("deadline = %v (ok=%v), want the next week's first kickoff %v", deadline, ok, nextWeekStart)
+	turn, ok := weekCloseTurnAt(games, 1, time.UTC)
+	if !ok || !turn.Equal(nextWeekStart) {
+		t.Fatalf("turn = %v (ok=%v), want the next week's first kickoff %v", turn, ok, nextWeekStart)
 	}
 }

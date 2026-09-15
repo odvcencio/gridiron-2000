@@ -73,14 +73,56 @@ func StarterProgress(props StarterProgressData) Node {
 				<article class="starter-progress__team" data-team={team.TeamID}>
 					<header class="starter-progress__team-head">
 						<span class="starter-progress__team-side mono">{team.SideLabel}</span>
-						<If cond={team.TeamHref != ""}><a class="starter-progress__team-name" href={team.TeamHref} data-gosx-link><TextBlock as="span" mode="native" font="700 14px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" text={team.TeamName} /></a></If>
-						<If cond={team.TeamHref == ""}><span class="starter-progress__team-name"><TextBlock as="span" mode="native" font="700 14px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" text={team.TeamName} /></span></If>
+						{/* Plain markup, not <TextBlock mode="native">, for the reason
+						    app/page.gsx's own hero already documents:
+						    server/textblock.go's textBlockNativeStyle hardcodes
+						    white-space: pre on every native element, and without a
+						    maxWidth textlayout.LayoutText never inserts a wrap point,
+						    so the browser never wraps either. This column is fluid
+						    (145px at 390px, wider at desktop), so there is no honest
+						    maxWidth to give it — and a live measurement found
+						    "Bradley Finion y Los Delfines del Norte" rendering 257px
+						    wide inside a 145px cell and scrolling the whole of
+						    /matchups sideways by 75px at phone width. The two-line
+						    clamp the TextBlock was asking for now lives in CSS
+						    (.starter-progress__team-name), where it works without a
+						    measurement pass. */}
+						<If cond={team.TeamHref != ""}><a class="starter-progress__team-name" href={team.TeamHref} data-gosx-link>{team.TeamName}</a></If>
+						<If cond={team.TeamHref == ""}><span class="starter-progress__team-name">{team.TeamName}</span></If>
 					</header>
 					<div class="starter-progress__visual">
 						<span class="starter-progress__ring">
 							<span aria-hidden="true">
 								<Each of={team.Segments} as="segment">
+									{/* The arc explains itself on hover AND on focus: a
+									    tabindex makes it reachable by keyboard, and on a
+									    phone a tap focuses it — a hover-only tip would be
+									    unreachable on the device most of this league
+									    uses, the same rule the starter score tooltip
+									    already follows. */}
 									<span class="starter-progress__piece" data-piece={segment.Index} data-active={segment.Active}>
+										{/* The arc itself cannot be a hover target: every
+										    piece is a full-size circle whose colour comes
+										    from a conic-gradient, so all ten overlap and a
+										    hover anywhere on the ring would resolve to
+										    whichever piece is last in the DOM. This dot is
+										    the real target — a small box carried around
+										    the ring by the same rotation trick the
+										    quarters use, so it sits ON this piece's arc
+										    and nowhere else. */}
+										{/* Hover-only, and deliberately not focusable: the
+										    whole ring already sits inside aria-hidden with
+										    its own visually-hidden live summary, and a
+										    focusable child inside an aria-hidden subtree is
+										    a defect, not a feature. Nothing is lost — every
+										    player and score in the ring is also in the
+										    starter table directly below, which is reachable
+										    by keyboard and read by a screen reader. */}
+										<span class="starter-progress__hit"><span class="starter-progress__hit-dot"></span></span>
+										<span class="starter-progress__tip" aria-hidden="true">
+											<span class="starter-progress__tip-slot mono">{segment.Label}</span>
+											<span class="points-tip__rows" data-gosx-live-bind={"starterProgressDetail." + segment.BindKey}>{segment.Detail}</span>
+										</span>
 										<span class="starter-progress__quarters"><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ1." + segment.BindKey}>{segment.Q1}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ2." + segment.BindKey}>{segment.Q2}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ3." + segment.BindKey}>{segment.Q3}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ4." + segment.BindKey}>{segment.Q4}</span></span>
 									</span>
 								</Each>

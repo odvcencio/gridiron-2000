@@ -455,6 +455,59 @@ type starterProgressSegment struct {
 	Progress      int
 	ProgressLabel string
 	Active        bool
+	// Detail is the hover text: each player in this piece with the score
+	// they have actually posted, so the ring answers "who is that arc and
+	// how are they doing" without leaving the page.
+	Detail string
+}
+
+// starterProgressGroupProgress turns one piece's member rows into its 0-4
+// arc. A piece holding a single slot reads that slot's own quarter. The
+// merged K/P piece averages its members instead, so a kicker and a punter
+// are each worth half a piece (owner directive, 2026-09-15): the arc moves
+// when either one plays rather than sitting still until the slower of the
+// two finishes.
+//
+// Averaging by the real member count, not a hard-coded two, keeps a roster
+// that fields only a kicker honest — that piece completes on the kicker
+// alone rather than capping at half forever. Integer division floors, so
+// "complete" still means every member of the piece is complete: a 4 and a
+// 3 average to 3, never a rounded-up 4.
+func starterProgressGroupProgress(quarters []int) int {
+	if len(quarters) == 0 {
+		return 0
+	}
+	total := 0
+	for _, quarter := range quarters {
+		total += quarter
+	}
+	return total / len(quarters)
+}
+
+// starterProgressDetail renders one piece's hover text: "Name 12.4 ·
+// Name 3.0", or the slot's own empty state.
+func starterProgressDetail(group []StarterLedgerRow) string {
+	parts := make([]string, 0, len(group))
+	for _, row := range group {
+		name := strings.TrimSpace(row.PlayerName)
+		if row.PlayerID == "" || name == "" {
+			continue
+		}
+		points := strings.TrimSpace(row.PointsText)
+		if points == "" {
+			points = fmt.Sprintf("%.1f", row.Points)
+		}
+		state := strings.TrimSpace(row.GameState)
+		if state != "" {
+			parts = append(parts, fmt.Sprintf("%s %s · %s", name, points, state))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s %s", name, points))
+	}
+	if len(parts) == 0 {
+		return "No player assigned"
+	}
+	return strings.Join(parts, " · ")
 }
 
 const (
@@ -515,6 +568,13 @@ func progressLabel(progress int) string {
 
 func starterProgressSegments(mineRows, theirsRows []StarterLedgerRow, status LiveStatus) []starterProgressSegment {
 	out := make([]starterProgressSegment, 0, starterProgressPieceCount)
+	// Which side a row came from, so the merged piece can average within a
+	// side rather than across the matchup — averaging all four K/P rows
+	// together would let one team's finished pair carry the other's.
+	sideMine := make(map[string]bool, len(mineRows)+len(theirsRows))
+	for _, row := range mineRows {
+		sideMine[row.LiveKey] = true
+	}
 	for index := 0; index < starterProgressPieceCount; index++ {
 		label := "OPEN SLOT"
 		group := make([]StarterLedgerRow, 0, 4)
@@ -550,20 +610,29 @@ func starterProgressSegments(mineRows, theirsRows []StarterLedgerRow, status Liv
 		if len(group) == 0 {
 			progress = 4
 		} else {
+			// This ring covers both sides of the matchup, so a piece is
+			// only as far along as the slower SIDE — but within a side the
+			// merged K/P piece averages its members, the same half-weight
+			// rule the per-team ring uses.
+			sideQuarters := map[bool][]int{}
 			for _, row := range group {
 				if strings.TrimSpace(row.Slot) != "" {
 					active = true
 				}
+				mine := sideMine[row.LiveKey]
 				if row.PlayerID == "" {
-					progress = 0
+					sideQuarters[mine] = append(sideQuarters[mine], 0)
 					continue
 				}
 				if name := strings.TrimSpace(row.PlayerName); name != "" && !nameSet[name] {
 					nameSet[name] = true
 					names = append(names, name)
 				}
-				if quarter := starterProgressQuarter(row, status); quarter < progress {
-					progress = quarter
+				sideQuarters[mine] = append(sideQuarters[mine], starterProgressQuarter(row, status))
+			}
+			for _, quarters := range sideQuarters {
+				if sideProgress := starterProgressGroupProgress(quarters); sideProgress < progress {
+					progress = sideProgress
 				}
 			}
 		}
@@ -577,6 +646,7 @@ func starterProgressSegments(mineRows, theirsRows []StarterLedgerRow, status Liv
 			Progress:      progress,
 			ProgressLabel: progressLabel(progress),
 			Active:        active,
+			Detail:        starterProgressDetail(group),
 		})
 	}
 	return out
@@ -648,16 +718,19 @@ func starterProgressSegmentsForTeam(rows []StarterLedgerRow, status LiveStatus) 
 			}
 		}
 
-		progress := 4
 		active := false
 		hasPlayer := false
 		nameSet := make(map[string]bool)
 		names := make([]string, 0, len(group))
+		quarters := make([]int, 0, len(group))
 		for _, row := range group {
 			if strings.TrimSpace(row.Slot) != "" {
 				active = true
 			}
 			if row.PlayerID == "" {
+				// An empty slot still occupies its share of the piece, so
+				// the merged K/P arc cannot read complete on one player.
+				quarters = append(quarters, 0)
 				continue
 			}
 			hasPlayer = true
@@ -665,11 +738,9 @@ func starterProgressSegmentsForTeam(rows []StarterLedgerRow, status LiveStatus) 
 				nameSet[name] = true
 				names = append(names, name)
 			}
-			quarter := starterProgressQuarter(row, status)
-			if quarter < progress {
-				progress = quarter
-			}
+			quarters = append(quarters, starterProgressQuarter(row, status))
 		}
+		progress := starterProgressGroupProgress(quarters)
 		if !hasPlayer {
 			progress = 0
 		}
@@ -683,6 +754,7 @@ func starterProgressSegmentsForTeam(rows []StarterLedgerRow, status LiveStatus) 
 			Progress:      progress,
 			ProgressLabel: progressLabel(progress),
 			Active:        active,
+			Detail:        starterProgressDetail(group),
 		})
 	}
 	return out
@@ -696,6 +768,7 @@ func starterProgressMapsForTeam(matchupID, side string, rows []StarterLedgerRow,
 		out = append(out, map[string]any{
 			"index": segment.Index, "label": segment.Label, "player_names": segment.PlayerNames,
 			"progress": segment.Progress, "progress_label": segment.ProgressLabel, "active": segment.Active,
+			"detail":   segment.Detail,
 			"bind_key": bindKey,
 			"q1":       starterProgressMark(segment.Progress, 1), "q2": starterProgressMark(segment.Progress, 2),
 			"q3": starterProgressMark(segment.Progress, 3), "q4": starterProgressMark(segment.Progress, 4),
