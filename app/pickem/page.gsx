@@ -85,10 +85,34 @@ type PickemGameRow struct {
 	Consensus      PickemConsensusView
 }
 
+// PickemGamePickView structurally mirrors internal/league's
+// PickemGamePickView: one entrant's recorded call on this game, with its
+// grade. Correct/Wrong are precomputed bools rather than template-side
+// comparisons for the same reason PickedAway/PickedHome are (see
+// PickemGameRow above): a strict component's attribute and condition
+// expressions do not support "==" against a string.
+type PickemGamePickView struct {
+	Name       string
+	PickLabel  string
+	HasPick    bool
+	Outcome    string
+	StateLabel string
+	Correct    bool
+	Wrong      bool
+	IsViewer   bool
+}
+
 type PickemRowProps struct {
 	Game   PickemGameRow
 	Action string
 	CSRF   string
+	// LeaguePicks is the row's permanent record, filled once the game
+	// locks: every entrant's call, named. It sits beside Game rather than
+	// inside it so this strict component iterates a slice its own props
+	// name directly.
+	LeaguePicks    []PickemGamePickView
+	HasLeaguePicks bool
+	LeaguePickLead string
 }
 
 func PickemRow(props PickemRowProps) Node {
@@ -124,8 +148,8 @@ func PickemRow(props PickemRowProps) Node {
 		</div>
 		<div class="pickem-buttons">
 			<If cond={props.Game.MarketUnavailable}>
-				<button class="filter-button" type="button" disabled="disabled" aria-disabled="true" aria-pressed={props.Game.PickedAway}>{props.Game.AwayLine}</button>
-				<button class="filter-button" type="button" disabled="disabled" aria-disabled="true" aria-pressed={props.Game.PickedHome}>{props.Game.HomeLine}</button>
+				<button class="filter-button" type="button" disabled="disabled" aria-disabled="true" aria-pressed={props.Game.PickedAway}>{props.Game.AwayLine}<If cond={props.Game.PickedAway}><span class="pickem-your-pick"> ✓ YOUR PICK</span></If></button>
+				<button class="filter-button" type="button" disabled="disabled" aria-disabled="true" aria-pressed={props.Game.PickedHome}>{props.Game.HomeLine}<If cond={props.Game.PickedHome}><span class="pickem-your-pick"> ✓ YOUR PICK</span></If></button>
 			</If>
 			<If cond={props.Game.MarketUnavailable == false}>
 			<If cond={props.Game.Locked == false}>
@@ -179,6 +203,40 @@ func PickemRow(props PickemRowProps) Node {
 					Away={props.Game.Away}
 					Home={props.Game.Home}
 				></ConsensusBar>
+			</If>
+			{/* The league record. The consensus bar above says how many
+			    took each side; this says who took it, and how it graded.
+			    Both ship only after kickoff, and both stay for good --
+			    this is what keeps a settled week's sheet a record rather
+			    than an expired form. */}
+			<If cond={props.HasLeaguePicks}>
+				<div class="pickem-ledger">
+					<span class="pickem-ledger__lead mono">{props.LeaguePickLead}</span>
+					<ul class="pickem-ledger__list">
+						<Each of={props.LeaguePicks} as="entry">
+							{/* The name clamps in CSS rather than through
+							    <TextBlock> (the clamp this page uses for the
+							    matchup label and the consensus legend). This
+							    list is the one place that multiplies: one
+							    label per entrant per locked game, and every
+							    one re-ships on the live region's 4s poll.
+							    Measured on this league's own week-1 slate
+							    (six entrants, fifteen locked games), the
+							    fragment grows from 51 KB to 77 KB with the
+							    ledger. A TextBlock label carries about ten
+							    measurement attributes and renders near 490
+							    bytes against this span's 33, which would add
+							    roughly 40 KB more to every poll for a clamp
+							    one line of CSS already gives
+							    (.pickem-ledger__who). */}
+							<li class="pickem-ledger__entry" data-outcome={entry.Outcome} data-viewer={entry.IsViewer}>
+								<span class="pickem-ledger__who">{entry.Name}</span>
+								<b class="mono pickem-ledger__call">{entry.PickLabel}</b>
+								<span class="mono pickem-ledger__state">{entry.StateLabel}</span>
+							</li>
+						</Each>
+					</ul>
+				</div>
 			</If>
 		</If>
 	</article>
@@ -294,6 +352,31 @@ func PickemLiveRegion() Node {
 			</div>
 		</section>
 
+		{/* The week's own standing, stated plainly. A sheet that is meant
+		    to serve the record permanently has to say which record it is
+		    serving: open, in progress, or settled -- and, once settled,
+		    who took the week. week_state/week_state_note/week_winner_*
+		    come from PickemData (internal/league/pickem.go); the winner
+		    is read off the same week leaderboard rendered below, so the
+		    two can never disagree. */}
+		<section class="pickem-week-record" data-state={data.week_state} aria-label="This week's pick'em standing">
+			<span class="section-index">
+				WEEK
+				{data.week}
+				·
+				{data.week_state}
+			</span>
+			<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.week_state_note} />
+			<If cond={data.has_week_winner}>
+				<p class="pickem-week-record__winner">
+					<span class="pickem-week-record__mark" aria-hidden="true">◎</span>
+					<span class="section-index">WEEK LEADER</span>
+					<TextBlock as="strong" font="700 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text={data.week_winner_names} />
+					<b class="mono">{data.week_winner_record}</b>
+				</p>
+			</If>
+		</section>
+
 		<div class="notice-stack">
 			<If cond={data.has_notice}>
 				<TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.notice} />
@@ -332,10 +415,18 @@ func PickemLiveRegion() Node {
 					<h2>Weekly slate</h2>
 				</div>
 			</div>
-			<p class="pickem-rule-note">
-				<strong>THE LINE FREEZES THURSDAY.</strong>
-				The sheet does not. Every matchup accepts picks until that game's kickoff. Your first valid pick enters you for the season; after that, every non-void game you leave unpicked at kickoff is a loss. Games that have not started remain available, and weeks before you entered are not scored against you.
-			</p>
+			<If cond={data.week_settled == false}>
+				<p class="pickem-rule-note">
+					<strong>THE LINE FREEZES THURSDAY.</strong>
+					The sheet does not. Every matchup accepts picks until that game's kickoff. Your first valid pick enters you for the season; after that, every non-void game you leave unpicked at kickoff is a loss. Games that have not started remain available, and weeks before you entered are not scored against you.
+				</p>
+			</If>
+			<If cond={data.week_settled}>
+				<p class="pickem-rule-note pickem-rule-note--settled">
+					<strong>THIS WEEK IS SETTLED.</strong>
+					Every game below is closed. The sheet keeps the record: each row names the frozen line, the final score, and every call the league made on that game. Nothing here changes again.
+				</p>
+			</If>
 			<If cond={data.has_weeks}>
 				<div class="pickem-weeknav">
 					<If cond={data.has_prev_week}>

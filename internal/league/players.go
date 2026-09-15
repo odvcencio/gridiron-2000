@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -110,15 +111,23 @@ var playerPoolPositions = []string{"QB", "RB", "WR", "TE", "DST", "K", "P"}
 // constraint: search/filter here is a managed GET form; the declarative
 // client filter primitive is a future gosx addition).
 // playersPoolPageHref is poolPageHref's own /players-scoped sibling
-// (J1 F23), carrying "avail" alongside "pos"/"q"/"page" without widening
-// poolPageHref's own shared signature (board.go and the draft pool
-// fragment also call it, and neither carries an availability filter).
-func playersPoolPageHref(pos, query, avail string, page int) string {
+// (J1 F23), carrying "avail" and "sort" alongside "pos"/"q"/"page"
+// without widening poolPageHref's own shared signature (board.go and the
+// draft pool fragment also call it, and neither carries an availability
+// filter or a pool order). The order parameter is named "order" here and
+// not "sort" so it cannot shadow the sort package this file imports.
+func playersPoolPageHref(pos, query, avail, order string, page int) string {
 	href := poolPageHref("/players", pos, query, page)
-	if avail == "" {
+	values := url.Values{}
+	if avail != "" {
+		values.Set("avail", avail)
+	}
+	if param := playersSortParam(order); param != "" {
+		values.Set("sort", param)
+	}
+	if len(values) == 0 {
 		return href
 	}
-	values := url.Values{"avail": {avail}}
 	if strings.Contains(href, "?") {
 		return href + "&" + values.Encode()
 	}
@@ -128,17 +137,120 @@ func playersPoolPageHref(pos, query, avail string, page int) string {
 // playersAvailHref is the "Free agents"/"All players" toggle's own link
 // target: always page 1 (a filter change starts the list over, the same
 // rule positionFilterTabs' own hrefs already follow).
-func playersAvailHref(pos, query, avail string) string {
-	return playersPoolPageHref(pos, query, avail, 1)
+func playersAvailHref(pos, query, avail, order string) string {
+	return playersPoolPageHref(pos, query, avail, order, 1)
 }
 
-func positionFilterTabs(active, query string) []map[string]any {
+// playersSortHref is the order toggle's own link target. Like the
+// availability toggle it returns to page 1: a reorder makes the page
+// number meaningless.
+func playersSortHref(pos, query, avail, order string) string {
+	return playersPoolPageHref(pos, query, avail, order, 1)
+}
+
+// playersSortParam is the only place that decides whether a link, a form,
+// or a redirect carries "sort" at all. Last week's points is the default,
+// so only the rank order needs saying; an absent parameter already means
+// the default, and spelling it out would put "?sort=week" on every link on
+// the page for no added truth.
+func playersSortParam(order string) string {
+	if strings.EqualFold(strings.TrimSpace(order), "rank") {
+		return "rank"
+	}
+	return ""
+}
+
+// positionFilterTabs carries the caller's availability filter and pool
+// order into every tab. A position tab used to drop both, so choosing RB
+// silently reverted the pool to every rostered player in rank order --
+// two filters the manager never touched.
+func positionFilterTabs(active, query, avail, order string) []map[string]any {
 	tabs := make([]map[string]any, 0, len(playerPoolPositions)+1)
-	tabs = append(tabs, map[string]any{"label": "ALL", "href": poolPageHref("/players", "", query, 1), "active": active == ""})
+	tabs = append(tabs, map[string]any{"label": "ALL", "href": playersPoolPageHref("", query, avail, order, 1), "active": active == ""})
 	for _, pos := range playerPoolPositions {
-		tabs = append(tabs, map[string]any{"label": pos, "href": poolPageHref("/players", pos, query, 1), "active": active == pos})
+		tabs = append(tabs, map[string]any{"label": pos, "href": playersPoolPageHref(pos, query, avail, order, 1), "active": active == pos})
 	}
 	return tabs
+}
+
+// poolWeekPointsLabel is the pool's points column header: the week it
+// reports, named, so a manager never has to guess which week a number
+// belongs to. A zero week means nothing has posted yet.
+func poolWeekPointsLabel(week int) string {
+	if week <= 0 {
+		return "PTS"
+	}
+	return fmt.Sprintf("W%d PTS", week)
+}
+
+// poolWeekPointsNote explains the column in one sentence, including the
+// one case where the number is not a finished week's total.
+func poolWeekPointsNote(week int, complete bool) string {
+	switch {
+	case week <= 0:
+		return "No week has posted stats yet, so the pool keeps its market rank order."
+	case complete:
+		return fmt.Sprintf("W%d PTS — what each player actually scored in week %d, under this league's scoring. The pool is ordered by it.", week, week)
+	}
+	return fmt.Sprintf("W%d PTS — what each player has scored in week %d so far. That week is still running, so these totals can still move.", week, week)
+}
+
+// poolScoredWeekLookback bounds poolScoredWeek's walk back through the
+// schedule. In every ordinary week the previous one is already complete,
+// so the walk ends on its first or second step; a gap wider than this
+// means the weekly stats mirror needs attention, not the pool.
+const poolScoredWeekLookback = 3
+
+// nflWeeksAllFinal reports, per NFL week, whether every game scheduled in
+// that week has gone final. A week absent from games is absent here.
+func nflWeeksAllFinal(games []GameInfo) map[int]bool {
+	scheduled := make(map[int]int, 20)
+	finished := make(map[int]int, 20)
+	for _, game := range games {
+		if game.Week <= 0 {
+			continue
+		}
+		scheduled[game.Week]++
+		if game.Final {
+			finished[game.Week]++
+		}
+	}
+	out := make(map[int]bool, len(scheduled))
+	for week, count := range scheduled {
+		out[week] = finished[week] == count
+	}
+	return out
+}
+
+// poolScoredWeek picks the week the player pool reports and orders by: the
+// most recent NFL week whose every game has gone final -- "last week" as a
+// manager means it. Before any week has completed (opening Sunday), it
+// falls back to the most recent week carrying posted stats, so the column
+// shows real production instead of nothing at all. complete says which of
+// the two the caller got, so the label can say so too. A zero week means no
+// week has posted anything yet; the pool then keeps its own rank order.
+func (s *Service) poolScoredWeek(games []GameInfo, now time.Time) (week int, lines []WeekStatLine, complete bool) {
+	source := s.weekStatsSource()
+	if source == nil {
+		return 0, nil, false
+	}
+	allFinal := nflWeeksAllFinal(games)
+	current := pickemWeekAt(games, now)
+	var fallbackWeek int
+	var fallbackLines []WeekStatLine
+	for candidate := current; candidate >= 1 && candidate > current-poolScoredWeekLookback; candidate-- {
+		posted := source(candidate)
+		if len(posted) == 0 {
+			continue
+		}
+		if allFinal[candidate] {
+			return candidate, posted, true
+		}
+		if fallbackWeek == 0 {
+			fallbackWeek, fallbackLines = candidate, posted
+		}
+	}
+	return fallbackWeek, fallbackLines, false
 }
 
 // playerSearchText is the normalized search text shared by pool maps and
@@ -284,6 +396,18 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	}
 	availFree := avail == "free"
 
+	// sort (owner directive, 2026-09-14): in season the wire question is
+	// "who produced", not "who was drafted highest", so the pool orders by
+	// last week's posted points by default. "?sort=rank" returns to the
+	// pool's own market/house order, which is what the pre-season and
+	// draft-prep reading of this page wants.
+	sortMode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort")))
+	if sortMode != "rank" {
+		sortMode = "week"
+	}
+	scoredWeek, scoredLines, scoredComplete := s.poolScoredWeek(games, now)
+	scoredByKey := weekStatLinesByKey(scoredLines)
+
 	myRoster := currentRosters(state)[teamID]
 	preset := CurrentRoster()
 	rosterCap := preset.Total()
@@ -298,7 +422,14 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	// row, matching scoringValues/matchup above.
 	drafted := draftedByPlayerID(state)
 
-	rows := make([]map[string]any, 0, len(pool.players))
+	// poolEntry keeps each row beside the number the pool orders by, so the
+	// sort never has to read a formatted string back out of the row map.
+	type poolEntry struct {
+		row    map[string]any
+		points float64
+		scored bool
+	}
+	entries := make([]poolEntry, 0, len(pool.players))
 	for _, player := range pool.players {
 		if pos != "" && pos != "ALL" && player.Position != pos {
 			continue
@@ -370,7 +501,44 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		row["drop_locked"] = dropLocked
 		row["drop_lock_reason"] = dropLockReason
 		row["can_drop"] = canEdit && open && rostered && ownerID == teamID && !dropLocked
-		rows = append(rows, row)
+
+		// week_points is what this player actually scored in the reported
+		// week, under this league's own scoring values, through the same
+		// scorePlayerStats engine the matchup ledger uses -- never the
+		// Player.Points field, which no source populates (see
+		// weeklyPlayerPointsText). A player with no posted line reads "—",
+		// which is a different claim from a real "0.0".
+		weekPoints, scored := 0.0, false
+		if scoredWeek > 0 {
+			if line, joined := scoredByKey[playerStatKey(player)]; joined {
+				weekPoints, scored = scorePlayerStats(line.Stats, scoringValues), true
+			}
+		}
+		row["week_points"] = "—"
+		if scored {
+			row["week_points"] = fmt.Sprintf("%.1f", weekPoints)
+		}
+		row["has_week_points"] = scored
+		entries = append(entries, poolEntry{row: row, points: weekPoints, scored: scored})
+	}
+
+	// A player who posted a line outranks one who did not, whatever the
+	// number: an unscored row means "did not play, or nothing posted", which
+	// is not the same as a bad game and must not sort between two real
+	// results. SliceStable keeps the pool's own market/house order intact
+	// inside each tie and across the whole unscored block, so "rank" order
+	// is exactly what remains when no week has posted anything.
+	if sortMode == "week" {
+		sort.SliceStable(entries, func(i, j int) bool {
+			if entries[i].scored != entries[j].scored {
+				return entries[i].scored
+			}
+			return entries[i].points > entries[j].points
+		})
+	}
+	rows := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		rows = append(rows, entry.row)
 	}
 	pagination := newPoolPagination(len(rows), r.URL.Query().Get("page"))
 	rows = rows[pagination.Start:pagination.End]
@@ -512,11 +680,17 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		"free_agency_open":   open,
 		"add_locked_reason":  addLockedReason,
 		"pos":                pos,
-		"positions":          positionFilterTabs(pos, rawQuery),
+		"positions":          positionFilterTabs(pos, rawQuery, availRaw, sortMode),
 		"query":              rawQuery,
 		"avail":              avail,
-		"avail_free_href":    playersAvailHref(pos, rawQuery, "free"),
-		"avail_all_href":     playersAvailHref(pos, rawQuery, "all"),
+		"avail_free_href":    playersAvailHref(pos, rawQuery, "free", sortMode),
+		"avail_all_href":     playersAvailHref(pos, rawQuery, "all", sortMode),
+		"sort":               sortMode,
+		"sort_week_href":     playersSortHref(pos, rawQuery, availRaw, "week"),
+		"sort_rank_href":     playersSortHref(pos, rawQuery, availRaw, "rank"),
+		"week_points_week":   scoredWeek,
+		"week_points_label":  poolWeekPointsLabel(scoredWeek),
+		"week_points_note":   poolWeekPointsNote(scoredWeek, scoredComplete),
 		"players":            rows,
 		"players_empty":      pagination.Total == 0,
 		"pool_total":         pagination.Total,
@@ -528,8 +702,8 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		"pool_page_end":      pagination.End,
 		"pool_has_previous":  pagination.HasPrevious,
 		"pool_has_next":      pagination.HasNext,
-		"pool_previous_href": playersPoolPageHref(pos, rawQuery, availRaw, pagination.Page-1),
-		"pool_next_href":     playersPoolPageHref(pos, rawQuery, availRaw, pagination.Page+1),
+		"pool_previous_href": playersPoolPageHref(pos, rawQuery, availRaw, sortMode, pagination.Page-1),
+		"pool_next_href":     playersPoolPageHref(pos, rawQuery, availRaw, sortMode, pagination.Page+1),
 		"pool_status":        s.poolFreshnessMap(pool),
 		"at_cap":             atCap,
 		// roster_size is the effective draftable count (general + reserve),

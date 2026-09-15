@@ -37,6 +37,14 @@ type pickemGameRowView struct {
 	Game   league.PickemGameRow
 	Action string
 	CSRF   string
+	// LeaguePicks is lifted out of Game to PickemRow's own top-level
+	// props. A strict component iterates a typed struct slice that its
+	// props name directly (app/team/page.gsx's own Breakdown precedent);
+	// reaching one through a nested struct field is not the same proved
+	// shape, so the ledger travels beside Game rather than inside it.
+	LeaguePicks    []league.PickemGamePickView
+	HasLeaguePicks bool
+	LeaguePickLead string
 }
 
 // pickemGameRowViews bakes the one request-scoped state every row needs
@@ -44,9 +52,38 @@ type pickemGameRowView struct {
 func pickemGameRowViews(games []league.PickemGameRow, actionPath, csrfToken string) []pickemGameRowView {
 	out := make([]pickemGameRowView, 0, len(games))
 	for _, game := range games {
-		out = append(out, pickemGameRowView{Game: game, Action: actionPath, CSRF: csrfToken})
+		out = append(out, pickemGameRowView{
+			Game:           game,
+			Action:         actionPath,
+			CSRF:           csrfToken,
+			LeaguePicks:    game.LeaguePicks,
+			HasLeaguePicks: game.HasLeaguePicks,
+			LeaguePickLead: pickemLedgerLead(game),
+		})
 	}
 	return out
+}
+
+// pickemLedgerLead is the one-line heading above a locked row's league
+// ledger. It names what the list is for -- the permanent record of who
+// called this game -- and, once the game is final, how the league did on
+// it, so a settled sheet reads at a glance without counting glyphs.
+func pickemLedgerLead(game league.PickemGameRow) string {
+	if len(game.LeaguePicks) == 0 {
+		return ""
+	}
+	hits, misses := 0, 0
+	for _, entry := range game.LeaguePicks {
+		if entry.Correct {
+			hits++
+		} else if entry.Wrong {
+			misses++
+		}
+	}
+	if hits+misses == 0 {
+		return fmt.Sprintf("LEAGUE CALLS · %d IN", len(game.LeaguePicks))
+	}
+	return fmt.Sprintf("LEAGUE CALLS · %d HIT · %d MISSED", hits, misses)
 }
 
 // pickemWeekValue accepts only a positive, canonical week number from a
@@ -201,7 +238,14 @@ func init() {
 			// sign-in prompt in that same section, not a pick control,
 			// so a bar action would send them somewhere with nothing to
 			// do.
-			if canPick, _ := data["can_pick"].(bool); canPick {
+			//
+			// has_open_games (PickemData) gates it a second way: a
+			// settled week's sheet is a record, not a form, so it must
+			// not offer an action whose target holds nothing but
+			// disabled controls.
+			canPick, _ := data["can_pick"].(bool)
+			hasOpenGames, _ := data["has_open_games"].(bool)
+			if canPick && hasOpenGames {
 				data["primary_action"] = map[string]any{
 					"label": "Make your picks",
 					"href":  "#pickem-slate",

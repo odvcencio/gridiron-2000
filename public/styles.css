@@ -5212,6 +5212,18 @@ body.is-on-clock .draft-clock-panel {
   gap: var(--space-xs);
 }
 
+/* .pool-order-filter is the pool's order toggle: two buttons behind one
+   short label. .position-filters above is a bare wrapping flex row built
+   for buttons alone, so the label needs its own baseline alignment or it
+   strands itself on the line above them. */
+.pool-order-filter {
+  align-items: center;
+}
+
+.pool-order-filter > .section-index {
+  margin-right: 0.15rem;
+}
+
 .position-filters > .filter-button {
   min-width: 44px;
   min-inline-size: 44px;
@@ -5282,15 +5294,18 @@ body.is-on-clock .draft-clock-panel {
   background: var(--color-white-faint);
 }
 
-/* .pool-row--status (defect 3, wave-1 UI repair): a 6-track variant for
-   the /players main pool row, which renders one extra child (the
-   rostered/waivers/free-agent status chip) that .pool-row's 5 tracks
-   never accounted for. Kept alongside .pool-row, not instead of it, so
-   the position-filter and search-miss selectors above (which key off
+/* .pool-row--status (defect 3, wave-1 UI repair): a 7-track variant for
+   the /players main pool row, which renders two extra children that
+   .pool-row's 5 tracks never accounted for — the rostered/waivers/
+   free-agent status chip, and (2026-09-14) the week-points cell beside
+   the projection. Kept alongside .pool-row, not instead of it, so the
+   position-filter and search-miss selectors above (which key off
    .pool-row) keep matching. Reference idiom: N children, N tracks — see
-   /draft (5/5) and /board (6/6). */
+   /draft (5/5) and /board (6/6). The F6 rule near the end of this file
+   restates these tracks and is the declaration that actually wins; the
+   two must stay in step. */
 .pool-row--status {
-  grid-template-columns: 3rem minmax(12rem, 1fr) 3.5rem 4rem 8rem 5rem;
+  grid-template-columns: 3rem minmax(11rem, 1fr) 3.5rem 4rem 4rem 8rem minmax(5rem, auto);
 }
 
 /* .pool-row--claim (defect 3, wave-1 UI repair): a 4-track variant for
@@ -7726,6 +7741,10 @@ body.is-on-clock .draft-clock-panel {
     grid-row: 2;
   }
 
+  /* The week-points cell (child 5) joins the position/projection line
+     rather than claiming a line of its own, so the seventh child costs
+     the row one extra line, not two: status keeps line 3 and the action
+     controls move to line 4. */
   .pool-row--status > *:nth-child(5) {
     grid-column: 3;
     grid-row: 2;
@@ -7734,6 +7753,11 @@ body.is-on-clock .draft-clock-panel {
   .pool-row--status > *:nth-child(6) {
     grid-column: 1 / 4;
     grid-row: 3;
+  }
+
+  .pool-row--status > *:nth-child(7) {
+    grid-column: 1 / 4;
+    grid-row: 4;
   }
 
   .roster-row {
@@ -16091,7 +16115,7 @@ a.skip-link {
    row rule is this block's own to edit in place — if either changes its
    own track widths later, this pair needs a matching update. */
 .pool-labels--status {
-  grid-template-columns: 3rem minmax(12rem, 1fr) 3.5rem 4rem 8rem 5rem;
+  grid-template-columns: 3rem minmax(11rem, 1fr) 3.5rem 4rem 4rem 8rem minmax(5rem, auto);
 }
 
 .board-labels {
@@ -17765,11 +17789,32 @@ a.skip-link {
    bottoms out at the short button/chip content already there) while
    letting THIS row's own column grow to fit an open confirmation panel —
    each .pool-row--status is its own independent grid, so this never
-   widens any OTHER row's action column. The row's own minmax(12rem, 1fr)
+   widens any OTHER row's action column. The row's own minmax(11rem, 1fr)
    name column absorbs the difference; it never drops below its own
-   12rem floor. */
+   11rem floor.
+   2026-09-14: the row grew a seventh child (the week-points cell beside
+   the projection), so this rule lists seven tracks too. It is the LAST
+   .pool-row--status grid-template-columns declaration in this file and
+   therefore the one that actually applies — the base rule near the top
+   must stay in step with it, never ahead of it. */
 .pool-row--status {
-  grid-template-columns: 3rem minmax(12rem, 1fr) 3.5rem 4rem 8rem minmax(5rem, auto);
+  grid-template-columns: 3rem minmax(11rem, 1fr) 3.5rem 4rem 4rem 8rem minmax(5rem, auto);
+}
+
+/* An OPEN add-and-drop confirmation takes the row's own full width
+   instead of competing for the action track. Its panel is a sentence, a
+   checkbox label, and a CONFIRM button; that content has a real
+   intrinsic width (measured 271px) which the action track cannot always
+   grow to, and .board-controls' own justify-content: end turns every
+   shortfall into an overlap running LEFT across the status chip beside
+   it -- the same collision F6 above fixed for the six-track row, back
+   the moment a seventh track left the action column less room. Giving
+   the open panel its own line ends the contest rather than re-tuning it
+   each time the row grows a column; a closed row is untouched, so the
+   compact action cell every other row shows is exactly as it was. */
+.pool-row--status:has(.action-confirmation[open]) > .board-controls {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
 }
 
 /* F3: at phone width, .rank-row--wide (the /trades inbox/outbox/pending-
@@ -21313,4 +21358,156 @@ body.is-on-clock .draft-command__pill-sentence {
     margin-left: 0;
     justify-self: end;
   }
+}
+
+/* The Pick'em sheet as a permanent record.
+
+   .pickem-week-record names which record the sheet is serving (OPEN, IN
+   PROGRESS, FINAL) and, once graded, who took the week. .pickem-ledger is
+   the per-game version of the same idea: the consensus bar above it says
+   how many of the league took each side, the ledger says who took it and
+   how it graded. Both mount only after a game locks, so neither leaks a
+   pick while a game is still open, and neither empties again afterwards —
+   an old week's sheet keeps serving the record it settled on.
+
+   The outcome colors reuse .pickem-hit/.pickem-miss's own accent and
+   accent-hot rather than introducing a fourth state palette, and every
+   outcome also carries its own word (WIN, LOSS, MISSED LOSS, VOID), so
+   the state never rests on color alone. */
+.pickem-week-record {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-white-faint);
+}
+
+.pickem-week-record[data-state="FINAL"] {
+  border-left-color: var(--color-accent);
+}
+
+.pickem-week-record[data-state="IN PROGRESS"] {
+  border-left-color: var(--color-accent-cyan);
+}
+
+.pickem-week-record p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.pickem-week-record__winner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem var(--space-xs);
+  margin-top: 0.15rem;
+}
+
+.pickem-week-record__mark {
+  color: var(--color-accent);
+  font-size: var(--type-md);
+  line-height: 1;
+}
+
+.pickem-week-record__winner b {
+  color: var(--color-accent);
+}
+
+/* The settled note replaces the pick rule note on a closed week, so it
+   reads as a record rather than an instruction: the same block, keyed to
+   the FINAL state color .pickem-week-record already uses. */
+.pickem-rule-note--settled {
+  border-left-color: var(--color-accent-cyan);
+}
+
+.pickem-ledger {
+  /* .pickem-row is a five-column grid at desktop width and a wrapping
+     flex row inside the 54rem, 56.25-68.75rem, and short-viewport
+     queries, so the ledger claims a full line of its own both ways:
+     grid-column for the grid, flex-basis for the flex rows (each is
+     inert in the other layout). */
+  grid-column: 1 / -1;
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.45rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.pickem-ledger__lead {
+  color: var(--color-text-muted);
+  font-size: var(--type-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.pickem-ledger__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pickem-ledger__entry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  min-width: 0;
+  /* A chip never outgrows the row it wraps inside, whatever the name
+     length: the phone slate measures 390px, and the row already sits
+     inside the page's own side padding. */
+  max-width: 100%;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-white-faint);
+  font-size: var(--type-2xs);
+}
+
+.pickem-ledger__entry[data-viewer="true"] {
+  border-color: var(--color-accent-cyan);
+}
+
+/* A long manager name (the textflow wave's own "Management Committee of
+   the Norte y Sur Division" fixture) clamps here in CSS rather than
+   through <TextBlock>, because this label repeats once per entrant per
+   locked game inside a region that re-polls every four seconds — see the
+   measured comparison on the ledger entry in app/pickem/page.gsx. The vw
+   term keeps a chip inside a 390px phone row; the rem term keeps a full
+   name readable on a wide one. */
+.pickem-ledger__who {
+  min-width: 0;
+  max-width: min(14rem, 38vw);
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pickem-ledger__call {
+  color: var(--color-text-primary);
+  font-weight: 700;
+}
+
+.pickem-ledger__state {
+  color: var(--color-text-muted);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.pickem-ledger__entry[data-outcome="win"] .pickem-ledger__state {
+  color: var(--color-accent);
+}
+
+.pickem-ledger__entry[data-outcome="loss"] .pickem-ledger__state,
+.pickem-ledger__entry[data-outcome="missed_loss"] .pickem-ledger__state {
+  color: var(--color-accent-hot);
 }

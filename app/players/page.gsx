@@ -267,6 +267,8 @@ func PlayerPoolRegion() Node {
 			<If cond={data.pos != ""}>
 				<input type="hidden" name="pos" value={data.pos}></input>
 			</If>
+			<input type="hidden" name="avail" value={data.avail}></input>
+			<input type="hidden" name="sort" value={data.sort}></input>
 			<If cond={data.pool_page > 1}>
 				<input type="hidden" name="page" value={data.pool_page}></input>
 			</If>
@@ -296,6 +298,14 @@ func PlayerPoolRegion() Node {
 			<div class="position-filters pool-availability-filter" aria-label="Filter by availability">
 				<a href={data.avail_free_href} data-gosx-link class="filter-button" aria-current={data.avail == "free"}>Free agents</a>
 				<a href={data.avail_all_href} data-gosx-link class="filter-button" aria-current={data.avail != "free"}>All players</a>
+			</div>
+			{/* The pool leads with production, not draft market rank: on the
+			    wire the question is who is scoring now. Rank order stays one
+			    click away for pre-season and draft-prep reading. */}
+			<div class="position-filters pool-order-filter" aria-label="Order the pool">
+				<span class="section-index">ORDER</span>
+				<a href={data.sort_week_href} data-gosx-link class="filter-button" aria-current={data.sort == "week"}>{data.week_points_label}</a>
+				<a href={data.sort_rank_href} data-gosx-link class="filter-button" aria-current={data.sort == "rank"}>Rank</a>
 			</div>
 			<div class="position-filters" aria-label="Filter the player pool by position">
 				<Each of={data.positions} as="tab">
@@ -334,12 +344,14 @@ func PlayerPoolRegion() Node {
 				<span>PLAYER</span>
 				<span>POS</span>
 				<span>PROJ</span>
+				<span>{data.week_points_label}</span>
 				<span>STATUS</span>
 				<span>ACTION</span>
 			</div>
 			<details class="pool-legend">
 				<summary>What do RK, PROJ, and H### mean?</summary>
 				<p>RK — rank by draft market (<abbr title="average draft position">ADP</abbr>), a 1-QB market that undervalues quarterbacks for this league's superflex roster. PROJ — projected points per game. H### — house rank: this league's own superflex-aware value order (your scoring and roster rules), shown beside a player's market rank whenever the two differ. <a href="/help#glossary" data-gosx-link>More terms in the glossary →</a></p>
+				<p>{data.week_points_note}</p>
 			</details>
 		</If>
 		<div class="pool-list pool-list--tall">
@@ -449,14 +461,20 @@ func PlayerPoolRegion() Node {
 					</span>
 					<span class="position-chip">{player.position}</span>
 					<b class="mono">{player.projection}</b>
+					{/* What the player actually scored in the reported week,
+					    beside the forecast for it. A player with no posted
+					    line reads "—": that is "did not play, or nothing
+					    posted", a different claim from a real 0.0, and the
+					    pool's order keeps the two apart the same way. */}
+					<b class="mono pool-week-points" data-scored={player.has_week_points}>{player.week_points}</b>
 					<If cond={player.rostered}>
-						<span class="position-chip position-chip--locked owner-chip" title={player.owner_name} aria-label={"Rostered by " + player.owner_name}><span class="owner-chip__abbr">{player.owner_abbr}</span><span class="owner-chip__name">{player.owner_name}</span></span>
+						<span class="position-chip position-chip--locked owner-chip pool-status-chip" title={player.owner_name} aria-label={"Rostered by " + player.owner_name}><span class="owner-chip__abbr">{player.owner_abbr}</span><span class="owner-chip__name">{player.owner_name}</span></span>
 					</If>
 					<If cond={player.on_waivers}>
-						<span class="position-chip">ON WAIVERS · {player.waiver_resolves}</span>
+						<span class="position-chip pool-status-chip">ON WAIVERS · {player.waiver_resolves}</span>
 					</If>
 					<If cond={player.free_agent}>
-						<span class="position-chip">FREE AGENT</span>
+						<span class="position-chip pool-status-chip">FREE AGENT</span>
 					</If>
 					<If cond={data.can_edit}>
 					<div class="board-controls">
@@ -467,6 +485,8 @@ func PlayerPoolRegion() Node {
 								<input type="hidden" name="player_id" value={player.id}></input>
 								<input type="hidden" name="pos" value={data.pos}></input>
 								<input type="hidden" name="q" value={data.query}></input>
+								<input type="hidden" name="avail" value={data.avail}></input>
+								<input type="hidden" name="sort" value={data.sort}></input>
 								<input type="hidden" name="page" value={data.pool_page}></input>
 								<If cond={player.needs_drop}>
 									<select name="drop_id" aria-label={"Choose a player to drop for " + player.name}>
@@ -499,6 +519,8 @@ func PlayerPoolRegion() Node {
 								<input type="hidden" name="player_id" value={player.id}></input>
 								<input type="hidden" name="pos" value={data.pos}></input>
 								<input type="hidden" name="q" value={data.query}></input>
+								<input type="hidden" name="avail" value={data.avail}></input>
+								<input type="hidden" name="sort" value={data.sort}></input>
 								<input type="hidden" name="page" value={data.pool_page}></input>
 								<If cond={player.needs_drop}>
 									<select name="drop_id" aria-label={"Choose a player to drop for " + player.name}>
@@ -546,6 +568,8 @@ func PlayerPoolRegion() Node {
 								<input type="hidden" name="player_id" value={player.id}></input>
 								<input type="hidden" name="pos" value={data.pos}></input>
 								<input type="hidden" name="q" value={data.query}></input>
+								<input type="hidden" name="avail" value={data.avail}></input>
+								<input type="hidden" name="sort" value={data.sort}></input>
 								<input type="hidden" name="page" value={data.pool_page}></input>
 								<details class="action-confirmation">
 									<summary>{"Drop " + player.name}</summary>
@@ -701,6 +725,8 @@ func WaiverDeskRegion() Node {
 									<input type="hidden" name="direction" value="up"></input>
 									<input type="hidden" name="pos" value={data.pos}></input>
 									<input type="hidden" name="q" value={data.query}></input>
+									<input type="hidden" name="avail" value={data.avail}></input>
+									<input type="hidden" name="sort" value={data.sort}></input>
 									<input type="hidden" name="page" value={data.pool_page}></input>
 									<button class="board-button" type="submit" aria-label={"Move claim for " + claim.add_name + " up one position"}>Move up</button>
 								</form>
@@ -713,6 +739,8 @@ func WaiverDeskRegion() Node {
 									<input type="hidden" name="direction" value="down"></input>
 									<input type="hidden" name="pos" value={data.pos}></input>
 									<input type="hidden" name="q" value={data.query}></input>
+									<input type="hidden" name="avail" value={data.avail}></input>
+									<input type="hidden" name="sort" value={data.sort}></input>
 									<input type="hidden" name="page" value={data.pool_page}></input>
 									<button class="board-button" type="submit" aria-label={"Move claim for " + claim.add_name + " down one position"}>Move down</button>
 								</form>
@@ -723,6 +751,8 @@ func WaiverDeskRegion() Node {
 								<input type="hidden" name="claim_id" value={claim.id}></input>
 								<input type="hidden" name="pos" value={data.pos}></input>
 								<input type="hidden" name="q" value={data.query}></input>
+								<input type="hidden" name="avail" value={data.avail}></input>
+								<input type="hidden" name="sort" value={data.sort}></input>
 								<input type="hidden" name="page" value={data.pool_page}></input>
 								<button class="board-button board-button--cut" type="submit" aria-label={"Cancel claim for " + claim.add_name}>Cancel</button>
 							</form>

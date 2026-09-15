@@ -1662,3 +1662,161 @@ func TestPlayersDataNamesTheAddLockReason(t *testing.T) {
 		t.Fatalf("post-draft add_locked_reason = %q, want empty (adds are live)", got)
 	}
 }
+
+// poolWeekOrderFixture seeds three pool players and one NFL week whose
+// games have all gone final, so the pool has a real "last week" to report
+// and rank by. The pool's own source order (market rank) is deliberately
+// the reverse of the scoring order, so a test that sees the scoring order
+// is seeing the sort, not the input.
+func poolWeekOrderFixture(t *testing.T, svc *Service, now time.Time, allFinal bool) {
+	t.Helper()
+	svc.now = func() time.Time { return now }
+	svc.SetPlayerSource(func() ([]Player, int64, string) {
+		return []Player{
+			{ID: "wr-quiet", Name: "Quiet Wideout", Position: "WR", NFLTeam: "BUF", ADPRank: 1, Projection: 18},
+			{ID: "wr-ok", Name: "Steady Wideout", Position: "WR", NFLTeam: "MIA", ADPRank: 2, Projection: 14},
+			{ID: "wr-boom", Name: "Boom Wideout", Position: "WR", NFLTeam: "NYJ", ADPRank: 3, Projection: 9},
+		}, 1, "live"
+	})
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{
+			{ID: "w1-a", Week: 1, Kickoff: now.Add(-72 * time.Hour), Away: "BUF", Home: "MIA", Final: true, ScoresPresent: true},
+			{ID: "w1-b", Week: 1, Kickoff: now.Add(-48 * time.Hour), Away: "NYJ", Home: "NE", Final: allFinal, ScoresPresent: allFinal},
+		}
+	})
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
+		if week != 1 {
+			return nil
+		}
+		return []WeekStatLine{
+			{Key: normalizePlayerKey("Boom Wideout", "WR"), Stats: map[string]float64{"recTD": 3, "recYards": 120}},
+			{Key: normalizePlayerKey("Steady Wideout", "WR"), Stats: map[string]float64{"recYards": 40}},
+		}
+	})
+}
+
+// TestPlayersPoolOrdersByLastWeekPoints is the owner directive's own
+// contract (2026-09-14): on the wire the question is who is producing, so
+// the pool leads with last week's posted points. A player with no posted
+// line sorts behind every player who has one -- "did not play" is not a
+// bad game -- and the pool's own market order survives inside that block.
+func TestPlayersPoolOrdersByLastWeekPoints(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	poolWeekOrderFixture(t, svc, now, true)
+
+	request, _ := http.NewRequest(http.MethodGet, "/players?avail=all", nil)
+	data := svc.PlayersData(request)
+	rows, _ := data["players"].([]map[string]any)
+	if len(rows) != 3 {
+		t.Fatalf("pool rendered %d rows, want 3", len(rows))
+	}
+	wantIDs := []string{"wr-boom", "wr-ok", "wr-quiet"}
+	wantPoints := []string{"30.0", "4.0", "—"}
+	for index, want := range wantIDs {
+		if rows[index]["id"] != want {
+			t.Fatalf("row %d id = %v, want %v (order: %v %v %v)", index, rows[index]["id"], want, rows[0]["id"], rows[1]["id"], rows[2]["id"])
+		}
+		if rows[index]["week_points"] != wantPoints[index] {
+			t.Fatalf("row %d week_points = %v, want %v", index, rows[index]["week_points"], wantPoints[index])
+		}
+	}
+	if rows[2]["has_week_points"] != false {
+		t.Fatal("a player with no posted stat line must not claim a week score")
+	}
+	if data["week_points_week"] != 1 || data["week_points_label"] != "W1 PTS" {
+		t.Fatalf("column header = %v / %v, want week 1 / W1 PTS", data["week_points_week"], data["week_points_label"])
+	}
+	if data["sort"] != "week" {
+		t.Fatalf("default sort = %v, want week", data["sort"])
+	}
+}
+
+// TestPlayersPoolRankOrderStaysAvailable keeps the pre-season and
+// draft-prep reading of this page one click away: "?sort=rank" restores
+// the pool's own market/house order, and every link on the page carries
+// that choice forward.
+func TestPlayersPoolRankOrderStaysAvailable(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	poolWeekOrderFixture(t, svc, now, true)
+
+	request, _ := http.NewRequest(http.MethodGet, "/players?avail=all&sort=rank", nil)
+	data := svc.PlayersData(request)
+	rows, _ := data["players"].([]map[string]any)
+	wantIDs := []string{"wr-quiet", "wr-ok", "wr-boom"}
+	for index, want := range wantIDs {
+		if rows[index]["id"] != want {
+			t.Fatalf("rank order row %d id = %v, want %v", index, rows[index]["id"], want)
+		}
+	}
+	if data["sort"] != "rank" {
+		t.Fatalf("sort = %v, want rank", data["sort"])
+	}
+	// The order must survive every navigation the page offers, or the
+	// next click silently reverts it.
+	for _, key := range []string{"avail_free_href", "avail_all_href", "pool_next_href", "sort_rank_href"} {
+		href, _ := data[key].(string)
+		if !strings.Contains(href, "sort=rank") {
+			t.Fatalf("%s = %q, want it to carry sort=rank", key, href)
+		}
+	}
+	tabs, _ := data["positions"].([]map[string]any)
+	for _, tab := range tabs {
+		href, _ := tab["href"].(string)
+		if !strings.Contains(href, "sort=rank") {
+			t.Fatalf("position tab %v href = %q, want it to carry sort=rank", tab["label"], href)
+		}
+	}
+	// The default order is the absent parameter, never "?sort=week" on
+	// every link on the page.
+	weekHref, _ := data["sort_week_href"].(string)
+	if strings.Contains(weekHref, "sort=") {
+		t.Fatalf("sort_week_href = %q, want the default order spelled as no parameter at all", weekHref)
+	}
+}
+
+// TestPoolScoredWeekPrefersACompletedWeek pins which week the column
+// reports. A week still running is a fallback, not the answer, and the
+// page says which of the two it got.
+func TestPoolScoredWeekPrefersACompletedWeek(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+
+	poolWeekOrderFixture(t, svc, now, true)
+	week, lines, complete := svc.poolScoredWeek(svc.schedule(), now)
+	if week != 1 || len(lines) != 2 || !complete {
+		t.Fatalf("completed week = %d lines %d complete %v, want week 1 / 2 lines / complete", week, len(lines), complete)
+	}
+	if note, _ := svc.PlayersData(mustPlayersRequest())["week_points_note"].(string); !strings.Contains(note, "actually scored") {
+		t.Fatalf("completed-week note = %q, want it to claim a finished week", note)
+	}
+
+	// The same week with one game still to play is reported, but as the
+	// running total it is.
+	poolWeekOrderFixture(t, svc, now, false)
+	week, _, complete = svc.poolScoredWeek(svc.schedule(), now)
+	if week != 1 || complete {
+		t.Fatalf("running week = %d complete %v, want week 1 / not complete", week, complete)
+	}
+	note, _ := svc.PlayersData(mustPlayersRequest())["week_points_note"].(string)
+	if !strings.Contains(note, "still running") {
+		t.Fatalf("running-week note = %q, want it to say the week can still move", note)
+	}
+
+	// No stats source at all leaves the pool in its own order, with a
+	// column that claims nothing.
+	svc.SetWeekStatsSource(nil)
+	if week, _, _ := svc.poolScoredWeek(svc.schedule(), now); week != 0 {
+		t.Fatalf("week with no stats source = %d, want 0", week)
+	}
+	data := svc.PlayersData(mustPlayersRequest())
+	if data["week_points_label"] != "PTS" || data["week_points_week"] != 0 {
+		t.Fatalf("no-stats header = %v / week %v, want PTS / week 0", data["week_points_label"], data["week_points_week"])
+	}
+}
+
+func mustPlayersRequest() *http.Request {
+	request, _ := http.NewRequest(http.MethodGet, "/players?avail=all", nil)
+	return request
+}

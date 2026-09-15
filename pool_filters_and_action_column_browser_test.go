@@ -171,7 +171,12 @@ func TestBrowserPlayersActionColumnDoesNotOverlapStatusChip(t *testing.T) {
 				if (!det) return true; // lost the row: fail loudly, not silently.
 				var row = det.closest('.pool-row--status');
 				if (!row) return true;
-				var statusChip = row.children[4];
+				// The status cell carries .pool-status-chip (app/players/
+				// page.gsx) so this reads the right cell whatever the row's
+				// child count is. It was row.children[4] until the row grew
+				// a week-points cell in that position.
+				var statusChip = row.querySelector('.pool-status-chip');
+				if (!statusChip) return true;
 				var a = det.getBoundingClientRect();
 				var b = statusChip.getBoundingClientRect();
 				return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom);

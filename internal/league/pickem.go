@@ -419,6 +419,112 @@ type PickemGameRow struct {
 	SpreadSource      string
 	ScoreDisplay      string
 	Consensus         PickemConsensusView
+	// LeaguePicks is the row's permanent record: every entrant's recorded
+	// call on this game, with each call's grade once the game is final. It
+	// is populated only after the game locks, under the same no-leak rule
+	// Consensus follows (pickemConsensus's doc comment), and it never
+	// empties again -- a settled week's sheet keeps serving the record.
+	LeaguePicks    []PickemGamePickView
+	HasLeaguePicks bool
+}
+
+// PickemGamePickView is one entrant's recorded call on one game, as a
+// locked or settled row renders it. It is the named, per-person record
+// PickemConsensusView only summarizes: the split bar says 62% took the
+// home side, this says who. Correct and Wrong are precomputed bools
+// rather than Outcome comparisons because PickemRow (page.gsx) is a
+// strict component, and its expressions support string concatenation
+// only, not a "==" comparison -- the same reason PickedAway/PickedHome
+// exist on PickemGameRow.
+type PickemGamePickView struct {
+	Name       string
+	PickLabel  string
+	HasPick    bool
+	Outcome    string
+	StateLabel string
+	Correct    bool
+	Wrong      bool
+	IsViewer   bool
+}
+
+// pickemGamePickLedger lists every entrant's call on one game, ordered by
+// name so two renders of the same settled week agree: a valid pick
+// renders as that pick, and an entrant who owed
+// this game a pick but never made one renders as NO PICK so the record
+// shows the miss instead of hiding it. Entrants who had not yet entered
+// the season when this game kicked off are absent -- the same
+// pickemGameIsObligation rule scoring already uses, so the ledger and the
+// leaderboard can never disagree.
+//
+// Callers must only invoke this once a game is locked. Like
+// pickemConsensus, the function does not gate on lock state itself;
+// pickemData is the single place that decides when a ledger may be built.
+func (s *Service) pickemGamePickLedger(state PersistedState, game GameInfo, market PickemMarket, allGames []GameInfo, viewerKey string, now time.Time) []PickemGamePickView {
+	type ledgerEntry struct {
+		owner string
+		view  PickemGamePickView
+	}
+	entries := make([]ledgerEntry, 0, len(state.Pickems))
+	for owner, picks := range state.Pickems {
+		pick := picks[game.ID]
+		enteredAt := effectivePickemEnteredAt(state, owner, allGames)
+		valid := validPick(game, pick)
+		if !valid && !pickemGameIsObligation(game, enteredAt) {
+			continue
+		}
+		grade := gradePickemAt(game, market, pick, enteredAt, now)
+		name := strings.TrimSpace(state.Members[owner].Name)
+		if name == "" {
+			name = strings.Split(owner, "@")[0]
+		}
+		label := pick
+		if !valid {
+			label = "NO PICK"
+		}
+		entries = append(entries, ledgerEntry{owner: owner, view: PickemGamePickView{
+			Name:       name,
+			PickLabel:  label,
+			HasPick:    valid,
+			Outcome:    string(grade.Outcome),
+			StateLabel: pickemLedgerStateLabel(grade),
+			Correct:    grade.Outcome == pickemWin,
+			Wrong:      grade.Outcome == pickemLoss || grade.Outcome == pickemMissedLoss,
+			IsViewer:   viewerKey != "" && owner == viewerKey,
+		}})
+	}
+	// Two entrants can share a display name, so the owner key breaks that
+	// tie: the order has to be total, not merely weak, or one settled
+	// week's record would shuffle between renders of the same truth.
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].view.Name != entries[j].view.Name {
+			return entries[i].view.Name < entries[j].view.Name
+		}
+		return entries[i].owner < entries[j].owner
+	})
+	out := make([]PickemGamePickView, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, entry.view)
+	}
+	return out
+}
+
+// pickemLedgerStateLabel is the short per-person grade the ledger prints
+// beside a name. It is deliberately terser than pickemResultLabel (the
+// row's own headline), which names the covering side; a ledger of eight
+// entrants repeats that side eight times, so the per-person line carries
+// only the outcome.
+func pickemLedgerStateLabel(grade pickemGrade) string {
+	switch grade.Outcome {
+	case pickemWin:
+		return "WIN"
+	case pickemLoss:
+		return "LOSS"
+	case pickemMissedLoss:
+		return "MISSED LOSS"
+	case pickemVoid:
+		return "VOID"
+	}
+	return "PENDING"
 }
 
 // pickemMarketUnavailable is the submission/rendering guard for a durable
@@ -661,6 +767,7 @@ func (s *Service) pickemData(r *http.Request, reconcile bool) map[string]any {
 	viewerPicks := state.Pickems[viewerKey]
 	viewerEnteredAt := effectivePickemEnteredAt(state, viewerKey, allGames)
 	pickedCount, unpickedCount := 0, 0
+	openCount, finalCount, voidCount := 0, 0, 0
 	games := make([]PickemGameRow, 0, len(weekGames))
 	for _, game := range weekGames {
 		pick := viewerPicks[game.ID]
@@ -684,8 +791,23 @@ func (s *Service) pickemData(r *http.Request, reconcile bool) map[string]any {
 			scoreDisplay = fmt.Sprintf("%d-%d", game.AwayScore, game.HomeScore)
 		}
 		consensus := hiddenConsensus()
+		var ledger []PickemGamePickView
 		if locked {
 			consensus = pickemConsensus(state, game)
+			// The record only opens after kickoff, under the same no-leak
+			// rule consensus follows, and it stays open from then on --
+			// this is what makes a past week's sheet a permanent record
+			// rather than an expired form.
+			ledger = s.pickemGamePickLedger(state, game, market, allGames, viewerKey, now)
+		}
+		if !locked && !marketUnavailable {
+			openCount++
+		}
+		if game.Final {
+			finalCount++
+		}
+		if marketUnavailable {
+			voidCount++
 		}
 		games = append(games, PickemGameRow{
 			ID:                game.ID,
@@ -716,35 +838,67 @@ func (s *Service) pickemData(r *http.Request, reconcile bool) map[string]any {
 			SpreadSource:      spreadSource,
 			ScoreDisplay:      scoreDisplay,
 			Consensus:         consensus,
+			LeaguePicks:       ledger,
+			HasLeaguePicks:    len(ledger) > 0,
 		})
 	}
 
 	seasonLeaderboard := s.pickemLeaderboard(state, allGames, allGames, now)
 	weekLeaderboard := s.pickemLeaderboard(state, weekGames, allGames, now)
 
+	// A week whose last game has gone final is a closed book: the sheet
+	// stops being a form and starts being the record. weekSettled drives
+	// that switch, and it can never flip back, because a final game never
+	// un-finals and a locked game never reopens.
+	weekSettled := len(games) > 0 && openCount == 0 && finalCount+voidCount >= len(games)
+	weekState := "OPEN"
+	weekStateNote := "Every game on this sheet accepts picks until its own kickoff."
+	switch {
+	case len(games) == 0:
+	case weekSettled:
+		weekState = "FINAL"
+		weekStateNote = fmt.Sprintf("Week %d is settled. This sheet is the permanent record of who called what.", week)
+	case openCount == 0:
+		weekState = "IN PROGRESS"
+		weekStateNote = "Every game on this sheet is locked. Results fill in as games go final."
+	// A locked game is never counted open, so any progress at all leaves
+	// fewer open games than the week has contested ones.
+	case openCount < len(games)-voidCount:
+		weekState = "IN PROGRESS"
+		weekStateNote = fmt.Sprintf("%d of %d games are locked. The rest accept picks until their own kickoff.", len(games)-voidCount-openCount, len(games)-voidCount)
+	}
+	weekWinnerNames, weekWinnerRecord, hasWeekWinner := pickemWeekWinner(weekLeaderboard)
+
 	seasonRecord := tallyPicks(allGames, state.PickemMarkets, viewerPicks, viewerEnteredAt, now)
 	weekRecord := tallyPicks(weekGames, state.PickemMarkets, viewerPicks, viewerEnteredAt, now)
 	streak := pickemStreak(allGames, state.PickemMarkets, viewerPicks, viewerEnteredAt, now)
 
 	return map[string]any{
-		"viewer":            s.Viewer(r),
-		"week":              week,
-		"current_week":      currentWeek,
-		"is_current_week":   week == currentWeek,
-		"has_prev_week":     hasPreviousWeek,
-		"prev_week_href":    previousWeekHref,
-		"has_next_week":     hasNextWeek,
-		"next_week_href":    nextWeekHref,
-		"current_week_href": "/pickem?week=" + strconv.Itoa(currentWeek),
-		"week_options":      weekOptions,
-		"has_weeks":         hasWeeks,
-		"week_notice":       weekNotice,
-		"has_week_notice":   weekNotice != "",
-		"can_pick":          viewerKey != "",
-		"games":             games,
-		"games_empty":       len(games) == 0,
-		"picked_count":      pickedCount,
-		"unpicked_count":    unpickedCount,
+		"viewer":             s.Viewer(r),
+		"week":               week,
+		"current_week":       currentWeek,
+		"is_current_week":    week == currentWeek,
+		"has_prev_week":      hasPreviousWeek,
+		"prev_week_href":     previousWeekHref,
+		"has_next_week":      hasNextWeek,
+		"next_week_href":     nextWeekHref,
+		"current_week_href":  "/pickem?week=" + strconv.Itoa(currentWeek),
+		"week_options":       weekOptions,
+		"has_weeks":          hasWeeks,
+		"week_notice":        weekNotice,
+		"has_week_notice":    weekNotice != "",
+		"can_pick":           viewerKey != "",
+		"games":              games,
+		"games_empty":        len(games) == 0,
+		"picked_count":       pickedCount,
+		"unpicked_count":     unpickedCount,
+		"has_open_games":     openCount > 0,
+		"week_settled":       weekSettled,
+		"week_state":         weekState,
+		"week_state_note":    weekStateNote,
+		"week_winner_names":  weekWinnerNames,
+		"week_winner_record": weekWinnerRecord,
+		"has_week_winner":    hasWeekWinner,
 		"record": map[string]any{
 			"week_correct":   weekRecord.Wins,
 			"week_total":     weekRecord.Wins + weekRecord.Losses,
@@ -838,6 +992,26 @@ func (s *Service) pickemLeaderboard(state PersistedState, games, entryGames []Ga
 	})
 	assignSharedRanks(out)
 	return out
+}
+
+// pickemWeekWinner names the leader (or every tied leader) of one week's
+// board, and that leader's record. It reads the already ranked, already
+// sorted board rather than re-tallying, so the sheet's record header and
+// the week leaderboard beneath it can never disagree. A board with no
+// graded win yet has no winner to name.
+func pickemWeekWinner(board []PickemLeaderboardEntry) (names, record string, ok bool) {
+	if len(board) == 0 || board[0].Wins == 0 {
+		return "", "", false
+	}
+	best := board[0].Wins
+	leaders := make([]string, 0, 2)
+	for _, entry := range board {
+		if entry.Wins != best {
+			break
+		}
+		leaders = append(leaders, entry.Name)
+	}
+	return strings.Join(leaders, " · "), fmt.Sprintf("%d-%d", board[0].Wins, board[0].Losses), true
 }
 
 // teamAbbreviation resolves a known team ID to its abbreviation, ignoring
