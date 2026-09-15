@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gridiron-2000/internal/league"
+	"gridiron-2000/internal/openstats"
 )
 
 // 2026-09-02 mobile-parity audit (elder), item 4: /players rendered no
@@ -91,8 +93,8 @@ func TestPlayersPoolColumnHeaderCountFixtureProcess(t *testing.T) {
 		t.Fatalf("could not find the header row's own closing tag: %s", body)
 	}
 	header := body[start : start+end]
-	if got := strings.Count(header, "<span>"); got != 6 {
-		t.Errorf("pool-labels header carries %d <span> cells, want 6 (rank/player/pos/proj/status/action, matching .pool-row--status' own 6 tracks): %s", got, header)
+	if got := strings.Count(header, "<span>"); got != 7 {
+		t.Errorf("pool-labels header carries %d <span> cells, want 7 (rank/player/pos/proj/week points/status/action, matching .pool-row--status' own 7 tracks): %s", got, header)
 	}
 }
 
@@ -136,5 +138,79 @@ func TestPlayersPoolCountAgreementFixtureProcess(t *testing.T) {
 	}
 	if strings.Contains(body, "1 players") {
 		t.Errorf("one-player pool copy says \"1 players\" — singular/plural disagreement: %s", body)
+	}
+}
+
+// TestPlayersPoolFragmentRowsShowTheWeekPointsCell is the owner
+// directive's own render contract (2026-09-14): every pool row carries a
+// week-points cell beside its projection, ordered highest first, and a
+// player with no posted stat line reads "—" rather than a claimed 0.0.
+// A fresh process isolates this test's SetPlayerSource fixture from
+// league.Default()'s sync.Once, the same way this file's own header test
+// above does.
+func TestPlayersPoolFragmentRowsShowTheWeekPointsCell(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestPlayersPoolWeekPointsCellFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"PLAYERS_POOL_WEEK_POINTS_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=",
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("players pool week-points fixture process: %v\n%s", err, output)
+	}
+}
+
+func TestPlayersPoolWeekPointsCellFixtureProcess(t *testing.T) {
+	if os.Getenv("PLAYERS_POOL_WEEK_POINTS_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	service := league.Default()
+	service.SetClockForTest(func() time.Time { return now })
+	t.Cleanup(func() { service.SetClockForTest(nil) })
+	service.SetPlayerSource(func() ([]league.Player, int64, string) {
+		return []league.Player{
+			{ID: "wr-quiet", Name: "Quiet Wideout", Position: "WR", NFLTeam: "BUF", ADPRank: 1, Projection: 18},
+			{ID: "wr-boom", Name: "Boom Wideout", Position: "WR", NFLTeam: "NYJ", ADPRank: 9, Projection: 9},
+		}, 1, "live"
+	})
+	service.SetScheduleSource(func() []league.GameInfo {
+		return []league.GameInfo{
+			{ID: "w1-a", Week: 1, Kickoff: now.Add(-72 * time.Hour), Away: "BUF", Home: "NYJ", Final: true, ScoresPresent: true},
+		}
+	})
+	service.SetWeekStatsSource(func(week int) []league.WeekStatLine {
+		if week != 1 {
+			return nil
+		}
+		return []league.WeekStatLine{
+			{Key: openstats.NormalizePlayerKey("Boom Wideout", "WR"), Stats: map[string]float64{"recTD": 2}},
+		}
+	})
+
+	handler := PlayersPoolFragmentHandler(service)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/players/fragment/pool?avail=all", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body: %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, "<span>W1 PTS</span>") {
+		t.Fatalf("header must name the week it reports: %s", body)
+	}
+	boomAt := strings.Index(body, `data-player-position="WR"`)
+	if boomAt < 0 {
+		t.Fatalf("no pool row rendered: %s", body)
+	}
+	if !strings.Contains(body, `class="mono pool-week-points" data-scored="true">12.0<`) {
+		t.Fatalf("a scored player must render the real week total: %s", body)
+	}
+	if !strings.Contains(body, `class="mono pool-week-points" data-scored="false">—<`) {
+		t.Fatalf("an unscored player must read an em dash, not a claimed 0.0: %s", body)
+	}
+	// The scoring order is the render order: the ADP-9 scorer leads the
+	// ADP-1 player who posted nothing.
+	if strings.Index(body, ">12.0<") > strings.Index(body, ">—<") {
+		t.Fatalf("pool rows must lead with last week's points: %s", body)
 	}
 }

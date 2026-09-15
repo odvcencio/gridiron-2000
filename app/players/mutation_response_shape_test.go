@@ -20,7 +20,7 @@ import (
 // Players action now answers through playersMutationSuccess, which always
 // redirects — matching the working team-rename/notification-set shape.
 func TestPlayersMutationSuccessAlwaysRedirects(t *testing.T) {
-	target := redirectTarget("RB", "chubb", "2")
+	target := redirectTarget("RB", "chubb", "free", "week", "2")
 	for _, tt := range []struct {
 		name   string
 		accept string

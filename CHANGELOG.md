@@ -6,6 +6,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- The player pool now shows what each player actually scored in the most recent completed NFL week, under this league's own scoring, in a column beside the projection. A player with no posted stat line reads "—", which is a different claim from a real 0.0.
+- The player pool is ordered by that number, highest first. On the waiver wire the question is who is producing, not who was drafted highest. A player with no posted line sorts behind every player who has one. `?sort=rank` returns to the market rank order, and a "Rank" control beside the availability filter does the same.
+
+### Fixed
+- A position tab on the player pool no longer drops the availability filter. Choosing RB reverted the list to every rostered player; it now keeps the filter and the order the manager chose.
+- Signing, dropping, or claiming a player now returns to the same pool view. The redirect preserved position and search but dropped the availability filter, so the list reshuffled under a manager who had just acted on it.
+
+### Added
 - Each Pick'em week sheet is now the permanent record of that week. After a game kicks off, its row names every entrant's call and how that call graded. A member who owed the game a pick and made none shows as NO PICK, so the record shows the miss. Before kickoff the row ships no record at all, under the same rule that already hides the consensus split.
 - The Pick'em sheet now states which record it serves: OPEN, IN PROGRESS, or FINAL. A graded week also names the week leader and that leader's record, read off the same weekly leaderboard below it.
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/action"
@@ -15,16 +16,26 @@ import (
 	"m31labs.dev/gosx/session"
 )
 
-// redirectTarget rebuilds "/players" with the acting row's pos/q filters
-// preserved, so a player-add/player-drop POST redirect lands back on the
-// same filtered view instead of resetting it.
-func redirectTarget(pos, query, page string) string {
+// redirectTarget rebuilds "/players" with the acting row's whole view
+// preserved -- position, search, availability, pool order, and page -- so a
+// player-add/player-drop POST redirect lands back where the manager acted
+// instead of resetting it. avail and sort join pos/q/page here because
+// either one reverting silently reshuffles the list under a manager who
+// just signed somebody off it.
+func redirectTarget(pos, query, avail, sort, page string) string {
 	values := url.Values{}
 	if pos != "" {
 		values.Set("pos", pos)
 	}
 	if query != "" {
 		values.Set("q", query)
+	}
+	if avail != "" {
+		values.Set("avail", avail)
+	}
+	// Only the non-default order needs saying; see league.playersSortParam.
+	if strings.EqualFold(strings.TrimSpace(sort), "rank") {
+		values.Set("sort", "rank")
 	}
 	if parsed, err := strconv.Atoi(page); err == nil && parsed > 1 {
 		values.Set("page", strconv.Itoa(parsed))
@@ -35,8 +46,14 @@ func redirectTarget(pos, query, page string) string {
 	return "/players?" + values.Encode()
 }
 
-func waiverRedirectTarget(pos, query, page string) string {
-	return redirectTarget(pos, query, page) + "#waivers"
+func waiverRedirectTarget(pos, query, avail, sort, page string) string {
+	return redirectTarget(pos, query, avail, sort, page) + "#waivers"
+}
+
+// playersFormView reads the acting form's own view fields in one place, so
+// every action below rebuilds the same target from the same five inputs.
+func playersFormView(ctx *action.Context) (pos, query, avail, sort, page string) {
+	return ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["avail"], ctx.FormData["sort"], ctx.FormData["page"]
 }
 
 // playersMutationSuccess always redirects, for both native and GoSX-managed
@@ -77,6 +94,13 @@ func playersFragmentURL(request *http.Request, kind string) string {
 		// paint. Carried through exactly like pos/q/page above.
 		if avail := query.Get("avail"); avail != "" {
 			values.Set("avail", avail)
+		}
+		// sort rides along for the identical reason avail does: the region
+		// refetches PlayersData from this URL alone, and a URL with no
+		// "sort" re-resolves the server default (last week's points),
+		// silently undoing an explicit "?sort=rank" seconds after paint.
+		if sort := query.Get("sort"); sort != "" {
+			values.Set("sort", sort)
 		}
 	}
 	target := "/players/fragment/" + kind
@@ -200,7 +224,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "players", "player_id", err)
 				}
-				return playersMutationSuccess(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
+				return playersMutationSuccess(ctx, redirectTarget(playersFormView(ctx)), message)
 			},
 			// player-drop applies the section 5.3 player-drop action.
 			"player-drop": func(ctx *action.Context) error {
@@ -208,7 +232,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "players", "player_id", err)
 				}
-				return playersMutationSuccess(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
+				return playersMutationSuccess(ctx, redirectTarget(playersFormView(ctx)), message)
 			},
 			// claim-file applies the section 5.3 claim-filing action. bid
 			// is only meaningful in faab mode; an empty field parses to 0,
@@ -220,7 +244,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "players", "player_id", err)
 				}
-				return playersMutationSuccess(ctx, waiverRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
+				return playersMutationSuccess(ctx, waiverRedirectTarget(playersFormView(ctx)), message)
 			},
 			// claim-cancel withdraws one of the acting team's own open
 			// claims (section 5.3).
@@ -229,7 +253,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "players", "claim_id", err)
 				}
-				return playersMutationSuccess(ctx, waiverRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
+				return playersMutationSuccess(ctx, waiverRedirectTarget(playersFormView(ctx)), message)
 			},
 			// claim-move changes only the authenticated team's private filing
 			// order; it never changes the public league waiver position.
@@ -238,7 +262,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "players", "claim_id", err)
 				}
-				return playersMutationSuccess(ctx, waiverRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
+				return playersMutationSuccess(ctx, waiverRedirectTarget(playersFormView(ctx)), message)
 			},
 		},
 	}); err != nil {
