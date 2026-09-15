@@ -30,14 +30,18 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.13-bdf28bd; built from
-          # bdf28bd4f7edacc233973004940dbbe2bce7bd93 (main): GoSX v0.56.3.
-          # Hide unavailable win estimates instead of showing a dash and
-          # "Estimate pending", while retaining the prior Matchups fixes.
+          # release-2026.09.15-bfeccff; built from
+          # bfeccff5547744190d0b42796382f8b98ddc9e60 (main): GoSX v0.56.3.
+          # Order the player pool by last week's posted points and show that
+          # total per row; make each Pick'em week sheet the permanent record
+          # of who called what, with the week's own OPEN/IN PROGRESS/FINAL
+          # state named on it.
           # No schema change; rollback to the previous image remains valid.
-          # Release build: 2026-09-14T05:39:39Z.
+          # Release build: 2026-09-15T04:59:06Z.
           # Only flagship rolls. The inactive SK deployment remains untouched.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:b3a0d2229fdcaaab4ebfed26059819a1c173c2b0abbae9b514c6f0d31f3bfcdf
+          # The statrelay image is unchanged: cmd/statrelay has no dependency
+          # on internal/league, so this release cannot reach it.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:f04cc4676952fadc68d30d106e6908b4c61f8e5a3e544d419d6634dccd2cabff
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
