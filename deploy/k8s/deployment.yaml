@@ -30,18 +30,24 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.15-bfeccff; built from
-          # bfeccff5547744190d0b42796382f8b98ddc9e60 (main): GoSX v0.56.3.
-          # Order the player pool by last week's posted points and show that
-          # total per row; make each Pick'em week sheet the permanent record
-          # of who called what, with the week's own OPEN/IN PROGRESS/FINAL
-          # state named on it.
+          # release-2026.09.15-6de625c; built from
+          # 6de625c3e66ebc4982b6176c3bf03111e0775866 (main): GoSX v0.56.3.
+          # Two manager-visible RULES changes, not only display: an outright
+          # free-agent signing now exists only in the dead window between the
+          # run that settles a week and the next week's first kickoff, and an
+          # agreed trade executes at the next daily processing run rather
+          # than the instant its review clock expires. Also: the league week
+          # closes itself once settled, and at a deadline when a feed stalls,
+          # so a force close is no longer needed to rescue a stuck week;
+          # punter/kicker/D-ST pool floors rise to the NFL's own 32.
           # No schema change; rollback to the previous image remains valid.
-          # Release build: 2026-09-15T04:59:06Z.
+          # Release build: 2026-09-15T06:55:59Z.
           # Only flagship rolls. The inactive SK deployment remains untouched.
           # The statrelay image is unchanged: cmd/statrelay has no dependency
           # on internal/league, so this release cannot reach it.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:f04cc4676952fadc68d30d106e6908b4c61f8e5a3e544d419d6634dccd2cabff
+          # On rollout the roster-ops tick closes any week whose games are
+          # final and whose stats have settled, within a minute of boot.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:6ba0ac9b8206507960f261bc441727d166cac07b44680e196a96e92c3a3ce8b7
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
