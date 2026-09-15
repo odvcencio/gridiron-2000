@@ -234,13 +234,21 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 	case !info.Ready:
 		info.Reason = "week is not ready to close yet"
 	}
-	// A blocked backstop outranks the ordinary reason: it is the only
-	// state that genuinely wants a commissioner's judgement, so it must
-	// not hide behind "waiting for 1 of 16 games to go final".
-	if info.AutoCloseBlocked != "" {
-		info.Reason = info.AutoCloseBlocked + "; closing now would score this week from stats that predate its own games"
-	} else if !info.Ready && info.HasAutoCloseAt && info.Reason != "" {
-		info.Reason += fmt.Sprintf(". It closes by itself %s if nothing changes, so a force close is only for closing it sooner.",
+	// The auto-close explanation rides in its own field, never folded into
+	// Reason. Reason is an allowlisted value on the fleet-facing HQ
+	// summary (safeWeekCloseReason, commissioner_summary.go): appending a
+	// formatted timestamp to it broke that exact match and replaced the
+	// real blocking cause with a generic "readiness is pending" for every
+	// operator reading the summary. Keeping the two apart lets the console
+	// show both and keeps the summary's own vetting intact.
+	switch {
+	case info.Final || info.Ready:
+	case info.AutoCloseBlocked != "":
+		info.AutoCloseNotice = info.AutoCloseBlocked +
+			", so this one waits for you: closing now would score the week from stats that predate its own games."
+	case info.HasAutoCloseAt:
+		info.AutoCloseNotice = fmt.Sprintf(
+			"This week closes by itself %s even if nothing else changes, so a force close is only for closing it sooner.",
 			info.AutoCloseAt.In(s.matchupLocation()).Format("Mon Jan 2, 3:04 PM MST"))
 	}
 	return info
@@ -569,6 +577,12 @@ type WeekCloseInfo struct {
 	// closing now would post a silently wrong score for every team. This
 	// is the one case that still wants a person.
 	AutoCloseBlocked string
+	// AutoCloseNotice is the commissioner-facing sentence about all of
+	// this: when the week settles itself, or why it is waiting for a
+	// person. It is deliberately separate from Reason, which names only
+	// the blocking condition and is allowlisted verbatim by the
+	// fleet-facing HQ summary.
+	AutoCloseNotice string
 }
 
 // SetStatsUpdatedSource attaches the open-stats freshness seam used by the

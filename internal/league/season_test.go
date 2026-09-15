@@ -527,3 +527,44 @@ func TestWeekProgressSentenceAppendsStaleFeedNoticeOnceAwaitingClose(t *testing.
 		t.Fatalf("awaiting-close sentence with a fresh feed = %q, want exactly %q", fresh, wantPrefix)
 	}
 }
+
+// TestWeekCloseReasonStaysAllowlistedWhileTheNoticeExplains guards the
+// regression the 2026-09-15 auto-close work introduced and this fixes:
+// the auto-close sentence was appended to Reason, which the fleet-facing
+// HQ summary allowlists verbatim (safeWeekCloseReason). The appended text
+// broke that exact match, so every operator reading the summary saw a
+// generic "week close readiness is pending" instead of the real blocking
+// cause. Reason must stay allowlisted; the explanation rides beside it.
+func TestWeekCloseReasonStaysAllowlistedWhileTheNoticeExplains(t *testing.T) {
+	svc := newTestService(t, true)
+	lastKickoff := time.Date(2026, 9, 14, 20, 20, 0, 0, time.UTC)
+	games := []GameInfo{
+		{ID: "w1", Week: 1, Kickoff: lastKickoff, Away: "DEN", Home: "KC", Final: true, ScoresPresent: true},
+		{ID: "w2", Week: 2, Kickoff: lastKickoff.Add(7 * 24 * time.Hour), Away: "NYJ", Home: "NE"},
+	}
+	svc.SetScheduleSource(func() []GameInfo { return games })
+	schedule, err := GenerateSchedule(ScheduleParams{Season: 2026, TeamIDs: teamIDList(svc.teams), StartWeek: 1, Weeks: 2})
+	if err != nil {
+		t.Fatalf("generate schedule: %v", err)
+	}
+	if err := svc.store.SetSchedule(schedule); err != nil {
+		t.Fatalf("save schedule: %v", err)
+	}
+	// Games final, but the ledger has not reached the 24h settle clause.
+	svc.SetStatsUpdatedSource(func() time.Time { return lastKickoff.Add(4 * time.Hour) })
+
+	info := svc.AdminWeekCloseInfo(1, lastKickoff.Add(6*time.Hour))
+	const want = "player stats are not yet 24 hours past the final kickoff"
+	if info.Reason != want {
+		t.Fatalf("Reason = %q, want exactly %q so the HQ summary passes it through", info.Reason, want)
+	}
+	if got := safeWeekCloseReason(info.Reason); got != want {
+		t.Fatalf("safeWeekCloseReason(%q) = %q, want it allowlisted verbatim", info.Reason, got)
+	}
+	if info.AutoCloseNotice == "" || !strings.Contains(info.AutoCloseNotice, "closes by itself") {
+		t.Fatalf("AutoCloseNotice = %q, want the self-close sentence", info.AutoCloseNotice)
+	}
+	if !info.HasAutoCloseAt {
+		t.Fatal("a week with real kickoff times must name when it closes itself")
+	}
+}
