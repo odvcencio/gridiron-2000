@@ -743,12 +743,16 @@ func tradeAssetsFixturePool() map[string]Player {
 
 func tradeAssetsFixtureGames(now time.Time) []GameInfo {
 	return []GameInfo{
-		// PIT's kickoff sits 48h out — well past every accept-to-execution
-		// window this file's Service-level tests drive (up to +25h) — so a
-		// PIT player stays unlocked through the whole review window; TB's
-		// kickoff already passed, so a TB player (t1-locked) is locked at
-		// every instant these tests use, for T6's direct fixture checks.
-		{ID: "g-pit", Week: 1, Kickoff: now.Add(48 * time.Hour), Away: "PIT", Home: "NYJ"},
+		// PIT's kickoff sits 120h out — well past every accept-to-execution
+		// window this file's Service-level tests drive. That window grew on
+		// 2026-09-15: an agreed trade now waits for the league's next daily
+		// processing run after its review clock expires (tradeExecutesAt),
+		// which can be most of a day later than the bare expiry, so the old
+		// 48h cushion no longer cleared it. A PIT player stays unlocked
+		// through the whole review-and-run window; TB's kickoff already
+		// passed, so a TB player (t1-locked) is locked at every instant
+		// these tests use, for T6's direct fixture checks.
+		{ID: "g-pit", Week: 1, Kickoff: now.Add(120 * time.Hour), Away: "PIT", Home: "NYJ"},
 		{ID: "g-tb", Week: 1, Kickoff: now.Add(-time.Hour), Away: "TB", Home: "ATL"},
 	}
 }

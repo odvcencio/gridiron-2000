@@ -21424,6 +21424,39 @@ body.is-on-clock .draft-command__pill-sentence {
   border-left-color: var(--color-accent-cyan);
 }
 
+/* The pool's LAST WEEK figure anchors the same .points-tip panel
+   /matchups hangs off a starter's score, so it needs the same
+   positioning context: absolute keeps the panel out of the row's grid
+   entirely, so revealing it never reflows the row. .pool-row sets its own
+   stacking context on hover elsewhere in this file; z-index on the tip
+   itself already clears the sticky bars. */
+.pool-week-points {
+  position: relative;
+}
+
+.pool-week-points:hover .points-tip,
+.pool-week-points:focus .points-tip,
+.pool-week-points:focus-within .points-tip {
+  display: block;
+}
+
+/* A row whose tip is open must sit above the rows after it, or the panel
+   opens behind them — the same reason .pool-row:has(.stat-tip[open])
+   already raises a row with an open disclosure. */
+.pool-row:has(.pool-week-points:hover),
+.pool-row:has(.pool-week-points:focus-within) {
+  z-index: 40;
+}
+
+/* The add-and-drop control's own verb. .board-controls packs its children
+   against the row's right edge and wraps, so this sits on its own line
+   above the drop select and the confirmation it introduces. */
+.pool-sign-label {
+  flex: 1 1 100%;
+  text-align: right;
+  color: var(--color-accent);
+}
+
 .pickem-ledger {
   /* .pickem-row is a five-column grid at desktop width and a wrapping
      flex row inside the 54rem, 56.25-68.75rem, and short-viewport

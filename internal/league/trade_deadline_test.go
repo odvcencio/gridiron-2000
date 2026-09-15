@@ -1,6 +1,7 @@
 package league
 
 import (
+	"errors"
 	"net/http"
 	"reflect"
 	"testing"
@@ -205,7 +206,11 @@ func TestTradeTickExecutesAcceptedOfferAfterDeadlineOnce(t *testing.T) {
 	if _, err := service.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
 		t.Fatalf("pre-deadline AcceptTrade: %v", err)
 	}
-	execAt := start.Add(26 * time.Hour)
+	// An agreed trade now waits for the league's next processing run after
+	// its review clock expires (tradeExecutesAt), not the bare expiry, so
+	// waivers and trades settle together instead of a trade landing alone
+	// mid-slate.
+	execAt := tradeExecutesAt(service.cfg, state0TradeAcceptedAt(t, service)).Add(time.Minute)
 	service.rosterOpsTick(execAt)
 	state := service.store.Snapshot()
 	if state.TradeOffers[0].Status != TradeStatusExecuted {
@@ -338,5 +343,47 @@ func TestTradeOfferExpiryUsesEarlierConfiguredDeadline(t *testing.T) {
 	}
 	if expired, err := svc.store.ExpireTradeOffer(offer.ID, svc.cfg, deadline); err != nil || !expired {
 		t.Fatalf("expiry at configured deadline = %v, %v; want true, nil", expired, err)
+	}
+}
+
+// state0TradeAcceptedAt reads the fixture offer's own accepted instant, so
+// a timing assertion follows the offer rather than restating the review
+// arithmetic a second time.
+func state0TradeAcceptedAt(t *testing.T, service *Service) time.Time {
+	t.Helper()
+	offers := service.store.Snapshot().TradeOffers
+	if len(offers) == 0 {
+		t.Fatal("no trade offer in state")
+	}
+	return offers[0].AcceptedAt
+}
+
+// TestTradeSchedulesToTheNextRunAndDefersOnALock covers the 2026-09-15
+// owner directive's trade half: an agreed trade runs at the league's next
+// processing window rather than the instant its review clock expires, and
+// a lock met during that wait defers it rather than destroying it. A
+// manager who agreed a legal trade must not lose it to scheduling.
+func TestTradeSchedulesToTheNextRunAndDefersOnALock(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Trades.ReviewHours = 24
+	accepted := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+
+	executesAt := tradeExecutesAt(cfg, accepted)
+	reviewExpiry := accepted.Add(24 * time.Hour)
+	if !executesAt.After(reviewExpiry) {
+		t.Fatalf("executes at %v, want the first run strictly after review expiry %v", executesAt, reviewExpiry)
+	}
+	if want := firstRunAtOrAfter(cfg, reviewExpiry); !executesAt.Equal(want) {
+		t.Fatalf("executes at %v, want the league's own next run %v", executesAt, want)
+	}
+
+	// A locked asset is a temporary failure, so errors.Is finds the
+	// sentinel while the sentence a manager reads is unchanged.
+	err := lockedAssetError{message: "Somebody is locked until the week closes"}
+	if !errors.Is(err, ErrTradeAssetLocked) {
+		t.Fatal("a lock failure must be recognisable as temporary")
+	}
+	if err.Error() != "Somebody is locked until the week closes" {
+		t.Fatalf("lock message = %q, want the plain sentence with no sentinel prefix", err.Error())
 	}
 }

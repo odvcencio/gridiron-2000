@@ -240,3 +240,176 @@ func TestRosterOpsTickNoTransportStillProcesses(t *testing.T) {
 		t.Fatalf("queue depth = %d, want 0 with no transport", queue.Depth())
 	}
 }
+
+// TestEvalWeekAutoCloseClosesASettledWeekAndHoldsAnUnsettledOne is the
+// owner directive's own contract (2026-09-15): the fantasy week advances
+// on its own once every NFL game in it is final and the stat ledger has
+// settled 24 hours past the last kickoff, so /matchups stops showing a
+// finished week while /team has already rolled on. A week short of either
+// condition stays open, and a later week never closes past it.
+func TestEvalWeekAutoCloseClosesASettledWeekAndHoldsAnUnsettledOne(t *testing.T) {
+	svc := newTestService(t, true)
+	lastKickoff := time.Date(2026, 9, 14, 20, 20, 0, 0, time.UTC)
+	games := []GameInfo{
+		{ID: "w1-a", Week: 1, Kickoff: lastKickoff.Add(-72 * time.Hour), Away: "BUF", Home: "MIA", Final: true, ScoresPresent: true},
+		{ID: "w1-b", Week: 1, Kickoff: lastKickoff, Away: "DEN", Home: "KC", Final: true, ScoresPresent: true},
+		{ID: "w2-a", Week: 2, Kickoff: lastKickoff.Add(7 * 24 * time.Hour), Away: "NYJ", Home: "NE"},
+	}
+	svc.SetScheduleSource(func() []GameInfo { return games })
+	schedule, err := GenerateSchedule(ScheduleParams{Season: 2026, TeamIDs: teamIDList(svc.teams), StartWeek: 1, Weeks: 2})
+	if err != nil {
+		t.Fatalf("generate schedule: %v", err)
+	}
+	if err := svc.store.SetSchedule(schedule); err != nil {
+		t.Fatalf("save schedule: %v", err)
+	}
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
+		return []WeekStatLine{{Key: "x|WR", Stats: map[string]float64{"recYards": 10}}}
+	})
+	// The readiness gate is the stat LEDGER's own last fetch against the
+	// 24h settle boundary, not wall time (WeekCloseReady deliberately
+	// ignores now), so an unsettled week is modelled by a ledger that has
+	// not caught up -- exactly the stalled-feed case a commissioner still
+	// has to force-close through.
+	settled := lastKickoff.Add(25 * time.Hour)
+	statsAt := lastKickoff.Add(2 * time.Hour)
+	svc.SetStatsUpdatedSource(func() time.Time { return statsAt })
+
+	svc.evalWeekAutoClose(settled.Add(time.Minute))
+	if scheduleWeekIsFinal(weekOf(t, svc, 1)) {
+		t.Fatal("a week whose stat ledger has not settled must stay open")
+	}
+
+	statsAt = settled
+	svc.evalWeekAutoClose(settled.Add(time.Minute))
+	if !scheduleWeekIsFinal(weekOf(t, svc, 1)) {
+		t.Fatal("a settled week must close on its own")
+	}
+	// Week 2 has not been played at all; it must not follow week 1 out.
+	if scheduleWeekIsFinal(weekOf(t, svc, 2)) {
+		t.Fatal("an unplayed later week must never close behind a settled one")
+	}
+	// The ledger says the platform did it, not a sleeping commissioner.
+	events := svc.store.Snapshot().CommissionerEvents
+	found := false
+	for _, event := range events {
+		if event.Kind == "week.auto_close" && event.ActorEmail == autoCloseActorEmail {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("an automatic close must leave a system-attributed ledger row, got %+v", events)
+	}
+}
+
+func weekOf(t *testing.T, svc *Service, week int) ScheduleWeek {
+	t.Helper()
+	state := svc.store.Snapshot()
+	if state.Schedule == nil {
+		t.Fatal("no schedule")
+	}
+	wk, ok := scheduleWeekByNumber(*state.Schedule, week)
+	if !ok {
+		t.Fatalf("week %d missing from schedule", week)
+	}
+	return wk
+}
+
+// TestEvalWeekAutoCloseBackstopSettlesAStalledWeek is the "never force
+// close again" contract (owner directive, 2026-09-15). A week whose clean
+// conditions never go green — a game the feed never flips final — still
+// closes by itself once the deadline passes, so a commissioner is never
+// the thing standing between a played week and its scores.
+func TestEvalWeekAutoCloseBackstopSettlesAStalledWeek(t *testing.T) {
+	svc := newTestService(t, true)
+	lastKickoff := time.Date(2026, 9, 14, 20, 20, 0, 0, time.UTC)
+	games := []GameInfo{
+		{ID: "w1-a", Week: 1, Kickoff: lastKickoff.Add(-72 * time.Hour), Away: "BUF", Home: "MIA", Final: true, ScoresPresent: true},
+		// The feed never flips this one final: the exact stall that used
+		// to require a force close.
+		{ID: "w1-b", Week: 1, Kickoff: lastKickoff, Away: "DEN", Home: "KC"},
+		{ID: "w2-a", Week: 2, Kickoff: lastKickoff.Add(7 * 24 * time.Hour), Away: "NYJ", Home: "NE"},
+	}
+	svc.SetScheduleSource(func() []GameInfo { return games })
+	schedule, err := GenerateSchedule(ScheduleParams{Season: 2026, TeamIDs: teamIDList(svc.teams), StartWeek: 1, Weeks: 2})
+	if err != nil {
+		t.Fatalf("generate schedule: %v", err)
+	}
+	if err := svc.store.SetSchedule(schedule); err != nil {
+		t.Fatalf("save schedule: %v", err)
+	}
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
+		return []WeekStatLine{{Key: "x|WR", Stats: map[string]float64{"recYards": 10}}}
+	})
+	// The ledger HAS fetched since the games were played; only the games
+	// feed is stuck.
+	statsAt := lastKickoff.Add(6 * time.Hour)
+	svc.SetStatsUpdatedSource(func() time.Time { return statsAt })
+
+	// Before the deadline the week holds: a stall might still resolve.
+	svc.evalWeekAutoClose(lastKickoff.Add(30 * time.Hour))
+	if scheduleWeekIsFinal(weekOf(t, svc, 1)) {
+		t.Fatal("a stalled week must not close before its deadline")
+	}
+
+	deadline, ok := weekCloseBackstopAt(games, 1)
+	if !ok {
+		t.Fatal("a week with real kickoff times must have a close deadline")
+	}
+	svc.evalWeekAutoClose(deadline.Add(time.Minute))
+	if !scheduleWeekIsFinal(weekOf(t, svc, 1)) {
+		t.Fatal("past its deadline a stalled week must settle without a commissioner")
+	}
+	var backstopped bool
+	for _, event := range svc.store.Snapshot().CommissionerEvents {
+		if event.Kind == "week.auto_close_backstop" {
+			backstopped = true
+		}
+	}
+	if !backstopped {
+		t.Fatal("a deadline close must record that it settled on degraded data, not clean data")
+	}
+}
+
+// TestWeekCloseBackstopHoldsWhenStatsPredateTheGames pins the one case
+// that still wants a person: closing a week from a ledger that never
+// fetched since its games would post a silently wrong score for every
+// team, which is worse than staying open.
+func TestWeekCloseBackstopHoldsWhenStatsPredateTheGames(t *testing.T) {
+	lastKickoff := time.Date(2026, 9, 14, 20, 20, 0, 0, time.UTC)
+	games := []GameInfo{{ID: "w1-b", Week: 1, Kickoff: lastKickoff, Away: "DEN", Home: "KC"}}
+	deadline, ok := weekCloseBackstopAt(games, 1)
+	if !ok {
+		t.Fatal("expected a deadline")
+	}
+	if want := lastKickoff.Add(weekCloseBackstopGrace); !deadline.Equal(want) {
+		t.Fatalf("deadline = %v, want last kickoff plus the grace %v", deadline, want)
+	}
+
+	stale := lastKickoff.Add(-time.Hour)
+	if due, why := weekCloseBackstopDue(games, 1, stale, deadline.Add(time.Hour)); due || why == "" {
+		t.Fatalf("a ledger that predates the games must hold with a reason, got due=%v why=%q", due, why)
+	}
+	if due, _ := weekCloseBackstopDue(games, 1, time.Time{}, deadline.Add(time.Hour)); due {
+		t.Fatal("a ledger that never reported must hold")
+	}
+	fresh := lastKickoff.Add(time.Hour)
+	if due, _ := weekCloseBackstopDue(games, 1, fresh, deadline.Add(time.Hour)); !due {
+		t.Fatal("a ledger that fetched after the games must let the deadline settle the week")
+	}
+}
+
+// TestWeekCloseBackstopNeverOutlivesTheNextWeek keeps a stalled week from
+// being scored alongside a week already being played.
+func TestWeekCloseBackstopNeverOutlivesTheNextWeek(t *testing.T) {
+	lastKickoff := time.Date(2026, 9, 14, 20, 20, 0, 0, time.UTC)
+	nextWeekStart := lastKickoff.Add(30 * time.Hour) // earlier than the 72h grace
+	games := []GameInfo{
+		{ID: "w1", Week: 1, Kickoff: lastKickoff, Away: "DEN", Home: "KC"},
+		{ID: "w2", Week: 2, Kickoff: nextWeekStart, Away: "NYJ", Home: "NE"},
+	}
+	deadline, ok := weekCloseBackstopAt(games, 1)
+	if !ok || !deadline.Equal(nextWeekStart) {
+		t.Fatalf("deadline = %v (ok=%v), want the next week's first kickoff %v", deadline, ok, nextWeekStart)
+	}
+}

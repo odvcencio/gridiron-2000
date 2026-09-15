@@ -687,6 +687,24 @@ func writeCSRFMethodNotAllowedPage(w http.ResponseWriter, r *http.Request, style
 // would just waste a lookup on every mergePool call.
 var fantasyFloorPositions = []string{"QB", "RB", "WR", "TE", "K", "DST", "P"}
 
+// nflStarterCount is how many starters the NFL fields at a position where
+// every team plays exactly one: 32 teams, 32 punters, 32 kickers, 32
+// defense/special-teams units.
+const nflStarterCount = 32
+
+// fantasySingleStarterPositions are the positions every NFL team fields
+// exactly one of, so the league's whole universe at that position is
+// knowable and small. They are floored at nflStarterCount rather than the
+// ordinary "rostered plus headroom" rule, because the ordinary rule
+// starves them: no punter ever carries ADP (mergePool's own doc comment),
+// so for "P" the floor is not a minimum the ranked head overshoots -- it
+// is the entire supply. An 8-team league floored at 8x1+4 got exactly 12
+// punters, 8 of them rostered on day one, leaving four on the wire for a
+// whole season of byes and injuries (owner report, 2026-09-15). Kickers
+// and D/STs do carry ADP and so came in above their own floor (25 and 27
+// of 32), but short of the full set for the same underlying reason.
+var fantasySingleStarterPositions = map[string]bool{"P": true, "K": true, "DST": true}
+
 // fantasyPositionFloors derives fantasy.Service.SetPositionFloors' input
 // from the active league's own roster shape (draft-blocking fix: see
 // fantasy.mergePool's "floors" doc comment for the truncation bug this
@@ -706,9 +724,18 @@ func fantasyPositionFloors(teams int, slots map[string]int) map[string]int {
 	}
 	floors := make(map[string]int, len(fantasyFloorPositions))
 	for _, position := range fantasyFloorPositions {
-		if count := slots[position]; count > 0 {
-			floors[position] = teams*count + 4
+		count := slots[position]
+		if count <= 0 {
+			continue
 		}
+		floor := teams*count + 4
+		if fantasySingleStarterPositions[position] && floor < nflStarterCount {
+			// Every NFL team's own starter stays reachable, so the wire at
+			// these positions is a real one rather than whatever the
+			// rostered count happens to leave over.
+			floor = nflStarterCount
+		}
+		floors[position] = floor
 	}
 	return floors
 }

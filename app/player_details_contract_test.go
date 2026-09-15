@@ -15,6 +15,11 @@ import (
 // double-count if counted with strings.Count.
 var statTipSummaryTag = regexp.MustCompile(`<summary class="[^"]*stat-tip__summary[^"]*"`)
 
+// tooltipRoleTag matches one whole open tag carrying role="tooltip", so
+// the check below can ask WHICH element wears it rather than whether the
+// attribute appears anywhere in the file.
+var tooltipRoleTag = regexp.MustCompile(`<[a-zA-Z]+[^>]*role="tooltip"[^>]*>`)
+
 // TestPlayerDetailsUseNativeDisclosureAcrossSurfaces protects one invariant:
 // every player detail popover — the projection/availability "identity" tip
 // and the newspaper-icon "news" tip added beside it — opens through a native
@@ -80,7 +85,6 @@ func TestPlayerDetailsUseNativeDisclosureAcrossSurfaces(t *testing.T) {
 				t.Fatalf("stat-tip panels = %d, want %d (identity + news tips)", got, wantSummaries)
 			}
 			for _, forbidden := range []string{
-				`role="tooltip"`,
 				`stat-tip" tabindex="0"`,
 				`stat-tip__panel" aria-hidden="true"`,
 				`stat-tip:hover`,
@@ -88,6 +92,19 @@ func TestPlayerDetailsUseNativeDisclosureAcrossSurfaces(t *testing.T) {
 			} {
 				if strings.Contains(source, forbidden) {
 					t.Errorf("legacy stat-tip affordance remains: %q", forbidden)
+				}
+			}
+			// A player's DETAILS must never be a tooltip — that is this
+			// test's whole point. A figure explaining ITSELF is a
+			// different thing, and the app already settled how it is
+			// done: /matchups' .points-tip, revealed on hover AND focus,
+			// with a tabindex and aria-describedby so a phone tap or a
+			// Tab reaches it (app/matchups/page.gsx). So role="tooltip"
+			// is allowed on a .points-tip and nowhere else; a stat-tip
+			// wearing it is still the regression this guards against.
+			for _, tag := range tooltipRoleTag.FindAllString(source, -1) {
+				if !strings.Contains(tag, "points-tip") {
+					t.Errorf("only a .points-tip score explainer may carry role=\"tooltip\", got: %s", tag)
 				}
 			}
 			if !strings.Contains(source, `<summary class="`) {

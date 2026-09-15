@@ -57,6 +57,78 @@ func weekCloseLastKickoff(games []GameInfo, week int) (time.Time, bool, bool) {
 	return lastKickoff, found, true
 }
 
+// weekCloseBackstopGrace is how long past a week's last kickoff the
+// automatic close waits before settling the week on whatever the feeds
+// did manage to report. Three days clears every ordinary stat correction
+// while still landing before the next week's Thursday game, so a stalled
+// feed can never carry an unclosed week into a week being played.
+const weekCloseBackstopGrace = 72 * time.Hour
+
+// weekCloseBackstopAt is the instant after which week closes even though
+// its clean conditions never went green — the deadline that makes a
+// commissioner force-close unnecessary rather than merely unlikely.
+//
+// It is the earlier of two anchors, because both express the same rule
+// from different directions: three days past the week's own last kickoff,
+// and the moment the NEXT week starts being played. A league must never
+// be scoring two open weeks at once, so whichever comes first wins.
+//
+// ok is false when neither anchor is knowable — a schedule with no
+// kickoff times at all. Nothing can be inferred then, and that is the one
+// remaining case a human has to judge.
+func weekCloseBackstopAt(games []GameInfo, week int) (time.Time, bool) {
+	lastKickoff, found, kickoffOK := weekCloseLastKickoff(games, week)
+	var grace time.Time
+	if found && kickoffOK && !lastKickoff.IsZero() {
+		grace = lastKickoff.Add(weekCloseBackstopGrace)
+	}
+	var nextWeekStart time.Time
+	for _, game := range games {
+		if game.Week <= week || game.Kickoff.IsZero() {
+			continue
+		}
+		if nextWeekStart.IsZero() || game.Kickoff.Before(nextWeekStart) {
+			nextWeekStart = game.Kickoff
+		}
+	}
+	switch {
+	case grace.IsZero() && nextWeekStart.IsZero():
+		return time.Time{}, false
+	case grace.IsZero():
+		return nextWeekStart, true
+	case nextWeekStart.IsZero():
+		return grace, true
+	case nextWeekStart.Before(grace):
+		return nextWeekStart, true
+	}
+	return grace, true
+}
+
+// weekCloseBackstopDue reports whether week may now be settled on the
+// backstop rather than on its clean conditions, and why.
+//
+// One guard survives the deadline: the stat ledger must have fetched at
+// or after the week's last kickoff. Closing a week from stats that
+// predate its own games would post a silently wrong score for every team,
+// which is worse than staying open — so a ledger that never caught up is
+// deliberately left for a person. Every other stall (a game the feed
+// never flips final, a ledger that caught up but never reached the 24
+// hour settle clause) closes here on its own.
+func weekCloseBackstopDue(games []GameInfo, week int, statsUpdatedAt, now time.Time) (bool, string) {
+	deadline, ok := weekCloseBackstopAt(games, week)
+	if !ok || now.Before(deadline) {
+		return false, ""
+	}
+	lastKickoff, found, kickoffOK := weekCloseLastKickoff(games, week)
+	if statsUpdatedAt.IsZero() {
+		return false, "the player-stat ledger has never reported for this week"
+	}
+	if found && kickoffOK && statsUpdatedAt.Before(lastKickoff) {
+		return false, "the player-stat ledger has not fetched since this week's last kickoff"
+	}
+	return true, "settled on the close deadline; the feeds never reported every condition"
+}
+
 // WeekCloseReady reports whether week's two auto-close conditions hold
 // (section 2.5): every real NFL game for that week is final, and the
 // player-stats dataset last updated after the week's last game day plus 24
@@ -133,6 +205,14 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 			info.StatsUpdatedAt.In(s.matchupLocation()).Format("Jan 2, 3:04 PM MST"),
 		)
 	}
+	if deadline, ok := weekCloseBackstopAt(games, week); ok {
+		info.AutoCloseAt, info.HasAutoCloseAt = deadline, true
+		if !now.Before(deadline) {
+			if due, why := weekCloseBackstopDue(games, week, info.StatsUpdatedAt, now); !due {
+				info.AutoCloseBlocked = why
+			}
+		}
+	}
 	info.Ready = WeekCloseReady(games, week, info.StatsUpdatedAt, now)
 	if info.Ready {
 		// A ready week has no blocking reason. Keep the panel's WHY line
@@ -153,6 +233,15 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 		info.Reason = "player stats are not yet 24 hours past the final kickoff"
 	case !info.Ready:
 		info.Reason = "week is not ready to close yet"
+	}
+	// A blocked backstop outranks the ordinary reason: it is the only
+	// state that genuinely wants a commissioner's judgement, so it must
+	// not hide behind "waiting for 1 of 16 games to go final".
+	if info.AutoCloseBlocked != "" {
+		info.Reason = info.AutoCloseBlocked + "; closing now would score this week from stats that predate its own games"
+	} else if !info.Ready && info.HasAutoCloseAt && info.Reason != "" {
+		info.Reason += fmt.Sprintf(". It closes by itself %s if nothing changes, so a force close is only for closing it sooner.",
+			info.AutoCloseAt.In(s.matchupLocation()).Format("Mon Jan 2, 3:04 PM MST"))
 	}
 	return info
 }
@@ -469,6 +558,17 @@ type WeekCloseInfo struct {
 	// games or stats read as not-final when the real cause is a feed that
 	// stopped refreshing days ago.
 	StaleFeedNotice string
+	// AutoCloseAt / HasAutoCloseAt name the instant this week closes by
+	// itself even if its clean conditions never go green
+	// (weekCloseBackstopAt). A commissioner reads it as the answer to "do
+	// I have to force this?" — no, not unless you want it sooner.
+	AutoCloseAt    time.Time
+	HasAutoCloseAt bool
+	// AutoCloseBlocked is non-empty when even the backstop is deliberately
+	// holding: the stat ledger has not fetched since this week's games, so
+	// closing now would post a silently wrong score for every team. This
+	// is the one case that still wants a person.
+	AutoCloseBlocked string
 }
 
 // SetStatsUpdatedSource attaches the open-stats freshness seam used by the
