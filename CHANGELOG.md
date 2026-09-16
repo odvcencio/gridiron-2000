@@ -5,11 +5,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Fixed
-- Matchups no longer scrolls sideways on a phone. A long team name — measured at 257px inside a 145px column — could not wrap, because the name rendered through a native-mode text block, and that path hardcodes `white-space: pre` while never inserting a wrap point unless it is given a fixed maximum width. This column is fluid, so it never had one. The name is now plain markup with its two-line clamp in CSS, which needs no measurement pass. The same defect and the same fix are already recorded against the home page's hero headline; this surface was missed.
-- The player pool no longer starves the punter, kicker, and defense/special-teams wire. Those floors were "rostered seats plus four headroom", which for an eight-team league meant twelve punters; no punter carries an average draft position, so for that position the floor was not a minimum the ranked list overshoots, it was the entire supply. Eight seats rostered one each and four were left for a whole season of byes and injuries. All three positions now floor at the NFL's own 32, so every team's starter is reachable.
-- The league week now turns over on a fixed schedule: the first Tuesday midnight, league time, after that week's own last kickoff. Before this, nothing advanced the fantasy week without a commissioner pressing a button, so Matchups showed a finished week while the Team page had already rolled to the next one. A fixed turn means every manager knows when last week becomes last week, rather than it depending on which feed settled first, and a commissioner never has to force a stalled week closed. A week never closes ahead of an open earlier week, and the manual close and force-close override are unchanged — force close is now only for closing a week sooner.
-- One guard survives the turn, and says so. The stat ledger must have fetched since the week's last game FINISHED, not merely kicked off: a Monday night game is still being played at Tuesday midnight, and closing then would score it from a partial ledger. Such a week settles on the first check after the ledger catches up, an hour or two past the turn rather than at it. A ledger that never catches up at all waits for a person, because closing from stats that predate a week's own games posts a silently wrong score for every team.
+No changes yet.
+
+## [release-2026.09.16-240d7bc-wheel-tooltip] — 2026-09-16
+
+Scope: Repair the matchup wheel hover panel so it is never cut off, and make the waiver activity scenario deterministic.
+
+### Added
+- The player pool now shows what each player actually scored in the most recent completed NFL week, under this league's own scoring, in a column beside the projection. A player with no posted stat line reads "—", which is a different claim from a real 0.0.
+- The player pool is ordered by that number, highest first. On the waiver wire the question is who is producing, not who was drafted highest. A player with no posted line sorts behind every player who has one. `?sort=rank` returns to the market rank order, and a "Rank" control beside the availability filter does the same.
+- Each Pick'em week sheet is now the permanent record of that week. After a game kicks off, its row names every entrant's call and how that call graded. A member who owed the game a pick and made none shows as NO PICK, so the record shows the miss. Before kickoff the row ships no record at all, under the same rule that already hides the consensus split.
+- The Pick'em sheet now states which record it serves: OPEN, IN PROGRESS, or FINAL. A graded week also names the week leader and that leader's record, read off the same weekly leaderboard below it.
 
 ### Changed
 - The wheel's hover panel is no longer cut off. The panel used to sit inside the ring, and the ring clips its own overflow to hold the rotated arc boxes, so the panel lost up to 90px on a side and 66px off the top. The panel now sits outside the ring, above it, and each arc's own hit dot reveals the matching panel. A browser test hovers all ten arcs at phone and desktop width and fails if any panel is clipped by the viewport or by any ancestor.
@@ -19,22 +25,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A free-agent signing is now an outright move only in the dead window between the run that settles a week and the next week's first kickoff. Once that week's games are being played, the same acquisition is a claim, resolved in waiver order at the next daily run, so a manager watching a breakout cannot take him by clicking first. The refusal says so and names when the claim resolves.
 - An agreed trade now executes at the league's next daily processing run after its review clock expires, rather than the instant the clock runs out. Waivers and trades settle together and a roster never changes shape in the middle of a slate. A player lock met during that wait now defers the trade to the following run instead of failing it: an agreed, legal trade is no longer lost to scheduling.
 - The player pool's points column now reads LAST WEEK instead of "W1 PTS", and each figure explains itself rule by rule in the same panel a starter's score uses on Matchups, revealed on hover or on focus. A week still being played reads THIS WEEK, because it is not last week yet.
-
-### Added
-- The player pool now shows what each player actually scored in the most recent completed NFL week, under this league's own scoring, in a column beside the projection. A player with no posted stat line reads "—", which is a different claim from a real 0.0.
-- The player pool is ordered by that number, highest first. On the waiver wire the question is who is producing, not who was drafted highest. A player with no posted line sorts behind every player who has one. `?sort=rank` returns to the market rank order, and a "Rank" control beside the availability filter does the same.
-
-### Fixed
-- A position tab on the player pool no longer drops the availability filter. Choosing RB reverted the list to every rostered player; it now keeps the filter and the order the manager chose.
-- Signing, dropping, or claiming a player now returns to the same pool view. The redirect preserved position and search but dropped the availability filter, so the list reshuffled under a manager who had just acted on it.
-
-### Added
-- Each Pick'em week sheet is now the permanent record of that week. After a game kicks off, its row names every entrant's call and how that call graded. A member who owed the game a pick and made none shows as NO PICK, so the record shows the miss. Before kickoff the row ships no record at all, under the same rule that already hides the consensus split.
-- The Pick'em sheet now states which record it serves: OPEN, IN PROGRESS, or FINAL. A graded week also names the week leader and that leader's record, read off the same weekly leaderboard below it.
-
-### Changed
 - A settled Pick'em week no longer offers a "Make your picks" action or the pick rule note. Both are replaced by a note that says the week is closed and the sheet now keeps the record.
 - A void Pick'em game now shows the member's own call. The row previously dropped it, which made a voided game look unplayed.
+
+### Fixed
+- Matchups no longer scrolls sideways on a phone. A long team name — measured at 257px inside a 145px column — could not wrap, because the name rendered through a native-mode text block, and that path hardcodes `white-space: pre` while never inserting a wrap point unless it is given a fixed maximum width. This column is fluid, so it never had one. The name is now plain markup with its two-line clamp in CSS, which needs no measurement pass. The same defect and the same fix are already recorded against the home page's hero headline; this surface was missed.
+- The player pool no longer starves the punter, kicker, and defense/special-teams wire. Those floors were "rostered seats plus four headroom", which for an eight-team league meant twelve punters; no punter carries an average draft position, so for that position the floor was not a minimum the ranked list overshoots, it was the entire supply. Eight seats rostered one each and four were left for a whole season of byes and injuries. All three positions now floor at the NFL's own 32, so every team's starter is reachable.
+- The league week now turns over on a fixed schedule: the first Tuesday midnight, league time, after that week's own last kickoff. Before this, nothing advanced the fantasy week without a commissioner pressing a button, so Matchups showed a finished week while the Team page had already rolled to the next one. A fixed turn means every manager knows when last week becomes last week, rather than it depending on which feed settled first, and a commissioner never has to force a stalled week closed. A week never closes ahead of an open earlier week, and the manual close and force-close override are unchanged — force close is now only for closing a week sooner.
+- One guard survives the turn, and says so. The stat ledger must have fetched since the week's last game FINISHED, not merely kicked off: a Monday night game is still being played at Tuesday midnight, and closing then would score it from a partial ledger. Such a week settles on the first check after the ledger catches up, an hour or two past the turn rather than at it. A ledger that never catches up at all waits for a person, because closing from stats that predate a week's own games posts a silently wrong score for every team.
+- A position tab on the player pool no longer drops the availability filter. Choosing RB reverted the list to every rostered player; it now keeps the filter and the order the manager chose.
+- Signing, dropping, or claiming a player now returns to the same pool view. The redirect preserved position and search but dropped the availability filter, so the list reshuffled under a manager who had just acted on it.
 
 ## [release-2026.09.10-a89ac36-season11] — 2026-09-10
 
