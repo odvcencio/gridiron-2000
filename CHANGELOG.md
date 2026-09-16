@@ -5,6 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+No changes yet.
+
+## [release-2026.09.16-2774d79-tabbar-icons] — 2026-09-16
+
+Scope: Draw the mobile tab bar icons instead of borrowing them from the font.
+
 ### Changed
 - The mobile tab bar draws its icons instead of borrowing them from the font. Home was a hairline house outline and Team was an inverse circle, which names nothing a manager would recognise. Home is a house, Team is a jersey, Matchups is a football, and More is three dots — one drawn set, one weight, each inheriting the active tab's colour. A browser test fails if any tab loses its drawn icon, renders one too small to read, or pushes the bar past a phone's width.
 
