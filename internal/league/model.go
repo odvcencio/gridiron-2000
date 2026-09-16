@@ -667,6 +667,16 @@ type StarterLedgerRow struct {
 	// row has no matched stat line, so a reader is never shown an
 	// explanation for a score that does not exist yet.
 	Breakdown string `json:"breakdown,omitempty"`
+	// BreakdownLabel and BreakdownTotal name and total whatever Breakdown
+	// is currently explaining. Normally that is the scored line, so they
+	// read "TOTAL" and PointsText. Before a starter's game has produced a
+	// stat line there is nothing scored to explain, and the panel used to
+	// open empty over a bare "TOTAL 0.0" — the owner's report was that it
+	// "doesn't explain anything" (2026-09-16). In that window Breakdown
+	// carries the projection instead, and these two say so, so the rows
+	// and the total below them always describe the same number.
+	BreakdownLabel string `json:"breakdownLabel,omitempty"`
+	BreakdownTotal string `json:"breakdownTotal,omitempty"`
 	// Possession is GC-2b's possession chip text ("ON OFFENSE", "DEFENSE
 	// ON FIELD", or "" — starterPossessionLabel's own doc comment). Empty
 	// renders no chip at all: possession only appears when known.

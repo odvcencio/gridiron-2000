@@ -161,6 +161,11 @@ type StarterCellData struct {
 	// (league.ScoreBreakdownText) — the owner's 2026-09-09 request to see
 	// where a player's points came from, not only the total.
 	Breakdown string
+	// BreakdownLabel/BreakdownTotal name and total whatever Breakdown is
+	// explaining — the scored line, or the projection before a game has
+	// produced one. See league.StarterLedgerRow.BreakdownLabel.
+	BreakdownLabel string
+	BreakdownTotal string
 	// Injury is the canonical designation code ("O", "D", "Q", "IR") and
 	// InjuryLabel the plain word behind it; HasInjury gates the chip. A
 	// late scratch has to be visible in the lineup you are watching, not
@@ -235,6 +240,8 @@ func starterCellData(raw any, right bool) StarterCellData {
 		SourceText:      stringField(row, "source_text"),
 		GameState:       stringField(row, "game_state"),
 		Breakdown:       stringField(row, "breakdown"),
+		BreakdownLabel:  stringField(row, "breakdownLabel"),
+		BreakdownTotal:  stringField(row, "breakdownTotal"),
 		Injury:          stringField(row, "injury"),
 		InjuryLabel:     stringField(row, "injury_label"),
 		HasInjury:       stringField(row, "injury") != "",
