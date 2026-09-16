@@ -484,8 +484,11 @@ func starterProgressGroupProgress(quarters []int) int {
 	return total / len(quarters)
 }
 
-// starterProgressDetail renders one piece's hover text: "Name 12.4 ·
-// Name 3.0", or the slot's own empty state.
+// starterProgressDetail renders one piece's hover text: one player per
+// line, each as "Name 12.4 · GAME STATE", or the slot's own empty state.
+// The merged K/P piece holds two, and separating them with a newline
+// rather than a middot keeps the separator from landing at the start of
+// a wrapped line (.starter-progress__tip-detail renders it pre-line).
 func starterProgressDetail(group []StarterLedgerRow) string {
 	parts := make([]string, 0, len(group))
 	for _, row := range group {
@@ -507,7 +510,7 @@ func starterProgressDetail(group []StarterLedgerRow) string {
 	if len(parts) == 0 {
 		return "No player assigned"
 	}
-	return strings.Join(parts, " · ")
+	return strings.Join(parts, "\n")
 }
 
 const (

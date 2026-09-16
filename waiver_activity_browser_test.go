@@ -130,11 +130,22 @@ func startWaiverActivityQALeague(t *testing.T, root string) (*simChild, *simLeag
 		"NFL_SEASON=2026",
 	)
 	league := seatLeagueWith(t, child, true)
+	// Pin the controlled clock BEFORE the draft runs, not after. Every
+	// draft pick records MadeAt from the server clock, and /activity
+	// sorts its feed newest-first across picks, transactions and
+	// commissioner events together. While the clock was pinned only
+	// after the draft, the 136 picks carried real wall-clock stamps
+	// while league time stayed at waiverActivityQAStart — so once the
+	// real calendar passed that start plus the scenario's own 76h
+	// advance, the picks sorted above the waiver claim and filled the
+	// whole first page of 50 rows. The claim was awarded correctly; it
+	// was simply on page 3. Pinning first puts the draft on the same
+	// clock as every later move, so the order is stable on any date.
+	setClockAbsolute(t, child.URL, waiverActivityQAStart)
 	if err := league.commish.StartDraft(); err != nil {
 		t.Fatalf("start waiver QA draft: %v", err)
 	}
 	completeSimDraft(t, league)
-	setClockAbsolute(t, child.URL, waiverActivityQAStart)
 	return child, league
 }
 
