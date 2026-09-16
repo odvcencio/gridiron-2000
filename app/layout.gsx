@@ -604,30 +604,30 @@ func Layout() Node {
 				// the app; More opens the same navigation dialog the rail's
 				// own overflow uses.
 				<Link href="/" class="app-tabbar__tab">
-					<span class="app-tabbar__icon" aria-hidden="true">&#8962;</span>
+					<span class="app-tabbar__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.6 12 3.4l9 7.2"></path><path d="M5.6 9.6V20.6h12.8V9.6"></path><path d="M9.8 20.6v-5.4h4.4v5.4"></path></svg></span>
 					Home
 				</Link>
 				<If cond={data.viewer.has_seat}>
 					<Link href="/team" class="app-tabbar__tab">
-						<span class="app-tabbar__icon" aria-hidden="true">&#9689;</span>
+						<span class="app-tabbar__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.6 4.6 6.1l1.9 4.1 2.1-1.1v11.3h6.8V9.1l2.1 1.1 1.9-4.1L15 3.6"></path><path d="M9 3.6a3 3 0 0 0 6 0"></path></svg></span>
 						Team
 					</Link>
 				</If>
 				<If cond={data.viewer.has_seat == false && data.league.fantasy_seats_open && data.viewer.seat_claim_eligible}>
 					<Link href="/join" class="app-tabbar__tab">
-						<span class="app-tabbar__icon" aria-hidden="true">&#9689;</span>
+						<span class="app-tabbar__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.6 4.6 6.1l1.9 4.1 2.1-1.1v11.3h6.8V9.1l2.1 1.1 1.9-4.1L15 3.6"></path><path d="M9 3.6a3 3 0 0 0 6 0"></path></svg></span>
 						Team
 					</Link>
 				</If>
 				<If cond={data.viewer.has_seat == false && (data.league.fantasy_seats_open == false || data.viewer.seat_claim_eligible == false)}>
 					<Link href="/team" class="app-tabbar__tab" aria-describedby="app-tabbar-team-reason">
-						<span class="app-tabbar__icon" aria-hidden="true">&#9689;</span>
+						<span class="app-tabbar__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.6 4.6 6.1l1.9 4.1 2.1-1.1v11.3h6.8V9.1l2.1 1.1 1.9-4.1L15 3.6"></path><path d="M9 3.6a3 3 0 0 0 6 0"></path></svg></span>
 						Team
 					</Link>
 					<span id="app-tabbar-team-reason" class="visually-hidden">Needs a franchise seat</span>
 				</If>
 				<Link href="/matchups" class="app-tabbar__tab">
-					<span class="app-tabbar__icon" aria-hidden="true">&#127944;</span>
+					<span class="app-tabbar__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="12" rx="9.2" ry="6" transform="rotate(-45 12 12)"></ellipse><path d="M9.2 14.8 14.8 9.2"></path><path d="M10.6 12.1l1.3 1.3"></path><path d="M12.1 10.6l1.3 1.3"></path></svg></span>
 					Matchups
 				</Link>
 				<button
@@ -638,7 +638,7 @@ func Layout() Node {
 					aria-expanded="false"
 					data-gosx-disclosure-target="#primary-navigation-dialog"
 				>
-					<span class="app-tabbar__icon" aria-hidden="true">&#8942;</span>
+					<span class="app-tabbar__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="5.2" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="12" cy="18.8" r="1.7"></circle></svg></span>
 					More
 				</button>
 			</nav>

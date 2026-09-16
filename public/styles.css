@@ -829,8 +829,23 @@ button.access-link {
   font-weight: 700;
 }
 
+/* The tab icons are inline SVG, not glyphs. The old set was Unicode: a
+   thin ⌂ for Home and ◙ — an inverse circle — for Team, which names
+   nothing a manager would recognise (owner report, 2026-09-16). Drawn
+   marks size and weight predictably where a font's glyph coverage does
+   not, and they inherit currentColor, so the active tab's accent still
+   comes from .app-tabbar__tab[aria-current="page"] with no extra rule. */
 .app-tabbar__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 1.25rem;
+}
+
+.app-tabbar__icon svg {
+  display: block;
+  width: 1.5rem;
+  height: 1.5rem;
 }
 
 .app-tabbar__tab:focus-visible {
