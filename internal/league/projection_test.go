@@ -479,6 +479,11 @@ func TestStarterProgressKickerPunterPieceIsHalfWeighted(t *testing.T) {
 		t.Fatalf("tenth piece progress = %d, want 2 (kicker complete at half weight)", tenth.Progress)
 	}
 	// The hover text names both, with the score each has posted.
+	// One player per line: the separator must not be a middot that can
+	// land at the start of a wrapped line.
+	if !strings.Contains(tenth.Detail, "\n") {
+		t.Fatalf("tenth piece detail = %q, want one player per line", tenth.Detail)
+	}
 	for _, want := range []string{"Kicker 9.0", "Punter 0.0"} {
 		if !strings.Contains(tenth.Detail, want) {
 			t.Fatalf("tenth piece detail = %q, want it to contain %q", tenth.Detail, want)

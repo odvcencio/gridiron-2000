@@ -19119,11 +19119,31 @@ a.skip-link {
 }
 
 .matchups-page .starter-progress__visual {
+  position: relative;
   display: grid;
   justify-items: center;
   gap: 0.4rem;
   padding: 0.25rem 0;
   border-radius: var(--radius-sm);
+}
+
+/* One anchor for all ten tips, above the ring and centred on it. They
+   share a position deliberately: a panel that moved with the arc would
+   sometimes cover the arc being pointed at, and would need the ring's own
+   rotation undone to stay upright. */
+.matchups-page .starter-progress__tips {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - 3.2rem);
+  z-index: 70;
+  display: block;
+  width: max-content;
+  /* Each ring's centre sits about a quarter of the way across the card, so
+     a panel centred on it can only be about twice that gap wide before it
+     runs off. 48vw measured clear at 390px; 18rem is the desktop cap. */
+  max-width: min(18rem, 48vw);
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 .matchups-page a.starter-progress__team-name:focus-visible {
@@ -19137,6 +19157,12 @@ a.skip-link {
   width: min(100%, 8rem);
   aspect-ratio: 1;
   isolation: isolate;
+  /* overflow: hidden stays. It is not there to shape the ring (the mask on
+     .starter-progress__quarters already does that) — it contains the
+     rotated piece boxes, whose bounding rects reach past the circle.
+     Removing it pushed /matchups 12px wider than a 390px viewport
+     (TestBrowserMatchupsScorebugsNoOverlapAtThreeWidths). The hover tips
+     therefore live OUTSIDE this element, in .starter-progress__tips. */
   overflow: hidden;
   border-radius: 50%;
 }
@@ -19198,24 +19224,38 @@ a.skip-link {
 
 
 
+/* The panel itself is static inside that anchor; only its visibility
+   changes. Width is capped so two rings side by side at phone width
+   cannot push one off the card.
+
+   This selector is declared twice in this file. The first block (search
+   ".starter-progress__tip {" above) still supplies the surface: padding,
+   border, background, and type. This block overrides only the geometry,
+   because the panel no longer positions itself — .starter-progress__tips
+   does. display: none is repeated here on purpose rather than inherited
+   from 8000 lines up: the reveal rules directly below are the only thing
+   that may turn a panel on, and a reader of this block must be able to
+   see that without finding the other one. */
 .matchups-page .starter-progress__tip {
-  position: absolute;
-  left: 50%;
-  bottom: 50%;
-  /* Undo the piece's own rotation so the text is never sideways. */
-  transform: rotate(calc(-1 * var(--piece-angle, 0deg))) translate(-50%, 0);
-  transform-origin: left bottom;
-  z-index: 70;
-  width: max-content;
-  /* The tip is centred on its ring's own centre, and at phone width two
-     rings sit side by side — so the widest it can be without running off
-     the card is about twice the gap between a ring centre and the nearest
-     screen edge. 44vw measured clear at 390px; 18rem is the desktop cap.
-     It wraps rather than overflows, which is the right trade for a hover
-     nicety whose content is also in the starter table below. */
-  max-width: min(18rem, 44vw);
+  position: static;
+  width: 100%;
+  max-width: 100%;
+  display: none;
   text-align: left;
   white-space: normal;
+}
+
+/* A plain sentence, not a ledger: .points-tip__rows aligns amounts to a
+   shared right edge, which left a wrapped "8:15 PM" floating against the
+   right margin here. This is one line of prose about one arc. */
+.matchups-page .starter-progress__tip-detail {
+  display: block;
+  color: var(--color-text-secondary);
+  /* pre-line honours the one-player-per-line break the server writes,
+     while still wrapping a long name inside the capped panel. */
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  text-align: left;
 }
 
 .matchups-page .starter-progress__tip-slot {
@@ -19227,10 +19267,21 @@ a.skip-link {
   letter-spacing: 0.06em;
 }
 
-.matchups-page .starter-progress__piece:hover .starter-progress__tip {
-  display: block;
-  pointer-events: none;
-}
+
+
+/* Each arc's own dot reveals its own panel. Ten explicit pairs because
+   the dot and the panel sit in different subtrees — the panel had to leave
+   the ring, and CSS cannot carry an index across that gap any other way. */
+.matchups-page .starter-progress__visual:has(.starter-progress__piece[data-piece="0"] .starter-progress__hit-dot:hover) .starter-progress__tip[data-piece="0"] { display: block; }
+.matchups-page .starter-progress__visual:has(.starter-progress__piece[data-piece="1"] .starter-progress__hit-dot:hover) .starter-progress__tip[data-piece="1"] { display: block; }
+.matchups-page .starter-progress__visual:has(.starter-progress__piece[data-piece="2"] .starter-progress__hit-dot:hover) .starter-progress__tip[data-piece="2"] { display: block; }
+.matchups-page .starter-progress__visual:has(.starter-progress__piece[data-piece="3"] .starter-progress__hit-dot:hover) .starter-progress__tip[data-piece="3"] { display: block; }
+.matchups-page .starter-progress__visual:has(.starter-progress__piece[data-piece="4"] .starter-progress__hit-dot:hover) .starter-progress__tip[data-piece="4"] { display: block; }
+.matchups-page .starter-progress__visual:has(.starter-progress__piece[data-piece="5"] .starter-progress__hit-dot:hover) .starter-progress__tip[data-piece="5"] { display: block; }
+.matchups-page .starter-progress__visual:has(.starter-progress__piece[data-piece="6"] .starter-progress__hit-dot:hover) .starter-progress__tip[data-piece="6"] { display: block; }
+.matchups-page .starter-progress__visual:has(.starter-progress__piece[data-piece="7"] .starter-progress__hit-dot:hover) .starter-progress__tip[data-piece="7"] { display: block; }
+.matchups-page .starter-progress__visual:has(.starter-progress__piece[data-piece="8"] .starter-progress__hit-dot:hover) .starter-progress__tip[data-piece="8"] { display: block; }
+.matchups-page .starter-progress__visual:has(.starter-progress__piece[data-piece="9"] .starter-progress__hit-dot:hover) .starter-progress__tip[data-piece="9"] { display: block; }
 
 .matchups-page .starter-progress__piece[data-piece="0"] { --piece-angle: 2deg; }
 .matchups-page .starter-progress__piece[data-piece="1"] { --piece-angle: 38deg; }

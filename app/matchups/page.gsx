@@ -119,15 +119,25 @@ func StarterProgress(props StarterProgressData) Node {
 										    starter table directly below, which is reachable
 										    by keyboard and read by a screen reader. */}
 										<span class="starter-progress__hit"><span class="starter-progress__hit-dot"></span></span>
-										<span class="starter-progress__tip" aria-hidden="true">
-											<span class="starter-progress__tip-slot mono">{segment.Label}</span>
-											<span class="points-tip__rows" data-gosx-live-bind={"starterProgressDetail." + segment.BindKey}>{segment.Detail}</span>
-										</span>
 										<span class="starter-progress__quarters"><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ1." + segment.BindKey}>{segment.Q1}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ2." + segment.BindKey}>{segment.Q2}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ3." + segment.BindKey}>{segment.Q3}</span><span class="starter-progress__quarter" data-gosx-live-bind={"starterProgressQ4." + segment.BindKey}>{segment.Q4}</span></span>
 									</span>
 								</Each>
 							</span>
 							<span class="starter-progress__center"><b data-gosx-live-bind={"winProb." + team.TeamID}>{team.WinChance}</b><span data-gosx-live-bind={"winProbCaption." + team.TeamID}>{team.WinCaption}</span></span>
+						</span>
+						{/* The tips sit OUTSIDE the ring: the ring clips to its circle
+						    to contain its rotated piece boxes, so a panel inside it was
+						    chopped on three sides. They are all anchored in the same
+						    place above the ring and revealed one at a time by the
+						    matching arc's own hit dot, which also means the panel never
+						    covers the arc a manager is pointing at. */}
+						<span class="starter-progress__tips" aria-hidden="true">
+							<Each of={team.Segments} as="segment">
+								<span class="starter-progress__tip" data-piece={segment.Index}>
+									<span class="starter-progress__tip-slot mono">{segment.Label}</span>
+									<span class="starter-progress__tip-detail" data-gosx-live-bind={"starterProgressDetail." + segment.BindKey}>{segment.Detail}</span>
+								</span>
+							</Each>
 						</span>
 						<small class="starter-progress__completion mono" aria-hidden="true"><span data-gosx-live-bind={"starterProgressComplete." + team.BindID}>{team.Complete}</span> complete</small>
 						<span class="visually-hidden" data-gosx-live-bind={"starterProgressSummary." + team.BindID}>{team.Summary}</span>
