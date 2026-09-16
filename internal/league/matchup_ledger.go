@@ -690,6 +690,19 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 			}
 		}
 		row.PointsText = fmt.Sprintf("%.1f", row.Points)
+		row.BreakdownLabel, row.BreakdownTotal = "TOTAL", row.PointsText
+		if row.Breakdown == "" {
+			// Nothing scored yet. Explain the projection instead of opening
+			// an empty panel over a bare "TOTAL 0.0" — see
+			// StarterLedgerRow.BreakdownLabel. A finished game keeps its
+			// real 0.0: once the box is known, zero IS the explanation, and
+			// swapping in a projection there would overstate a dead slot.
+			if projected := starterProjectionBreakdown(assignment.Player, values); projected != "" && !row.GameFinal {
+				row.Breakdown = projected
+				row.BreakdownLabel = "PROJECTED"
+				row.BreakdownTotal = fmt.Sprintf("%.1f", assignment.Player.Projection)
+			}
+		}
 		ledgerPlayerDetail(&row)
 		if row.JoinState == "missing-join" && starterFinalBoxKnown(assignment.Player.NFLTeam, snapshot) {
 			row.Detail = "The final box contains no scoring row for this player; 0.0 is final."
@@ -713,6 +726,34 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 		SourceState: sourceState,
 		Rows:        rows,
 	}
+}
+
+// starterProjectionBreakdown renders the projected stat line behind a
+// player's Projection, rule by rule, in the same shape ScoreBreakdownText
+// gives a scored line. Empty when the pool carries no projected stats for
+// the player, which is the signal to leave the panel hidden rather than
+// show a heading with nothing under it.
+func starterProjectionBreakdown(player Player, values map[string]float64) string {
+	if len(player.ProjStats) == 0 {
+		return ""
+	}
+	// ProjStats is keyed the way the player pool reports stats ("rushYds"),
+	// while the scoring rules are keyed their own way ("rushYards").
+	// breakdownRows is the table that already maps one to the other, so
+	// translate through it rather than passing pool keys straight into
+	// ScoreBreakdownText, which would match none of them and silently
+	// render an empty panel. Rows with no ruleKey are context only
+	// (carries, targets) and score nothing, so they are left out.
+	translated := make(map[string]float64, len(player.ProjStats))
+	for _, mapping := range breakdownRows {
+		if mapping.ruleKey == "" {
+			continue
+		}
+		if stat, ok := player.ProjStats[mapping.statKey]; ok && stat != 0 {
+			translated[mapping.ruleKey] += stat
+		}
+	}
+	return ScoreBreakdownText(translated, values)
 }
 
 // lineupHasProjectableStarter reports whether lineup carries at least one

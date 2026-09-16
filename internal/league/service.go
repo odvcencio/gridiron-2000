@@ -4110,6 +4110,8 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	// rendering it once, is the whole reason ScoreBreakdownText returns a
 	// single string — see its doc comment.
 	starterBreakdownBind := make(map[string]string)
+	starterBreakdownLabelBind := make(map[string]string)
+	starterBreakdownTotalBind := make(map[string]string)
 	// starterInjuryBind keeps a scratch visible without waiting for a full
 	// render. The chip is always in the markup and hides itself when empty
 	// (.injury-chip:empty, the same idiom .possession-chip and the state
@@ -4204,6 +4206,8 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		starterSourceText[row.LiveKey] = ledgerSourceText(row.Source)
 		starterGameStateBind[row.LiveKey] = row.GameState
 		starterBreakdownBind[row.LiveKey] = row.Breakdown
+		starterBreakdownLabelBind[row.LiveKey] = row.BreakdownLabel
+		starterBreakdownTotalBind[row.LiveKey] = row.BreakdownTotal
 		starterInjuryBind[row.LiveKey] = row.Injury
 		starterInjuryLabelBind[row.LiveKey] = row.InjuryLabel
 		starterPossessionBind[row.LiveKey] = row.Possession
@@ -4343,6 +4347,8 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"starterSourceText":          starterSourceText,
 		"starterGameState":           starterGameStateBind,
 		"starterBreakdown":           starterBreakdownBind,
+		"starterBreakdownLabel":      starterBreakdownLabelBind,
+		"starterBreakdownTotal":      starterBreakdownTotalBind,
 		"starterPointsTotal":         starterPointsTotalBind,
 		"starterInjury":              starterInjuryBind,
 		"starterInjuryLabel":         starterInjuryLabelBind,

@@ -16,8 +16,12 @@ type liveFeed struct {
 	provider scoreProvider
 	fallback scoreProvider
 	cacheFor time.Duration
-	cachedAt time.Time
-	cached   LiveSnapshot
+	// cachedRoster pins the snapshot to the roster/lineup state it was
+	// built from, so a manager's own move is visible on their next load
+	// rather than up to cacheFor later.
+	cachedRoster int64
+	cachedAt     time.Time
+	cached       LiveSnapshot
 	// owner is the Service this feed's cache is keyed against — a
 	// back-pointer, not a copy of a closure, so Service.liveVersionFn
 	// stays the single source of truth (round-2 review of commit
@@ -67,13 +71,17 @@ func (f *liveFeed) Snapshot(ctx context.Context, now time.Time) LiveSnapshot {
 	defer f.mu.Unlock()
 	current := int64(0)
 	currentSchedule := int64(0)
+	currentRoster := int64(0)
 	if f.owner != nil {
 		if version, ok := f.owner.liveVersion(); ok {
 			current = version
 		}
 		currentSchedule = f.owner.scheduleGeneration()
+		currentRoster = f.owner.rosterGeneration()
 	}
-	if !f.cachedAt.IsZero() && now.Sub(f.cachedAt) < f.cacheFor && f.cachedVersion == current && f.cachedSchedule == currentSchedule {
+	if !f.cachedAt.IsZero() && now.Sub(f.cachedAt) < f.cacheFor &&
+		f.cachedVersion == current && f.cachedSchedule == currentSchedule &&
+		f.cachedRoster == currentRoster {
 		return f.cached
 	}
 	snapshot, err := f.provider.Snapshot(ctx, now)
@@ -95,7 +103,7 @@ func (f *liveFeed) Snapshot(ctx context.Context, now time.Time) LiveSnapshot {
 		snapshot.LastUpdated = snapshot.CheckedAt
 	}
 	snapshot.RefreshAfterSeconds = int(DefaultRefreshPeriod.Seconds())
-	f.cached, f.cachedAt, f.cachedVersion, f.cachedSchedule = snapshot, now, current, currentSchedule
+	f.cached, f.cachedAt, f.cachedVersion, f.cachedSchedule, f.cachedRoster = snapshot, now, current, currentSchedule, currentRoster
 	return snapshot
 }
 
@@ -417,6 +425,12 @@ func liveSourceLine(state string, status LiveStatus, now time.Time) string {
 // fold it in — see cachedSchedule's doc comment.
 func (s *Service) scheduleGeneration() int64 {
 	return s.store.ScheduleGeneration()
+}
+
+// rosterGeneration is the live feed's second cache key. See
+// Store.rosterGeneration for why a roster or lineup write has to move it.
+func (s *Service) rosterGeneration() int64 {
+	return s.store.RosterGeneration()
 }
 
 func (p scheduleProvider) weekState(week int, matchups []LeagueMatchup, now time.Time) (state, status, clock, slate string) {

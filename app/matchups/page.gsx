@@ -267,7 +267,7 @@ func StarterCell(props StarterCellData) Node {
 			<span class="score-value" data-gosx-live-bind={"starterPoints." + props.LiveKey} data-gosx-live-flash-class="score-flash">{props.Points}</span>
 			<span class="points-tip" id={"pts-tip-" + props.LiveKey} role="tooltip">
 				<span class="points-tip__rows" data-gosx-live-bind={"starterBreakdown." + props.LiveKey}>{props.Breakdown}</span>
-				<span class="points-tip__total"><span class="points-tip__total-label">TOTAL</span><span data-gosx-live-bind={"starterPointsTotal." + props.LiveKey}>{props.Points}</span></span>
+				<span class="points-tip__total"><span class="points-tip__total-label" data-gosx-live-bind={"starterBreakdownLabel." + props.LiveKey}>{props.BreakdownLabel}</span><span data-gosx-live-bind={"starterBreakdownTotal." + props.LiveKey}>{props.BreakdownTotal}</span></span>
 			</span>
 		</b>
 	</div>

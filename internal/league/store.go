@@ -196,6 +196,16 @@ type Store struct {
 	// the same in-memory, not-persisted, monotonic-within-one-process
 	// role scheduleGeneration already plays for the schedule.
 	lockerGeneration int64
+	// rosterGeneration counts every declared mutation to a collection the
+	// matchup ledger reads. It is the live feed's second cache key, beside
+	// scheduleGeneration (feed.go), and exists because the feed memoises a
+	// whole snapshot for 45s: before this, a manager's own add, drop,
+	// claim, trade, lineup edit, or IR move changed neither key, so
+	// /matchups kept serving the starter ledger from before the move and
+	// showed a player they had just dropped (owner report, 2026-09-16).
+	// In-memory, monotonic within one process, deliberately not persisted —
+	// the same shape as scheduleGeneration and lockerGeneration.
+	rosterGeneration int64
 }
 
 func NewStore(filePath string) *Store {
@@ -4520,6 +4530,15 @@ func (s *Store) RemoveLockerPost(id, removedByRole string, now time.Time) error 
 // counter: the locker-live hub's version source (app/locker/live.go).
 // Deliberately not persisted; a process restart resets it, exactly as
 // scheduleGeneration does for the schedule.
+// RosterGeneration returns the current in-memory counter of mutations to
+// the collections the matchup ledger reads. See rosterGeneration's doc
+// comment for why the live feed keys its cache on it.
+func (s *Store) RosterGeneration() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.rosterGeneration
+}
+
 func (s *Store) LockerGeneration() int64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -4556,6 +4575,14 @@ func (s *Store) persistLocked(cols ...collectionID) error {
 	}
 	for _, id := range cols {
 		s.dirty |= 1 << uint(id)
+		if rosterLedgerCollections[id] {
+			// Bump on the DECLARATION, not on a successful write. Older
+			// mutators update s.state before reaching this boundary, so a
+			// write that later fails can still have changed what a reader
+			// sees; invalidating a cache one time too often is safe, while
+			// missing one serves a stale lineup.
+			s.rosterGeneration++
+		}
 	}
 	if s.db == nil {
 		return nil

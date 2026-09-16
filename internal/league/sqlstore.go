@@ -482,6 +482,26 @@ const (
 	collectionCount
 )
 
+// rosterLedgerCollections names every collection a matchup starter ledger
+// is built from, so Store.persistLocked knows which writes must invalidate
+// the live feed's cached snapshot.
+//
+//   - colPicks, colTransactions: who is on the roster at all.
+//   - colLineups: which of them start, and in which slot.
+//   - colRosterZones: reserve and IR occupants, who never start.
+//   - colScalars: the roster override lives here, and changing IR changes
+//     the shape the ledger renders.
+//
+// colSchedule is absent on purpose: it already drives scheduleGeneration,
+// which the feed keys on separately.
+var rosterLedgerCollections = map[collectionID]bool{
+	colPicks:        true,
+	colTransactions: true,
+	colLineups:      true,
+	colRosterZones:  true,
+	colScalars:      true,
+}
+
 // allCollections is every collection, for a full write (import, or the
 // first write into a fresh database).
 func allCollections() []collectionID {
