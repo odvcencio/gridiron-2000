@@ -21560,13 +21560,44 @@ body.is-on-clock .draft-command__pill-sentence {
 }
 
 /* The pool's LAST WEEK figure anchors the same .points-tip panel
-   /matchups hangs off a starter's score, so it needs the same
-   positioning context: absolute keeps the panel out of the row's grid
-   entirely, so revealing it never reflows the row. .pool-row sets its own
-   stacking context on hover elsewhere in this file; z-index on the tip
-   itself already clears the sticky bars. */
+   /matchups hangs off a starter's score. Absolute keeps the panel out of
+   the row's grid entirely, so revealing it never reflows the row.
+   .pool-row sets its own stacking context on hover elsewhere in this file;
+   z-index on the tip itself already clears the sticky bars.
+
+   What it does NOT reuse is /matchups' placement. There the panel hangs
+   off a cell in a two-column scorebug with room on both sides. Here the
+   row lives inside .pool-list--tall, a bounded scroll box, and the figure
+   sits in a narrow column near the row's right edge — so the inherited
+   "open upward, anchored to the cell's left" placement was cut on two
+   sides at once: 32px off the top at 390px and 64px at 1440px by the
+   scroll box, and 135px off the right by the body at 390px (owner
+   screenshot, 2026-09-16). The rules below re-place it the way the
+   sibling .stat-tip__panel is already placed in these same rows. */
 .pool-week-points {
-  position: relative;
+  /* static, NOT relative: the panel anchors to .pool-row instead, exactly
+     as .stat-tip__panel does from these same rows. A cell-anchored panel
+     is placed from a 4rem column near the row's right edge, so at 390px it
+     ran 135px past the body and lost its right-hand column. Anchored to
+     the row and inset on both sides it cannot overflow at any width. */
+  position: static;
+}
+
+.pool-week-points .points-tip {
+  top: calc(100% + 0.4rem);
+  bottom: auto;
+  left: var(--space-sm);
+  right: var(--space-sm);
+  width: auto;
+  max-width: 26rem;
+}
+
+/* The same downward-by-default, flip-near-the-end placement the sibling
+   .stat-tip__panel already uses in these rows — see its own doc comment
+   above for why the last rows are the ones that flip. */
+.pool-row:nth-last-child(-n + 3) .pool-week-points .points-tip {
+  top: auto;
+  bottom: calc(100% + 0.4rem);
 }
 
 .pool-week-points:hover .points-tip,
