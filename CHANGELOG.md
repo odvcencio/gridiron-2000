@@ -5,6 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+No changes yet.
+
+## [release-2026.09.16-e7a46a6-matchup-fresh] — 2026-09-16
+
+Scope: Show roster moves on Matchups immediately and explain a starter's projection before kickoff.
+
 ### Fixed
 - Matchups now shows a roster move straight away. The live feed keeps one built snapshot for 45 seconds and rebuilt it only when live scoring or the schedule moved. A manager's own add, drop, claim, trade, lineup edit, or IR move changed neither, so for up to 45 seconds after the move the page kept serving the starter list from before it — showing a player the manager had just dropped. Every write to the collections a starter list is built from now retires that snapshot.
 - A starter's score panel explains the projection before the game is played. It only ever explained a scored line, so between a week turning over and its first kickoff it opened empty above a bare total — which is exactly when a manager is setting a lineup. The panel now falls back to the projected stat line, and names which of the two it is showing, so the rules and the total below them always describe the same number.
