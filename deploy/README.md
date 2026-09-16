@@ -313,6 +313,18 @@ share one metered upstream quota.
   still evaluate unrelated raw Google identities. List or invite each unrelated
   account that should pass admission; the configured commissioner's explicit
   alias is the narrow exception.
+- An alias is also what keeps "one seat per person" true. `InviteCoManager`
+  refuses an address whose member record already holds a team seat, and
+  `pickemLeaderboard` shows one row for each Pick'em owner key. Both read the
+  canonical key, so an unmapped second address for a seated manager is a
+  second person to each of them: it passes the seat guard and it enters
+  Pick'em again, which puts one name on the leaderboard twice with the season
+  record split between the rows. This happened on 2026-09-16. Map every
+  address an existing manager signs in with.
+- Remove a pending co-manager invite for a person before you map their alias.
+  The migration fails closed when the canonical member already owns a
+  different team, which is correct but blocks startup. Use /admin's own
+  detach control (`DetachCoManager`), then apply the mapping.
 - The identity startup migration is idempotent and fails closed on conflicting
   seats, roles, or user-owned values. It leaves raw invite entries unchanged
   because they are admission policy, not identity ownership. Apply the mapping
