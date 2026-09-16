@@ -5,6 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+No changes yet.
+
+## [release-2026.09.16-60b0b7a-pool-tip] — 2026-09-16
+
+Scope: Repair the player pool LAST WEEK panel so it is never cut off, and guard it in the browser.
+
 ### Fixed
 - The player pool's LAST WEEK panel is no longer cut off. It inherited its placement from the Matchups starter score, which hangs off a cell with room on both sides. In the pool the figure sits in a narrow column near the row's right edge, inside a list that scrolls in its own bounded box, so the panel lost 32px to 64px off its top and 135px off its right on a phone — the first rule of the explanation was missing. The panel now opens below the figure and spans the row, the same placement the DETAILS panel in those rows already uses. A browser test reveals every scored figure at the top, middle, and bottom of the pool's scroll box, at phone and desktop width, and fails if any edge is cut.
 - One manager can no longer appear twice in the Pick'em standings. A person who signs in with a second email address counted as a second entrant, so the same name held two rows and the season record split between them. The league's identity alias now maps the second address to the manager, which merges the entry into one row holding every week.

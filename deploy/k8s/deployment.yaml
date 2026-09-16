@@ -53,7 +53,7 @@ spec:
           # on internal/league, so this release cannot reach it.
           # On rollout the roster-ops tick closes any week whose games are
           # final and whose stats have settled, within a minute of boot.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:fa7a43be0f70cfe9b3c33c6cf9ad07a93d61a48d00466fe809155745c7111742
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:60699090e011d9eb3fe5294da0aaa0373a8ba58a89d014192b9501dab924f19a
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
