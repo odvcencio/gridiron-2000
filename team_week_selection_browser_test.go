@@ -24,12 +24,24 @@ import (
 // server. Week 1 and Week 2 games for that player's NFL team are deliberately
 // in the past, so the inherited Week 2 assignment is rendered LOCKED while
 // positions from teams absent from this tiny schedule remain editable.
+// teamWeekQAStart is this scenario's controlled instant: inside Week 1,
+// before its first kickoff, so the seeded Week 1 lineup is a legal write.
+var teamWeekQAStart = time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+
 func teamWeekQASeededLeague(t *testing.T) (*simChild, *simLeague, *draft.Bot, string) {
 	t.Helper()
 	root := teamTransferBrowserAppRoot(t)
 	leagueFile := writeTeamTransferFlagshipLeague(t, root)
 	fantasyRoot := writeTeamTransferFantasyCache(t)
 	child := startSimChild(t, "", "GOSX_APP_ROOT="+root, "LEAGUE_FILE="+leagueFile, "FANTASY_ROOT="+fantasyRoot, "GRIDIRON_TEST_POOL=")
+	// Pin the controlled clock BEFORE the draft and the Week 1 lineup seed,
+	// not only on the restarted child below. Those two steps write against
+	// whatever clock the server has, and an unpinned server runs on real
+	// wall time — so once the real calendar passed Week 1's close, seeding
+	// an explicit Week 1 QB started failing with "week 1 is closed" and
+	// took the whole scenario with it. Pinning first puts every write in
+	// this fixture on the same instant, so it holds on any date.
+	setClockAbsolute(t, child.URL, teamWeekQAStart)
 	league := seatLeague(t, child)
 	if err := league.commish.StartDraft(); err != nil {
 		t.Fatalf("start Week 1/2 QA fixture draft: %v", err)
@@ -56,7 +68,7 @@ func teamWeekQASeededLeague(t *testing.T) (*simChild, *simLeague, *draft.Bot, st
 		"OPEN_STATS_ROOT="+statsRoot,
 		"NFL_SEASON=2026",
 	)
-	setClockAbsolute(t, next.URL, time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC))
+	setClockAbsolute(t, next.URL, teamWeekQAStart)
 	league.repoint(t, next)
 	teamWeekQAForceCloseWeekOne(t, next, league.commish)
 	return next, league, bot, seedID

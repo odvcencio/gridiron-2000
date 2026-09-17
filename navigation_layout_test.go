@@ -918,8 +918,22 @@ func TestMobileBottomBarFourSlotsWithCurrentMarker(t *testing.T) {
 	if len(icons) != 1 {
 		t.Fatalf("app-tabbar Matchups icon count = %d, want 1", len(icons))
 	}
-	if got := strings.TrimSpace(descendantText(icons[0])); got != "🏈" {
-		t.Errorf("app-tabbar Matchups icon = %q, want an American-football icon", got)
+	// The icon is drawn, not typed. It used to be the 🏈 glyph, which made
+	// this a text assertion; the set is inline SVG now so the sport is
+	// pinned by a stable hook instead. The intent is unchanged and still
+	// worth pinning: Matchups must be an American football, and the
+	// soccer-ball regression this test was written for must stay fixed.
+	if got := nodeAttr(icons[0], "data-icon"); got != "football" {
+		t.Errorf("app-tabbar Matchups icon data-icon = %q, want \"football\"", got)
+	}
+	svgs := findNodes(icons[0], func(node *html.Node) bool {
+		return node.Type == html.ElementNode && node.Data == "svg"
+	})
+	if len(svgs) != 1 {
+		t.Errorf("app-tabbar Matchups icon svg count = %d, want 1 drawn icon", len(svgs))
+	}
+	if text := strings.TrimSpace(descendantText(icons[0])); text != "" {
+		t.Errorf("app-tabbar Matchups icon still renders text %q; the set is drawn, not typed", text)
 	}
 	if strings.Contains(descendantText(matchups[0]), "⚽") {
 		t.Error("app-tabbar Matchups still renders the soccer-ball icon")

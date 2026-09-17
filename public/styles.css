@@ -21725,3 +21725,121 @@ body.is-on-clock .draft-command__pill-sentence {
 .pickem-ledger__entry[data-outcome="missed_loss"] .pickem-ledger__state {
   color: var(--color-accent-hot);
 }
+
+/* ── /team on a phone ────────────────────────────────────────────────────
+   Two measured defects, both reported as "overlapping text" (owner,
+   2026-09-16), both fixed here rather than in one of the dozen earlier
+   .team-command-strip blocks: this file declares that selector in ten
+   places across four media queries, and the winner at 390px was not the
+   one its comment claimed. Appending keeps the phone shape in one legible
+   place instead of adding an eleventh contender in the middle.
+
+   1. The strip was a horizontal scroller — 1083px of tiles inside a 372px
+      box. Five of its seven tiles sat off-screen and the second was cut
+      mid-word ("Complete forecast · NOT INCL"). A manager had to swipe a
+      stat bar sideways to read their own roster counts. It wraps now.
+   2. Wrapping makes the strip taller, so the hero gives the height back:
+      the monogram no longer takes a 112px row of its own, and sits beside
+      the identity block instead. Without this the strip drops back under
+      the fixed action bar, which is the defect
+      TestBrowserTeamCommandStripClearsActionBarAtScrollTop pins. */
+@media (width <= 899px) {
+  .team-page .team-command-strip {
+    /* grid-auto-flow: row is not redundant. An earlier mobile block sets
+       column flow to build the scroller, which turns every tile past the
+       template into an implicit COLUMN — the template alone would be
+       ignored and the strip would still run off the screen. */
+    grid-auto-flow: row;
+    /* Three columns, not two. Two reads better per tile but costs a fourth
+       row, and the strip then drops back under the fixed action bar — the
+       thing this whole block exists to keep it clear of. Six short values
+       in three columns is two rows, and the lock sentence takes the third
+       on its own. */
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: visible;
+    gap: var(--space-xs) var(--space-sm);
+  }
+
+  /* The hints stay. They are not decoration: they carry which week the
+     forecast came from and that the bench figure is excluded from the
+     team score, which is the difference between a number a manager can
+     trust and one they cannot. Hiding them to buy height was the wrong
+     trade and TestBrowserTeamWeekNavigationProjectionAndSaveQA caught it.
+     They tighten instead, and the hero gives up the rest of the height. */
+  .team-page .team-command-strip__hint {
+    line-height: 1.15;
+  }
+
+  /* The team name is the page's title, not its content. At 390px the
+     desktop size costs more height than the stat it pushes off screen. */
+  .team-page .team-hero h1 {
+    font-size: var(--type-xl);
+    line-height: 1.05;
+  }
+
+  .team-page .team-hero__identity > div {
+    gap: 0.35rem;
+  }
+
+  /* The lock tile carries a sentence, not a short value, so it takes the
+     full width rather than being squeezed into half of a 390px screen. */
+  .team-page .team-command-strip__lock {
+    grid-column: 1 / -1;
+  }
+
+  .team-page .team-command-strip > div,
+  .team-page .team-command-strip > a {
+    min-width: 0;
+  }
+
+  /* white-space: normal undoes the nowrap the scroller needed. Without it
+     the tiles wrap into two columns and then clip their own text inside
+     them, which is the same defect one layout further in. */
+  .team-page .team-command-strip span,
+  .team-page .team-command-strip strong {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  /* Monogram beside the identity, not stacked above it. This container is
+     FLEX, and an earlier phone rule turns it to column — grid-template-*
+     here would be inert, which is how the first attempt at this silently
+     did nothing but the monogram resize. Row flow gives back the whole
+     height the monogram used to claim on its own. */
+  .team-page .team-hero__identity {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: var(--space-md);
+  }
+
+  .team-page .team-monogram {
+    width: 4rem;
+    height: 4rem;
+    min-width: 4rem;
+  }
+
+  .team-page .team-hero {
+    gap: var(--space-sm);
+  }
+
+  /* The record reads "Season / 0-0 / No points scored yet" in three
+     stacked lines. On a phone the middle line is the answer and the other
+     two are captions, so they tighten rather than each claim a full
+     line-height of their own. */
+  .team-page .team-hero__record {
+    gap: 0;
+    line-height: 1.15;
+  }
+}
+
+/* A projected total is one short token — "113.3", or "113.3*" when a
+   starter carries no forecast. It must not wrap. Before the marker
+   existed this cell often held a single em dash and never had the chance
+   to; once a real figure replaced the dash, the extra glyph wrapped the
+   cell onto a second line and pushed /matchups' first pair 39px further
+   down the page (measured 881 -> 920 at 390px). */
+.my-matchup__proj-value,
+.scorebug__proj-value,
+.matchup-pairs-totals__projection {
+  white-space: nowrap;
+}

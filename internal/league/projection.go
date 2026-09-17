@@ -204,6 +204,37 @@ func winProbabilityText(mine, theirs float64, mineHasProjection, theirsHasProjec
 // ff2a9b3, item 5, which this supersedes — that rule made every
 // pre-kickoff projection blank along with the score, contradicting /team's
 // own PROJECTED figure for the same lineup).
+// projectedLiveText renders one side's rest-of-game projection for the
+// matchup cards. A starter the source gives no forecast for counts as
+// zero here rather than withholding the whole number.
+//
+// It used to withhold it. The reasoning was sound — a total built from
+// eight of nine starters is not a complete forecast — but the effect on a
+// manager was the opposite of protective: an injured starter left behind
+// in a lineup silently blanked the estimate for BOTH sides of the matchup,
+// with nothing on the card to say why or what to do. A visibly low number
+// says "look at your lineup"; a dash says nothing (owner decision,
+// 2026-09-16). The trailing marker keeps it honest about being
+// incomplete, and it is the same marker the source-forecast column
+// already uses, so the two read as one idiom.
+//
+// A side with no starters at all still shows a dash: zero of zero is not a
+// low projection, it is an unset lineup, and the empty-lineup copy says so.
+func projectedLiveText(total float64, starters, known int, sourceUsable bool) string {
+	// sourceUsable is a different failure from a missing player. When the
+	// pool's forecasts are for another week entirely they are not partial,
+	// they are wrong, and projectedTotal would fall back to summing actual
+	// points and present that sum as a forecast. Suppress instead.
+	if !sourceUsable || starters == 0 {
+		return winProbabilityDashText
+	}
+	text := fmt.Sprintf("%.1f", total)
+	if known < starters {
+		text += "*"
+	}
+	return text
+}
+
 func projectedText(projected float64, hasProjection bool) string {
 	if !hasProjection {
 		return winProbabilityDashText

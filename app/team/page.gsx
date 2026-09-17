@@ -506,6 +506,31 @@ func Page() Node {
 					</small>
 				</div>
 			</section>
+			<div
+				class="team-lineup-sync"
+				data-gosx-region
+				data-gosx-region-url={data.lineup_fragment_url}
+				data-gosx-region-interval={data.lineup_fragment_interval}
+				data-gosx-region-signal="$team.lineup.refresh"
+				data-gosx-region-on="scores:changed"
+				aria-label="Authoritative team lineup"
+			>
+				<TeamLineupRegion></TeamLineupRegion>
+			</div>
+			<p class="scoring-note lineup-sync-note" role="status" aria-live="polite">
+				Lineup state refreshes automatically within 4 seconds after a manager saves.
+				If a refresh fails, use
+				<button type="button" class="board-button" data-gosx-set="$team.lineup.refresh" data-gosx-set-value="manual">Refresh lineup now</button>.
+			</p>
+			{/* The trophy case sits BELOW the lineup. It used to sit above it,
+			    and on a phone its 173px plus the hero's own 478px put the
+			    command strip — PROJECTED, STARTERS, ROSTER, DIVISION, LEAGUE —
+			    at y=784 in an 844px viewport, underneath the fixed action bar,
+			    so a manager opening /team saw an identity card and a history
+			    panel before a single number about this week. A manager opens
+			    /team to set a lineup; last season's awards can wait one scroll.
+			    /activity already moved its playoff card below the feed for the
+			    same reason (app/activity/page.gsx). */}
 			<section class="score-command team-trophy-case" id="trophy-case" aria-labelledby="trophy-case-heading">
 				<header class="section-heading section-heading--split">
 					<div>
@@ -531,22 +556,6 @@ func Page() Node {
 					<p class="scoring-note">Weekly awards will collect here after the league closes each week.</p>
 				</If>
 			</section>
-			<div
-				class="team-lineup-sync"
-				data-gosx-region
-				data-gosx-region-url={data.lineup_fragment_url}
-				data-gosx-region-interval={data.lineup_fragment_interval}
-				data-gosx-region-signal="$team.lineup.refresh"
-				data-gosx-region-on="scores:changed"
-				aria-label="Authoritative team lineup"
-			>
-				<TeamLineupRegion></TeamLineupRegion>
-			</div>
-			<p class="scoring-note lineup-sync-note" role="status" aria-live="polite">
-				Lineup state refreshes automatically within 4 seconds after a manager saves.
-				If a refresh fails, use
-				<button type="button" class="board-button" data-gosx-set="$team.lineup.refresh" data-gosx-set-value="manual">Refresh lineup now</button>.
-			</p>
 			<If cond={data.is_commissioner}>
 				<section class="lineup-target-switcher" aria-label="Commissioner lineup target">
 					<div>
