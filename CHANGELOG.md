@@ -5,6 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+No changes yet.
+
+## [release-2026.09.17-9cb887b-team-terminal] — 2026-09-16
+
+Scope: Fit the team terminal on a phone and show a partial matchup projection instead of withholding it.
+
 ### Changed
 - A matchup projection now counts a starter with no forecast as zero instead of withholding the whole number. The source gives no forecast to a player who is not playing, so one injured starter left in a lineup blanked the estimate for both sides of the matchup, with nothing on the card to say why or what to do. The figure shows with a marker that it is incomplete, so a visibly low projection tells a manager to look at their lineup. A source pinned to a different week still suppresses the figure entirely, because those forecasts are wrong rather than partial.
 - The team terminal fits a phone. Its stat strip — projections, starters, roster, division, league, locks — was a 1083px row inside a 372px screen: five of its seven tiles sat off-screen and one was cut mid-word, and the whole strip sat below the fold behind the action bar. The tiles wrap into three columns and every number is readable without scrolling sideways. The trophy case moved below the lineup, the same order /activity already uses for its playoff card: a manager opens the team page to set a lineup, and last season's awards can wait one scroll.
