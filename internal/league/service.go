@@ -4181,7 +4181,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	starterProgressPlayers := make(map[string]string)
 	liveStatusValue, hasLive := s.liveStatus()
 	pool := s.pool()
-	projectionByID, _, projectionNote := s.projectionPoolForWeek(pool, live.Week)
+	projectionByID, projectionAvailable, projectionNote := s.projectionPoolForWeek(pool, live.Week)
 	addStarterRow := func(row StarterLedgerRow) {
 		// Keep every visible starter field in a stable, one-level map keyed by
 		// the slot. The page binds all of these fields to the same live key so
@@ -4239,15 +4239,20 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		// hasProjectableStarters, not ScoreKnown: a pre-kickoff lineup still
 		// has a real projection to show, even while the current score cell
 		// itself reads "—" (wave-8 audit item 2).
-		awayHasProjection := hasKnownStarterProjections(matchup.Away.StarterLedger, projectionByID)
-		homeHasProjection := hasKnownStarterProjections(matchup.Home.StarterLedger, projectionByID)
-		projected[matchup.Away.ID] = projectedText(awayProjected, awayHasProjection)
-		projected[matchup.Home.ID] = projectedText(homeProjected, homeHasProjection)
-		for _, side := range []ScoreTeam{matchup.Away, matchup.Home} {
-			summary := summarizeOriginalProjections(side.StarterLedger, projectionByID)
-			originalProjected[side.ID] = summary.text()
-			originalProjectionCoverage[side.ID] = summary.coverage()
-			originalProjectionNote[side.ID] = summary.note()
+		// An unprojected starter counts as zero and the number still shows,
+		// marked incomplete — see projectedLiveText for why withholding it
+		// was worse for the manager than showing a low one.
+		awaySummary := summarizeOriginalProjections(matchup.Away.StarterLedger, projectionByID)
+		homeSummary := summarizeOriginalProjections(matchup.Home.StarterLedger, projectionByID)
+		projected[matchup.Away.ID] = projectedLiveText(awayProjected, awaySummary.Starters, awaySummary.Known, projectionAvailable)
+		projected[matchup.Home.ID] = projectedLiveText(homeProjected, homeSummary.Starters, homeSummary.Known, projectionAvailable)
+		for _, side := range []struct {
+			team    ScoreTeam
+			summary originalProjectionSummary
+		}{{matchup.Away, awaySummary}, {matchup.Home, homeSummary}} {
+			originalProjected[side.team.ID] = side.summary.text()
+			originalProjectionCoverage[side.team.ID] = side.summary.coverage()
+			originalProjectionNote[side.team.ID] = side.summary.note()
 		}
 		winProb[matchup.Home.ID] = matchupWinEstimate(matchup.Home, matchup.Away, matchup.State, projectionByID, liveStatusValue, hasLive)
 		winProb[matchup.Away.ID] = matchupWinEstimate(matchup.Away, matchup.Home, matchup.State, projectionByID, liveStatusValue, hasLive)
