@@ -656,6 +656,7 @@ const (
 	kvLineupAutoFilled        = "lineup_auto_filled"
 	kvTradeBlock              = "trade_block"
 	kvWatchlists              = "watchlists"
+	kvLockerReactions         = "locker_reactions"
 )
 
 // scheduleHeader is the SeasonSchedule minus its weeks: the part that has
@@ -736,6 +737,9 @@ var collectionSpecs = [collectionCount]collectionSpec{
 			}
 			if len(st.Watchlists) > 0 {
 				put(kvWatchlists, sink.jsonValue(st.Watchlists))
+			}
+			if len(st.LockerReactions) > 0 {
+				put(kvLockerReactions, sink.jsonValue(st.LockerReactions))
 			}
 		},
 	},
@@ -1539,6 +1543,13 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 			return state, fmt.Errorf("kv %s: %w", kvWatchlists, err)
 		}
 		state.Watchlists = lists
+	}
+	if raw, ok := scalars[kvLockerReactions]; ok {
+		var reactions map[string]map[string]map[string]time.Time
+		if err := json.Unmarshal([]byte(raw), &reactions); err != nil {
+			return state, fmt.Errorf("kv %s: %w", kvLockerReactions, err)
+		}
+		state.LockerReactions = reactions
 	}
 	if raw, ok := scalars[kvLineupAutoFilled]; ok {
 		var autoFilled map[string]map[int]map[string]bool
@@ -2434,6 +2445,9 @@ func normalizeState(state *PersistedState) {
 	}
 	if state.Watchlists == nil {
 		state.Watchlists = map[string]map[string]time.Time{}
+	}
+	if state.LockerReactions == nil {
+		state.LockerReactions = map[string]map[string]map[string]time.Time{}
 	}
 	normalizeIdentityCollections(state)
 }
