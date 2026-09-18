@@ -5,7 +5,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- A rostered player can no longer fall out of the player pool. The pool keeps a fixed number of players, and rosters are read through it, so a player the feed stopped ranking vanished from the roster that owned him and could not be dropped. The free-agent fix set off exactly that for Johnny Hekker: released and so unprojected, he lost his punter slot and disappeared from his team. Every rostered player is now kept past the pool limit, and a cached pool missing one refreshes at startup instead of an hour later.
 
 ## [release-2026.09.18-b432ffe-historical-finals] — 2026-09-18
 

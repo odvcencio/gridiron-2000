@@ -266,3 +266,17 @@ func (s *Service) tradeBlockViews(state PersistedState, viewerTeamID string) []T
 	})
 	return out
 }
+
+// RosteredPlayerIDs is every player any team currently rosters, after the
+// draft, adds, and drops. The player pool keeps each of them past its limit
+// (fantasy.Service.SetKeepIDs), so a roster never loses a player because a
+// feed stopped ranking him.
+func (s *Service) RosteredPlayerIDs() map[string]bool {
+	ids := make(map[string]bool)
+	for _, roster := range currentRosters(s.store.Snapshot()) {
+		for _, id := range roster {
+			ids[id] = true
+		}
+	}
+	return ids
+}
