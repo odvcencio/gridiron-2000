@@ -28,6 +28,10 @@ const starterProgressTipProbeScript = `(function(piece){
 	if (!visual) return JSON.stringify({error: 'no .starter-progress__visual'});
 	var dot = visual.querySelector('.starter-progress__piece[data-piece="' + piece + '"] .starter-progress__hit-dot');
 	if (!dot) return JSON.stringify({error: 'no hit dot for piece ' + piece});
+	// The hover below is dispatched at viewport coordinates, so the wheel
+	// must be on screen first. On a phone it follows the lineup comparison
+	// (the score-first fold contract), well below a 900px viewport.
+	visual.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'instant'});
 	var box = dot.getBoundingClientRect();
 	if (box.width <= 0 || box.height <= 0) return JSON.stringify({error: 'hit dot for piece ' + piece + ' has no area'});
 
