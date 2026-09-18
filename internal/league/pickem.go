@@ -275,45 +275,51 @@ func tallyPicks(games []GameInfo, markets map[string]PickemMarket, picks map[str
 	return record
 }
 
-// pickemStreak computes the viewer's current streak of consecutive ATS wins,
-// walking from the most recent kickoff backward. Losses and missed losses,
-// including games tied against the spread, break the streak; voids and pending games are neutral. The streak
-// resets to 0 when there are no graded wins yet. Ties
-// on kickoff (an early or late slate's several simultaneous games) break
-// by ID, descending, the same stable tie-break sortGamesByKickoff uses —
-// without it, entries at an identical kickoff have no defined relative
-// order and the streak becomes nondeterministic between runs.
+// pickemStreak computes the viewer's current streak of consecutive ATS
+// wins, walking from the most recent kickoff backward. Losses and missed
+// losses, including games tied against the spread, end the streak; voids
+// and pending games are neutral. Games that share one kickoff instant (a
+// full Sunday 1:00 PM slate) have no order among themselves, so they grade
+// as one block: a loss-free block adds every one of its wins, and a block
+// holding any loss ends the walk at its boundary without adding its own
+// wins. Without the block rule a loss inside a slate ended the streak at
+// whatever position the ID tie-break gave it, so one slate record produced
+// different streaks depending on team abbreviations.
 func pickemStreak(games []GameInfo, markets map[string]PickemMarket, picks map[string]string, enteredAt, now time.Time) int {
 	type graded struct {
 		kickoff time.Time
-		id      string
 		outcome PickemOutcome
 	}
 	entries := make([]graded, 0, len(games))
 	for _, game := range games {
 		outcome := gradePickemAt(game, markets[game.ID], picks[game.ID], enteredAt, now).Outcome
-		if outcome == pickemPending {
+		if outcome == pickemPending || outcome == pickemVoid {
 			continue
 		}
-		entries = append(entries, graded{kickoff: game.Kickoff, id: game.ID, outcome: outcome})
+		entries = append(entries, graded{kickoff: game.Kickoff, outcome: outcome})
 	}
 	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].kickoff.Equal(entries[j].kickoff) {
-			return entries[i].id > entries[j].id
-		}
 		return entries[i].kickoff.After(entries[j].kickoff)
 	})
 	streak := 0
-streakEntries:
-	for _, entry := range entries {
-		switch entry.outcome {
-		case pickemVoid:
-			continue
-		case pickemLoss, pickemMissedLoss:
-			break streakEntries
-		case pickemWin:
-			streak++
+	for start := 0; start < len(entries); {
+		end := start
+		blockWins := 0
+		blockLost := false
+		for end < len(entries) && entries[end].kickoff.Equal(entries[start].kickoff) {
+			switch entries[end].outcome {
+			case pickemWin:
+				blockWins++
+			case pickemLoss, pickemMissedLoss:
+				blockLost = true
+			}
+			end++
 		}
+		if blockLost {
+			break
+		}
+		streak += blockWins
+		start = end
 	}
 	return streak
 }

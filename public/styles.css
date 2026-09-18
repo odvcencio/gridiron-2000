@@ -19100,7 +19100,7 @@ a.skip-link {
 
 .matchups-page .starter-progress__team-side {
   color: var(--wheel-accent);
-  font-size: 0.6875rem;
+  font-size: var(--type-xs);
   letter-spacing: 0.09em;
   line-height: 1.4;
 }
@@ -19350,13 +19350,16 @@ a.skip-link {
 
 .matchups-page .starter-progress__center > span {
   color: var(--color-text-muted);
-  font-size: 0.625rem;
+  font-size: var(--type-xs);
   letter-spacing: 0.02em;
+  line-height: 1.2;
+  text-align: center;
+  text-wrap: balance;
 }
 
 .matchups-page .starter-progress__completion {
   color: var(--color-text-muted);
-  font-size: 0.6875rem;
+  font-size: var(--type-xs);
   line-height: 1.5;
 }
 
@@ -21842,4 +21845,69 @@ body.is-on-clock .draft-command__pill-sentence {
 .scorebug__proj-value,
 .matchup-pairs-totals__projection {
   white-space: nowrap;
+}
+
+/* Score-first fold on a phone (wave 7b, ash item 1 follow-up). The two
+   starter wheels rendered between the score and the first lineup row and
+   put that row at 887px on an 844px screen (the /matchups assertion in
+   TestBrowserAshJobInFoldAcrossOwnedRoutes). The featured card becomes a
+   flex column at phone width so the wheels can follow the lineup
+   comparison; benches and the footer keep their place after them. Wider
+   screens are untouched: the wheels stay under the score. */
+@media (width <= 38rem) {
+  .matchups-page .my-matchup {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .matchups-page .my-matchup > .starter-progress {
+    order: 1;
+    margin-top: 0;
+  }
+
+  .matchups-page .my-matchup > .matchup-benches,
+  .matchups-page .my-matchup > .my-matchup__foot {
+    order: 2;
+  }
+}
+
+/* Pick'em head on a phone (score-first follow-up, sibling of the matchups
+   rule above). On a 390x844 screen the first game row sat at 1313px: the
+   record strip stacked its three tiles one per row (254px) and the picks
+   counter kept the draft war room's boxed, xl-padded panel treatment
+   (164px). Both rules are scoped to .pickem-page, so the draft's own
+   clock panel keeps its base rule. */
+@media (width <= 38rem) {
+  .pickem-page .pickem-record {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-xs);
+    margin-bottom: var(--space-sm);
+  }
+
+  .pickem-page .pickem-record__stat {
+    padding: var(--space-xs) var(--space-sm);
+  }
+
+  .pickem-page .draft-clock-panel {
+    padding: var(--space-sm) var(--space-md);
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "label value"
+      "meta meta";
+    align-items: center;
+    gap: 0 var(--space-sm);
+  }
+
+  .pickem-page .draft-clock-panel > span {
+    grid-area: label;
+  }
+
+  .pickem-page .draft-clock-panel > strong {
+    grid-area: value;
+    font-size: var(--type-lg);
+  }
+
+  .pickem-page .draft-clock-panel > .draft-clock-meta {
+    grid-area: meta;
+  }
 }

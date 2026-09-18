@@ -716,10 +716,10 @@ func TestPickemStreakNoFinalsYet(t *testing.T) {
 // TestPickemStreakDeterministicOnSimultaneousKickoffs pins a real-world
 // edge case a manual QA pass against a live NFL slate surfaced: several
 // games sharing one exact kickoff instant (a full Sunday 1:00 PM ET slate)
-// have no natural "most recent" order among themselves, so the streak
-// must still be deterministic — the same stable ID tie-break
-// sortGamesByKickoff already uses, not whatever order sort.Slice happens
-// to leave equal keys in.
+// have no natural "most recent" order among themselves. The streak must
+// be deterministic and must not depend on the order sort.Slice leaves
+// equal keys in. The block rule gives both: a slate that holds a loss
+// contributes nothing, whichever game the loss sits on.
 func TestPickemStreakDeterministicOnSimultaneousKickoffs(t *testing.T) {
 	kickoff := time.Now().Add(-48 * time.Hour)
 	games := []GameInfo{
@@ -732,10 +732,9 @@ func TestPickemStreakDeterministicOnSimultaneousKickoffs(t *testing.T) {
 		"2025_18_CCC_DDD": "DDD", // correct
 		"2025_18_EEE_FFF": "EEE", // wrong — winner is FFF
 	}
-	// ID tie-break is descending, so among three equal kickoffs the walk
-	// order is EEE_FFF, DDD_CCC... i.e. by ID string, highest first:
-	// "2025_18_EEE_FFF" > "2025_18_CCC_DDD" > "2025_18_AAA_BBB". The wrong
-	// pick (EEE_FFF) is walked first and breaks the streak immediately.
+	// The three games form one block. The wrong pick (EEE_FFF) sits in
+	// it, so the block adds nothing and the walk ends there — the same
+	// answer whichever ID the loss had.
 	for i := 0; i < 20; i++ {
 		if got := pickemStreak(games, frozenPickemMarkets(games), picks, kickoff.Add(-time.Hour), time.Now()); got != 0 {
 			t.Fatalf("streak on run %d = %d, want 0 (deterministic, not flaky)", i, got)
@@ -756,6 +755,116 @@ func TestPickemStreakSkipsUnpickedFinalGame(t *testing.T) {
 	picks := map[string]string{"g1": "AAA", "g3": "EEE"} // g2 never picked
 	if got := pickemStreak(games, frozenPickemMarkets(games), picks, games[0].Kickoff.Add(-time.Hour), now); got != 1 {
 		t.Fatalf("streak after a missed game = %d, want 1 latest win after missed_loss break", got)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Streak: games at one kickoff instant grade as one block
+// ---------------------------------------------------------------------
+
+// A full Sunday slate shares one kickoff instant, so its games have no
+// order among themselves. A loss anywhere in that block ends the streak
+// at the block boundary: none of the block's own wins count, whatever
+// their IDs. Here the loss sits on the lowest ID (ATL_PIT), which an
+// ID-descending walk reaches last — such a walk counts the two wins
+// first and reports 2, a number that depends on team abbreviations.
+func TestPickemStreakSlateWithLossCountsNoneOfItsWins(t *testing.T) {
+	now := time.Now()
+	kickoff := now.Add(-48 * time.Hour)
+	games := []GameInfo{
+		{ID: "2026_01_ATL_PIT", Week: 1, Kickoff: kickoff, Away: "ATL", Home: "PIT", AwayScore: 13, HomeScore: 20, Final: true, ScoresPresent: true},
+		{ID: "2026_01_NO_DET", Week: 1, Kickoff: kickoff, Away: "NO", Home: "DET", AwayScore: 30, HomeScore: 31, Final: true, ScoresPresent: true},
+		{ID: "2026_01_TB_CIN", Week: 1, Kickoff: kickoff, Away: "TB", Home: "CIN", AwayScore: 27, HomeScore: 33, Final: true, ScoresPresent: true},
+	}
+	picks := map[string]string{
+		"2026_01_ATL_PIT": "ATL", // wrong — PIT covers
+		"2026_01_NO_DET":  "DET", // correct
+		"2026_01_TB_CIN":  "CIN", // correct
+	}
+	if got := pickemStreak(games, frozenPickemMarkets(games), picks, kickoff.Add(-time.Hour), now); got != 0 {
+		t.Fatalf("streak = %d, want 0 (a loss inside a simultaneous slate voids that slate's wins)", got)
+	}
+}
+
+// A loss-free block counts every one of its wins, and the walk continues
+// into the block before it.
+func TestPickemStreakLossFreeSlateCountsEveryWinAndKeepsWalking(t *testing.T) {
+	now := time.Now()
+	early := now.Add(-72 * time.Hour)
+	slate := now.Add(-48 * time.Hour)
+	late := now.Add(-24 * time.Hour)
+	games := []GameInfo{
+		{ID: "thu", Week: 1, Kickoff: early, Away: "AAA", Home: "BBB", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true},
+		{ID: "sun-a", Week: 1, Kickoff: slate, Away: "CCC", Home: "DDD", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true},
+		{ID: "sun-b", Week: 1, Kickoff: slate, Away: "EEE", Home: "FFF", AwayScore: 10, HomeScore: 20, Final: true, ScoresPresent: true},
+		{ID: "sun-c", Week: 1, Kickoff: slate, Away: "GGG", Home: "HHH", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true},
+		{ID: "mon", Week: 1, Kickoff: late, Away: "III", Home: "JJJ", AwayScore: 10, HomeScore: 20, Final: true, ScoresPresent: true},
+	}
+	picks := map[string]string{"thu": "AAA", "sun-a": "CCC", "sun-b": "FFF", "sun-c": "GGG", "mon": "JJJ"}
+	if got := pickemStreak(games, frozenPickemMarkets(games), picks, early.Add(-time.Hour), now); got != 5 {
+		t.Fatalf("streak = %d, want 5 (mon, the whole loss-free slate, then thu)", got)
+	}
+}
+
+// A block that holds a loss ends the walk. The streak is the wins after
+// that block only: never the block's own wins, never anything before it.
+func TestPickemStreakSlateLossEndsWalkAtSlateBoundary(t *testing.T) {
+	now := time.Now()
+	early := now.Add(-72 * time.Hour)
+	slate := now.Add(-48 * time.Hour)
+	late := now.Add(-24 * time.Hour)
+	games := []GameInfo{
+		{ID: "thu", Week: 1, Kickoff: early, Away: "AAA", Home: "BBB", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true},
+		{ID: "sun-a", Week: 1, Kickoff: slate, Away: "CCC", Home: "DDD", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true}, // lowest ID: walked last by ID order
+		{ID: "sun-b", Week: 1, Kickoff: slate, Away: "EEE", Home: "FFF", AwayScore: 10, HomeScore: 20, Final: true, ScoresPresent: true},
+		{ID: "sun-c", Week: 1, Kickoff: slate, Away: "GGG", Home: "HHH", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true},
+		{ID: "mon", Week: 1, Kickoff: late, Away: "III", Home: "JJJ", AwayScore: 10, HomeScore: 20, Final: true, ScoresPresent: true},
+	}
+	picks := map[string]string{
+		"thu":   "AAA", // correct
+		"sun-a": "DDD", // wrong — CCC covers
+		"sun-b": "FFF", // correct
+		"sun-c": "GGG", // correct
+		"mon":   "JJJ", // correct
+	}
+	if got := pickemStreak(games, frozenPickemMarkets(games), picks, early.Add(-time.Hour), now); got != 1 {
+		t.Fatalf("streak = %d, want 1 (mon only; the slate holds a loss, and thu sits behind it)", got)
+	}
+}
+
+// A void inside a block is neutral: it neither counts nor ends the walk.
+func TestPickemStreakVoidInsideSlateIsNeutral(t *testing.T) {
+	now := time.Now()
+	slate := now.Add(-48 * time.Hour)
+	games := []GameInfo{
+		{ID: "sun-a", Week: 1, Kickoff: slate, Away: "AAA", Home: "BBB", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true},
+		{ID: "sun-b", Week: 1, Kickoff: slate, Away: "CCC", Home: "DDD", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true},
+		{ID: "sun-c", Week: 1, Kickoff: slate, Away: "EEE", Home: "FFF", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true},
+	}
+	markets := frozenPickemMarkets(games)
+	void := markets["sun-b"]
+	void.Void, void.Frozen, void.LinePresent = true, false, false
+	markets["sun-b"] = void
+	picks := map[string]string{"sun-a": "AAA", "sun-b": "DDD", "sun-c": "EEE"}
+	if got := pickemStreak(games, markets, picks, slate.Add(-time.Hour), now); got != 2 {
+		t.Fatalf("streak = %d, want 2 (two wins around a void)", got)
+	}
+}
+
+// A game still in progress inside a block does not hold back the block's
+// graded wins: the streak reads what is known now, and a later loss in
+// the same block resets it when that result lands.
+func TestPickemStreakPendingInsideSlateDoesNotHoldGradedWins(t *testing.T) {
+	now := time.Now()
+	slate := now.Add(-2 * time.Hour)
+	games := []GameInfo{
+		{ID: "sun-a", Week: 1, Kickoff: slate, Away: "AAA", Home: "BBB", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true},
+		{ID: "sun-b", Week: 1, Kickoff: slate, Away: "CCC", Home: "DDD"}, // picked, no result yet
+		{ID: "sun-c", Week: 1, Kickoff: slate, Away: "EEE", Home: "FFF", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true},
+	}
+	picks := map[string]string{"sun-a": "AAA", "sun-b": "CCC", "sun-c": "EEE"}
+	if got := pickemStreak(games, frozenPickemMarkets(games), picks, slate.Add(-time.Hour), now); got != 2 {
+		t.Fatalf("streak = %d, want 2 (two graded wins; the pending game is neutral for now)", got)
 	}
 }
 

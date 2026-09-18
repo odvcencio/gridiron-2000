@@ -61,6 +61,12 @@ type AppConfig struct {
 	SessionKey string
 	TestAuth   bool   // GRIDIRON_TEST_AUTH=1 outside production
 	TestPool   string // GRIDIRON_TEST_POOL: "" or "offline-live"
+	// TestClock pins the league clock to one instant from process start
+	// (GRIDIRON_TEST_CLOCK, RFC3339). Zero means wall time until the
+	// first /test/clock request. It needs TestAuth: the harness clock
+	// override only exists on a harness build, and a leaked value must
+	// never move a real league's clock.
+	TestClock time.Time
 }
 
 // harnessTestPools lists every accepted GRIDIRON_TEST_POOL value. An empty
@@ -79,6 +85,9 @@ func (cfg AppConfig) validate() error {
 	if (cfg.TestAuth || cfg.TestPool != "") && !isLocalAppEnv(cfg.AppEnv) {
 		return errors.New("GRIDIRON_TEST_AUTH and GRIDIRON_TEST_POOL are refused outside a local APP_ENV")
 	}
+	if !cfg.TestClock.IsZero() && !cfg.TestAuth {
+		return errors.New("GRIDIRON_TEST_CLOCK requires GRIDIRON_TEST_AUTH=1")
+	}
 	return nil
 }
 
@@ -94,6 +103,13 @@ func AppConfigFromEnv() (AppConfig, error) {
 		SessionKey: getenv("SESSION_SECRET", "gridiron-2000-local-session-secret-change-me"),
 		TestPool:   strings.TrimSpace(os.Getenv("GRIDIRON_TEST_POOL")),
 		TestAuth:   os.Getenv("GRIDIRON_TEST_AUTH") == "1",
+	}
+	if raw := strings.TrimSpace(os.Getenv("GRIDIRON_TEST_CLOCK")); raw != "" {
+		at, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return cfg, errors.New("GRIDIRON_TEST_CLOCK must be an RFC3339 instant: " + err.Error())
+		}
+		cfg.TestClock = at
 	}
 	if err := cfg.validate(); err != nil {
 		return cfg, err
@@ -1719,7 +1735,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.Mount("GET /arrival-strip/dismiss", arrivalStripDismissHandler(league.Default()))
 
 	if cfg.TestAuth {
-		rt.restoreClock = mountTestRoutes(app, league.Default(), authManager, rt.Live)
+		rt.restoreClock = mountTestRoutes(app, league.Default(), authManager, rt.Live, cfg.TestClock)
 	}
 
 	rootHandler, err := router.BuildChecked()

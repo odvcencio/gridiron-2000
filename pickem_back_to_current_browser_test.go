@@ -11,13 +11,19 @@ import (
 // pickemBackToCurrentTestScheduleCSV gives the sim child's own openstats
 // cache (loadCachedData runs unconditionally at Service construction,
 // independent of OPEN_STATS_ENABLED — internal/openstats/service.go) two
-// real weeks of season-2026 games, kicking off after this test's own
-// clock (2026-09), so pickemWeekAt resolves week 1 as current and week 2
-// stays a real, selectable, non-current week — the exact shape /pickem's
-// week nav needs to exercise the "Back to current week" link.
+// real weeks of season-2026 games, kicking off after the harness clock
+// this test pins (pickemBackToCurrentTestClock, 2026-09-08), so
+// pickemWeekAt resolves week 1 as current and week 2 stays a real,
+// selectable, non-current week — the exact shape /pickem's week nav
+// needs to exercise the "Back to current week" link. The pin matters:
+// on wall time this test rotted the day both fixture kickoffs passed
+// (2026-09-17), when week 2 became the current week and the link
+// stopped rendering.
 const pickemBackToCurrentTestScheduleCSV = "game_id,season,game_type,week,gameday,gametime,away_team,away_score,home_team,home_score\n" +
 	"2026_01_BUF_MIA,2026,REG,1,2026-09-10,17:00,BUF,,MIA,\n" +
 	"2026_02_BUF_MIA,2026,REG,2,2026-09-17,17:00,BUF,,MIA,\n"
+
+const pickemBackToCurrentTestClock = "2026-09-08T12:00:00Z"
 
 // TestBrowserPickemBackToCurrentWeekStaysInViewport covers the sumac
 // comb re-audit item 3 (P2): /pickem?week=2's "Back to current week"
@@ -35,7 +41,7 @@ func TestBrowserPickemBackToCurrentWeekStaysInViewport(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(statsRoot, "games.csv"), []byte(pickemBackToCurrentTestScheduleCSV), 0o600); err != nil {
 		t.Fatalf("write fixture games.csv: %v", err)
 	}
-	child := startSimChild(t, "", "GOSX_APP_ROOT="+root, "OPEN_STATS_ROOT="+statsRoot, "NFL_SEASON=2026")
+	child := startSimChild(t, "", "GOSX_APP_ROOT="+root, "OPEN_STATS_ROOT="+statsRoot, "NFL_SEASON=2026", "GRIDIRON_TEST_CLOCK="+pickemBackToCurrentTestClock)
 	league := seatLeagueWith(t, child, true)
 	ctx := newBrowserContext(t, chrome)
 	bot := league.bots[0]

@@ -282,7 +282,11 @@ func TestBrowserPickemLockTransitionAndFinalOutcomes(t *testing.T) {
 		t.Run(viewport.name, func(t *testing.T) {
 			statsRoot := t.TempDir()
 			writePickemLockQASnapshot(t, statsRoot, pickemLockQAScheduleCSV, pickemLockQAScheduleManifest)
-			child := startSimChild(t, "", "GOSX_APP_ROOT="+root, "OPEN_STATS_ROOT="+statsRoot, "NFL_SEASON=2026")
+			// Pin the clock from process start: the startup market pass
+			// otherwise runs on wall time and freezes g-win's line the
+			// day its 2026-09-10 kickoff passes, before setClockAbsolute
+			// below can move the clock back to the fixture's start.
+			child := startSimChild(t, "", "GOSX_APP_ROOT="+root, "OPEN_STATS_ROOT="+statsRoot, "NFL_SEASON=2026", "GRIDIRON_TEST_CLOCK="+pickemLockQAStart.Format(time.RFC3339))
 			league := seatLeagueWith(t, child, true)
 			setClockAbsolute(t, child.URL, pickemLockQAStart)
 			ctx := newBrowserContext(t, chrome)
