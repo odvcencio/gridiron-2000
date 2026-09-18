@@ -7,8 +7,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - A finished week shows its result. A closed, posted week carries the same internal state token as a week that has not kicked off, and the matchups page read that token as "not started", so every card on a past week showed its projection big under a PROJ label, or a bare dash where no projection existed for that week. The featured card and every other matchup now show the final score big under FINAL, with the original projection as a small line beneath.
-- A released player no longer shows on the club that cut him. Tank01 keeps a released player's last team in its team field and says so only in a separate free-agent flag, which the pool ignored: Johnny Hekker, cut by Minnesota on August 30, still read MIN with a 7.5-point weekly projection borrowed from his 2025 Tennessee average. The pool now shows such a player as FA, with no game, no kickoff lock, no bye, and no projection. Eight pool players were affected, three of them punters carrying phantom projections.
-- The push notification enable form is an explicitly native post, and the turn-off form is managed, so the form-behavior contract passes.
+
+## [release-2026.09.18-da2842f-league-desk] — 2026-09-18
+
+Scope: Slate-aware pick'em streaks, phone-fold fixes, a trade block, trending moves, a watchlist, Locker Room reactions and weekly recaps, optional web push, and released players shown as free agents.
 
 ### Added
 - Web push notifications, off until the operator sets `PUSH_VAPID_PUBLIC_KEY` and `PUSH_VAPID_PRIVATE_KEY` (and optionally `PUSH_CONTACT`). With keys set, /settings gains a "Push notifications" panel: one tap registers the current phone or computer, and every notification the member already receives by email also reaches their devices as a short title, one line, and the page to open. A device the push service reports gone is dropped. The service worker caches nothing and intercepts no requests.
@@ -20,18 +22,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The Pick'em sheet now says why a viewer has no pick controls, from the same canonical entry projection the board and blitz pages render. A visitor reads sign-in. A signed-in Google account the league has no membership for reads "membership not recorded" with a link to the admission guidance. A pending co-manager reads their invite. The old page-local "sign in required" line covered all three, which told a signed-in, unlinked account to do the one thing it had already done.
 - The Pick'em season board now names the members who have not entered yet. Entry begins at a member's first valid pick, so the ranked board and the game ledgers omit anyone without one by design. That read as a missing person. A single "Not yet entered" line under the board lists them by name and disappears once each makes a pick.
 
+### Changed
+- The scoring page now says that the first valid pick enters a member for the season, which is what the code does. It used to say "in a week".
+
 ### Fixed
+- A released player no longer shows on the club that cut him. Tank01 keeps a released player's last team in its team field and says so only in a separate free-agent flag, which the pool ignored: Johnny Hekker, cut by Minnesota on August 30, still read MIN with a 7.5-point weekly projection borrowed from his 2025 Tennessee average. The pool now shows such a player as FA, with no game, no kickoff lock, no bye, and no projection. Eight pool players were affected, three of them punters carrying phantom projections.
+- The push notification enable form is an explicitly native post, and the turn-off form is managed, so the form-behavior contract passes.
 - The activity page's filter rail stacked to 406px on a phone: the shared search-bar rules wrap every label into its own full-width row, which put the first transaction at 1085px. Scoped to that rail alone, each label now sits beside its control on one row and keeps its 44px tap-target height. Nothing is hidden and wider screens are unchanged.
 - The pick'em streak no longer depends on team abbreviations. Games that share one kickoff instant, such as the whole Sunday 1:00 PM slate, now grade as one block. A loss-free block adds every one of its wins. A block that holds a loss ends the streak at the block, and none of its wins count. Before this change the walk broke ties inside a slate by game ID, so a 7-1 slate showed a streak of 6 or 13 depending on which away team you missed. The scoring page states the slate rule beside the push and missed-loss rules.
 - The matchups starter wheel's side label, win-chance caption, and completion line were 10px and 11px, under the 13px sub-body floor. They now use the shared type token, and the draft-section type-floor test passes again.
-
 - Two Pick'em browser tests rotted with the calendar. Their fixtures pin games to 2026-09-10 and 2026-09-17, and the harness clock was installed only on the first request that set it, so the app's startup market pass ran on wall time and froze the fixture line once those dates passed. A harness build now reads `GRIDIRON_TEST_CLOCK` (RFC3339) and pins the league clock from process start, before any background starter runs. The variable is refused without `GRIDIRON_TEST_AUTH=1`, a malformed value is a configuration error, and a child process never inherits a sibling's value. Both tests pin their fixture clock.
 - The tracked manager handbook under `docs/` was four days behind the copy it is rendered from. It is regenerated, and the projection test passes again.
 - On a phone the featured matchup's first lineup row sat at 887px on an 844px screen, under the fold the score-first contract test guards. The two starter wheels rendered between the score and the rows. They are now the summary header's own sibling, and a phone-width rule orders them after the lineup comparison. Wider screens keep them under the score.
 - The Pick'em page head on a phone spent 1313px before the first game row. The record strip stacked its three tiles one per row, and the picks counter kept the draft room's tall boxed panel. At phone width the strip now keeps its three columns and the counter is one row with the rules link beneath. The first row lands at 1062px, with no content removed and no horizontal overflow. Desktop is unchanged.
-
-### Changed
-- The scoring page now says that the first valid pick enters a member for the season, which is what the code does. It used to say "in a week".
 
 ## [release-2026.09.17-9cb887b-team-terminal] — 2026-09-16
 
