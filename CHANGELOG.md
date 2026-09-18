@@ -5,7 +5,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- A finished week shows its result. A closed, posted week carries the same internal state token as a week that has not kicked off, and the matchups page read that token as "not started", so every card on a past week showed its projection big under a PROJ label, or a bare dash where no projection existed for that week. The featured card and every other matchup now show the final score big under FINAL, with the original projection as a small line beneath.
 
 ## [release-2026.09.18-da2842f-league-desk] — 2026-09-18
 

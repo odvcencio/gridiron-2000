@@ -5957,10 +5957,13 @@ func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []m
 		awayRecord := s.currentTeamRecord(state, matchup.Away.ID)
 		homeRecord := s.currentTeamRecord(state, matchup.Home.ID)
 		out = append(out, map[string]any{
-			"id":                  matchup.ID,
-			"state":               matchup.State,
-			"live_state":          matchup.LiveState,
-			"live_state_label":    LiveStateLabel(matchup.LiveState, matchup.State == MatchupStateFinal),
+			"id":               matchup.ID,
+			"state":            matchup.State,
+			"live_state":       matchup.LiveState,
+			"live_state_label": LiveStateLabel(matchup.LiveState, matchup.State == MatchupStateFinal),
+			// posted_final: the week is closed and its scores are posted, so
+			// the page shows the result big, never the projection.
+			"posted_final":        matchup.State == MatchupStateFinal,
 			"show_live_indicator": matchup.State == MatchupStateInProgress,
 			"live_indicator":      liveIndicatorToken(matchup.State),
 			"away": map[string]any{
@@ -6248,6 +6251,7 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 		"label":          label,
 		"live_indicator": liveIndicatorToken(m.State),
 		"live_state":     m.LiveState,
+		"posted_final":   m.State == MatchupStateFinal,
 		"win_prob":       winProbText,
 		"win_prob_width": winProbWidth,
 		"mine_is_home":   mineIsHome,
