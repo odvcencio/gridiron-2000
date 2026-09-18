@@ -19,12 +19,12 @@ type AdminAttentionReadoutProps struct {
 	// DraftComplete (F1) gates the "Draft deadline" line below: a
 	// completed draft's deadline is no longer news, so it renders only
 	// while a draft is still pending.
-	DraftComplete       bool
-	Phase               string
-	DraftStatus         string
-	DraftDate           string
-	DraftTime           string
-	DraftPublished      bool
+	DraftComplete  bool
+	Phase          string
+	DraftStatus    string
+	DraftDate      string
+	DraftTime      string
+	DraftPublished bool
 	ScheduleStatus string
 	// ScheduleWeek (coordinator truth follow-up, wave C, 2026-09-08) is
 	// the next OPEN week, not the schedule's start week — the same fact
@@ -45,11 +45,11 @@ type AdminAttentionReadoutProps struct {
 	// first line never glues a close-readiness reason ("waiting for 16
 	// of 16 games to go final") onto a week that has not kicked off yet.
 	ScheduleProgressSentence string
-	SeatCount           int
-	ClaimedCount        int
-	ReadyCount          int
-	InviteCount         int
-	BoardGapCount       int
+	SeatCount                int
+	ClaimedCount             int
+	ReadyCount               int
+	InviteCount              int
+	BoardGapCount            int
 	// OpenClaimCount/TradesInReviewCount (F2, J4 console gap-audit) back
 	// the post-draft week summary: once the draft is complete, the week's
 	// own open work leads the panel instead of draft-night seat/board

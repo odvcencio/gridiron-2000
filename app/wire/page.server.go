@@ -469,8 +469,8 @@ func init() {
 // stays a safe, already-documented word, never the raw mode token, so an
 // unmapped future mode still reads as English.
 var wireModeLabels = map[string]string{
-	signalwire.ModeDisabled:         "UNAVAILABLE",
-	signalwire.ModeAwaitingSources:  "UNAVAILABLE",
+	signalwire.ModeDisabled:        "UNAVAILABLE",
+	signalwire.ModeAwaitingSources: "UNAVAILABLE",
 	// Ready/SyndicationReady are connected with fresh data on hand but not
 	// actively streaming this instant — CACHED ("a fresh saved snapshot")
 	// fits that better than LIVE, and keeps LIVE (and the pulsing live

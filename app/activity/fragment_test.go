@@ -409,7 +409,7 @@ func TestActivityPlayoffCardDemotesUntilPlayoffsAreTheLivePhase(t *testing.T) {
 		"page_start": 0, "page_end": 0, "has_previous": false, "has_next": false,
 		"has_transactions": false, "transactions_empty": false,
 		"transactions": activityRows(nil),
-		"timezone": "EDT", "activity_fragment_url": "/activity/fragment", "activity_fragment_interval": "4s",
+		"timezone":     "EDT", "activity_fragment_url": "/activity/fragment", "activity_fragment_interval": "4s",
 	}
 	tests := []struct {
 		name        string
@@ -429,7 +429,7 @@ func TestActivityPlayoffCardDemotesUntilPlayoffsAreTheLivePhase(t *testing.T) {
 			}
 			data["playoff_truth"] = map[string]any{
 				"headline": "PLAYOFFS NOT ACTIVE", "status_label": "WAITING",
-				"detail": "The published season phase is Preseason; playoff truth will appear after the regular season is final.",
+				"detail":   "The published season phase is Preseason; playoff truth will appear after the regular season is final.",
 				"recovery": "", "season_phase": test.seasonPhase,
 			}
 			html, err := route.RenderProgramComponent(program, "Page", route.ProgramRenderEnv{
