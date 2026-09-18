@@ -21911,3 +21911,37 @@ body.is-on-clock .draft-command__pill-sentence {
     grid-area: meta;
   }
 }
+
+/* /activity filter rail on a phone (score-first follow-up, sibling of the
+   Pick'em rule above). The shared .pool-search-bar phone rules wrap every
+   label into its own full-width 44px row, which suits a bar standing
+   alone but stacked this rail to 406px on a 390x844 screen and put the
+   first transaction at 1085px. Scoped to #activity-filters (the id the
+   rail already carries; the bare class is shared with /players, whose
+   own rail has chips this one never has), the form becomes a two-column
+   grid: each label keeps its 44px tap-target height beside its control.
+   The submit and the Clear link span both columns. */
+@media (width <= 38rem) {
+  #activity-filters .pool-search-bar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: var(--space-xs) var(--space-sm);
+  }
+
+  #activity-filters .pool-search-bar label {
+    display: flex;
+    align-items: center;
+    min-height: var(--control-h);
+  }
+
+  #activity-filters .pool-search-bar select,
+  #activity-filters .pool-search-bar input[type="search"] {
+    width: 100%;
+    min-width: 0;
+  }
+
+  #activity-filters .pool-search-bar .filter-button {
+    grid-column: 1 / -1;
+  }
+}

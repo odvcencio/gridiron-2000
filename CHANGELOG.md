@@ -6,6 +6,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- The activity page's filter rail stacked to 406px on a phone: the shared search-bar rules wrap every label into its own full-width row, which put the first transaction at 1085px. Scoped to that rail alone, each label now sits beside its control on one row and keeps its 44px tap-target height. Nothing is hidden and wider screens are unchanged.
 - The pick'em streak no longer depends on team abbreviations. Games that share one kickoff instant, such as the whole Sunday 1:00 PM slate, now grade as one block. A loss-free block adds every one of its wins. A block that holds a loss ends the streak at the block, and none of its wins count. Before this change the walk broke ties inside a slate by game ID, so a 7-1 slate showed a streak of 6 or 13 depending on which away team you missed. The scoring page states the slate rule beside the push and missed-loss rules.
 - The matchups starter wheel's side label, win-chance caption, and completion line were 10px and 11px, under the 13px sub-body floor. They now use the shared type token, and the draft-section type-floor test passes again.
 
