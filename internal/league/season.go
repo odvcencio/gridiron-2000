@@ -513,6 +513,10 @@ func (s *Service) closeWeek(week int, now time.Time) (ScheduleWeek, []JoinMiss, 
 		return ScheduleWeek{}, nil, err
 	}
 
+	// The shared, in-app recap: one Locker Room post per closed week
+	// (recap.go), beside the per-member email below.
+	s.postLockerWeekRecap(s.store.Snapshot(), updated, now)
+
 	// The close transaction is the authoritative event for N13. The helper
 	// re-snapshots the committed schedule before rendering, and
 	// recordAndSend's transport gate means an unconfigured queue neither
