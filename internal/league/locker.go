@@ -32,6 +32,11 @@ type LockerPostView struct {
 	// control it describes.
 	RemoveError     string
 	RemoveErrorOpen bool
+	// Reactions is the fixed emoji set with counts and the viewer's own
+	// mark; CanReact is true for an admitted, signed-in member on a live
+	// post (locker_reactions.go).
+	Reactions []LockerReactionView
+	CanReact  bool
 }
 
 // lockerViewerIdentity resolves the Locker Room viewer's canonical email,
@@ -245,7 +250,7 @@ func (s *Service) lockerAuthorLabel(post LockerPost) string {
 // now calls that helper directly, which also reads
 // Service.LeagueLocation() (the same *time.Location s.matchupLocation()
 // already returned here) so the zone stays identical.
-func (s *Service) lockerPostView(post LockerPost, replies []LockerPost, viewerEmail string, commissioner bool) LockerPostView {
+func (s *Service) lockerPostView(state PersistedState, post LockerPost, replies []LockerPost, viewerEmail string, commissioner, admitted bool) LockerPostView {
 	removed := !post.RemovedAt.IsZero()
 	canRemove := !removed && (commissioner || (viewerEmail != "" && strings.EqualFold(strings.TrimSpace(post.AuthorEmail), viewerEmail)))
 	view := LockerPostView{
@@ -257,13 +262,15 @@ func (s *Service) lockerPostView(post LockerPost, replies []LockerPost, viewerEm
 		Removed:          removed,
 		CanRemove:        canRemove,
 		CommissionerNote: !removed && post.CommissionerNote,
+		Reactions:        lockerReactionViews(state, post.ID, viewerEmail),
+		CanReact:         !removed && admitted && viewerEmail != "",
 	}
 	if removed {
 		view.RemovedLabel = lockerRemovedLabel(post.RemovedByRole)
 	}
 	replyViews := make([]LockerPostView, 0, len(replies))
 	for _, reply := range replies {
-		replyViews = append(replyViews, s.lockerPostView(reply, nil, viewerEmail, commissioner))
+		replyViews = append(replyViews, s.lockerPostView(state, reply, nil, viewerEmail, commissioner, admitted))
 	}
 	view.Replies = replyViews
 	return view
@@ -303,7 +310,7 @@ func (s *Service) LockerData(r *http.Request) map[string]any {
 	views := make([]LockerPostView, 0, len(pageTop))
 	for _, post := range pageTop {
 		replies := lockerRepliesFor(state.LockerPosts, post.ID)
-		views = append(views, s.lockerPostView(post, replies, viewerEmail, commissioner))
+		views = append(views, s.lockerPostView(state, post, replies, viewerEmail, commissioner, admitted))
 	}
 	readOnlyReason := ""
 	if readOnly {

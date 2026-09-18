@@ -257,6 +257,7 @@ func NewStoreWithIdentity(filePath string, resolver identity.Resolver) *Store {
 			LockerCommissionerNotes: map[string]bool{},
 			TradeBlock:              map[string]TradeBlockEntry{},
 			Watchlists:              map[string]map[string]time.Time{},
+			LockerReactions:         map[string]map[string]map[string]time.Time{},
 		},
 	}
 	// An empty path is the explicit in-memory/test mode: the state this
@@ -4663,6 +4664,7 @@ func cloneState(in PersistedState) PersistedState {
 		LockerCommissionerNotes: make(map[string]bool, len(in.LockerCommissionerNotes)),
 		TradeBlock:              make(map[string]TradeBlockEntry, len(in.TradeBlock)),
 		Watchlists:              make(map[string]map[string]time.Time, len(in.Watchlists)),
+		LockerReactions:         make(map[string]map[string]map[string]time.Time, len(in.LockerReactions)),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
@@ -4820,6 +4822,17 @@ func cloneState(in PersistedState) PersistedState {
 			copied[playerID] = at
 		}
 		out.Watchlists[email] = copied
+	}
+	for postID, byEmoji := range in.LockerReactions {
+		copiedEmoji := make(map[string]map[string]time.Time, len(byEmoji))
+		for emoji, byEmail := range byEmoji {
+			copiedEmail := make(map[string]time.Time, len(byEmail))
+			for email, at := range byEmail {
+				copiedEmail[email] = at
+			}
+			copiedEmoji[emoji] = copiedEmail
+		}
+		out.LockerReactions[postID] = copiedEmoji
 	}
 	sort.Slice(out.Picks, func(i, j int) bool { return out.Picks[i].Number < out.Picks[j].Number })
 	return out

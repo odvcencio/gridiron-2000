@@ -87,6 +87,9 @@ func prepareLockerData(data map[string]any, request *http.Request, postAction, r
 	}
 	data["locker_post_action"] = postAction
 	data["locker_remove_action"] = removeAction
+	// The react action lives beside the remove action on every route
+	// shape (page or fragment), so it derives from that resolved path.
+	data["locker_react_action"] = strings.TrimSuffix(removeAction, "locker-remove") + "locker-react"
 	data["csrf_token"] = csrfToken
 	data["locker_fragment_url"] = lockerFragmentURL(request)
 	data["has_notice"] = false
@@ -241,6 +244,16 @@ func init() {
 					message = "Reply posted."
 				case post.CommissionerNote:
 					message = "Posted as a commissioner note."
+				}
+				return lockerMutationSuccess(ctx, message)
+			},
+			// locker-react leaves or lifts the signed-in member's mark of one
+			// emoji on one post (ReactToLockerPost, internal/league/
+			// locker_reactions.go).
+			"locker-react": func(ctx *action.Context) error {
+				message, err := league.Default().ReactToLockerPost(ctx.Request, ctx.FormData["post_id"], ctx.FormData["emoji"], ctx.FormData["on"] == "1")
+				if err != nil {
+					return lockerValidation(ctx, err)
 				}
 				return lockerMutationSuccess(ctx, message)
 			},

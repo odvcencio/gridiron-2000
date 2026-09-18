@@ -22075,11 +22075,41 @@ body.is-on-clock .draft-command__pill-sentence {
   min-width: 0;
 }
 
+/* Locker Room reactions: one row of emoji toggles under a live post, at
+   the tap floor; the viewer's own mark reads in the accent. */
+.locker-post__reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin: 0 0 var(--space-sm);
+}
+
+.locker-post__reaction-form {
+  display: inline-flex;
+}
+
+.locker-post__reaction {
+  min-height: var(--control-h);
+  padding: 0 var(--space-sm);
+  font-size: var(--type-sm);
+}
+
+.locker-post__reaction[aria-pressed="true"] {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
 /* The star is an icon-only control: the coarse-pointer sweep zeroes every
    button's min-width by design (content-sized buttons), so this re-asserts
    the 44px floor with the same #main-content strength the sweep's other
    icon-only re-asserts use (.lineup-week-form button, .draft-command__
    pill-caret). */
 .site-frame #main-content .pool-row__watch {
+  min-width: var(--control-h);
+}
+
+/* Reaction toggles are icon-first too; keep the 44px width floor at the
+   same strength as the star re-assert above. */
+.site-frame #main-content .locker-post__reaction {
   min-width: var(--control-h);
 }

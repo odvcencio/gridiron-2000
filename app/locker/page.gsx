@@ -140,6 +140,23 @@ func LockerBoard() Node {
 							<time>{post.TimeLabel}</time>
 						</p>
 						<TextBlock as="p" class="locker-post__body" font="400 15px Plus Jakarta Sans" lineHeight={22} whiteSpace="pre-wrap" text={post.Body} />
+						{/* Reactions: the fixed emoji set with counts; one managed form
+						    per emoji, the viewer's own mark pressed
+						    (lockerReactionViews, internal/league/locker_reactions.go). */}
+						<If cond={post.CanReact}>
+							<div class="locker-post__reactions" aria-label="Reactions">
+								<Each of={post.Reactions} as="reaction">
+									<form method="post" action={data.locker_react_action} data-gosx-managed="true" class="locker-post__reaction-form">
+										<input type="hidden" name="csrf_token" value={data.csrf_token}></input>
+										<input type="hidden" name="post_id" value={post.ID}></input>
+										<input type="hidden" name="emoji" value={reaction.Emoji}></input>
+										<input type="hidden" name="on" value={reaction.ToggleValue}></input>
+										<If cond={data.page > 1}><input type="hidden" name="page" value={data.page}></input></If>
+										<button class="filter-button locker-post__reaction" type="submit" aria-pressed={reaction.Mine} aria-label={reaction.Label}>{reaction.Emoji} <span class="mono">{reaction.Count}</span></button>
+									</form>
+								</Each>
+							</div>
+						</If>
 						<If cond={post.CanRemove}>
 							<form method="post" action={data.locker_remove_action} data-gosx-managed="true" class="locker-post__remove">
 								<input type="hidden" name="csrf_token" value={data.csrf_token}></input>
@@ -190,6 +207,23 @@ func LockerBoard() Node {
 										<time>{reply.TimeLabel}</time>
 									</p>
 									<TextBlock as="p" class="locker-post__body" font="400 15px Plus Jakarta Sans" lineHeight={22} whiteSpace="pre-wrap" text={reply.Body} />
+						{/* Reactions: the fixed emoji set with counts; one managed form
+						    per emoji, the viewer's own mark pressed
+						    (lockerReactionViews, internal/league/locker_reactions.go). */}
+						<If cond={reply.CanReact}>
+							<div class="locker-post__reactions" aria-label="Reactions">
+								<Each of={reply.Reactions} as="reaction">
+									<form method="post" action={data.locker_react_action} data-gosx-managed="true" class="locker-post__reaction-form">
+										<input type="hidden" name="csrf_token" value={data.csrf_token}></input>
+										<input type="hidden" name="post_id" value={reply.ID}></input>
+										<input type="hidden" name="emoji" value={reaction.Emoji}></input>
+										<input type="hidden" name="on" value={reaction.ToggleValue}></input>
+										<If cond={data.page > 1}><input type="hidden" name="page" value={data.page}></input></If>
+										<button class="filter-button locker-post__reaction" type="submit" aria-pressed={reaction.Mine} aria-label={reaction.Label}>{reaction.Emoji} <span class="mono">{reaction.Count}</span></button>
+									</form>
+								</Each>
+							</div>
+						</If>
 									<If cond={reply.CanRemove}>
 										<form method="post" action={data.locker_remove_action} data-gosx-managed="true" class="locker-post__remove">
 											<input type="hidden" name="csrf_token" value={data.csrf_token}></input>

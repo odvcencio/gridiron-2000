@@ -515,6 +515,12 @@ type PersistedState struct {
 	// set like TradeBlock above; a watch is a bookmark, never a roster
 	// fact, so nothing else reads it.
 	Watchlists map[string]map[string]time.Time `json:"watchlists,omitempty"`
+	// LockerReactions is the Locker Room's reaction ledger: post ID, then
+	// emoji from the fixed lockerReactionEmojis set, then the reacting
+	// member's canonical email, to the instant. One mark per member per
+	// emoji per post. Persisted through colScalars' kv-backed set like
+	// TradeBlock and Watchlists above.
+	LockerReactions map[string]map[string]map[string]time.Time `json:"lockerReactions,omitempty"`
 }
 
 // SeatReleaseNotice is one durable record of a seat release, keyed by the
