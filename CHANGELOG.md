@@ -5,6 +5,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- The Pick'em sheet now says why a viewer has no pick controls, from the same canonical entry projection the board and blitz pages render. A visitor reads sign-in. A signed-in Google account the league has no membership for reads "membership not recorded" with a link to the admission guidance. A pending co-manager reads their invite. The old page-local "sign in required" line covered all three, which told a signed-in, unlinked account to do the one thing it had already done.
+- The Pick'em season board now names the members who have not entered yet. Entry begins at a member's first valid pick, so the ranked board and the game ledgers omit anyone without one by design. That read as a missing person. A single "Not yet entered" line under the board lists them by name and disappears once each makes a pick.
+
 ### Fixed
 - The activity page's filter rail stacked to 406px on a phone: the shared search-bar rules wrap every label into its own full-width row, which put the first transaction at 1085px. Scoped to that rail alone, each label now sits beside its control on one row and keeps its 44px tap-target height. Nothing is hidden and wider screens are unchanged.
 - The pick'em streak no longer depends on team abbreviations. Games that share one kickoff instant, such as the whole Sunday 1:00 PM slate, now grade as one block. A loss-free block adds every one of its wins. A block that holds a loss ends the streak at the block, and none of its wins count. Before this change the walk broke ties inside a slate by game ID, so a 7-1 slate showed a streak of 6 or 13 depending on which away team you missed. The scoring page states the slate rule beside the push and missed-loss rules.

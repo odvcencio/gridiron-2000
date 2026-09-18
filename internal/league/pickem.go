@@ -878,9 +878,19 @@ func (s *Service) pickemData(r *http.Request, reconcile bool) map[string]any {
 	seasonRecord := tallyPicks(allGames, state.PickemMarkets, viewerPicks, viewerEnteredAt, now)
 	weekRecord := tallyPicks(weekGames, state.PickemMarkets, viewerPicks, viewerEnteredAt, now)
 	streak := pickemStreak(allGames, state.PickemMarkets, viewerPicks, viewerEnteredAt, now)
+	notEntered := pickemNotEnteredNames(state)
+	viewer := s.Viewer(r)
 
 	return map[string]any{
-		"viewer":             s.Viewer(r),
+		"viewer": viewer,
+		// The canonical public-entry projection (public_entry.go) is the
+		// one source of "why can't I pick" copy: an anonymous visitor reads
+		// sign-in, a signed-in account with no recorded membership reads
+		// that, and a pending co-manager reads their invite — the same
+		// projection /board and /blitz already render. A page-local
+		// "sign in required" line used to cover all three, which told a
+		// signed-in, unlinked account to do the one thing it had done.
+		"public_entry":       s.publicEntryDataForViewerState(r, viewer, state),
 		"week":               week,
 		"current_week":       currentWeek,
 		"is_current_week":    week == currentWeek,
@@ -920,10 +930,39 @@ func (s *Service) pickemData(r *http.Request, reconcile bool) map[string]any {
 		},
 		"leaderboard":            seasonLeaderboard,
 		"leaderboard_empty":      len(seasonLeaderboard) == 0,
+		"not_entered_names":      strings.Join(notEntered, ", "),
+		"not_entered_count":      len(notEntered),
+		"has_not_entered":        len(notEntered) > 0,
 		"week_leaderboard":       weekLeaderboard,
 		"week_leaderboard_empty": len(weekLeaderboard) == 0,
 		"league":                 s.leagueMapForViewer(r),
 	}
+}
+
+// pickemNotEnteredNames lists, sorted by display name, every persisted
+// member with no pick row at all. Entry begins at a member's first valid
+// pick, so the boards and ledgers omit these members by design; the season
+// board names them so "why is X not on the board?" answers itself instead
+// of reading as a missing person. A member's pick rows live under their
+// own email, the same key pickemViewerKeyForState admits.
+func pickemNotEnteredNames(state PersistedState) []string {
+	names := make([]string, 0, len(state.Members))
+	for key, member := range state.Members {
+		owner := strings.ToLower(strings.TrimSpace(member.Email))
+		if owner == "" {
+			owner = strings.ToLower(strings.TrimSpace(key))
+		}
+		if len(state.Pickems[owner]) > 0 || len(state.Pickems[key]) > 0 || len(state.Pickems[member.Email]) > 0 {
+			continue
+		}
+		name := strings.TrimSpace(member.Name)
+		if name == "" {
+			name = strings.Split(owner, "@")[0]
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // PickemLeaderboardEntry is one leaderboard row: a member's rank, display
