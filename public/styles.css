@@ -22098,3 +22098,18 @@ body.is-on-clock .draft-command__pill-sentence {
   color: var(--color-accent);
   border-color: var(--color-accent);
 }
+
+/* The star is an icon-only control: the coarse-pointer sweep zeroes every
+   button's min-width by design (content-sized buttons), so this re-asserts
+   the 44px floor with the same #main-content strength the sweep's other
+   icon-only re-asserts use (.lineup-week-form button, .draft-command__
+   pill-caret). */
+.site-frame #main-content .pool-row__watch {
+  min-width: var(--control-h);
+}
+
+/* Reaction toggles are icon-first too; keep the 44px width floor at the
+   same strength as the star re-assert above. */
+.site-frame #main-content .locker-post__reaction {
+  min-width: var(--control-h);
+}
