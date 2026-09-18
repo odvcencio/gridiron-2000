@@ -21233,18 +21233,61 @@ body.is-on-clock .draft-command__pill-sentence {
 	transition: border-color 120ms ease, background-color 120ms ease;
 }
 
+/* Drag targets (owner report 2026-09-18): every slot used to turn cyan
+   the moment a grip moved, eligible or not, so the lit set said nothing
+   about where the player could go. During a drag every slot now steps
+   back, and only the unlocked slots whose accepted positions
+   (data-lineup-accepts, the slot's own SlotDef.Eligible) include the
+   dragged player's position (data-lineup-position on the source) light
+   up. The slot the player is leaving never lights as a destination. One
+   rule per pool position; :has() reads the active source, since the
+   transfer runtime marks only the hovered slot, never the eligible set. */
 .team-lineup-region[data-gosx-transfer].gosx-transfer--active [data-gosx-transfer-target] {
-	border-color: var(--color-accent-cyan);
+	opacity: 0.4;
 }
 
-.team-lineup-region[data-gosx-transfer] .gosx-transfer-target--over {
-	border-color: var(--color-accent);
+.team-lineup-region[data-gosx-transfer].gosx-transfer--active:has(.gosx-transfer-source--active[data-lineup-position="QB"]) [data-gosx-transfer-target][data-lineup-accepts~="QB"]:not([data-gosx-transfer-eligible="false"]):not(:has(.gosx-transfer-source--active)),
+.team-lineup-region[data-gosx-transfer].gosx-transfer--active:has(.gosx-transfer-source--active[data-lineup-position="RB"]) [data-gosx-transfer-target][data-lineup-accepts~="RB"]:not([data-gosx-transfer-eligible="false"]):not(:has(.gosx-transfer-source--active)),
+.team-lineup-region[data-gosx-transfer].gosx-transfer--active:has(.gosx-transfer-source--active[data-lineup-position="WR"]) [data-gosx-transfer-target][data-lineup-accepts~="WR"]:not([data-gosx-transfer-eligible="false"]):not(:has(.gosx-transfer-source--active)),
+.team-lineup-region[data-gosx-transfer].gosx-transfer--active:has(.gosx-transfer-source--active[data-lineup-position="TE"]) [data-gosx-transfer-target][data-lineup-accepts~="TE"]:not([data-gosx-transfer-eligible="false"]):not(:has(.gosx-transfer-source--active)),
+.team-lineup-region[data-gosx-transfer].gosx-transfer--active:has(.gosx-transfer-source--active[data-lineup-position="K"]) [data-gosx-transfer-target][data-lineup-accepts~="K"]:not([data-gosx-transfer-eligible="false"]):not(:has(.gosx-transfer-source--active)),
+.team-lineup-region[data-gosx-transfer].gosx-transfer--active:has(.gosx-transfer-source--active[data-lineup-position="P"]) [data-gosx-transfer-target][data-lineup-accepts~="P"]:not([data-gosx-transfer-eligible="false"]):not(:has(.gosx-transfer-source--active)),
+.team-lineup-region[data-gosx-transfer].gosx-transfer--active:has(.gosx-transfer-source--active[data-lineup-position="DST"]) [data-gosx-transfer-target][data-lineup-accepts~="DST"]:not([data-gosx-transfer-eligible="false"]):not(:has(.gosx-transfer-source--active)) {
+	opacity: 1;
+	border-color: var(--color-accent-cyan);
 	background: var(--color-cyan-haze);
 }
 
+.team-lineup-region[data-gosx-transfer] .gosx-transfer-target--over {
+	position: relative;
+	opacity: 1;
+	border-color: var(--color-accent);
+	background: var(--color-cyan-haze);
+	box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+/* The hovered slot says what a release will do, so the drop point is never
+   a guess. */
+.team-lineup-region[data-gosx-transfer] .gosx-transfer-target--over::after {
+	content: "DROP HERE";
+	position: absolute;
+	top: 0.25rem;
+	right: 0.5rem;
+	padding: 0.1rem 0.4rem;
+	border-radius: var(--radius-sm);
+	background: var(--color-accent);
+	color: var(--color-canvas-deep);
+	font-family: var(--font-mono);
+	font-size: var(--type-xs);
+	letter-spacing: 0.06em;
+	pointer-events: none;
+}
+
 .team-lineup-region[data-gosx-transfer] .gosx-transfer-source--active {
+	opacity: 1;
 	border-color: var(--color-accent);
 	background: var(--color-surface-raised);
+	box-shadow: var(--shadow-panel);
 }
 
 .lineup-slot__handle {
@@ -22134,4 +22177,37 @@ body.is-on-clock .draft-command__pill-sentence {
 
 .notification-push__status:empty {
   display: none;
+}
+
+/* Drag preview (owner report 2026-09-18): the transfer runtime captures the
+   pointer on the grip and moves nothing, so a drag had no visible object.
+   lineupDragPreviewScript (lineup_drag_preview.go) floats this chip under
+   the pointer, naming the player and, over a slot, the slot a release
+   assigns him to. */
+.lineup-drag-ghost {
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel-glass);
+  box-shadow: var(--shadow-panel);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.lineup-drag-ghost[data-over="true"] {
+  background: var(--color-accent);
+  color: var(--color-canvas-deep);
+}
+
+/* The house rank moved from the slot chip, where it overflowed into the
+   player photo, into the player's detail panel beside the team. */
+.stat-tip__rank {
+  color: var(--color-text-muted);
 }

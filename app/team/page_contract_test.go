@@ -770,8 +770,10 @@ func TestBenchRowRendersNewsTipAndHouseRankChip(t *testing.T) {
 	}
 	block := page[rowStart : rowStart+rowEnd]
 	for _, want := range []string{
-		`<If cond={props.HasHouseRank}>`,
-		`<small class="house-rank" title={props.HouseRankTip}>{props.HouseRank}</small>`,
+		// The rank lives in the player's detail panel beside the team, not
+		// in the slot chip, where it overflowed into the photo (owner
+		// report 2026-09-18).
+		`<If cond={props.HasHouseRank}><span class="mono house-rank stat-tip__rank" title={props.HouseRankTip}>{props.HouseRank}</span></If>`,
 		`<If cond={props.HasNews}>`,
 		`<details class="stat-tip stat-tip--news">`,
 		`<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + props.Name}>📰</summary>`,
@@ -827,10 +829,12 @@ func TestStarterSlotRendersNewsTipAndHouseRankChip(t *testing.T) {
 	}
 	page := string(pageBytes)
 	for _, want := range []string{
-		`<If cond={slot.has_house_rank}>`,
 		// The tip explains what "H##" means; before 2026-09-10 the code
 		// appeared on every row with no explanation anywhere in the app.
-		`<small class="house-rank" title={slot.house_rank_tip}>{slot.house_rank}</small>`,
+		// It sits in the detail panel beside the team, never in the slot
+		// chip, where it overflowed into the photo (owner report
+		// 2026-09-18).
+		`<If cond={slot.has_house_rank}><span class="mono house-rank stat-tip__rank" title={slot.house_rank_tip}>{slot.house_rank}</span></If>`,
 		`<If cond={slot.has_news}>`,
 		`<details class="stat-tip stat-tip--news">`,
 		`<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + slot.name}>📰</summary>`,

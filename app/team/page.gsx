@@ -188,14 +188,13 @@ func RosterRow(props RosterRowProps) Node {
 			id={"bench-" + props.ID}
 			data-gosx-transfer-source={props.ID}
 			data-gosx-transfer-disabled={props.RosterComplete == false || props.Locked || props.HasMoveOptions == false}
+			data-lineup-position={props.Position}
+			data-lineup-name={props.Name}
 		>
 		<div class="position-chip lineup-slot__id">
 			{props.Position}
 			<If cond={props.RosterComplete && props.Locked == false && props.HasMoveOptions}>
 				<span class="lineup-slot__handle" data-gosx-transfer-handle aria-label={"Move " + props.Name + " to a starter slot"}>⠿</span>
-			</If>
-			<If cond={props.HasHouseRank}>
-				<small class="house-rank" title={props.HouseRankTip}>{props.HouseRank}</small>
 			</If>
 		</div>
 		<span class="pool-player-cell lineup-slot__player">
@@ -217,6 +216,7 @@ func RosterRow(props RosterRowProps) Node {
 					<strong>{props.Name}</strong>
 					<span class="mono">{props.Jersey}</span>
 					<span class="mono stat-tip__team">{props.NFLTeam}</span>
+					<If cond={props.HasHouseRank}><span class="mono house-rank stat-tip__rank" title={props.HouseRankTip}>{props.HouseRank}</span></If>
 				</div>
 				<If cond={props.HasBreakdown}>
 					<div class="stat-tip__rows">
@@ -1104,18 +1104,16 @@ func TeamLineupRegion() Node {
 										data-player-id={slot.id}
 										data-gosx-transfer-target={slot.slot_id}
 										data-gosx-transfer-eligible-for={slot.transfer_eligible_for}
+										data-lineup-accepts={slot.transfer_accepts}
 										data-gosx-transfer-locked={slot.locked}
 										data-gosx-transfer-eligible={data.team_terminal_roster_complete && slot.locked == false && slot.transfer_eligible_for != ""}
 										aria-label={"Assign a player to " + slot.slot_id}
 									>
 										<div class="lineup-slot__id mono">
 											<If cond={data.team_terminal_roster_complete && slot.has_player && slot.locked == false && slot.has_move_options}>
-												<span class="lineup-slot__handle" data-gosx-transfer-handle data-gosx-transfer-source={slot.id} data-gosx-transfer-disabled={data.team_terminal_roster_complete == false || slot.locked || slot.has_move_options == false} aria-label={"Move " + slot.name + " to another starter slot"}>⠿</span>
+												<span class="lineup-slot__handle" data-gosx-transfer-handle data-gosx-transfer-source={slot.id} data-gosx-transfer-disabled={data.team_terminal_roster_complete == false || slot.locked || slot.has_move_options == false} data-lineup-position={slot.position} data-lineup-name={slot.name} aria-label={"Move " + slot.name + " to another starter slot"}>⠿</span>
 											</If>
 																			{slot.slot_id}
-										<If cond={slot.has_house_rank}>
-											<small class="house-rank" title={slot.house_rank_tip}>{slot.house_rank}</small>
-										</If>
 									</div>
 									<If cond={slot.has_player}>
 									<span class="pool-player-cell lineup-slot__player">
@@ -1137,6 +1135,7 @@ func TeamLineupRegion() Node {
 													<strong>{slot.name}</strong>
 													<span class="mono">{slot.jersey}</span>
 													<span class="mono stat-tip__team">{slot.nfl_team}</span>
+													<If cond={slot.has_house_rank}><span class="mono house-rank stat-tip__rank" title={slot.house_rank_tip}>{slot.house_rank}</span></If>
 												</div>
 												<If cond={slot.has_breakdown}>
 													<div class="stat-tip__rows">

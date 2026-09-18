@@ -1663,6 +1663,9 @@ func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games 
 			"locked":                a.Locked,
 			"lock_label":            "",
 			"transfer_eligible_for": transferEligibility[a.Slot.ID],
+			// transfer_accepts names the positions this slot takes, so the
+			// page can light only the slots a dragged player can fill.
+			"transfer_accepts": strings.Join(a.Slot.Def.Eligible, " "),
 		}
 		currentID := ""
 		if a.HasPlayer {
