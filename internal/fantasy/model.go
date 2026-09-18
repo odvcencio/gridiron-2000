@@ -18,6 +18,12 @@ const (
 )
 
 // Player is one draftable entry in the normalized fantasy pool.
+// FreeAgentTeam is the NFLTeam of a player no NFL club currently rosters.
+// It matches no schedule row, so such a player has no game, no kickoff
+// lock, no bye, and no weekly projection, and every surface shows "FA"
+// the way hosted providers do.
+const FreeAgentTeam = "FA"
+
 type Player struct {
 	ID         string             `json:"id"`
 	Name       string             `json:"name"`

@@ -5,6 +5,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- A released player no longer shows on the club that cut him. Tank01 keeps a released player's last team in its team field and says so only in a separate free-agent flag, which the pool ignored: Johnny Hekker, cut by Minnesota on August 30, still read MIN with a 7.5-point weekly projection borrowed from his 2025 Tennessee average. The pool now shows such a player as FA, with no game, no kickoff lock, no bye, and no projection. Eight pool players were affected, three of them punters carrying phantom projections.
+- The push notification enable form is an explicitly native post, and the turn-off form is managed, so the form-behavior contract passes.
+
 ### Added
 - Web push notifications, off until the operator sets `PUSH_VAPID_PUBLIC_KEY` and `PUSH_VAPID_PRIVATE_KEY` (and optionally `PUSH_CONTACT`). With keys set, /settings gains a "Push notifications" panel: one tap registers the current phone or computer, and every notification the member already receives by email also reaches their devices as a short title, one line, and the page to open. A device the push service reports gone is dropped. The service worker caches nothing and intercepts no requests.
 - Reactions in the Locker Room. Every live post and reply carries three emoji toggles with counts; a member's own mark reads pressed and lifts on a second tap. One mark per member per emoji per post, persisted through the additive kv set.
