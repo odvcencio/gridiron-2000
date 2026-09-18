@@ -22074,3 +22074,12 @@ body.is-on-clock .draft-command__pill-sentence {
   gap: var(--space-xs);
   min-width: 0;
 }
+
+/* The star is an icon-only control: the coarse-pointer sweep zeroes every
+   button's min-width by design (content-sized buttons), so this re-asserts
+   the 44px floor with the same #main-content strength the sweep's other
+   icon-only re-asserts use (.lineup-week-form button, .draft-command__
+   pill-caret). */
+.site-frame #main-content .pool-row__watch {
+  min-width: var(--control-h);
+}
