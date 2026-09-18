@@ -5,7 +5,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- The pick'em streak no longer depends on team abbreviations. Games that share one kickoff instant, such as the whole Sunday 1:00 PM slate, now grade as one block. A loss-free block adds every one of its wins. A block that holds a loss ends the streak at the block, and none of its wins count. Before this change the walk broke ties inside a slate by game ID, so a 7-1 slate showed a streak of 6 or 13 depending on which away team you missed. The scoring page states the slate rule beside the push and missed-loss rules.
+- The matchups starter wheel's side label, win-chance caption, and completion line were 10px and 11px, under the 13px sub-body floor. They now use the shared type token, and the draft-section type-floor test passes again.
+
+- Two Pick'em browser tests rotted with the calendar. Their fixtures pin games to 2026-09-10 and 2026-09-17, and the harness clock was installed only on the first request that set it, so the app's startup market pass ran on wall time and froze the fixture line once those dates passed. A harness build now reads `GRIDIRON_TEST_CLOCK` (RFC3339) and pins the league clock from process start, before any background starter runs. The variable is refused without `GRIDIRON_TEST_AUTH=1`, a malformed value is a configuration error, and a child process never inherits a sibling's value. Both tests pin their fixture clock.
+- The tracked manager handbook under `docs/` was four days behind the copy it is rendered from. It is regenerated, and the projection test passes again.
+
+### Changed
+- The scoring page now says that the first valid pick enters a member for the season, which is what the code does. It used to say "in a week".
 
 ## [release-2026.09.17-9cb887b-team-terminal] — 2026-09-16
 
