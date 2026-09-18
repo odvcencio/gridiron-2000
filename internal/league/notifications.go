@@ -427,8 +427,12 @@ func (s *Service) recordAndSend(state PersistedState, email, category, key strin
 		receipt.AlreadyRecorded = 1
 		return receipt
 	}
-	if result := s.enqueueRendered(build()); result == notify.EnqueueQueued {
+	rendered := build()
+	if result := s.enqueueRendered(rendered); result == notify.EnqueueQueued {
 		receipt.Queued = 1
+		// Browser push rides beside the email: same category gate, same
+		// idempotency key (push.go). A member with no devices costs nothing.
+		s.pushNotify(email, rendered, pushURLForCategory(category))
 	} else if result == notify.EnqueueDropped {
 		receipt.QueueDrops = 1
 	} else {

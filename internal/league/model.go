@@ -521,6 +521,12 @@ type PersistedState struct {
 	// emoji per post. Persisted through colScalars' kv-backed set like
 	// TradeBlock and Watchlists above.
 	LockerReactions map[string]map[string]map[string]time.Time `json:"lockerReactions,omitempty"`
+	// PushSubscriptions maps a member's canonical email to their browser
+	// push subscriptions keyed by endpoint (push.go). One row per device
+	// that opted in from /settings; persisted through colScalars' kv-backed
+	// set like the sets above. Keys are the browser's own public material,
+	// never a secret the league minted.
+	PushSubscriptions map[string]map[string]PushSubscription `json:"pushSubscriptions,omitempty"`
 }
 
 // SeatReleaseNotice is one durable record of a seat release, keyed by the

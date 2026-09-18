@@ -22113,3 +22113,25 @@ body.is-on-clock .draft-command__pill-sentence {
 .site-frame #main-content .locker-post__reaction {
   min-width: var(--control-h);
 }
+
+/* Settings: web push panel. Two native forms side by side, wrapping on a
+   phone; the status line is the client script's own voice. */
+.notification-push {
+  margin: 0 0 var(--space-md);
+  padding: var(--space-sm) 0 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.notification-push__forms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-sm);
+}
+
+.notification-push__form {
+  display: inline-flex;
+}
+
+.notification-push__status:empty {
+  display: none;
+}

@@ -194,6 +194,9 @@ type Service struct {
 	// mailer.Config.Enabled() reading passed through SetNotifier — see the
 	// design spec section 6.6.
 	notifyQueue            *notify.Queue
+	pushCfg                PushConfig
+	pushSend               PushSender
+	pushWG                 sync.WaitGroup
 	notifyTransportEnabled bool
 	// notifyLastPruneAt gates the notifier ticker's daily SentLog prune
 	// (spec section 6.2, 6.4): zero at construction, so the first tick

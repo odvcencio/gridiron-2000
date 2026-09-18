@@ -202,6 +202,12 @@ the relay profile alongside whichever profile you use above:
 
 ```dotenv
 TANK01_API_KEY=your-rapidapi-key
+# Optional: web push. Generate a VAPID key pair once (any VAPID tool); leave
+# both unset to keep push off. PUSH_CONTACT is a mailto: or https: contact
+# push services may reach you at; it defaults to the first commissioner email.
+PUSH_VAPID_PUBLIC_KEY=
+PUSH_VAPID_PRIVATE_KEY=
+PUSH_CONTACT=
 TANK01_BASE_URL=http://statrelay:8090
 ```
 
