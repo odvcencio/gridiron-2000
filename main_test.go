@@ -83,4 +83,3 @@ func TestStateSchemaPayloadExposesOnlyCompatibilityEvidence(t *testing.T) {
 // (app/login) rather than the sign-in callback, since the seat no longer
 // binds silently at sign-in. See internal/league/public_entry_test.go
 // for its own coverage.
-

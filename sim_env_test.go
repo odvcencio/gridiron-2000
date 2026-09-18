@@ -29,6 +29,9 @@ var harnessSensitiveEnv = []string{
 	// for one must run on wall time, not on whichever instant a sibling
 	// test exported.
 	"GRIDIRON_TEST_CLOCK",
+	// A real VAPID private key must never reach a sim child; a scenario
+	// that wants push sets its own test pair.
+	"PUSH_VAPID_PRIVATE_KEY",
 	// An exported LIVE_SCORING_ENABLED=true (or a poll cadence/budget
 	// tuned for production) must not start a real live poller inside a
 	// test process either — the same reasoning as TANK01_API_KEY above.

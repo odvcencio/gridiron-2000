@@ -105,6 +105,15 @@ func init() {
 				}
 			}
 			data["density_action"] = ctx.ActionPath("density-set")
+			push := league.Default().PushSettingsView(ctx.Request)
+			data["csrf_token"] = csrf
+			data["push_available"] = push.Available && push.SignedIn
+			data["push_public_key"] = push.PublicKey
+			data["push_device_count"] = push.DeviceCount
+			data["push_has_devices"] = push.DeviceCount > 0
+			data["push_device_label"] = pushDeviceLabel(push.DeviceCount)
+			data["push_subscribe_action"] = ctx.ActionPath("push-subscribe")
+			data["push_unsubscribe_action"] = ctx.ActionPath("push-unsubscribe")
 			data["density_compact"] = density.IsCompact(ctx.Request)
 			data["density_comfortable"] = !density.IsCompact(ctx.Request)
 			// No primary_action (larch's PageActionBar contract, item 10,
@@ -126,6 +135,8 @@ func init() {
 		Actions: route.FileActions{
 			"notification-set": setNotificationPreference,
 			"density-set":      setDensityPreference,
+			"push-subscribe":   subscribePush,
+			"push-unsubscribe": unsubscribePush,
 		},
 	}); err != nil {
 		log.Fatal(err)
@@ -206,3 +217,38 @@ func setDensityPreference(ctx *action.Context) error {
 // other page's confirmation instead. See
 // internal/actionui.RedirectWithScopedNotice and ScopedNotice.
 const NoticeRoute = "/settings"
+
+// pushDeviceLabel is the settings panel's own count line.
+func pushDeviceLabel(count int) string {
+	switch count {
+	case 0:
+		return "No devices registered yet."
+	case 1:
+		return "1 device registered."
+	default:
+		return fmt.Sprintf("%d devices registered.", count)
+	}
+}
+
+// subscribePush stores the browser's push subscription for the signed-in
+// member (RegisterPushSubscription, internal/league/push.go). The form is
+// a native post: the nonced client script fills its subscription field
+// and resubmits it once the browser has granted permission.
+func subscribePush(ctx *action.Context) error {
+	message, err := league.Default().RegisterPushSubscription(ctx.Request, ctx.FormData["subscription"], ctx.Request.UserAgent())
+	if err != nil {
+		return actionui.Validation(ctx, "settings", "settings", err)
+	}
+	actionui.RedirectWithScopedNotice(ctx, NoticeRoute, "/settings#push", message)
+	return nil
+}
+
+// unsubscribePush turns push off on every device the member registered.
+func unsubscribePush(ctx *action.Context) error {
+	message, err := league.Default().ClearPushSubscriptionsFor(ctx.Request)
+	if err != nil {
+		return actionui.Validation(ctx, "settings", "settings", err)
+	}
+	actionui.RedirectWithScopedNotice(ctx, NoticeRoute, "/settings#push", message)
+	return nil
+}

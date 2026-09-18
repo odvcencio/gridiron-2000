@@ -1183,6 +1183,14 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	notifyMailer := mailer.FromEnv()
 	notifyQueue := notify.New(notificationSender(notifyMailer), log.Printf)
 	league.Default().SetNotifier(notifyQueue, notifyMailer.Enabled())
+	// Web push (internal/league/push.go, push_transport.go): on only when
+	// both VAPID keys are set. The private key stays inside the sender.
+	pushEnabled := false
+	if pushCfg, pushSender, ok := pushSenderFromEnv(); ok {
+		league.Default().SetPushConfig(pushCfg, pushSender)
+		pushEnabled = true
+		log.Printf("push: web push enabled")
+	}
 	// The notify worker gets its own cancellation, separate from the context
 	// AppRuntime.Start receives: on shutdown the HTTP server stops accepting
 	// requests immediately, but the worker keeps draining whatever is already
@@ -1446,7 +1454,14 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	// skip that re-scan; a plain blocking external script keeps the exact
 	// timing an inline script already has today.
 	router.SetNavigationHead(func(nonce string) gosx.Node {
-		return gosx.RawHTML(`<script data-gosx-navigation="true" src="` + navigationRuntimeHref + `"` + navigationScriptNonceAttr(nonce) + `></script>`)
+		head := `<script data-gosx-navigation="true" src="` + navigationRuntimeHref + `"` + navigationScriptNonceAttr(nonce) + `></script>`
+		if pushEnabled {
+			// The push client (push_transport.go) needs the same nonce the
+			// navigation runtime carries; nothing else on the page may run
+			// inline under the strict CSP.
+			head += `<script data-gridiron-push="true"` + navigationScriptNonceAttr(nonce) + `>` + pushClientScript + `</script>`
+		}
+		return gosx.RawHTML(head)
 	})
 	// Authentication and onboarding redirects belong to the file routes
 	// themselves. GoSX applies this middleware only after a page or action

@@ -192,6 +192,33 @@ func Page() Node {
 					Email delivery is not configured on this league; these preferences apply once it is.
 				</p>
 			</If>
+			{/* Web push for this device (internal/league/push.go): rendered only
+			    when the operator set VAPID keys and the viewer is an admitted
+			    member. The enable form is a native post; the nonced client
+			    script (push_transport.go) fills its subscription field. */}
+			<If cond={data.push_available}>
+				<section class="notification-push" id="push" aria-labelledby="push-heading">
+					<div class="notification-preference-group__heading">
+						<span class="section-index">THIS DEVICE</span>
+						<h3 id="push-heading">Push notifications</h3>
+					</div>
+					<p class="notification-settings-note">Get the categories below on this phone or computer even when the league tab is closed. {data.push_device_label}</p>
+					<p class="notification-settings-note notification-push__status" id="push-status" aria-live="polite"></p>
+					<div class="notification-push__forms">
+						<form method="post" action={data.push_subscribe_action} id="push-enable-form" data-push-key={data.push_public_key} class="notification-push__form">
+							<input type="hidden" name="csrf_token" value={data.csrf_token}></input>
+							<input type="hidden" name="subscription" value=""></input>
+							<button class="board-button" type="submit">Turn on push for this device</button>
+						</form>
+						<If cond={data.push_has_devices}>
+							<form method="post" action={data.push_unsubscribe_action} class="notification-push__form">
+								<input type="hidden" name="csrf_token" value={data.csrf_token}></input>
+								<button class="board-button board-button--cut" type="submit">Turn off push on every device</button>
+							</form>
+						</If>
+					</div>
+				</section>
+			</If>
 			<div class="notification-preference-groups">
 				<section class="notification-preference-group" aria-labelledby="draft-notifications">
 					<div class="notification-preference-group__heading">

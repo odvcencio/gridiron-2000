@@ -1034,9 +1034,9 @@ func TestBrowserTeamLineupFixedTargetTransferFlagship(t *testing.T) {
 func assertTeamMobileIdentityFlow(t *testing.T, ctx context.Context, label string) {
 	t.Helper()
 	var failures []struct {
-		Row      string `json:"row"`
-		Part     string `json:"part"`
-		Detail   string `json:"detail"`
+		Row    string `json:"row"`
+		Part   string `json:"part"`
+		Detail string `json:"detail"`
 	}
 	const expression = `(function(){
 		function rect(e){var r=e.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height};}

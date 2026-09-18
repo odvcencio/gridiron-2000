@@ -90,7 +90,6 @@ func TeamBenchProjectionWithWeek(lineup EffectiveLineup, facts WeekFactsFunc) Te
 	return summary
 }
 
-
 // TeamBenchProjectedTotal returns the display-only projection for the
 // resolved bench. It deliberately does not participate in matchup scoring:
 // scorer.go consumes lineup starters, while this value gives a manager a

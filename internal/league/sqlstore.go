@@ -657,6 +657,7 @@ const (
 	kvTradeBlock              = "trade_block"
 	kvWatchlists              = "watchlists"
 	kvLockerReactions         = "locker_reactions"
+	kvPushSubscriptions       = "push_subscriptions"
 )
 
 // scheduleHeader is the SeasonSchedule minus its weeks: the part that has
@@ -740,6 +741,9 @@ var collectionSpecs = [collectionCount]collectionSpec{
 			}
 			if len(st.LockerReactions) > 0 {
 				put(kvLockerReactions, sink.jsonValue(st.LockerReactions))
+			}
+			if len(st.PushSubscriptions) > 0 {
+				put(kvPushSubscriptions, sink.jsonValue(st.PushSubscriptions))
 			}
 		},
 	},
@@ -1550,6 +1554,13 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 			return state, fmt.Errorf("kv %s: %w", kvLockerReactions, err)
 		}
 		state.LockerReactions = reactions
+	}
+	if raw, ok := scalars[kvPushSubscriptions]; ok {
+		var subs map[string]map[string]PushSubscription
+		if err := json.Unmarshal([]byte(raw), &subs); err != nil {
+			return state, fmt.Errorf("kv %s: %w", kvPushSubscriptions, err)
+		}
+		state.PushSubscriptions = subs
 	}
 	if raw, ok := scalars[kvLineupAutoFilled]; ok {
 		var autoFilled map[string]map[int]map[string]bool
@@ -2448,6 +2459,9 @@ func normalizeState(state *PersistedState) {
 	}
 	if state.LockerReactions == nil {
 		state.LockerReactions = map[string]map[string]map[string]time.Time{}
+	}
+	if state.PushSubscriptions == nil {
+		state.PushSubscriptions = map[string]map[string]PushSubscription{}
 	}
 	normalizeIdentityCollections(state)
 }

@@ -6,6 +6,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Web push notifications, off until the operator sets `PUSH_VAPID_PUBLIC_KEY` and `PUSH_VAPID_PRIVATE_KEY` (and optionally `PUSH_CONTACT`). With keys set, /settings gains a "Push notifications" panel: one tap registers the current phone or computer, and every notification the member already receives by email also reaches their devices as a short title, one line, and the page to open. A device the push service reports gone is dropped. The service worker caches nothing and intercepts no requests.
 - Reactions in the Locker Room. Every live post and reply carries three emoji toggles with counts; a member's own mark reads pressed and lifts on a second tap. One mark per member per emoji per post, persisted through the additive kv set.
 - A private watchlist on the player pool. Any signed-in member, with or without a seat, stars a player from the row and reads the set back through a Watchlist tab beside Free agents and All players, with the count in the tab. The star is a bookmark, never a roster fact.
 - Week close now posts a recap to the Locker Room under a reserved "Week recap" author: every matchup with its margin, the bye, and the week's awards, the same awards the trophy cases read. One post per closed week, never doubled by a re-close. It is the shared, in-app counterpart of the per-member recap email.

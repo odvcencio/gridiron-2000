@@ -114,32 +114,32 @@ type CommunitySubmission struct {
 
 // Status is safe for the league UI and contains no filesystem paths.
 type Status struct {
-	SchemaVersion      int              `json:"schema_version"`
-	Configured         bool             `json:"configured"`
-	Running            bool             `json:"running"`
-	Mode               string           `json:"mode"`
-	ConfigurationIssue string           `json:"configuration_issue,omitempty"`
-	SourceIssue        string           `json:"source_issue,omitempty"`
-	SourcesPartial     bool             `json:"sources_partial"`
-	BlueskyConfigured  bool             `json:"bluesky_configured"`
-	Sources            []SourceStatus   `json:"sources"`
-	Feeds              []FeedStatus     `json:"feeds"`
-	FeedStaleAfter     time.Duration    `json:"feed_stale_after"`
+	SchemaVersion      int            `json:"schema_version"`
+	Configured         bool           `json:"configured"`
+	Running            bool           `json:"running"`
+	Mode               string         `json:"mode"`
+	ConfigurationIssue string         `json:"configuration_issue,omitempty"`
+	SourceIssue        string         `json:"source_issue,omitempty"`
+	SourcesPartial     bool           `json:"sources_partial"`
+	BlueskyConfigured  bool           `json:"bluesky_configured"`
+	Sources            []SourceStatus `json:"sources"`
+	Feeds              []FeedStatus   `json:"feeds"`
+	FeedStaleAfter     time.Duration  `json:"feed_stale_after"`
 	// FeedInterval is the configured syndication poll cadence itself
 	// (WIRE_FEED_INTERVAL, service.go's config.FeedInterval) — distinct
 	// from FeedStaleAfter, which pads that interval with a grace window
 	// before a feed reads stale. /wire's own source panel used to state
 	// a hard-coded "every 2 min" regardless of the real configured value
 	// (F13, gap-audit J6); this lets the page render the true number.
-	FeedInterval time.Duration `json:"feed_interval"`
-	SourceCounts       map[string]int64 `json:"source_counts"`
-	RelevantSignals    int64            `json:"relevant_signals"`
-	IgnoredPosts       int64            `json:"ignored_posts"`
-	DeletedSignals     int64            `json:"deleted_signals"`
-	LastCursor         int64            `json:"last_cursor,omitempty"`
-	LastEventAt        time.Time        `json:"last_event_at,omitzero"`
-	ReconnectAt        time.Time        `json:"reconnect_at,omitzero"`
-	LastError          string           `json:"last_error,omitempty"`
+	FeedInterval    time.Duration    `json:"feed_interval"`
+	SourceCounts    map[string]int64 `json:"source_counts"`
+	RelevantSignals int64            `json:"relevant_signals"`
+	IgnoredPosts    int64            `json:"ignored_posts"`
+	DeletedSignals  int64            `json:"deleted_signals"`
+	LastCursor      int64            `json:"last_cursor,omitempty"`
+	LastEventAt     time.Time        `json:"last_event_at,omitzero"`
+	ReconnectAt     time.Time        `json:"reconnect_at,omitzero"`
+	LastError       string           `json:"last_error,omitempty"`
 }
 
 type Classification struct {
