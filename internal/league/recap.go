@@ -8,11 +8,11 @@ import (
 )
 
 // The Locker Room recap is posted under a reserved system identity, never
-// a member's. The email is not routable and never matches an admitted
-// identity, so the post cannot be removed as "yours" by any manager; the
+// a member's. The address uses the RFC 2606 .invalid domain, so it is
+// never routable and never matches an admitted identity, so the post cannot be removed as "yours" by any manager; the
 // commissioner's removal path still applies.
 const (
-	lockerRecapAuthorEmail = "recap@gridiron.local"
+	lockerRecapAuthorEmail = "recap@gridiron.invalid"
 	lockerRecapAuthorName  = "Week recap"
 )
 
