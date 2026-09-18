@@ -219,6 +219,16 @@ func init() {
 			// player-add applies the roster-ops spec section 5.3
 			// player-add action: an instant free-agent signing, with an
 			// optional drop_id when the roster is full.
+			// watch-toggle stars or unstars one pool player on the signed-in
+			// member's private watchlist (ToggleWatch, internal/league/
+			// watchlist.go); no seat is required.
+			"watch-toggle": func(ctx *action.Context) error {
+				message, err := league.Default().ToggleWatch(ctx.Request, ctx.FormData["player_id"], ctx.FormData["watched"] == "1")
+				if err != nil {
+					return actionui.Validation(ctx, "players", "player_id", err)
+				}
+				return playersMutationSuccess(ctx, redirectTarget(playersFormView(ctx)), message)
+			},
 			"player-add": func(ctx *action.Context) error {
 				message, err := league.Default().AddPlayer(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"], ctx.FormData["drop_id"], ctx.FormData["confirmation"])
 				if err != nil {

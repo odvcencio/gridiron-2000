@@ -305,6 +305,7 @@ func PlayerPoolRegion() Node {
 				<span>Filters</span>
 				<span class="pool-filter-disclosure__active mono">
 					<If cond={data.avail == "free"}>FREE AGENTS</If>
+					<If cond={data.avail == "watch"}>WATCHLIST</If>
 					<Each of={data.positions} as="tab">
 						<If cond={tab.active}>{tab.label}</If>
 					</Each>
@@ -312,7 +313,10 @@ func PlayerPoolRegion() Node {
 			</summary>
 			<div class="position-filters pool-availability-filter" aria-label="Filter by availability">
 				<a href={data.avail_free_href} data-gosx-link class="filter-button" aria-current={data.avail == "free"}>Free agents</a>
-				<a href={data.avail_all_href} data-gosx-link class="filter-button" aria-current={data.avail != "free"}>All players</a>
+				<a href={data.avail_all_href} data-gosx-link class="filter-button" aria-current={data.avail == "all" || data.avail == ""}>All players</a>
+				<If cond={data.can_watch}>
+					<a href={data.avail_watch_href} data-gosx-link class="filter-button" aria-current={data.avail == "watch"}>Watchlist · {data.watch_count}</a>
+				</If>
 			</div>
 			{/* The pool leads with production, not draft market rank: on the
 			    wire the question is who is scoring now. Rank order stays one
@@ -502,15 +506,36 @@ func PlayerPoolRegion() Node {
 					<If cond={player.has_week_points == false}>
 						<b class="mono pool-week-points" data-scored="false">{player.week_points}</b>
 					</If>
-					<If cond={player.rostered}>
-						<span class="position-chip position-chip--locked owner-chip pool-status-chip" title={player.owner_name} aria-label={"Rostered by " + player.owner_name}><span class="owner-chip__abbr">{player.owner_abbr}</span><span class="owner-chip__name">{player.owner_name}</span></span>
-					</If>
-					<If cond={player.on_waivers}>
-						<span class="position-chip pool-status-chip">ON WAIVERS · {player.waiver_resolves}</span>
-					</If>
-					<If cond={player.free_agent}>
-						<span class="position-chip pool-status-chip">FREE AGENT</span>
-					</If>
+					{/* One status cell (the row grid places children by position at
+					    phone width): the availability chip plus the watchlist star,
+					    side by side, never a new grid child of the row. */}
+					<span class="pool-status-cell">
+						<If cond={player.rostered}>
+							<span class="position-chip position-chip--locked owner-chip pool-status-chip" title={player.owner_name} aria-label={"Rostered by " + player.owner_name}><span class="owner-chip__abbr">{player.owner_abbr}</span><span class="owner-chip__name">{player.owner_name}</span></span>
+						</If>
+						<If cond={player.on_waivers}>
+							<span class="position-chip pool-status-chip">ON WAIVERS · {player.waiver_resolves}</span>
+						</If>
+						<If cond={player.free_agent}>
+							<span class="position-chip pool-status-chip">FREE AGENT</span>
+						</If>
+						{/* Watchlist star: a private bookmark for any signed-in member,
+						    seat or not (ToggleWatch, internal/league/watchlist.go).
+						    One managed form per row; the pool refreshes in place. */}
+						<If cond={data.can_watch}>
+							<form method="post" action={actionPath("watch-toggle")} data-gosx-managed="true" data-gosx-action-signal="$players.state.refresh" class="pool-row__watch-form">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input type="hidden" name="player_id" value={player.id}></input>
+								<input type="hidden" name="watched" value={player.watch_toggle_value}></input>
+								<input type="hidden" name="pos" value={data.pos}></input>
+								<input type="hidden" name="q" value={data.query}></input>
+								<input type="hidden" name="avail" value={data.avail}></input>
+								<input type="hidden" name="sort" value={data.sort}></input>
+								<input type="hidden" name="page" value={data.pool_page}></input>
+								<button class="filter-button pool-row__watch" type="submit" aria-pressed={player.watched} aria-label={player.watch_label + " " + player.name} title={player.watch_label}>{player.watch_glyph}</button>
+							</form>
+						</If>
+					</span>
 					<If cond={data.can_edit}>
 					<div class="board-controls">
 						<If cond={player.can_add}>
