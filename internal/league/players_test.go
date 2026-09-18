@@ -1843,3 +1843,28 @@ func mustPlayersRequest() *http.Request {
 	request, _ := http.NewRequest(http.MethodGet, "/players?avail=all", nil)
 	return request
 }
+
+// TestPlayersDataCarriesTrendingMoves pins the data contract behind the
+// pool's trending strip: has_trending guards it, trending_adds and
+// trending_drops carry the tallies (trendingMoves, trending.go).
+func TestPlayersDataCarriesTrendingMoves(t *testing.T) {
+	service := newTestService(t, true)
+	now := service.clock()
+	txn := Transaction{
+		ID: "txn-trend-1", Season: 2026, Week: 1, Type: "add", TeamID: "team-1",
+		Adds: []TransactionPlayer{{PlayerID: "fa-trend", Name: "Trend Setter", Position: "WR"}},
+		By:   "manager", At: now.Add(-time.Hour),
+	}
+	if err := service.store.RecordTransaction(txn, 17); err != nil {
+		t.Fatal(err)
+	}
+	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
+	data := service.PlayersData(request)
+	if data["has_trending"] != true {
+		t.Fatalf("has_trending = %v, want true after one add this week", data["has_trending"])
+	}
+	adds, _ := data["trending_adds"].([]TrendingMove)
+	if len(adds) != 1 || adds[0].Name != "Trend Setter" || adds[0].Count != 1 {
+		t.Fatalf("trending_adds = %+v, want Trend Setter x1", adds)
+	}
+}

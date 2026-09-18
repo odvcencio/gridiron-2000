@@ -21945,3 +21945,32 @@ body.is-on-clock .draft-command__pill-sentence {
     grid-column: 1 / -1;
   }
 }
+
+/* Player pool: trending strip (most added / most dropped, last seven
+   days). One wrapping row of mono chips under the pool toolbar; adds in
+   the accent, drops muted. Sized with the shared sub-body token so the
+   13px floor holds at every density. */
+.pool-trending {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs) var(--space-sm);
+  margin: 0 0 var(--space-sm);
+  font-size: var(--type-xs);
+}
+
+.pool-trending__label {
+  margin-right: var(--space-xs);
+}
+
+.pool-trending__move {
+  white-space: nowrap;
+}
+
+.pool-trending__move--add {
+  color: var(--color-accent);
+}
+
+.pool-trending__move--drop {
+  color: var(--color-text-muted);
+}

@@ -6,6 +6,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- The player pool shows a "Trending this week" strip: the league's three most added and three most dropped players over the last seven days, tallied from the transaction ledger. Manager adds, winning claims, and drops count. Trades and commissioner corrections do not. The strip hides when nothing moved.
 - The Pick'em sheet now says why a viewer has no pick controls, from the same canonical entry projection the board and blitz pages render. A visitor reads sign-in. A signed-in Google account the league has no membership for reads "membership not recorded" with a link to the admission guidance. A pending co-manager reads their invite. The old page-local "sign in required" line covered all three, which told a signed-in, unlinked account to do the one thing it had already done.
 - The Pick'em season board now names the members who have not entered yet. Entry begins at a member's first valid pick, so the ranked board and the game ledgers omit anyone without one by design. That read as a missing person. A single "Not yet entered" line under the board lists them by name and disappears once each makes a pick.
 

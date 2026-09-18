@@ -260,6 +260,21 @@ func PlayerPoolRegion() Node {
 				<h2>Browse the pool</h2>
 			</div>
 		</div>
+		{/* Trending this week: the league's most added and most dropped
+		    players over the last seven days, from the transaction ledger
+		    (trendingMoves, internal/league/trending.go). One glance, three
+		    per side; the Activity feed keeps the full record. */}
+		<If cond={data.has_trending}>
+			<p class="pool-trending" aria-label="Trending this week">
+				<span class="pool-trending__label section-index">Trending this week</span>
+				<Each of={data.trending_adds} as="move">
+					<span class="pool-trending__move pool-trending__move--add mono">+ {move.Name} · {move.Count}</span>
+				</Each>
+				<Each of={data.trending_drops} as="move">
+					<span class="pool-trending__move pool-trending__move--drop mono">− {move.Name} · {move.Count}</span>
+				</Each>
+			</p>
+		</If>
 		<div class="pool-filter-rail" id="pool-search">
 		<form method="get" action="/players" class="pool-search-bar">
 			<label class="mono" for="players-search">SEARCH //</label>
