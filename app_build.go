@@ -1460,6 +1460,9 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	// timing an inline script already has today.
 	router.SetNavigationHead(func(nonce string) gosx.Node {
 		head := `<script data-gosx-navigation="true" src="` + navigationRuntimeHref + `"` + navigationScriptNonceAttr(nonce) + `></script>`
+		// The Team terminal's drag preview (lineup_drag_preview.go) rides the
+		// same nonce; it is inert on any page without a transfer grip.
+		head += `<script data-gridiron-drag-preview="true"` + navigationScriptNonceAttr(nonce) + `>` + lineupDragPreviewScript + `</script>`
 		if pushEnabled {
 			// The push client (push_transport.go) needs the same nonce the
 			// navigation runtime carries; nothing else on the page may run

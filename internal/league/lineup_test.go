@@ -1692,3 +1692,25 @@ func TestTeamDataStartersEmptyLabelCollapsesPreDraftAndDetailsPostDraft(t *testi
 		t.Fatalf("post-draft starters_empty_label = %q, want the full per-slot warning", label)
 	}
 }
+
+// TestStarterRowsCarryTheirAcceptedPositions pins the data half of the
+// eligible-slot highlight: every starter row names the positions its slot
+// accepts, in the slot definition's own order.
+func TestStarterRowsCarryTheirAcceptedPositions(t *testing.T) {
+	svc, _ := newPlayersTestService(t)
+	request, _ := http.NewRequest(http.MethodGet, "/team", nil)
+	team := svc.TeamData(request)
+	starters, _ := team["starters"].([]map[string]any)
+	if len(starters) == 0 {
+		t.Fatal("fixture has no starter rows")
+	}
+	for _, row := range starters {
+		accepts, _ := row["transfer_accepts"].(string)
+		if accepts == "" {
+			t.Fatalf("starter slot %v has no transfer_accepts", row["slot_id"])
+		}
+		if row["slot_id"] == "QB" && accepts != "QB" {
+			t.Fatalf("QB slot accepts %q, want QB", accepts)
+		}
+	}
+}
