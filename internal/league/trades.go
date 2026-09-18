@@ -1573,6 +1573,8 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 		"compose_active":            composeCounterpartyID != "",
 		"compose_options":           composeOptions,
 		"compose_options_empty":     len(composeOptions) == 0,
+		"trade_block":               s.tradeBlockViews(state, teamID),
+		"trade_block_empty":         len(tradeBlockEntries(state)) == 0,
 		"inbox":                     inbox,
 		"inbox_empty":               len(inbox) == 0,
 		"outbox":                    outbox,

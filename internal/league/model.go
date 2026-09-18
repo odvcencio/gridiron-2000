@@ -501,6 +501,14 @@ type PersistedState struct {
 	// SQLite load time (loadStateFromDBMode) and set directly at write
 	// time (Store.PostLocker); it is not itself a persisted column.
 	LockerCommissionerNotes map[string]bool `json:"lockerCommissionerNotes,omitempty"`
+	// TradeBlock lists the players each team has put on the league trade
+	// block, keyed by player ID (a player is on exactly one roster at a
+	// time). It persists through colScalars' kv-backed set (sqlstore.go),
+	// the same additive-under-11 precedent LockerCommissionerNotes uses,
+	// so an older binary can still open the database. Read it through
+	// tradeBlockEntries (trade_block.go), which drops any listing whose
+	// player has since left that roster.
+	TradeBlock map[string]TradeBlockEntry `json:"tradeBlock,omitempty"`
 }
 
 // SeatReleaseNotice is one durable record of a seat release, keyed by the

@@ -224,6 +224,43 @@ func TradeDeskRegion() Node {
 				</If>
 			</If>
 		</section>
+		{/* League-wide trade block: every team's "available for trade"
+		    listings (tradeBlockViews, internal/league/trade_block.go), the
+		    viewer's own team first. Another team's card links straight into
+		    the composer with that counterparty selected; your own links to
+		    the Team terminal panel that edits it. */}
+		<section class="player-pool" id="trade-block">
+			<div class="pool-toolbar">
+				<div>
+					<span class="section-index">TRADE BLOCK</span>
+					<h2>Available for trade</h2>
+				</div>
+			</div>
+			<If cond={data.trade_block_empty}>
+				<div class="empty-tape">
+					<strong>NOTHING ON THE BLOCK</strong>
+					<p>Put a player on the block from your Team terminal and every manager sees it here.</p>
+				</div>
+			</If>
+			<Each of={data.trade_block} as="team">
+				<article class="trade-block__team">
+					<header class="trade-block__head">
+						<strong class="display">{team.TeamName}</strong>
+						<If cond={team.IsViewer}><a href="/team#trade-block" data-gosx-link class="access-link">Edit your block →</a></If>
+						<If cond={team.IsViewer == false}><a href={team.ProposeHref} data-gosx-link class="access-link">Propose a trade →</a></If>
+					</header>
+					<If cond={team.HasNote}><p class="trade-block__note muted">Looking for: {team.Note}</p></If>
+					<ul class="trade-block__players">
+						<Each of={team.Players} as="player">
+							<li class="trade-block__player">
+								<span class="mono muted">{player.Position} · {player.NFLTeam}</span>
+								<strong>{player.Name}</strong>
+							</li>
+						</Each>
+					</ul>
+				</article>
+			</Each>
+		</section>
 		<section class="player-pool" id="inbox">
 			<div class="pool-toolbar">
 				<div>
