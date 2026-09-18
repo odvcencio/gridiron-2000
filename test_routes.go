@@ -63,7 +63,7 @@ func testRoutesLoopbackOnly(next http.HandlerFunc) http.HandlerFunc {
 // specifically so a /test/clock request after a Close reinstalls the
 // override instead of being permanently disarmed: not installed ->
 // installed -> closed -> installed again.
-func mountTestRoutes(app *server.App, service *league.Service, authManager *auth.Manager, live *liveScoringRuntime) func() {
+func mountTestRoutes(app *server.App, service *league.Service, authManager *auth.Manager, live *liveScoringRuntime, start time.Time) func() {
 	var mu sync.Mutex
 	offset := time.Duration(0)
 	var fixed *time.Time
@@ -93,6 +93,17 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 		if wasInstalled {
 			service.SetClockForTest(nil)
 		}
+	}
+	// A non-zero start (GRIDIRON_TEST_CLOCK) pins the clock now, before
+	// AppRuntime.Start runs any starter. StartPickemMarketSync's immediate
+	// pass otherwise reads wall time and freezes every fixture line whose
+	// kickoff has passed in the real calendar — exact-once, so no later
+	// /test/clock?set= can thaw it. set=, advance=, and reset=1 then
+	// compose on this base the same as on one installed by a request.
+	if !start.IsZero() {
+		pinned := start
+		fixed = &pinned
+		installClock()
 	}
 
 	writeJSON := func(w http.ResponseWriter, v any) {

@@ -25,6 +25,10 @@ var harnessSensitiveEnv = []string{
 	"COMMISSIONER_HQ_V1_REGISTRY_FILE",
 	"COMMISSIONER_HQ_PEERS",
 	"COMMISSIONER_HQ_TOKEN",
+	// A pinned harness clock is per-scenario. A child that did not ask
+	// for one must run on wall time, not on whichever instant a sibling
+	// test exported.
+	"GRIDIRON_TEST_CLOCK",
 	// An exported LIVE_SCORING_ENABLED=true (or a poll cadence/budget
 	// tuned for production) must not start a real live poller inside a
 	// test process either — the same reasoning as TANK01_API_KEY above.

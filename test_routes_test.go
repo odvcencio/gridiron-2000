@@ -395,3 +395,80 @@ func TestTestRoutesRejectNonLoopbackRemoteAddr(t *testing.T) {
 		}
 	}
 }
+
+// TestTestClockEnvPinsClockFromProcessStart guards GRIDIRON_TEST_CLOCK: a
+// harness build reads one fixed RFC3339 instant from the environment and
+// installs it before any starter runs, so a fixture dated in the past is
+// never frozen or locked by a wall-clock startup pass that runs before the
+// test's first /test/clock request. Without it, fixture-based browser
+// tests rot the day their fixture dates pass — both Pick'em browser tests
+// did on 2026-09-17, when StartPickemMarketSync's immediate wall-clock
+// tick froze a fixture line dated 2026-09-10 before the test could pin
+// the clock back to 2026-09-09.
+func TestTestClockEnvPinsClockFromProcessStart(t *testing.T) {
+	hermeticEnv(t)
+	t.Setenv("GRIDIRON_TEST_AUTH", "1")
+	t.Setenv("GRIDIRON_TEST_CLOCK", "2026-09-09T16:00:00Z")
+	cfg, err := AppConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, rt, err := BuildApp(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(rt.Close)
+	srv := httptest.NewServer(app.Build())
+	defer srv.Close()
+
+	readClock := func(query string) time.Time {
+		t.Helper()
+		res, err := http.Get(srv.URL + "/test/clock" + query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("clock%s = %d", query, res.StatusCode)
+		}
+		var clock struct {
+			Now time.Time `json:"now"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&clock); err != nil {
+			t.Fatal(err)
+		}
+		return clock.Now
+	}
+	want := time.Date(2026, time.September, 9, 16, 0, 0, 0, time.UTC)
+	if got := readClock(""); !got.Equal(want) {
+		t.Fatalf("pinned clock = %v, want %v from GRIDIRON_TEST_CLOCK", got, want)
+	}
+	// advance composes on the pinned base, the same as after a set=.
+	if got := readClock("?advance=1h"); !got.Equal(want.Add(time.Hour)) {
+		t.Fatalf("advanced clock = %v, want %v", got, want.Add(time.Hour))
+	}
+}
+
+// TestTestClockEnvRequiresHarnessAuth: a leaked GRIDIRON_TEST_CLOCK must
+// never move a real league's clock. Without GRIDIRON_TEST_AUTH=1 the
+// configuration is refused outright, the same way GRIDIRON_TEST_POOL is
+// refused outside a local APP_ENV.
+func TestTestClockEnvRequiresHarnessAuth(t *testing.T) {
+	hermeticEnv(t)
+	t.Setenv("GRIDIRON_TEST_CLOCK", "2026-09-09T16:00:00Z")
+	if _, err := AppConfigFromEnv(); err == nil {
+		t.Fatal("GRIDIRON_TEST_CLOCK without GRIDIRON_TEST_AUTH=1 was accepted")
+	}
+}
+
+// TestTestClockEnvRejectsMalformedInstant: a value that is not RFC3339 is
+// a configuration error, not a silent fall-back to wall time — a fixture
+// test that thinks it pinned the clock must not run unpinned.
+func TestTestClockEnvRejectsMalformedInstant(t *testing.T) {
+	hermeticEnv(t)
+	t.Setenv("GRIDIRON_TEST_AUTH", "1")
+	t.Setenv("GRIDIRON_TEST_CLOCK", "yesterday")
+	if _, err := AppConfigFromEnv(); err == nil {
+		t.Fatal("malformed GRIDIRON_TEST_CLOCK was accepted")
+	}
+}
