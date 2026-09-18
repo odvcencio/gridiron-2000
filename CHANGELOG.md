@@ -5,6 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+No changes yet.
+
+## [release-2026.09.18-5edcd0d-lineup-drag] — 2026-09-18
+
+Scope: Light only the lineup slots a dragged player can fill, preview the drop, and move the house rank out of the slot chip.
+
 ### Fixed
 - Dragging a player on the Team terminal now shows where he can go and where he will land. Before, every slot lit the moment a grip moved and nothing followed the finger. Now only the unlocked slots that accept the player's position light up, every other slot steps back, the slot under the finger is ringed and tagged DROP HERE, the picked-up row lifts, and a small chip follows the finger naming the player and the slot a release assigns him to. The chip stays on screen near the edges.
 - The house rank no longer sits inside the lineup slot chip, where it overflowed into the player photo. It moved into the player's detail panel beside his team.
