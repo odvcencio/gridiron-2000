@@ -860,6 +860,17 @@ func init() {
 			// runs free-agency drops through — /team registers its own copy
 			// of the action name because GoSX action routes are scoped per
 			// page, not shared across pages that post to the same verb.
+			// trade-block applies the team page's trade block form: the checked
+			// player_id values become the seat's listing (UpdateTradeBlock,
+			// internal/league/trade_block.go), the note travels with each.
+			"trade-block": func(ctx *action.Context) error {
+				message, err := league.Default().UpdateTradeBlock(ctx.Request, ctx.FormData["team_id"], ctx.Request.Form["player_id"], ctx.FormData["note"])
+				if err != nil {
+					return actionui.Validation(ctx, "team", "player_id", err)
+				}
+				actionui.RedirectBackWithScopedNotice(ctx, NoticeRoute, "/team#trade-block", message)
+				return nil
+			},
 			"player-drop": func(ctx *action.Context) error {
 				message, err := league.Default().DropPlayer(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"], ctx.FormData["confirmation"])
 				if err != nil {

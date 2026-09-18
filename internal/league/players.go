@@ -689,7 +689,11 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		addLockedReason = "Roster moves open after the draft."
 	}
 
+	trendingAdds, trendingDrops := trendingMoves(state.Transactions, now)
 	return map[string]any{
+		"trending_adds":      trendingAdds,
+		"trending_drops":     trendingDrops,
+		"has_trending":       len(trendingAdds)+len(trendingDrops) > 0,
 		"viewer":             viewer,
 		"public_entry":       publicEntry,
 		"league":             s.leagueMapForViewer(r),

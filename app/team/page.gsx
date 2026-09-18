@@ -531,6 +531,44 @@ func Page() Node {
 			    /team to set a lineup; last season's awards can wait one scroll.
 			    /activity already moved its playoff card below the feed for the
 			    same reason (app/activity/page.gsx). */}
+			{/* Trade block: the league-wide "available for trade" signal every
+			    hosted provider keeps beside its trade desk. One managed form —
+			    the checked players are the listing, one optional note travels
+			    with every listed player — and every manager reads the block on
+			    /trades (tradeBlockPanel / tradeBlockViews, internal/league/
+			    trade_block.go). The page is the seat's own terminal, so the
+			    form always renders; UpdateTradeBlock re-checks who acts. */}
+			<If cond={data.trade_block_open}>
+				<section class="score-command team-trade-block" id="trade-block" aria-labelledby="trade-block-heading">
+					<header class="section-heading section-heading--split">
+						<div>
+							<span class="section-index">TRADE BLOCK</span>
+							<h2 id="trade-block-heading">Available for trade</h2>
+						</div>
+						<span class="position-chip"><span class="mono">{data.trade_block_count}</span> listed</span>
+					</header>
+					<p class="scoring-note">Check the players other managers may ask about. The block is a signal, not an offer: every deal still goes through the trade desk.</p>
+					<form method="post" action={actionPath("trade-block")} data-gosx-managed="true" class="team-trade-block__form">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="team_id" value={data.team.id}></input>
+							<div class="team-trade-block__options">
+								<Each of={data.trade_block_options} as="opt">
+									<label class="team-trade-block__option">
+										<input type="checkbox" name="player_id" value={opt.ID} checked={opt.Listed}></input>
+										<span class="mono muted">{opt.Position} · {opt.NFLTeam}</span>
+										<strong>{opt.Name}</strong>
+									</label>
+								</Each>
+							</div>
+							<label class="team-trade-block__note">
+								<span class="section-index">Looking for</span>
+								<input type="text" name="note" value={data.trade_block_note} maxlength="240" placeholder="RB depth, a WR2, a pick swap"></input>
+							</label>
+							<button class="board-button" type="submit">Update trade block</button>
+						</form>
+					<a href="/trades#trade-block" data-gosx-link class="access-link">See the league-wide block →</a>
+				</section>
+			</If>
 			<section class="score-command team-trophy-case" id="trophy-case" aria-labelledby="trophy-case-heading">
 				<header class="section-heading section-heading--split">
 					<div>

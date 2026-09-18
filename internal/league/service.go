@@ -2704,6 +2704,13 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	addBenchActionOptions(benchRows, lineup.Bench, lineup, games, week, now)
 	draftClass := s.draftClassTeaser(state, teamID, 3)
 	trophyCase := s.weeklyAwardsForTeam(state, teamID)
+	tradeBlockOptions, tradeBlockNote := s.tradeBlockPanel(state, teamID)
+	tradeBlockCount := 0
+	for _, option := range tradeBlockOptions {
+		if option.Listed {
+			tradeBlockCount++
+		}
+	}
 
 	data := map[string]any{
 		"viewer":                        viewer,
@@ -2816,11 +2823,16 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		// direct, explicit signal for a page-level "reviewing a past
 		// week" treatment, so a caller never has to infer it from
 		// week < current or from every slot's own locked state.
-		"lineup_week_read_only": weekSelection.ReadOnly,
-		"lineup_deadline":       lineupDeadlineMap,
-		"starters":              starterRows,
-		"starters_filled":       strconv.Itoa(filled),
-		"starters_total":        strconv.Itoa(len(lineup.Slots)),
+		"lineup_week_read_only":    weekSelection.ReadOnly,
+		"lineup_deadline":          lineupDeadlineMap,
+		"trade_block_open":         lifecycle.DraftComplete,
+		"trade_block_options":      tradeBlockOptions,
+		"trade_block_note":         tradeBlockNote,
+		"trade_block_count":        tradeBlockCount,
+		"trade_block_has_listings": tradeBlockCount > 0,
+		"starters":                 starterRows,
+		"starters_filled":          strconv.Itoa(filled),
+		"starters_total":           strconv.Itoa(len(lineup.Slots)),
 		// starters_empty/starters_empty_label back /team's persistent,
 		// beside-the-count warning (gap-audit finding: SET BEST LINEUP used
 		// to report plain success while a starting slot, e.g. K with no

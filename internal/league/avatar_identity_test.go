@@ -147,6 +147,8 @@ func expectedStorePersistMutators() map[persistCallerID]struct{} {
 		expected[persistCallerID{file: "store.go", receiver: "(*Store)", function: name}] = struct{}{}
 	}
 	expected[persistCallerID{file: "pickem_market.go", receiver: "(*Store)", function: "ReconcilePickemMarkets"}] = struct{}{}
+	expected[persistCallerID{file: "trade_block.go", receiver: "(*Store)", function: "SetTradeBlock"}] = struct{}{}
+	expected[persistCallerID{file: "trade_block.go", receiver: "(*Store)", function: "SetTradeBlockSelection"}] = struct{}{}
 	expected[persistCallerID{file: "invite_store.go", receiver: "(*Store)", function: "MintInviteLinkWithAdmission"}] = struct{}{}
 	for _, name := range []string{"placeInZoneWithAuthority", "clearZoneWithAuthority", "activateFromIRWithDropAuthority", "AutoCutHealedIR"} {
 		expected[persistCallerID{file: "zones.go", receiver: "(*Store)", function: name}] = struct{}{}
