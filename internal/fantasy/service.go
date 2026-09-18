@@ -599,6 +599,18 @@ func backfillPositionFloors(pool []Player, limit int, floors map[string]int) []P
 // drift apart. A punter cut by an earlier truncation cannot be a live
 // collision partner for a caller that never sees it again either, so this
 // scope difference changes no visible rank.
+// clearFreeAgentProjections zeroes any projection a free agent carries: a
+// player no club rosters has no game this week, so neither last season's
+// punter average nor a stray provider value may stand in for one.
+func clearFreeAgentProjections(pool []Player) {
+	for index := range pool {
+		if pool[index].NFLTeam == FreeAgentTeam {
+			pool[index].Projection = 0
+			pool[index].ProjStats = nil
+		}
+	}
+}
+
 func enrichPunters(pool []Player, punterProjection func(name, team string, requireTeam bool) (float64, bool)) {
 	if punterProjection == nil {
 		return
@@ -606,7 +618,7 @@ func enrichPunters(pool []Player, punterProjection func(name, team string, requi
 	collisions := puntersNeedingTeamMatch(pool)
 	for index := range pool {
 		player := &pool[index]
-		if player.Position != "P" || player.Projection != 0 {
+		if player.Position != "P" || player.Projection != 0 || player.NFLTeam == FreeAgentTeam {
 			continue
 		}
 		requireTeam := collisions[punterSurname(player.Name)]
@@ -751,6 +763,7 @@ func restLess(rest []Player) func(i, j int) bool {
 // whatever punters already carry a nonzero Projection), so a pool built
 // before the hook existed still gets its punters labeled once this runs.
 func normalizePool(pool []Player, punterProjection func(name, team string, requireTeam bool) (float64, bool)) []Player {
+	clearFreeAgentProjections(pool)
 	enrichPunters(pool, punterProjection)
 
 	ranked := make([]Player, 0, len(pool))

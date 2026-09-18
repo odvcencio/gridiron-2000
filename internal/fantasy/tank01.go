@@ -140,6 +140,13 @@ func parsePlayerList(raw json.RawMessage) map[string]Player {
 			Position: position,
 			NFLTeam:  strings.ToUpper(flexString(entry["team"])),
 		}
+		// isFreeAgent: Tank01 keeps a released player's last club in
+		// "team" (live 2026-09-18: Johnny Hekker, cut by MIN on 2026-08-30,
+		// still read "MIN"). The flag is the truth; the team field is only
+		// his history. See FreeAgentTeam.
+		if strings.EqualFold(flexString(entry["isFreeAgent"]), "true") {
+			player.NFLTeam = FreeAgentTeam
+		}
 		if jersey := flexString(entry["jerseyNum"]); jersey != "" && jersey != "0" {
 			player.Jersey = jersey
 		}

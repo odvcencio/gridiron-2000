@@ -29,8 +29,8 @@ func TestSettingsPushPanelContract(t *testing.T) {
 			t.Errorf("page.gsx is missing the push piece %q", want)
 		}
 	}
-	if strings.Contains(source[strings.Index(source, `id="push-enable-form"`):], `data-gosx-managed="true" class="notification-push__form"`) {
-		t.Error("the enable form must stay a native post; the client script resubmits it after subscribing")
+	if !strings.Contains(source, `id="push-enable-form" data-gosx-managed="false"`) {
+		t.Error("the enable form must be an explicitly native post; the client script resubmits it after subscribing")
 	}
 	server, err := os.ReadFile("page.server.go")
 	if err != nil {

@@ -70,6 +70,15 @@ func intentionalNativeTeamForm(path, tag string) bool {
 		// — the same full-navigation rule the sign-out form below follows.
 		return regexp.MustCompile("(?i)\\bdata-gosx-managed\\s*=\\s*[\"']false[\"']").MatchString(tag) &&
 			regexp.MustCompile("\\baction=\\{(props\\.Actions\\.practice_(leave|restart)|data\\.start_action)\\}").MatchString(tag)
+	case "settings/page.gsx":
+		// Web push enable (internal/league/push.go, push_transport.go): the
+		// nonced client script intercepts the first submit, asks for
+		// notification permission, subscribes, fills the hidden
+		// subscription field, and resubmits. A managed submit would race
+		// that listener and post an empty subscription, so this one form
+		// stays a native post.
+		return regexp.MustCompile("(?i)\\bdata-gosx-managed\\s*=\\s*[\"']false[\"']").MatchString(tag) &&
+			regexp.MustCompile(`(?i)\bid\s*=\s*["']push-enable-form["']`).MatchString(tag)
 	case "layout.gsx", "login/page.gsx":
 		// Both the shell's sign-out form and /login's own copy of it must be
 		// native document navigations: /auth/logout answers a plain 303 and

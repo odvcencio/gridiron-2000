@@ -784,3 +784,31 @@ func TestOfflinePoolIsDraftable(t *testing.T) {
 		}
 	}
 }
+
+// TestParsePlayerListMarksReleasedPlayersFreeAgents pins the free-agent
+// flag: Tank01 keeps a released player's last club in "team" and says
+// "isFreeAgent":"True" (live 2026-09-18: Johnny Hekker, cut by MIN on
+// 2026-08-30, still carried team "MIN"). The pool must show that player
+// as FA, never on the club that released him; a rostered player keeps
+// his team whatever the flag's casing.
+func TestParsePlayerListMarksReleasedPlayersFreeAgents(t *testing.T) {
+	raw := json.RawMessage(`[
+		{"playerID":"15153","longName":"Johnny Hekker","pos":"P","team":"MIN","isFreeAgent":"True"},
+		{"playerID":"200","longName":"Brett Thorson","pos":"P","team":"MIN","isFreeAgent":"False"},
+		{"playerID":"201","longName":"Lower Case Flag","pos":"WR","team":"NYG","isFreeAgent":"true"},
+		{"playerID":"202","longName":"No Flag","pos":"RB","team":"BUF"}
+	]`)
+	players := parsePlayerList(raw)
+	if got := players["15153"].NFLTeam; got != FreeAgentTeam {
+		t.Errorf("released punter team = %q, want %q", got, FreeAgentTeam)
+	}
+	if got := players["201"].NFLTeam; got != FreeAgentTeam {
+		t.Errorf("lower-case isFreeAgent team = %q, want %q", got, FreeAgentTeam)
+	}
+	if got := players["200"].NFLTeam; got != "MIN" {
+		t.Errorf("rostered punter team = %q, want MIN", got)
+	}
+	if got := players["202"].NFLTeam; got != "BUF" {
+		t.Errorf("row without the flag team = %q, want BUF", got)
+	}
+}

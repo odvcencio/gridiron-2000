@@ -528,3 +528,33 @@ func TestPunterSurnameStripsGenerationalSuffix(t *testing.T) {
 		}
 	}
 }
+
+// TestNormalizePoolNeverProjectsAFreeAgent pins the other half of the
+// released-player fix: a free agent has no game to score in, so the pool
+// never gives him a projection — not last season's punter average (the
+// hook is not consulted: that is how a released punter showed 7.5 for a
+// week his old club punted with someone else) and not a stray provider
+// value either.
+func TestNormalizePoolNeverProjectsAFreeAgent(t *testing.T) {
+	consulted := false
+	hook := func(name, team string, requireTeam bool) (float64, bool) {
+		consulted = true
+		return 7.5, true
+	}
+	pool := []Player{
+		{ID: "15153", Name: "Johnny Hekker", Position: "P", NFLTeam: FreeAgentTeam},
+		{ID: "201", Name: "Released Receiver", Position: "WR", NFLTeam: FreeAgentTeam, Projection: 3.2, ProjStats: map[string]float64{"Rec": 2}},
+	}
+	out := normalizePool(pool, hook)
+	if consulted {
+		t.Error("the punter projection hook was consulted for a free agent")
+	}
+	for _, player := range out {
+		if player.Projection != 0 || len(player.ProjStats) != 0 {
+			t.Errorf("%s projection = %v stats = %v, want none for a free agent", player.Name, player.Projection, player.ProjStats)
+		}
+		if player.PunterRank != 0 {
+			t.Errorf("%s punter rank = %d, want unranked", player.Name, player.PunterRank)
+		}
+	}
+}

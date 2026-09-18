@@ -205,13 +205,13 @@ func Page() Node {
 					<p class="notification-settings-note">Get the categories below on this phone or computer even when the league tab is closed. {data.push_device_label}</p>
 					<p class="notification-settings-note notification-push__status" id="push-status" aria-live="polite"></p>
 					<div class="notification-push__forms">
-						<form method="post" action={data.push_subscribe_action} id="push-enable-form" data-push-key={data.push_public_key} class="notification-push__form">
+						<form method="post" action={data.push_subscribe_action} id="push-enable-form" data-gosx-managed="false" data-push-key={data.push_public_key} class="notification-push__form">
 							<input type="hidden" name="csrf_token" value={data.csrf_token}></input>
 							<input type="hidden" name="subscription" value=""></input>
 							<button class="board-button" type="submit">Turn on push for this device</button>
 						</form>
 						<If cond={data.push_has_devices}>
-							<form method="post" action={data.push_unsubscribe_action} class="notification-push__form">
+							<form method="post" action={data.push_unsubscribe_action} data-gosx-managed="true" class="notification-push__form">
 								<input type="hidden" name="csrf_token" value={data.csrf_token}></input>
 								<button class="board-button board-button--cut" type="submit">Turn off push on every device</button>
 							</form>
