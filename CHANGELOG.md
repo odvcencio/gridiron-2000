@@ -5,6 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+No changes yet.
+
+## [release-2026.09.18-b432ffe-historical-finals] — 2026-09-18
+
+Scope: Show a finished week's result instead of its projection or a dash.
+
 ### Fixed
 - A finished week shows its result. A closed, posted week carries the same internal state token as a week that has not kicked off, and the matchups page read that token as "not started", so every card on a past week showed its projection big under a PROJ label, or a bare dash where no projection existed for that week. The featured card and every other matchup now show the final score big under FINAL, with the original projection as a small line beneath.
 
