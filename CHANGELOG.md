@@ -6,6 +6,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- A finished week shows its result. A closed, posted week carries the same internal state token as a week that has not kicked off, and the matchups page read that token as "not started", so every card on a past week showed its projection big under a PROJ label, or a bare dash where no projection existed for that week. The featured card and every other matchup now show the final score big under FINAL, with the original projection as a small line beneath.
 - A released player no longer shows on the club that cut him. Tank01 keeps a released player's last team in its team field and says so only in a separate free-agent flag, which the pool ignored: Johnny Hekker, cut by Minnesota on August 30, still read MIN with a 7.5-point weekly projection borrowed from his 2025 Tennessee average. The pool now shows such a player as FA, with no game, no kickoff lock, no bye, and no projection. Eight pool players were affected, three of them punters carrying phantom projections.
 - The push notification enable form is an explicitly native post, and the turn-off form is managed, so the form-behavior contract passes.
 

@@ -94,7 +94,13 @@ func starterStateIsResult(gameState string) bool {
 // both mean a real NFL game the poller is tracking is underway; LEDGER
 // (nothing kicked off, or the mirrored weekly ledger already stands in)
 // reads as not-yet-started.
-func matchupStateClass(liveState string) string {
+func matchupStateClass(liveState string, postedFinal bool) string {
+	// A posted, closed week carries the LEDGER token (the A5 spec reuses
+	// it for both ends of the week); the result is what a reader came for,
+	// so it reads final, never pre-game.
+	if postedFinal {
+		return "state--final"
+	}
 	switch liveState {
 	// UNDERWAY (2026-09-09) shares LIVE's treatment because it shares
 	// LIVE's meaning for the reader: real points are on the board and the
@@ -118,7 +124,10 @@ func matchupStateClass(liveState string) string {
 // closes. Deliberately mirrors matchupStateClass's own LIVE/PAUSED/FINAL
 // switch so the label and the state-chip class this page already renders
 // never disagree about which phase a matchup is in.
-func matchupPhaseLabel(liveState string) string {
+func matchupPhaseLabel(liveState string, postedFinal bool) string {
+	if postedFinal {
+		return "FINAL"
+	}
 	switch liveState {
 	// UNDERWAY renders no centre label for the same reason LIVE does not:
 	// the big number is already the real score, with the projection on
@@ -615,7 +624,7 @@ func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
 		// switching on the raw token (league.LiveStateLabel).
 		LiveState:           stringField(raw, "live_state_label"),
 		LiveStateToken:      liveState,
-		StateClass:          matchupStateClass(liveState),
+		StateClass:          matchupStateClass(liveState, boolField(raw, "posted_final")),
 		WinProb:             stringField(raw, "win_prob"),
 		WinProbWidth:        stringField(raw, "win_prob_width"),
 		MineIsHome:          boolField(raw, "mine_is_home"),
@@ -625,7 +634,7 @@ func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
 		StillToPlay:         intField(raw, "still_to_play"),
 		StillToPlayTotal:    intField(raw, "still_to_play_total"),
 		StillToPlaySentence: stringField(raw, "still_to_play_sentence"),
-		PhaseLabel:          matchupPhaseLabel(liveState),
+		PhaseLabel:          matchupPhaseLabel(liveState, boolField(raw, "posted_final")),
 		NextLineupHref:      stringField(raw, "next_lineup_href"),
 		NextWeek:            intField(raw, "next_week"),
 		HasNextWeek:         boolField(raw, "has_next_week"),
@@ -763,8 +772,8 @@ func matchupsPageScorebugs(raw []map[string]any) []ScorebugData {
 			ID:                    stringField(entry, "id"),
 			LiveState:             stringField(entry, "live_state_label"),
 			LiveStateToken:        liveState,
-			StateClass:            matchupStateClass(liveState),
-			PhaseLabel:            matchupPhaseLabel(liveState),
+			StateClass:            matchupStateClass(liveState, boolField(entry, "posted_final")),
+			PhaseLabel:            matchupPhaseLabel(liveState, boolField(entry, "posted_final")),
 			LiveIndicator:         stringField(entry, "live_indicator"),
 			Status:                stringField(entry, "status"),
 			Clock:                 stringField(entry, "clock"),

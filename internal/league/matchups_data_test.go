@@ -338,3 +338,43 @@ func TestMatchupsDataRecordAgreesWithStandingsAfterATie(t *testing.T) {
 		t.Fatalf("standings record %q disagrees with matchup page record %q for the same team and week", standingsRecord, matchupRecord)
 	}
 }
+
+// TestMatchupsDataMarksAPostedWeekFinal pins the league half of the
+// historical-results fix: once a week is closed and its scores posted,
+// both the featured card and every other matchup carry posted_final, so
+// the page shows the result big instead of a projection or a dash. A
+// week that is still open does not.
+func TestMatchupsDataMarksAPostedWeekFinal(t *testing.T) {
+	svc := schedulerTestService(t)
+	week := svc.store.Snapshot().Schedule.Weeks[0].Week
+	kickoff := time.Date(2026, 9, 10, 20, 20, 0, 0, time.UTC)
+	now := kickoff.Add(2 * time.Hour)
+	svc.now = func() time.Time { return now }
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "g1", Week: week, Kickoff: kickoff, Final: true, ScoresPresent: true}}
+	})
+	svc.SetWeekStatsSource(func(int) []WeekStatLine { return nil })
+
+	open := svc.MatchupsData(context.Background(), matchupDataRequest(t, "/matchups?week="+itoa(week)))
+	if featured, _ := open["my_matchup"].(map[string]any); featured["posted_final"] == true {
+		t.Fatal("an open week's featured card claims posted_final")
+	}
+
+	if _, _, err := svc.closeWeek(week, now); err != nil {
+		t.Fatal(err)
+	}
+	data := svc.MatchupsData(context.Background(), matchupDataRequest(t, "/matchups?week="+itoa(week)))
+	featured, _ := data["my_matchup"].(map[string]any)
+	if featured["posted_final"] != true {
+		t.Fatalf("closed week's featured card posted_final = %v, want true", featured["posted_final"])
+	}
+	others, _ := data["other_matchups"].([]map[string]any)
+	if len(others) == 0 {
+		t.Fatal("fixture has no other matchups to check")
+	}
+	for _, other := range others {
+		if other["posted_final"] != true {
+			t.Fatalf("closed week's other matchup %v posted_final = %v, want true", other["id"], other["posted_final"])
+		}
+	}
+}
