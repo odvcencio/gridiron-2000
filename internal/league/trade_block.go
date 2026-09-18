@@ -254,7 +254,7 @@ func (s *Service) tradeBlockViews(state PersistedState, viewerTeamID string) []T
 			}
 		}
 		if !team.IsViewer {
-			team.ProposeHref = "/trades?counterparty=" + url.QueryEscape(teamID)
+			team.ProposeHref = "/trades?counterparty=" + url.QueryEscape(teamID) + "#compose"
 		}
 		out = append(out, team)
 	}

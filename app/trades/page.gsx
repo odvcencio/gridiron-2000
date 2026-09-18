@@ -120,7 +120,7 @@ func Page() Node {
 }
 func TradeDeskRegion() Node {
 	return <div>
-		<section class="player-pool">
+		<section class="player-pool" id="compose">
 			<div class="pool-toolbar">
 				<div>
 					<span class="section-index">01 // COMPOSE</span>
