@@ -519,7 +519,7 @@ func Page() Node {
 			</summary>
 			<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis" text="Every signed-in member may make pick'em picks — a team seat is not required. Pick against the market spread shown on each matchup. The line updates until the weekly Thursday freeze; an earlier game freezes at its own kickoff. A missing frozen line is void, never silently converted to straight-up scoring." />
 			<p class="scoring-note">
-				The line freeze does not lock the sheet. Each matchup remains pickable until its own kickoff. Once you make any valid pick in a week, an unpicked game that starts is a loss; later games remain open. A game tied against the spread is a loss, and a missed loss breaks a winning streak. Pick'em has its own W-L leaderboard and is not a fantasy-standings tiebreaker.
+				The line freeze does not lock the sheet. Each matchup remains pickable until its own kickoff. Your first valid pick enters you for the season. From then on, an unpicked game that starts is a loss; later games remain open. A game tied against the spread is a loss, and a missed loss breaks a winning streak. Games with the same kickoff time grade as one slate: a loss anywhere in that slate ends the streak at the slate, and a loss-free slate adds every one of its wins. Pick'em has its own W-L leaderboard and is not a fantasy-standings tiebreaker.
 			</p>
 			<a href="/pickem" data-gosx-link class="button button--compact">Make this week's picks →</a>
 		</details>
