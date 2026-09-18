@@ -1080,6 +1080,11 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	// projections at all. SetPunterProjections also re-normalizes whatever
 	// pool NewService already loaded, so a cache boot is never rankless.
 	fantasyPool.SetPunterProjections(league.PunterProjection)
+	// Every rostered player stays in the pool past its limit, and a cached
+	// pool missing one refreshes at startup (fantasy.SetKeepIDs): the league
+	// resolves rosters through the pool, so a player the feed stops ranking
+	// must not vanish from the roster that owns him.
+	fantasyPool.SetKeepIDs(league.Default().RosteredPlayerIDs)
 	// Also wired before fantasyPool.Start, same order as
 	// SetPunterProjections above (draft-blocking fix: a deep enough Tank01
 	// ADP list can fill the whole pool limit from the ranked head alone —

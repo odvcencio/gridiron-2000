@@ -62,6 +62,9 @@ type Service struct {
 	// re-normalize the pool already installed by NewService's loadCache:
 	// see SetPositionFloors' own doc comment for why.
 	positionFloors map[string]int
+	// keepIDs returns the IDs every sync must keep past the pool limit (the
+	// league's rostered players); see SetKeepIDs.
+	keepIDs func() map[string]bool
 	// scoringValues resolves the league's live scoring point values, keyed
 	// by internal/league/scoring.go's defaultScoringRules keys (passYards,
 	// passTD, twoPt, fgMade, ...) — league.Service.CurrentScoringValues,
@@ -253,7 +256,14 @@ func (s *Service) syncLoop(ctx context.Context) {
 	// hours after a restart, so schedule the first refresh at the remaining
 	// freshness TTL. An already-old or non-cache service keeps the historical
 	// immediate-sync behavior.
-	if delay := cacheRefreshDelay(mode, lastSync, s.now(), s.config.SyncInterval); delay > 0 {
+	delay := cacheRefreshDelay(mode, lastSync, s.now(), s.config.SyncInterval)
+	if delay > 0 {
+		cached, _ := s.Players()
+		if keptPlayersMissing(cached, s.keepSet()) {
+			delay = 0
+		}
+	}
+	if delay > 0 {
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -385,7 +395,7 @@ func (s *Service) SyncNow(ctx context.Context) error {
 	punterProjection := s.punterProjections
 	floors := s.positionFloors
 	s.mu.RUnlock()
-	pool := mergePool(base, adp, projections, news, byes, s.config.PoolLimit, punterProjection, floors)
+	pool := mergePoolKeeping(base, adp, projections, news, byes, s.config.PoolLimit, punterProjection, floors, s.keepSet())
 	if len(pool) == 0 {
 		return s.recordError(fmt.Errorf("merged pool is empty"))
 	}
@@ -453,7 +463,18 @@ func (s *Service) SyncNow(ctx context.Context) error {
 // before this parameter existed (app_build.go derives real floors from
 // the active league's roster shape; every other existing caller, and
 // every test that predates this fix, passes nil).
+// mergePool is mergePoolKeeping with no keep set: the pool limit and
+// position floors alone decide who stays.
 func mergePool(base map[string]Player, adp []adpEntry, projections map[string]projEntry, news map[string]string, byes map[string]int, limit int, punterProjection func(name, team string, requireTeam bool) (float64, bool), floors map[string]int) []Player {
+	return mergePoolKeeping(base, adp, projections, news, byes, limit, punterProjection, floors, nil)
+}
+
+// mergePoolKeeping merges the provider feeds into the pool and truncates it
+// to the limit, but never drops a player whose ID is in keep: a player a
+// league team rosters must always resolve, or the roster that owns him
+// silently loses him (2026-09-18: Johnny Hekker, released and so
+// unprojected, lost his punter slot and vanished from his roster).
+func mergePoolKeeping(base map[string]Player, adp []adpEntry, projections map[string]projEntry, news map[string]string, byes map[string]int, limit int, punterProjection func(name, team string, requireTeam bool) (float64, bool), floors map[string]int, keep map[string]bool) []Player {
 	ranked := make([]Player, 0, len(adp))
 	seen := map[string]bool{}
 	for _, entry := range adp {
@@ -523,7 +544,9 @@ func mergePool(base map[string]Player, adp []adpEntry, projections map[string]pr
 	sort.SliceStable(rest, restLess(rest))
 
 	if len(pool) > limit {
+		full := pool
 		pool = backfillPositionFloors(pool, limit, floors)
+		pool = appendKeptPlayers(pool, full, keep)
 	}
 	for index := range pool {
 		if pool[index].ADP > 0 {
@@ -981,4 +1004,61 @@ func joinedErrors(problems []error) string {
 		parts = append(parts, message)
 	}
 	return strings.Join(parts, "; ")
+}
+
+// appendKeptPlayers adds every player in full whose ID is in keep and who
+// did not survive truncation into kept.
+func appendKeptPlayers(kept, full []Player, keep map[string]bool) []Player {
+	if len(keep) == 0 {
+		return kept
+	}
+	present := make(map[string]bool, len(kept))
+	for _, player := range kept {
+		present[player.ID] = true
+	}
+	for _, player := range full {
+		if keep[player.ID] && !present[player.ID] {
+			kept = append(kept, player)
+			present[player.ID] = true
+		}
+	}
+	return kept
+}
+
+// keptPlayersMissing reports whether any ID in keep is absent from pool,
+// the startup signal that a cached pool predates a roster move (or the
+// keep rule itself) and must refresh now rather than an interval later.
+func keptPlayersMissing(pool []Player, keep map[string]bool) bool {
+	if len(keep) == 0 {
+		return false
+	}
+	present := make(map[string]bool, len(pool))
+	for _, player := range pool {
+		present[player.ID] = true
+	}
+	for id := range keep {
+		if !present[id] {
+			return true
+		}
+	}
+	return false
+}
+
+// SetKeepIDs installs the league's rostered-player lookup: every sync keeps
+// those players past the pool limit, and a cached pool missing any of them
+// refreshes immediately at startup. Wire it before Start (app_build.go).
+func (s *Service) SetKeepIDs(fn func() map[string]bool) {
+	s.mu.Lock()
+	s.keepIDs = fn
+	s.mu.Unlock()
+}
+
+func (s *Service) keepSet() map[string]bool {
+	s.mu.RLock()
+	fn := s.keepIDs
+	s.mu.RUnlock()
+	if fn == nil {
+		return nil
+	}
+	return fn()
 }

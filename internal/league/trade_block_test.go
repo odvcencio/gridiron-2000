@@ -128,3 +128,21 @@ func TestUpdateTradeBlockReplacesTheActingTeamsListing(t *testing.T) {
 		t.Fatal("clearing the form did not clear the block")
 	}
 }
+
+// TestRosteredPlayerIDsListsEveryTeamsCurrentRoster pins the league side of
+// the pool keep-set: every player any team currently rosters, after adds
+// and drops, and nothing else.
+func TestRosteredPlayerIDsListsEveryTeamsCurrentRoster(t *testing.T) {
+	svc, _ := newPlayersTestService(t)
+	ids := svc.RosteredPlayerIDs()
+	if !ids["rb-open"] || !ids["other-team-player"] {
+		t.Fatalf("rostered ids = %v, want the fixture's rostered players", ids)
+	}
+	request, _ := http.NewRequest(http.MethodPost, "/team", nil)
+	if _, err := svc.DropPlayer(request, "team-1", "rb-open", playerDropConfirmation); err != nil {
+		t.Fatal(err)
+	}
+	if svc.RosteredPlayerIDs()["rb-open"] {
+		t.Fatal("a dropped player is still reported as rostered")
+	}
+}
