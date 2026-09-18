@@ -40,21 +40,8 @@ const (
 	practiceNotice   = "notice"
 )
 
-func stringField(m map[string]any, key string) string {
-	value, _ := m[key].(string)
-	return value
-}
-
 func boolField(m map[string]any, key string) bool {
 	value, _ := m[key].(bool)
-	return value
-}
-
-func mapField(m map[string]any, key string) map[string]any {
-	value, _ := m[key].(map[string]any)
-	if value == nil {
-		return map[string]any{}
-	}
 	return value
 }
 

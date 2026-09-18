@@ -1359,3 +1359,77 @@ func TestPickemDataOpensTheRecordOnlyAfterKickoff(t *testing.T) {
 		}
 	}
 }
+
+// TestPickemDataNamesMembersWhoNeverEntered pins the season board's own
+// answer to "why is X not on the board?": a member with no pick rows has
+// never entered, so the board omits them by design — and now says so.
+// not_entered_names lists those members by display name, sorted, and
+// has_not_entered guards the line. A first valid pick removes the name.
+func TestPickemDataNamesMembersWhoNeverEntered(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Now()
+	games := pickemFixture(now)
+	service.SetScheduleSource(func() []GameInfo { return games })
+	if _, _, err := service.store.AssignMember("zoe@example.com", "Zoe Picks"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.store.AssignMember("ash@example.com", "Ash Quiet"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.SetPickem("zoe@example.com", "g-open", "BUF", now); err != nil {
+		t.Fatal(err)
+	}
+
+	request, _ := http.NewRequest(http.MethodGet, "/pickem", nil)
+	data := service.PickemData(request)
+	if data["has_not_entered"] != true {
+		t.Fatalf("has_not_entered = %v, want true while Ash has no picks", data["has_not_entered"])
+	}
+	if got := data["not_entered_names"]; got != "Ash Quiet" {
+		t.Fatalf("not_entered_names = %q, want %q (Zoe has a pick, Ash has none)", got, "Ash Quiet")
+	}
+
+	if err := service.store.SetPickem("ash@example.com", "g-open", "MIA", now); err != nil {
+		t.Fatal(err)
+	}
+	data = service.PickemData(request)
+	if data["has_not_entered"] != false || data["not_entered_names"] != "" {
+		t.Fatalf("after Ash's first pick: has_not_entered = %v, names = %q, want false and empty", data["has_not_entered"], data["not_entered_names"])
+	}
+}
+
+// TestPickemDataCarriesTheCanonicalPublicEntryProjection pins the passive
+// "why can't I pick" state: a signed-in Google account that admission does
+// not recognise used to read the same "sign in required" line a signed-out
+// visitor reads, with no way to learn that the account itself is the
+// problem. PickemData now carries the canonical public_entry projection
+// (public_entry.go), the same one /board and /blitz render, so the sheet
+// names the real state: anonymous, membership not recorded, or a pending
+// co-manager invite.
+func TestPickemDataCarriesTheCanonicalPublicEntryProjection(t *testing.T) {
+	service := newTestService(t, false)
+	now := time.Now()
+	games := pickemFixture(now)
+	service.SetScheduleSource(func() []GameInfo { return games })
+
+	withPublicEntryRequest(t, service, "stranger@example.com", func(r *http.Request) {
+		data := service.PickemData(r)
+		if data["can_pick"] != false {
+			t.Fatalf("can_pick = %v, want false for an unrecorded account", data["can_pick"])
+		}
+		entry, _ := data["public_entry"].(map[string]any)
+		if entry["state"] != string(PublicEntryAuthenticatedPending) {
+			t.Fatalf("public_entry.state = %v, want %q", entry["state"], PublicEntryAuthenticatedPending)
+		}
+		if detail, _ := entry["detail"].(string); !strings.Contains(detail, "no persisted membership") {
+			t.Fatalf("public_entry.detail = %q, want the membership-not-recorded copy", detail)
+		}
+	})
+
+	anonymous, _ := http.NewRequest(http.MethodGet, "/pickem", nil)
+	data := service.PickemData(anonymous)
+	entry, _ := data["public_entry"].(map[string]any)
+	if data["can_pick"] != false || entry["state"] != string(PublicEntryAnonymous) {
+		t.Fatalf("signed-out viewer: can_pick = %v, public_entry.state = %v, want false and %q", data["can_pick"], entry["state"], PublicEntryAnonymous)
+	}
+}

@@ -16,7 +16,7 @@ package activity
 // not a postseason status card; /matchups already carries that context
 // as its own primary subject.
 func Page() Node {
-	return <main class="page board-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
+	return <main class="page board-page activity-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
 				<span class="signal-label">

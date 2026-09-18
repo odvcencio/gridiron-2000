@@ -390,11 +390,17 @@ func PickemLiveRegion() Node {
 			<If cond={data.has_pickem_error}>
 				<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.pickem_error} />
 			</If>
+			{/* No pick controls: say why, from the canonical public-entry
+			    projection (internal/league/public_entry.go) — sign-in for a
+			    visitor, "membership not recorded" for a signed-in account the
+			    league does not know, the invite for a pending co-manager —
+			    the same projection /board and /blitz render. */}
 			<If cond={data.can_pick == false}>
-				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
-					<strong>SIGN IN REQUIRED:</strong>
-					use League access to lock in picks. No fantasy team seat needed.
-				</TextBlock>
+				<div class="demo-message pickem-entry-state">
+					<strong>{data.public_entry.state_label}</strong>
+					<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={4} overflow="ellipsis" text={data.public_entry.detail} />
+					<a href={data.public_entry.action_href} data-gosx-link class="button button--compact">{data.public_entry.action_label}</a>
+				</div>
 			</If>
 			<If cond={data.viewer.demo}>
 				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
@@ -496,6 +502,16 @@ func PickemLiveRegion() Node {
 						<LeaderboardRow {...entry}></LeaderboardRow>
 					</Each>
 				</div>
+				{/* A member with no pick at all has not entered, so the board
+				    omits them by design. Naming them here keeps "where is X?"
+				    from reading as a missing row (pickemNotEnteredNames,
+				    internal/league/pickem.go). */}
+				<If cond={data.has_not_entered}>
+					<p class="scoring-note pickem-not-entered">
+						<strong>Not yet entered:</strong>
+						{data.not_entered_names}
+					</p>
+				</If>
 			</section>
 
 			<section class="player-pool">
