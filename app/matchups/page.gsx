@@ -300,7 +300,6 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 				</div>
 				<small class="my-matchup__proj-sub mono muted">original proj <span data-gosx-live-bind={"originalProjected." + props.Mine.ID}>{props.Mine.Projected}</span> – <span data-gosx-live-bind={"originalProjected." + props.Theirs.ID}>{props.Theirs.Projected}</span></small>
 				<span class="visually-hidden" data-gosx-live-bind={"stillToPlaySentence." + props.ID}>{props.StillToPlaySentence}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlay." + props.ID}>{props.StillToPlay}</span><span class="visually-hidden" data-gosx-live-bind={"stillToPlayTotal." + props.ID}>{props.StillToPlayTotal}</span>
-				<StarterProgress {...props.StarterProgress}></StarterProgress>
 				<span class={"state-chip " + props.StateClass}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span><span data-gosx-live-bind={"matchupLiveStateLabel." + props.ID}>{props.LiveState}</span></span>
 			</div>
 			<div class="my-matchup__team my-matchup__team--opponent">
@@ -312,6 +311,11 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 				<TeamMark {...props.Theirs}></TeamMark>
 			</div>
 		</header>
+		{/* The starter wheels are the summary header's sibling, not part of
+		    .my-matchup__score, so the phone-width stylesheet rule can order
+		    them after the lineup comparison (score-first fold contract,
+		    wave 7b ash item 1) while wider screens keep them under the score. */}
+		<StarterProgress {...props.StarterProgress}></StarterProgress>
 		<div class="matchup-pairs-table" role="table" aria-label={"Starting lineup comparison: " + props.Mine.Name + " versus " + props.Theirs.Name}>
 		<div class="slot-row slot-row--head slot-row--head-desktop" role="row">
 			<span class="section-index" role="columnheader" aria-label={props.Mine.Name + " starter"}>Starter</span><span class="section-index" role="columnheader" aria-label={props.Mine.Name + " game"}>Game</span><span class="section-index" role="columnheader" aria-label={props.Mine.Name + " projected points"}>Proj</span><span class="section-index" role="columnheader" aria-label={props.Mine.Name + " points"}>Pts</span><span class="section-index slot-row__slot-head" role="columnheader">Slot</span><span class="section-index" role="columnheader" aria-label={props.Theirs.Name + " points"}>Pts</span><span class="section-index" role="columnheader" aria-label={props.Theirs.Name + " projected points"}>Proj</span><span class="section-index" role="columnheader" aria-label={props.Theirs.Name + " game"}>Game</span><span class="section-index right" role="columnheader" aria-label={props.Theirs.Name + " starter"}>Starter</span>

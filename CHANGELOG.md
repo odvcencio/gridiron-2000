@@ -11,6 +11,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Two Pick'em browser tests rotted with the calendar. Their fixtures pin games to 2026-09-10 and 2026-09-17, and the harness clock was installed only on the first request that set it, so the app's startup market pass ran on wall time and froze the fixture line once those dates passed. A harness build now reads `GRIDIRON_TEST_CLOCK` (RFC3339) and pins the league clock from process start, before any background starter runs. The variable is refused without `GRIDIRON_TEST_AUTH=1`, a malformed value is a configuration error, and a child process never inherits a sibling's value. Both tests pin their fixture clock.
 - The tracked manager handbook under `docs/` was four days behind the copy it is rendered from. It is regenerated, and the projection test passes again.
+- On a phone the featured matchup's first lineup row sat at 887px on an 844px screen, under the fold the score-first contract test guards. The two starter wheels rendered between the score and the rows. They are now the summary header's own sibling, and a phone-width rule orders them after the lineup comparison. Wider screens keep them under the score.
 
 ### Changed
 - The scoring page now says that the first valid pick enters a member for the season, which is what the code does. It used to say "in a week".

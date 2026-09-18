@@ -21846,3 +21846,27 @@ body.is-on-clock .draft-command__pill-sentence {
 .matchup-pairs-totals__projection {
   white-space: nowrap;
 }
+
+/* Score-first fold on a phone (wave 7b, ash item 1 follow-up). The two
+   starter wheels rendered between the score and the first lineup row and
+   put that row at 887px on an 844px screen (the /matchups assertion in
+   TestBrowserAshJobInFoldAcrossOwnedRoutes). The featured card becomes a
+   flex column at phone width so the wheels can follow the lineup
+   comparison; benches and the footer keep their place after them. Wider
+   screens are untouched: the wheels stay under the score. */
+@media (width <= 38rem) {
+  .matchups-page .my-matchup {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .matchups-page .my-matchup > .starter-progress {
+    order: 1;
+    margin-top: 0;
+  }
+
+  .matchups-page .my-matchup > .matchup-benches,
+  .matchups-page .my-matchup > .my-matchup__foot {
+    order: 2;
+  }
+}
