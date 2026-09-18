@@ -397,15 +397,21 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	// to free agents only; "?avail=all" always opts back into the full
 	// roster, and an explicit "?avail=free" holds pre-draft too (every
 	// player is already unrostered then, so it is a no-op, not a trap).
+	watchEmail := s.watchViewerEmail(r, state)
+	if watchEmail == "" && s.demoMode {
+		watchEmail = "demo-guest"
+	}
+	watched := watchlistFor(state, watchEmail)
 	availRaw := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("avail")))
 	avail := availRaw
-	if avail != "all" && avail != "free" {
+	if avail != "all" && avail != "free" && avail != "watch" {
 		avail = ""
 		if open {
 			avail = "free"
 		}
 	}
 	availFree := avail == "free"
+	availWatch := avail == "watch"
 
 	// sort (owner directive, 2026-09-14): in season the wire question is
 	// "who produced", not "who was drafted highest", so the pool orders by
@@ -453,8 +459,21 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		if availFree && rostered {
 			continue
 		}
+		_, isWatched := watched[player.ID]
+		if availWatch && !isWatched {
+			continue
+		}
 		row := playerMap(player, scoringValues, matchup, drafted)
 		row["rostered"] = rostered
+		row["watched"] = isWatched
+		row["watch_toggle_value"] = "1"
+		row["watch_glyph"] = "☆"
+		row["watch_label"] = "Watch"
+		if isWatched {
+			row["watch_toggle_value"] = "0"
+			row["watch_glyph"] = "★"
+			row["watch_label"] = "Stop watching"
+		}
 
 		status := waiverStatus{State: AvailabilityRostered}
 		if !rostered {
@@ -707,6 +726,9 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		"avail":              avail,
 		"avail_free_href":    playersAvailHref(pos, rawQuery, "free", sortMode),
 		"avail_all_href":     playersAvailHref(pos, rawQuery, "all", sortMode),
+		"avail_watch_href":   playersAvailHref(pos, rawQuery, "watch", sortMode),
+		"can_watch":          watchEmail != "",
+		"watch_count":        len(watched),
 		"sort":               sortMode,
 		"sort_week_href":     playersSortHref(pos, rawQuery, availRaw, "week"),
 		"sort_rank_href":     playersSortHref(pos, rawQuery, availRaw, "rank"),

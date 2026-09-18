@@ -509,6 +509,12 @@ type PersistedState struct {
 	// tradeBlockEntries (trade_block.go), which drops any listing whose
 	// player has since left that roster.
 	TradeBlock map[string]TradeBlockEntry `json:"tradeBlock,omitempty"`
+	// Watchlists is each member's private set of pool players to keep an
+	// eye on, keyed by the member's canonical email, then player ID, to
+	// the instant it was starred. Persisted through colScalars' kv-backed
+	// set like TradeBlock above; a watch is a bookmark, never a roster
+	// fact, so nothing else reads it.
+	Watchlists map[string]map[string]time.Time `json:"watchlists,omitempty"`
 }
 
 // SeatReleaseNotice is one durable record of a seat release, keyed by the

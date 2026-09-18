@@ -6,6 +6,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- A private watchlist on the player pool. Any signed-in member, with or without a seat, stars a player from the row and reads the set back through a Watchlist tab beside Free agents and All players, with the count in the tab. The star is a bookmark, never a roster fact.
 - Week close now posts a recap to the Locker Room under a reserved "Week recap" author: every matchup with its margin, the bye, and the week's awards, the same awards the trophy cases read. One post per closed week, never doubled by a re-close. It is the shared, in-app counterpart of the per-member recap email.
 - A league-wide trade block. The Team terminal gains an "Available for trade" panel once the draft is complete: check the players other managers may ask about, add one "looking for" note, and update. The trade desk lists every team's block with a link straight into the composer for that team. Listings are read against current rosters, so a dropped or traded player never lingers. Persisted through the additive kv set, so the database schema does not move.
 - The player pool shows a "Trending this week" strip: the league's three most added and three most dropped players over the last seven days, tallied from the transaction ledger. Manager adds, winning claims, and drops count. Trades and commissioner corrections do not. The strip hides when nothing moved.

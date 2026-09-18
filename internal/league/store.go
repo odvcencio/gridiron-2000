@@ -256,6 +256,7 @@ func NewStoreWithIdentity(filePath string, resolver identity.Resolver) *Store {
 			RosterCorrectionNotices: map[string]RosterCorrectionNotice{},
 			LockerCommissionerNotes: map[string]bool{},
 			TradeBlock:              map[string]TradeBlockEntry{},
+			Watchlists:              map[string]map[string]time.Time{},
 		},
 	}
 	// An empty path is the explicit in-memory/test mode: the state this
@@ -4661,6 +4662,7 @@ func cloneState(in PersistedState) PersistedState {
 		RosterCorrectionNotices: make(map[string]RosterCorrectionNotice, len(in.RosterCorrectionNotices)),
 		LockerCommissionerNotes: make(map[string]bool, len(in.LockerCommissionerNotes)),
 		TradeBlock:              make(map[string]TradeBlockEntry, len(in.TradeBlock)),
+		Watchlists:              make(map[string]map[string]time.Time, len(in.Watchlists)),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
@@ -4811,6 +4813,13 @@ func cloneState(in PersistedState) PersistedState {
 	}
 	for k, v := range in.TradeBlock {
 		out.TradeBlock[k] = v
+	}
+	for email, list := range in.Watchlists {
+		copied := make(map[string]time.Time, len(list))
+		for playerID, at := range list {
+			copied[playerID] = at
+		}
+		out.Watchlists[email] = copied
 	}
 	sort.Slice(out.Picks, func(i, j int) bool { return out.Picks[i].Number < out.Picks[j].Number })
 	return out

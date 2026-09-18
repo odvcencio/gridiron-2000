@@ -22044,3 +22044,33 @@ body.is-on-clock .draft-command__pill-sentence {
 .team-trade-block .position-chip {
   white-space: nowrap;
 }
+
+/* Watchlist star on pool rows: a compact toggle at the tap floor. Pressed
+   reads in the accent so a starred row scans at a glance. */
+.pool-row__watch-form {
+  display: inline-flex;
+}
+
+.pool-row__watch {
+  min-width: var(--control-h);
+  min-height: var(--control-h);
+  padding: 0 var(--space-xs);
+  font-size: var(--type-base);
+  line-height: 1;
+}
+
+.pool-row__watch[aria-pressed="true"] {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* Pool row status cell: the availability chip and the watchlist star share
+   one grid child, so the phone layout's positional placement of row
+   children stays intact and the star never adds a row. */
+.pool-status-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
