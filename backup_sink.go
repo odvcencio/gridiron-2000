@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -107,11 +109,23 @@ func copyFileAtomic(srcPath, destPath string) error {
 }
 
 // backupSinksFromEnv builds every configured off-host sink. BACKUP_OFFHOST_DIR
-// names a directory sink; empty (the default) means no off-host sink is
-// configured — the operator has not chosen a destination yet, and the
-// nightly loop only ever writes locally. An unset BACKUP_OFFHOST_KEEP
-// defaults to defaultBackupOffhostKeep, mirroring BACKUP_KEEP's own
-// default.
+// names a directory sink; empty (the default) means no directory sink is
+// configured. BACKUP_GCS_BUCKET plus GOOGLE_APPLICATION_CREDENTIALS, both
+// non-empty, name a Google Cloud Storage sink authenticated by keyless
+// Workload Identity Federation (backup_gcs_sink.go's gcsBackupSink —
+// owner decision 2026-09-23, ops-drift hardening; see
+// docs/backup-restore.md's "Google Cloud Storage" section).
+// GOOGLE_APPLICATION_CREDENTIALS is Google's own standard variable
+// (golang.org/x/oauth2/google.FindDefaultCredentials' first search
+// step), not an app-specific one, so it is checked only for presence
+// here — resolution itself, and any error in it, happens inside
+// newGCSBackupSink. Either, both, or neither of the two sinks may be
+// configured; an unset BACKUP_OFFHOST_KEEP defaults to
+// defaultBackupOffhostKeep, mirroring BACKUP_KEEP's own default. A GCS
+// credential that fails to resolve is logged once, here, and skipped
+// rather than failing the whole process — the same never-block-boot
+// discipline every other off-host sink already follows (see this file's
+// own package comment on backupSink.Copy).
 func backupSinksFromEnv() []backupSink {
 	var sinks []backupSink
 	if dir := strings.TrimSpace(os.Getenv("BACKUP_OFFHOST_DIR")); dir != "" {
@@ -122,6 +136,16 @@ func backupSinksFromEnv() []backupSink {
 			}
 		}
 		sinks = append(sinks, &directoryBackupSink{dir: dir, keep: keep})
+	}
+	bucket := strings.TrimSpace(os.Getenv("BACKUP_GCS_BUCKET"))
+	credConfig := strings.TrimSpace(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+	if bucket != "" && credConfig != "" {
+		sink, err := newGCSBackupSink(context.Background(), bucket, league.Default(), &http.Client{Timeout: 30 * time.Second}, time.Now)
+		if err != nil {
+			log.Printf("backup: GCS sink not started: %v", err)
+		} else {
+			sinks = append(sinks, sink)
+		}
 	}
 	return sinks
 }

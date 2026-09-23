@@ -21,6 +21,15 @@ spec:
       labels:
         app: gridiron-2000
     spec:
+      # gridiron-backup: the Workload Identity Federation principal the
+      # off-host GCS backup impersonates through — see
+      # deploy/k8s/gridiron-backup-serviceaccount.yaml and
+      # docs/backup-restore.md's "Google Cloud Storage" section. Carries
+      # no annotation of its own (unlike GKE's own Workload Identity):
+      # federation trust here is anchored to this cluster's own OIDC
+      # issuer via the WIF provider's attribute mapping, not a
+      # GCP-side annotation on this object.
+      serviceAccountName: gridiron-backup
       imagePullSecrets:
         - name: regcred
       securityContext:
@@ -141,22 +150,33 @@ spec:
               value: "g2k"
             - name: COMMISSIONER_HQ_PEERS
               value: "skl=http://gridiron-2000-sk.stablekernel.svc.cluster.local|https://sk.gridiron.draco.quest"
-            # Off-host backup copy (disabled): the app already supports
-            # BACKUP_OFFHOST_DIR/BACKUP_OFFHOST_KEEP (backup_sink.go) —
-            # see docs/backup-restore.md's "Off-host copies" section for
-            # the three storage-target options and what each needs. This
-            # deployment stays local-only (the owner has not chosen a
-            # target) until an operator picks one, uncomments the matching
-            # block below, and provisions its credentials/mount out of
-            # band — the same "never a silent default" discipline
-            # league-config's own ConfigMap follows. Uncomment together
-            # with the offhost-backup volume and volumeMount below, and
-            # the rclone-offhost-sync sidecar container further down if
-            # the chosen target is S3-compatible (R2/B2).
-            # - name: BACKUP_OFFHOST_DIR
-            #   value: "/mnt/gridiron-offhost"
-            # - name: BACKUP_OFFHOST_KEEP
-            #   value: "7"
+            # Off-host backup copy: owner decision 2026-09-23 (ops-drift
+            # hardening) — Google Cloud Storage, project bookt-cc,
+            # authenticated by keyless Workload Identity Federation (WIF):
+            # org policy (constraints/iam.disableServiceAccountKeyCreation)
+            # blocks both a service-account JSON key and an HMAC key, so
+            # no long-lived credential lives in a Secret or ConfigMap
+            # here. The database is tiny (league.db is under 1MB), so the
+            # off-host copy is deliberately minimal: one fresh
+            # gzip-compressed VACUUM INTO snapshot per nightly tick
+            # (backup_gcs_sink.go's gcsBackupSink, wired in by
+            # backupSinksFromEnv), uploaded straight to the bucket over
+            # the GCS JSON API with no sidecar container — see
+            # docs/backup-restore.md's "Google Cloud Storage" section for
+            # the full recipe (WIF pool/provider/impersonation setup and
+            # the bucket's own 14-day lifecycle rule, the sole retention
+            # mechanism) and why this is a real, un-applied change until
+            # the coordinator provisions the pool/provider and fills in
+            # the gridiron-backup-gcp-config ConfigMap's placeholders this
+            # Deployment now references.
+            - name: BACKUP_GCS_BUCKET
+              value: "m31labs-gridiron-backups"
+            # GOOGLE_APPLICATION_CREDENTIALS is Google's own standard
+            # variable (golang.org/x/oauth2/google's default discovery),
+            # not an app-specific one — it points at the mounted
+            # external_account config, never a secret value itself.
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "/var/run/secrets/gcp/config.json"
             # DRAFT_AT/DRAFT_TZ/SEASON_START_AT/SCORING_FORMAT are
             # deliberately NOT set here. Env wins over league.json (spec
             # section 3.3), so duplicating them made a ConfigMap-only date
@@ -179,11 +199,19 @@ spec:
             - name: league-config
               mountPath: /etc/gridiron
               readOnly: true
-            # Uncomment together with the BACKUP_OFFHOST_DIR env var above,
-            # the offhost-backup volume below, and a real storage target —
-            # see docs/backup-restore.md's "Off-host copies" section.
-            # - name: offhost-backup
-            #   mountPath: /mnt/gridiron-offhost
+            # gcp-wif projects both pieces Workload Identity Federation
+            # needs, read-only: the external_account config
+            # (gridiron-backup-gcp-config ConfigMap, GOOGLE_APPLICATION_CREDENTIALS
+            # above names its exact mounted path) and this pod's own
+            # short-lived, audience-scoped ServiceAccount token (the
+            # projected volume below) — credential_source.file in that
+            # config points at the same token path. Neither file carries
+            # a secret: the config is placeholders and public URLs: the
+            # token is scoped to one audience and expires in an hour. See
+            # docs/backup-restore.md's "Google Cloud Storage" section.
+            - name: gcp-wif
+              mountPath: /var/run/secrets/gcp
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /api/health
@@ -211,45 +239,6 @@ spec:
             capabilities:
               drop:
                 - ALL
-        # rclone-offhost-sync (disabled): only needed when the chosen
-        # off-host target is S3-compatible (Backblaze B2, Cloudflare R2)
-        # rather than a mounted filesystem (Storage Box/NFS/SMB, which
-        # need no sidecar at all — see docs/backup-restore.md). Mirrors
-        # the same offhost-backup volume BACKUP_OFFHOST_DIR writes into,
-        # on a schedule, to the bucket. Uncomment together with the env
-        # block above, the offhost-backup volume below, and a real
-        # rclone.conf/bucket-credential Secret (provisioned out of band,
-        # never committed — the same discipline every other Secret in
-        # this file follows).
-        # - name: rclone-offhost-sync
-        #   image: rclone/rclone:latest
-        #   imagePullPolicy: IfNotPresent
-        #   command:
-        #     - /bin/sh
-        #     - -c
-        #     - |
-        #       while true; do
-        #         rclone sync /mnt/gridiron-offhost "$RCLONE_REMOTE" --min-age 5m
-        #         sleep 3600
-        #       done
-        #   env:
-        #     - name: RCLONE_REMOTE
-        #       value: "b2:your-bucket/gridiron-backups"
-        #   envFrom:
-        #     - secretRef:
-        #         name: gridiron-2000-rclone-secrets
-        #   volumeMounts:
-        #     - name: offhost-backup
-        #       mountPath: /mnt/gridiron-offhost
-        #     - name: rclone-config
-        #       mountPath: /config/rclone
-        #       readOnly: true
-        #   securityContext:
-        #     allowPrivilegeEscalation: false
-        #     readOnlyRootFilesystem: true
-        #     capabilities:
-        #       drop:
-        #         - ALL
       volumes:
         # hq-registry: gridiron-2000-hq-v1-registry ConfigMap, this
         # instance's own registered federation peers (deploy/k8s/hq-registry.yaml).
@@ -271,22 +260,27 @@ spec:
         - name: league-config
           configMap:
             name: gridiron-2000-league-config
-        # offhost-backup (disabled): the volume BACKUP_OFFHOST_DIR writes
-        # into and the rclone-offhost-sync sidecar (if used) reads from —
-        # see docs/backup-restore.md's "Off-host copies" section for the
-        # three target options. A Storage Box/NFS/SMB target mounts
-        # straight into this volume (no sidecar needed, no separate PVC):
-        # replace the persistentVolumeClaim below with the matching CSI
-        # volume type. An S3-compatible target (R2/B2) instead uses an
-        # ordinary PVC here, synced out by rclone-offhost-sync above.
-        # - name: offhost-backup
-        #   persistentVolumeClaim:
-        #     claimName: gridiron-2000-offhost-backup
-        # rclone-config (disabled): only needed alongside
-        # rclone-offhost-sync above — a Secret holding rclone.conf with
-        # the bucket's endpoint/access key/secret key, provisioned out of
-        # band and never committed (see deploy/k8s/secret.example.yaml's
-        # own pattern).
-        # - name: rclone-config
-        #   secret:
-        #     secretName: gridiron-2000-rclone-secrets
+        # gcp-wif combines the two files Workload Identity Federation
+        # needs into one projected volume (mounted at /var/run/secrets/gcp
+        # above): the external_account config (no secret in it — see
+        # deploy/k8s/gridiron-backup-gcp-config.yaml) and this pod's own
+        # short-lived, single-audience Kubernetes ServiceAccount token
+        # (expirationSeconds: 3600 — the kubelet auto-rotates it well
+        # before that; a token this narrowly scoped and this short-lived
+        # is not a secret to protect the way a long-lived key would be).
+        # The audience below must exactly match the WIF provider's own
+        # resource name — see docs/backup-restore.md's "Google Cloud
+        # Storage" section for the exact string and why the ConfigMap's
+        # own "audience" field uses a different (scheme-less) form of it.
+        - name: gcp-wif
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: "https://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL_ID/providers/PROVIDER_ID"
+                  expirationSeconds: 3600
+              - configMap:
+                  name: gridiron-backup-gcp-config
+                  items:
+                    - key: config.json
+                      path: config.json

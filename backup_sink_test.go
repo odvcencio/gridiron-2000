@@ -14,8 +14,71 @@ import (
 func TestBackupSinksFromEnvEmptyWhenUnconfigured(t *testing.T) {
 	t.Setenv("BACKUP_OFFHOST_DIR", "")
 	t.Setenv("BACKUP_OFFHOST_KEEP", "")
+	t.Setenv("BACKUP_GCS_BUCKET", "")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
 	if sinks := backupSinksFromEnv(); len(sinks) != 0 {
-		t.Fatalf("sinks = %v, want none when BACKUP_OFFHOST_DIR is unset", sinks)
+		t.Fatalf("sinks = %v, want none when no sink env var is set", sinks)
+	}
+}
+
+// TestBackupSinksFromEnvGCSRequiresBothVariables covers the "either, both,
+// or neither" contract: BACKUP_GCS_BUCKET and GOOGLE_APPLICATION_CREDENTIALS
+// must both be present, or the GCS sink stays disabled — a bucket name
+// with no credential config (or a credential config with no bucket) is a
+// misconfiguration, not a half-enabled sink.
+func TestBackupSinksFromEnvGCSRequiresBothVariables(t *testing.T) {
+	t.Setenv("BACKUP_OFFHOST_DIR", "")
+	t.Setenv("BACKUP_GCS_BUCKET", "m31labs-gridiron-backups")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+	if sinks := backupSinksFromEnv(); len(sinks) != 0 {
+		t.Fatalf("sinks = %v, want none when GOOGLE_APPLICATION_CREDENTIALS is unset", sinks)
+	}
+
+	t.Setenv("BACKUP_GCS_BUCKET", "")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/var/run/secrets/gcp/config.json")
+	if sinks := backupSinksFromEnv(); len(sinks) != 0 {
+		t.Fatalf("sinks = %v, want none when BACKUP_GCS_BUCKET is unset", sinks)
+	}
+}
+
+// TestBackupSinksFromEnvGCSConstructsWhenConfigured covers the opt-in
+// path with a real, parseable credential config. It uses a plain
+// "service_account"-shaped key (google.FindDefaultCredentials/
+// CredentialsFromJSON parse that entirely locally, no network round
+// trip) rather than a real external_account/Workload Identity Federation
+// config: this test only needs to prove backupSinksFromEnv's own
+// wiring — env vars in, a *gcsBackupSink out — not re-verify
+// golang.org/x/oauth2/google's own, separately tested, WIF resolution.
+func TestBackupSinksFromEnvGCSConstructsWhenConfigured(t *testing.T) {
+	t.Setenv("BACKUP_OFFHOST_DIR", "")
+	t.Setenv("BACKUP_GCS_BUCKET", "m31labs-gridiron-backups")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", gcsTestServiceAccountCredentialFile(t))
+
+	sinks := backupSinksFromEnv()
+	if len(sinks) != 1 {
+		t.Fatalf("sinks = %v, want exactly one GCS sink", sinks)
+	}
+	gcsSink, ok := sinks[0].(*gcsBackupSink)
+	if !ok {
+		t.Fatalf("sink = %T, want *gcsBackupSink", sinks[0])
+	}
+	if got := gcsSink.Name(); got != "gcs:m31labs-gridiron-backups" {
+		t.Errorf("Name() = %q, want %q", got, "gcs:m31labs-gridiron-backups")
+	}
+}
+
+// TestBackupSinksFromEnvGCSUnresolvableCredentialSkipsSilently covers the
+// never-block-boot discipline: a bucket configured with an unreadable or
+// unresolvable credential config logs (backupSinksFromEnv's own doc
+// comment) and is skipped, rather than panicking or fatal-erroring the
+// whole process.
+func TestBackupSinksFromEnvGCSUnresolvableCredentialSkipsSilently(t *testing.T) {
+	t.Setenv("BACKUP_OFFHOST_DIR", "")
+	t.Setenv("BACKUP_GCS_BUCKET", "m31labs-gridiron-backups")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing.json"))
+
+	if sinks := backupSinksFromEnv(); len(sinks) != 0 {
+		t.Fatalf("sinks = %v, want none when the GCS credential config cannot be read", sinks)
 	}
 }
 

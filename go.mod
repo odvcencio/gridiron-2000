@@ -1,6 +1,6 @@
 module gridiron-2000
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
@@ -9,6 +9,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	golang.org/x/image v0.38.0
 	golang.org/x/net v0.52.0
+	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sys v0.47.0
 	m31labs.dev/arbiter v1.9.0
 	m31labs.dev/gosx v0.56.3
@@ -16,6 +17,7 @@ require (
 )
 
 require (
+	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
