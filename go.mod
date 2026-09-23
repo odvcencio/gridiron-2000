@@ -12,7 +12,7 @@ require (
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sys v0.47.0
 	m31labs.dev/arbiter v1.9.0
-	m31labs.dev/gosx v0.56.3
+	m31labs.dev/gosx v0.57.0
 	modernc.org/sqlite v1.56.0
 )
 
@@ -45,7 +45,7 @@ require (
 	m31labs.dev/mll v0.1.0 // indirect
 	m31labs.dev/prism v0.1.3 // indirect
 	m31labs.dev/selena v0.5.2 // indirect
-	m31labs.dev/turboquant v0.2.0 // indirect
+	m31labs.dev/turboquant v0.2.1 // indirect
 	modernc.org/libc v1.74.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
