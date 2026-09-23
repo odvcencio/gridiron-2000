@@ -5,6 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- Reconciled `deploy/k8s/` against the live cluster: the Commissioner HQ v1 provider's env block, private port, registry ConfigMap, Service, and NetworkPolicy were already running but untracked, and the tracked `APP_IMAGE_DIGEST` had drifted from the running image. `deploy/k8s/` is now the authoritative source for the flagship's live objects, verified by `kubectl diff`.
+- Hardened the shared statrelay cache: an allow-list of the Tank01 endpoints this app actually calls, a bounded in-memory and on-disk cache with eviction, and a NetworkPolicy restricting it to the fleet's own pods.
+- `/api/health` now returns only `{ok, appVersion}` to an anonymous, non-loopback caller. The full operational payload stays available to a signed-in commissioner or a loopback caller (`kubectl exec`/`port-forward`); every probe and script that depended on it still works.
+- CI: added a nightly job for the non-short sim suite, switched to `-mod=readonly`, and stopped a push+PR double run on the same commit.
+
 ### Fixed
 - A starter's projection on the matchups page now explains itself. Its tooltip used to repeat only the total, while the points tooltip beside it listed every scoring rule. It now lists each projected stat, this league's value for it, and the points it adds, for example passing yards x236 for 9.4, under the total.
 
