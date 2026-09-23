@@ -62,7 +62,7 @@ spec:
           # docs/launch-checklist.md's relay release-pin step for the
           # build/push/record commands and CHANGELOG.md's [Unreleased]
           # entry.
-          image: harbor.draco.quest/orchard/gridiron-2000-statrelay@sha256:ed6469fb2f5a4188d0bb13257fa6d9cb6fc20746d976f2d93f858b4b9514ada9
+          image: harbor.draco.quest/orchard/gridiron-2000-statrelay@sha256:4ba3e70a8e93a427e365b07eaf750f1d7f43b32bff1e995a29cdd6073621f02e
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
