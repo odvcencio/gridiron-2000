@@ -154,9 +154,15 @@ func (s *Store) ReopenFinalGameStats(week int, gameID string) error {
 }
 
 // AdminReopenFinalGameStats is ReopenFinalGameStats's commissioner-facing
-// entry point: it authorizes the request, reopens the box, and leaves a
-// durable, person-attributed audit record (RecordCommissionerEvent) so
-// "who reopened this and when" survives the correction that follows.
+// entry point: it authorizes the request, reopens the box, and attempts a
+// person-attributed audit record (RecordCommissionerEvent) so "who
+// reopened this and when" survives the correction that follows. Like
+// every other commissioner action in this package, the audit write is
+// best-effort: RecordCommissionerEvent's own doc comment is explicit that
+// losing the audit row must never roll back or block an already-applied
+// league change, so a failure here is logged, not surfaced as if the
+// reopen itself failed (2026-09-23 review: the record is not guaranteed,
+// only attempted — the earlier wording overclaimed it).
 func (s *Service) AdminReopenFinalGameStats(r *http.Request, week int, gameID string) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err
@@ -167,7 +173,13 @@ func (s *Service) AdminReopenFinalGameStats(r *http.Request, week int, gameID st
 	}
 	summary := fmt.Sprintf("reopened the final box for %s (week %d)", gameID, week)
 	if _, err := s.RecordCommissionerEvent(r, "finalstats.reopen", summary, CommissionerEventRefs{Week: week}); err != nil {
-		log.Printf("commissioner event: finalstats.reopen: %v", err)
+		// Best-effort, matching RecordCommissionerEvent's own documented
+		// contract: the reopen already committed, and losing this one
+		// audit row must never roll back or block it. Logged loudly
+		// (with the action's own summary) so an operator scanning logs
+		// for a missing /activity entry has enough context to reconstruct
+		// it by hand.
+		log.Printf("commissioner event: finalstats.reopen (%s): %v", summary, err)
 	}
 	return nil
 }

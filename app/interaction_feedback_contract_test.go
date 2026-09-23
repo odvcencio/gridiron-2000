@@ -139,8 +139,12 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// RedirectBackWithNotice (30 -> 31). It is the in-season IR knob — the
 	// one part of the roster shape that may change after the draft, since
 	// IR sits outside the draft-round total (see Store.SetRosterOverride).
+	// 2026-09-23: app/admin's new "finalstats-reopen" action adds one
+	// RedirectBackWithNotice (31 -> 32) — the commissioner-only escape
+	// hatch for a frozen final box (internal/league's
+	// AdminReopenFinalGameStats).
 	const wantRedirects = 9
-	const wantRedirectBacks = 31
+	const wantRedirectBacks = 32
 	redirects := 0
 	redirectBacks := 0
 	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, walkErr error) error {
