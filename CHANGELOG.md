@@ -5,7 +5,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+- A starter's projection on the matchups page now explains itself. Its tooltip used to repeat only the total, while the points tooltip beside it listed every scoring rule. It now lists each projected stat, this league's value for it, and the points it adds, for example passing yards x236 for 9.4, under the total.
 
 ## [release-2026.09.18-5edcd0d-lineup-drag] — 2026-09-18
 

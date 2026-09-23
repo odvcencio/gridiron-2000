@@ -49,6 +49,11 @@ type ProjectionValueProps struct {
 	CoverageBind string
 	Note string
 	NoteBind string
+	// Breakdown is the projection's stat-by-stat ledger (projected stat x
+	// league value = points), shown under the total the way the points
+	// tooltip shows its own. Empty for team totals and for a player whose
+	// source carries no projected stat line.
+	Breakdown string
 }
 
 func ProjectionValue(props ProjectionValueProps) Node {
@@ -58,6 +63,7 @@ func ProjectionValue(props ProjectionValueProps) Node {
 		<span class="projection-tip" id={"projection-tip-" + props.TipID} role="tooltip">
 			<span class="projection-tip__heading">ORIGINAL PROJECTION</span>
 			<span class="projection-tip__value" data-gosx-live-bind={props.Bind}>{props.Value}</span>
+			<If cond={props.Breakdown != ""}><span class="points-tip__rows projection-tip__rows">{props.Breakdown}</span></If>
 			<If cond={props.NoteBind != ""}><span class="projection-tip__note" data-gosx-live-bind={props.NoteBind}>{props.Note}</span></If>
 			<If cond={props.NoteBind == ""}><span class="projection-tip__note">Weekly source forecast · independent of actual score.</span></If>
 		</span>
@@ -252,7 +258,7 @@ func StarterCell(props StarterCellData) Node {
 		</details>
 		<span class={"state starter-cell__state " + props.StateClass} role="cell" data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span>
 		<span class="proj starter-cell__proj" role="cell">
-			<ProjectionValue ClassName="projection-cell" Value={props.Proj} Bind={"starterOriginalProj." + props.LiveKey} TipID={props.LiveKey}></ProjectionValue>
+			<ProjectionValue ClassName="projection-cell" Value={props.Proj} Bind={"starterOriginalProj." + props.LiveKey} TipID={props.LiveKey} Breakdown={props.ProjBreakdown}></ProjectionValue>
 		</span>
 		{/* The score explains itself on hover AND on focus (2026-09-10).
 		    Focus matters as much as hover here: a tabindex makes the cell

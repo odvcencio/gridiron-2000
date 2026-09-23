@@ -697,6 +697,11 @@ type StarterLedgerRow struct {
 	// row has no matched stat line, so a reader is never shown an
 	// explanation for a score that does not exist yet.
 	Breakdown string `json:"breakdown,omitempty"`
+	// ProjectionBreakdown explains the starter's projection the same way
+	// Breakdown explains his points: the source's projected stat line
+	// priced by this league's scoring (starterProjectionBreakdown). Empty
+	// when the source carries no projected stat line for him.
+	ProjectionBreakdown string `json:"projectionBreakdown,omitempty"`
 	// BreakdownLabel and BreakdownTotal name and total whatever Breakdown
 	// is currently explaining. Normally that is the scored line, so they
 	// read "TOTAL" and PointsText. Before a starter's game has produced a
