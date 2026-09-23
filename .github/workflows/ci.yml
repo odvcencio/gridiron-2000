@@ -1,0 +1,106 @@
+name: CI
+
+# Gridiron 2000 had no CI gate before this workflow: every change reached
+# main through a direct commit, up to ten a day. This workflow gives
+# every push and pull request the same fast checks a contributor already
+# runs locally (scripts/go-check.sh), plus -race on the three packages
+# most exposed to concurrent access and a build of the server the
+# Dockerfile ships. It does not deploy anything and does not touch an
+# image pin.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+# A later push on the same branch/PR supersedes an in-flight run instead
+# of queuing behind it — useful given how often this repo pushes to main.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Mirrors the Dockerfile's builder stage: the m31labs.dev/* modules
+  # resolve (via go-import redirects) to public GitHub repositories, and
+  # go.sum already pins every checksum, so GOPRIVATE only needs to skip
+  # the module proxy/sumdb for them — no sumdb network call happens.
+  GOPRIVATE: github.com/odvcencio/*,github.com/M31-Labs/*,m31labs.dev/*
+  GOFLAGS: -mod=mod
+  CGO_ENABLED: "0"
+
+jobs:
+  vet-and-test:
+    name: vet, gofmt, short tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt check
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            printf '%s\n' "$unformatted"
+            echo "::error::gofmt found unformatted files — run \`gofmt -w .\`"
+            exit 1
+          fi
+      - name: go vet (scripts/go-check.sh)
+        run: scripts/go-check.sh vet
+      - name: short unit tests (scripts/go-check.sh)
+        run: scripts/go-check.sh test -short -count=1
+
+  race:
+    name: race detector (short)
+    runs-on: ubuntu-latest
+    env:
+      # The race detector's runtime needs cgo regardless of whether the
+      # packages under test use it; gridiron-2000's own SQLite driver
+      # (modernc.org/sqlite) stays pure Go either way.
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: race-enabled short tests
+        run: go test -race -short -count=1 ./internal/livescore/ ./internal/league/ ./internal/wire/
+
+  build:
+    name: server build (Docker image context)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: go build (server binary, no image push)
+        run: go build -trimpath -o ./bin/gridiron-2000 .
+
+  e2e:
+    name: browser suite (non-required)
+    runs-on: ubuntu-latest
+    # Evidence, not a gate: a flaky headed-Chrome run must never block a
+    # merge the way vet-and-test/race/build do. GitHub Actions' Ubuntu
+    # runners ship Google Chrome preinstalled, so this needs no extra
+    # apt step to get a browser chromedp can drive.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: install pinned GoSX CLI
+        run: go install m31labs.dev/gosx/cmd/gosx@v0.56.3
+      - name: build dev client runtime
+        run: GOSX_SKIP_VERSION_CHECK=1 gosx build --dev .
+      - name: browser suite (scripts/go-check.sh, e2e tag)
+        run: scripts/go-check.sh test -tags e2e -short -count=1
