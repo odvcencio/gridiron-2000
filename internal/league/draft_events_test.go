@@ -512,6 +512,27 @@ func TestAdminUndoPickReopeningACompletedDraftEmitsLifecycleState(t *testing.T) 
 		t.Fatal("the completion latch did not clear after the undo reopened the final slot")
 	}
 
+	// baseline counts the completion this test already proved happened
+	// (the setup loop's own draft:state{complete:true}, still sitting in
+	// the recorder's full history — nothing here ever clears it). Without
+	// this baseline the loop below breaks the instant it sees ANY
+	// completion, which that original one already satisfies before the
+	// redo's own pick even runs — a race between this goroutine's first
+	// poll and the async drain goroutine delivering the redo's event that
+	// a fast run wins by luck (passing without ever having observed the
+	// second event) and a slower one (a loaded machine, or -race's much
+	// heavier per-access instrumentation) can lose, seeing both events
+	// already landed on the very first check and failing on a count of 2
+	// that was correct all along, just miscompared against the wrong
+	// baseline. Counting the delta makes the assertion the doc comment
+	// above actually describes: "a second time", not "a first time".
+	baseline := 0
+	for _, event := range recorder.snapshot() {
+		if event.Name == "draft:state" && event.Payload["complete"] == true {
+			baseline++
+		}
+	}
+
 	state := service.store.Snapshot()
 	teamID := teamOnClock(state.DraftOrder, len(state.Picks)+1)
 	playerID := fmt.Sprintf("pool-%03d", len(teams)+1)
@@ -527,13 +548,23 @@ func TestAdminUndoPickReopeningACompletedDraftEmitsLifecycleState(t *testing.T) 
 				completions++
 			}
 		}
-		if completions > 0 || time.Now().After(deadline) {
+		if completions > baseline || time.Now().After(deadline) {
 			break
 		}
 		time.Sleep(time.Millisecond)
 	}
-	if completions != 1 {
-		t.Fatalf("draft:state complete events after the redo = %d, want exactly 1 (the latch clear must allow exactly one more)", completions)
+	// Settle briefly and recount, the same pattern assertEventCount uses:
+	// a genuine double-emission bug (the real thing this test guards
+	// against) still gets caught here, one poll interval later.
+	time.Sleep(50 * time.Millisecond)
+	completions = 0
+	for _, event := range recorder.snapshot() {
+		if event.Name == "draft:state" && event.Payload["complete"] == true {
+			completions++
+		}
+	}
+	if want := baseline + 1; completions != want {
+		t.Fatalf("draft:state complete events after the redo = %d (baseline %d before it), want exactly %d (the latch clear must allow exactly one more)", completions, baseline, want)
 	}
 }
 
