@@ -1325,6 +1325,13 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		"include_granted_scopes": "true",
 		"prompt":                 "select_account",
 	}
+	// gosx's built-in Google resolver discards the userinfo response's
+	// email_verified claim (oauth_google_resolver.go's own doc comment);
+	// commissioner rights and league admission key off email alone
+	// (service.go's IsCommissioner/EmailAllowed), so an unverified address
+	// must never reach them. This resolver fetches the same endpoint and
+	// refuses to sign in an unverified email before a session ever exists.
+	googleProvider.Resolver = googleOAuthResolver()
 	googleOAuth := authManager.OAuth(auth.OAuthOptions{
 		Providers:   []auth.OAuthProvider{googleProvider},
 		SuccessPath: "/",

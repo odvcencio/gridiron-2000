@@ -37,6 +37,11 @@ yourself:
   `AppConfig.validate` in [`app_build.go`](app_build.go)).
 - **Google OAuth with PKCE.** Sign-in is Google OAuth with PKCE
   (proof key for code exchange); there is no local-password path.
+- **Verified email required.** Commissioner rights and league admission
+  key off the signed-in email alone, so gridiron supplies its own Google
+  OAuth resolver (`oauth_google_resolver.go`) that reads the userinfo
+  response's `email_verified` claim and refuses to sign in an unverified
+  address, before any session is created.
 - **Secrets stay in configuration, not code.** Credentials come from
   environment variables or, for a Kubernetes fleet, `Secret` objects (see
   [`deploy/k8s/`](deploy/k8s)). A shared-relay deployment keeps
