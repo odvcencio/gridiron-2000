@@ -42,9 +42,6 @@ func Page() Node {
 					ROSTER & WAIVERS
 				</span>
 				<h1>PLAYER POOL</h1>
-				<p>
-					Every pool player, rostered or free. Sign a free agent, claim a waiver, or drop one of your own — the transaction feed records every move.
-				</p>
 			</div>
 			<If cond={data.pool_unavailable == false && data.free_agency_open}>
 				<div class="draft-clock-panel draft-clock-panel--compact">
@@ -78,7 +75,7 @@ func Page() Node {
 								<strong class="mono">{data.roster_ir_size} / {data.roster_ir_cap}</strong>
 							</span>
 						</div>
-						<p class="roster-capacity-note">Reserve counts toward draftable capacity. IR is owned roster space outside that cap.</p>
+						<p class="roster-capacity-note">Reserve counts toward cap · IR does not.</p>
 					</If>
 					<If cond={data.pool_unavailable == false && data.can_edit == false}>
 						<strong class="mono">NO TEAM</strong>
@@ -116,7 +113,7 @@ func Page() Node {
 				<If cond={data.notice_count < 2 || data.notice_first_kind == "demo"}>
 					<p class="demo-message">
 						<strong>REHEARSAL MODE:</strong>
-						the console is open to everyone while demo mode is on.
+						Public demo.
 					</p>
 				</If>
 			</If>
@@ -172,7 +169,7 @@ func Page() Node {
 					<If cond={data.viewer.demo && data.notice_first_kind != "demo"}>
 						<p class="demo-message">
 							<strong>REHEARSAL MODE:</strong>
-							the console is open to everyone while demo mode is on.
+							Public demo.
 						</p>
 					</If>
 					<If cond={data.pool_unavailable == false && data.can_edit == false && data.notice_first_kind != "public_entry"}>

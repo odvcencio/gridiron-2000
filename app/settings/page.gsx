@@ -84,10 +84,6 @@ func Page() Node {
 					ACCOUNT // EMAIL SETTINGS
 				</span>
 				<h1>Notification settings</h1>
-				<p class="page-subhead">Control the signal.</p>
-				<p>
-					Choose which live league emails reach your manager account. These controls affect future delivery only; they do not replay messages already sent.
-				</p>
 				<If cond={data.has_email && data.delivery_ready}>
 					<p class="notification-settings-account">
 						Delivering to <strong>{data.email}</strong>
@@ -133,7 +129,7 @@ func Page() Node {
 			<If cond={data.viewer.demo}>
 				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>REHEARSAL MODE:</strong>
-					the console is open to everyone while demo mode is on.
+					Public demo.
 				</TextBlock>
 			</If>
 		</div>

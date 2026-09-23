@@ -44,15 +44,12 @@ func Page() Node {
 					{" "}
 					<span>{data.public_entry.headline}</span>
 				</TextBlock>
-				<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} text={data.public_entry.detail} />
 				<p class="login-identity">
 					<strong>{data.league.format_blurb}</strong>
 					·
 					{data.league.seat_count_word} manager league
 				</p>
-				<TextBlock as="p" class="login-entry-policy" font="400 15px Plus Jakarta Sans" lineHeight={22}>
-					<strong>{data.public_entry.state_label}</strong> · {data.public_entry.membership_label} — {data.public_entry.membership_detail}
-				</TextBlock>
+				<p class="login-entry-policy">{data.public_entry.membership_label}</p>
 				<div class="login-event" aria-labelledby="login-event-heading">
 					<span class="section-index">UP NEXT</span>
 					{/* comb — linden (2026-09-07), J5 F18: also a second
@@ -62,16 +59,18 @@ func Page() Node {
 					    text keeps the identical visual weight
 					    (.login-event__heading, public/styles.css). */}
 					<p id="login-event-heading" class="login-event__heading">{data.draft.event_label}</p>
+				<If cond={data.draft.published}>
 					<time class="event-date">{data.draft.long_date}</time>
 					<div class="event-time">
 						<strong>{data.draft.time}</strong>
 						<span>{data.draft.timezone}</span>
 					</div>
+				</If>
 					<div class="event-state" role="status">
 						<span class="event-state__mark" aria-hidden="true"></span>
 						<strong>{data.draft.status_label}</strong>
 					</div>
-					<p class="event-note">{data.draft.status_note}</p>
+				<If cond={data.draft.published}><p class="event-note">{data.draft.status_note}</p></If>
 				</div>
 				<div class="seat-meter" aria-label={data.seat_meter.aria_label}>
 					<Each of={data.seat_meter.seats} as="seat">
@@ -87,12 +86,7 @@ func Page() Node {
 				<If cond={data.viewer.signed_in == false}>
 					<span class="section-index">GOOGLE SIGN-IN</span>
 					<h2>Manager check-in</h2>
-					<p>
-						Sign in with the Google account you want to use. After authentication,
-						the league will explain whether this identity is admitted and whether
-						a fantasy seat is available.
-					</p>
-					<TextBlock as="p" class="login-admission-note" font="400 15px Plus Jakarta Sans" lineHeight={22}>Admission policy: {data.public_entry.membership_label} — {data.public_entry.membership_detail}</TextBlock>
+					<p class="login-admission-note">{data.public_entry.membership_label}</p>
 					<If cond={data.has_return_path}>
 						<p class="login-return-note">
 							After sign-in, we'll return you to {data.return_path_label}.

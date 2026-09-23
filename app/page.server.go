@@ -300,6 +300,7 @@ func init() {
 // render-time field coverage.
 type ActionCenterCard struct {
 	Stage               string
+	IsEntry             bool
 	StageLabel          string
 	Heading             string
 	Summary             string
@@ -360,6 +361,7 @@ func actionCenterActionCards(raw any) []league.ActionCenterActionCard {
 func dashboardActionCenter(raw map[string]any) ActionCenterCard {
 	return ActionCenterCard{
 		Stage:               stringField(raw, "stage"),
+		IsEntry:             stringField(raw, "stage") == string(league.ActionCenterEntry),
 		StageLabel:          stringField(raw, "stage_label"),
 		Heading:             stringField(raw, "heading"),
 		Summary:             stringField(raw, "summary"),

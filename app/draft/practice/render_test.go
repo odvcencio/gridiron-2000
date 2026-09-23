@@ -165,7 +165,7 @@ func TestPracticeRoomRendersFromTheSandboxFixtureProcess(t *testing.T) {
 	// 2. The lobby: start options for a seated viewer, the reason for a
 	// seatless one.
 	lobby := getAs(t, handler, seated, "/practice")
-	for _, want := range []string{"<h1>Practice draft</h1>", "See what a live draft looks like before the real draft.", "Choose where to start", `name="round"`, "Early rounds", "Middle rounds", "Late rounds", "Specialists", `action="/draft/practice/__actions/practice-start"`, "Nothing you do here is saved.", "until the last pick of the sandbox draft, or until you leave"} {
+	for _, want := range []string{"<h1>Practice draft</h1>", "Bot opponents · Practice picks are not saved.", "Choose where to start", `name="round"`, "Early rounds", "Middle rounds", "Late rounds", "Specialists", `action="/draft/practice/__actions/practice-start"`, "Your real seat and order"} {
 		if !strings.Contains(lobby, want) {
 			t.Errorf("lobby missing %q", want)
 		}
@@ -173,7 +173,7 @@ func TestPracticeRoomRendersFromTheSandboxFixtureProcess(t *testing.T) {
 	// The masthead's real-draft card: the fixture league ships the
 	// placeholder date, so the card reads NOT SET, and the seated viewer
 	// has not checked in yet.
-	for _, want := range []string{"Real draft", "NOT SET", "Draft time not published yet", `data-checked-in="false"`, "Not checked in", `href="/draft"`, "Open the real room →"} {
+	for _, want := range []string{"Real draft", "NOT SET", `data-checked-in="false"`, "Not checked in", `href="/draft"`, "Open the real room →"} {
 		if !strings.Contains(lobby, want) {
 			t.Errorf("lobby real-draft card missing %q", want)
 		}

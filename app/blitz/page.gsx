@@ -250,9 +250,6 @@ func Page() Node {
 				</span>
 				<h1>Preseason Blitz</h1>
 				<p class="page-subhead">Five picks. Two weeks.</p>
-				<p>
-					Play money. Bragging rights. Nothing else.
-				</p>
 			</div>
 			<div class="draft-clock-panel">
 				{/* comb — hazel (2026-09-08 wave C), J6 F11: this card

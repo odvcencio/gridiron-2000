@@ -87,7 +87,7 @@ func TestPlayersPageRendersRehearsalModeDisclosure(t *testing.T) {
 	for _, want := range []string{
 		`<If cond={data.viewer.demo}>`,
 		`<strong>REHEARSAL MODE:</strong>`,
-		"the console is open to everyone while demo mode is on.",
+		"Public demo.",
 	} {
 		if !strings.Contains(pageSource, want) {
 			t.Errorf("players page missing rehearsal-mode disclosure %q", want)

@@ -9,9 +9,6 @@ func Page() Node {
 					TRADE DESK
 				</span>
 				<h1>Trades</h1>
-				<p>
-					<strong>Make your move.</strong> Propose, counter, and settle trades with the rest of the league. Every executed deal posts to the transaction feed.
-				</p>
 			</div>
 			<div class="draft-clock-panel draft-clock-panel--sentence">
 				<strong class="mono">{data.veto_policy_label}</strong>
@@ -40,7 +37,7 @@ func Page() Node {
 			<If cond={data.demo_mode}>
 				<p class="demo-message">
 					<strong>REHEARSAL MODE:</strong>
-					the console is open to everyone while demo mode is on.
+					Public demo.
 				</p>
 			</If>
 			<If cond={data.has_notice}>

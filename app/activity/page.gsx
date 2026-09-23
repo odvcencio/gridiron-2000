@@ -24,7 +24,6 @@ func Page() Node {
 					TRANSACTION FEED
 				</span>
 				<h1>Activity</h1>
-				<p class="page-subhead">Every move on the record.</p>
 			</div>
 			<div class="draft-clock-panel draft-clock-panel--compact">
 				<span>Recorded moves · <strong class="mono">{data.transactions_count}</strong></span>
@@ -128,9 +127,6 @@ func ActivityRegion() Node {
 		<If cond={data.has_transactions == false}>
 			<div class="empty-tape">
 				<strong>NO TRANSACTIONS YET</strong>
-				<p>
-					Draft picks and roster moves appear here as they happen.
-				</p>
 			</div>
 		</If>
 		<If cond={data.has_transactions && data.transactions_empty}>
@@ -138,11 +134,6 @@ func ActivityRegion() Node {
 				<strong>NO MOVES MATCH</strong>
 				<If cond={data.has_filtered_empty_message}>
 					<p>{data.filtered_empty_message}</p>
-				</If>
-				<If cond={data.has_filtered_empty_message == false}>
-					<p>
-						Try another team or query, or clear the filters to return to the full league record.
-					</p>
 				</If>
 				<a class="filter-button" href="/activity" data-gosx-link>Clear filters</a>
 			</div>

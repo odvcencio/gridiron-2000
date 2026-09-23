@@ -20,14 +20,14 @@ func TestBoardMastheadNamesPostDraftPurpose(t *testing.T) {
 	source := string(sourceBytes)
 	for _, truth := range []string{
 		"data.draft_complete",
-		"watch list for waivers",
+		"WAIVER WATCH LIST",
 	} {
 		if !strings.Contains(source, truth) {
 			t.Errorf("page.gsx is missing %q (J1 F34 post-draft masthead copy)", truth)
 		}
 	}
-	if !strings.Contains(source, "Rank it your way") {
-		t.Error("page.gsx must keep the pre-draft masthead copy (Rank it your way) for the draft-in-progress case")
+	if !strings.Contains(source, "AUTOPICK ORDER") {
+		t.Error("page.gsx must label the pre-draft board as the autopick order")
 	}
 }
 

@@ -176,7 +176,7 @@ func TestTeamChecklistItemOneUnticksForAPlaceholderTeamName(t *testing.T) {
 	if strings.Contains(placeholderBlock, "checklist-mark--complete") {
 		t.Errorf("placeholder-named team's checklist item 01 still shows complete: %s", placeholderBlock)
 	}
-	if !strings.Contains(placeholderBlock, "still called") {
+	if !strings.Contains(placeholderBlock, "Using the default team name") {
 		t.Errorf("placeholder-named team's checklist item 01 omits the reason: %s", placeholderBlock)
 	}
 

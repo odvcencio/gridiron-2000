@@ -56,9 +56,6 @@ func Page() Node {
 				<TextBlock as="p" class="scoring-format-summary" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
 					<strong>{data.format_summary}</strong>
 				</TextBlock>
-				<p>
-					<strong>How the league runs.</strong> Every rule below matches exactly how this league is set up right now — roster shape, scoring values, the draft, lineups, waivers, trades, and pick'em. A new manager can read this page start to finish and play with no questions left.
-				</p>
 			</div>
 			<div class="draft-clock-panel">
 				<If cond={data.is_commissioner}>

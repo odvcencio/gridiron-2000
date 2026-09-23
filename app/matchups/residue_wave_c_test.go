@@ -59,11 +59,10 @@ func TestMatchupsResiduePhoneCompactsStatusStripAndPromotesScoreCard(t *testing.
 	}
 	phone := block[phoneStart:]
 	for _, want := range []string{
-		".matchups-page .matchup-status-line__freshness {",
-		"display: none;",
 		".matchups-page.page > .matchup-layout {",
 		"order: 1;",
 		".matchups-page.page > .matchup-status-line,",
+		".matchups-page.page > .matchup-status-details,",
 		"order: 2;",
 		".matchups-page .my-matchup__summary {",
 		`"mine"`,

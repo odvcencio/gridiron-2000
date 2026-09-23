@@ -61,7 +61,7 @@ func TestHomeMastheadUrgentReadsAttentionMap(t *testing.T) {
 
 // TestHomeMastheadTemplateNamesPageAndWeek pins page.gsx's own shape:
 // the h1 reads "Home · <week>" (never the bare stage slogan), the slogan
-// (props.Heading) renders one line down as the lede sentence, the
+// entry-stage question (props.Heading) renders one line down, the
 // eyebrow above the h1 carries no "00 // " section number (Decision 2),
 // and the desktop urgent chip reuses layout.gsx's own rail-attention-
 // chip class so the two can never visually or semantically diverge.
@@ -73,7 +73,7 @@ func TestHomeMastheadTemplateNamesPageAndWeek(t *testing.T) {
 	page := string(source)
 	for _, want := range []string{
 		`<h1 id="home-action-center-heading">Home · {props.WeekLabel}</h1>`,
-		`<p class="home-action-center__lede">{props.Heading}</p>`,
+		`<If cond={props.IsEntry}><p class="home-action-center__lede">{props.Heading}</p></If>`,
 		`<span class="section-index">{props.StageLabel}</span>`,
 		`class="rail-attention-chip home-action-center__urgent-chip"`,
 	} {

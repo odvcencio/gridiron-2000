@@ -163,25 +163,10 @@ func Page() Node {
 			<div class="draft-masthead__copy">
 				<span class="signal-label">
 					<span class="signal-mark" aria-hidden="true"></span>
-					BIG BOARD
+					<If cond={data.draft_complete == false}>AUTOPICK ORDER</If>
+					<If cond={data.draft_complete}>WAIVER WATCH LIST</If>
 				</span>
 				<h1>Big Board</h1>
-				{/* comb — linden (2026-09-07), J1 F34: "the draft room and
-				    autopick use this order" stops being true the moment
-				    the room closes. data.draft_complete
-				    (internal/league.BoardData) branches this to the
-				    board's real post-draft job instead of repeating a
-				    promise about a room that has already closed. */}
-				<If cond={data.draft_complete == false}>
-				<p>
-					<strong>Rank it your way.</strong> Private to this team seat and shared by its primary and co-manager. The draft room and autopick use this exact order when your team is on the clock.
-				</p>
-				</If>
-				<If cond={data.draft_complete}>
-				<p>
-					<strong>Your watch list for waivers.</strong> The draft is over, so this order no longer feeds a pick clock — it is a private target list. Rank the players you would claim first, and clear the ones other teams already drafted.
-				</p>
-				</If>
 			</div>
 			<div class="draft-clock-panel">
 				<span>Players on your board</span>
@@ -210,7 +195,7 @@ func Page() Node {
 			<If cond={data.demo_mode}>
 				<p class="demo-message">
 					<strong>REHEARSAL MODE:</strong>
-					the console is open to everyone while demo mode is on.
+					Public demo.
 				</p>
 			</If>
 			<If cond={data.has_notice}>
@@ -232,7 +217,7 @@ func Page() Node {
 			<If cond={data.has_matchup_source}>
 				<p class="demo-message">
 					<strong>MATCHUP RANKS:</strong>
-					ranked from the {data.matchup_source_label}. A higher "-toughest" number is a softer matchup; a lower one is tougher.
+					{data.matchup_source_label} · Higher “-toughest” means softer matchup.
 				</p>
 			</If>
 			{/* comb — rowan (2026-09-08 wave D), owner debrief item 4: the
@@ -543,7 +528,6 @@ func Page() Node {
 				<If cond={data.available_empty == false && data.matching_empty}>
 					<div class="empty-tape">
 						<strong>NO PLAYERS MATCH</strong>
-						<p>Try another position or search, or clear the filters to return to the full available pool.</p>
 						<a class="filter-button" href={data.clear_filters_href} data-gosx-link>Clear filters</a>
 					</div>
 				</If>

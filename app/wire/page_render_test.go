@@ -857,18 +857,9 @@ func TestWireFeedRowNamesAFailureWithReasonAndLastSuccess(t *testing.T) {
 }
 
 // TestWireInventedNounsLinkToTheirHelpTopic is F10's failing-test-first
-// reproduction (gap-audit J6, handed over from the help/locker worker):
-// nothing in the long tail linked to a definition. "Wire state" (the
-// masthead's own state word, e.g. LIVE/CACHED/STALE/DEGRADED/
-// UNAVAILABLE), "provisional", and "trust tier" — the three invented
-// nouns that actually render as static text on /wire — now link to the
-// Manager Guide's "data state and freshness" topic on first use. Every
-// other JS/CSS state word on the page (per-source rows, several of the
-// same word) still shares this one topic; only the first, most visible
-// instance carries the link, matching the finding's own "link the first
-// use" guidance rather than repeating the same link many times in one
-// dense list.
-func TestWireInventedNounsLinkToTheirHelpTopic(t *testing.T) {
+// The state label keeps its direct help link after the explanatory strip
+// was removed from the feed page.
+func TestWireStateLinksToHelpTopic(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {
 		t.Fatal(err)
@@ -876,8 +867,6 @@ func TestWireInventedNounsLinkToTheirHelpTopic(t *testing.T) {
 	body := string(source)
 	for _, want := range []string{
 		`<a href="/help/data-state-and-freshness" data-gosx-link>Wire state</a>`,
-		`<a href="/help/data-state-and-freshness" data-gosx-link>provisional</a>`,
-		`<a href="/help/data-state-and-freshness" data-gosx-link>trust tier</a>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page.gsx missing help-topic link %q", want)

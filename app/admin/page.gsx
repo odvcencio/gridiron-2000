@@ -389,9 +389,6 @@ func Page() Node {
 					COMMISSIONER CONSOLE
 				</span>
 				<h1>Commissioner console</h1>
-				<p>
-					<strong>Run the league.</strong> Seats, invites, and reset controls. The league checks every action against the commissioner list.
-				</p>
 				<If cond={data.is_default_config}>
 					<p class="demo-message">
 						<strong>BUILT-IN REFERENCE LEAGUE:</strong>
@@ -520,7 +517,7 @@ func Page() Node {
 			<If cond={data.demo_mode}>
 				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>REHEARSAL MODE:</strong>
-					the console is open to everyone while demo mode is on.
+					Public demo.
 				</TextBlock>
 			</If>
 		</div>

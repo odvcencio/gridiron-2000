@@ -61,8 +61,8 @@ func TestLoginPageRendersSanitizedReturnCTA(t *testing.T) {
 	if !strings.Contains(valid, "SIGN IN TO ENTER.") {
 		t.Fatalf("login page omitted authentication-first headline: %s", valid)
 	}
-	if !strings.Contains(valid, "The league checks its admission policy after authentication") {
-		t.Fatalf("login page omitted truthful admission guidance: %s", valid)
+	if !strings.Contains(valid, "OPEN AFTER SIGN-IN") {
+		t.Fatalf("login page omitted the admission state: %s", valid)
 	}
 	if strings.Contains(valid, "Every seat belongs to one manager.") || strings.Contains(valid, "Your league access will be waiting.") {
 		t.Fatalf("login page retained unconditional admission/seat promise: %s", valid)
@@ -73,7 +73,6 @@ func TestLoginPageRendersSanitizedReturnCTA(t *testing.T) {
 	// rendering the 2098 sentinel as a scheduled fact (2026-09-01 UX audit).
 	for _, want := range []string{
 		"LEAGUE DRAFT",
-		"Draft time not published yet",
 		"NOT SCHEDULED",
 	} {
 		if !strings.Contains(valid, want) {

@@ -54,8 +54,6 @@ func TestMatchupsPagePreseasonAndScheduledCopyIsNotLive(t *testing.T) {
 				`data-gosx-live-bind="headlineTop"`,
 				`data-gosx-live-bind="headlineBottom"`,
 				`data-gosx-live-bind="refreshLabel"`,
-				`data-gosx-live-bind="noteTitle"`,
-				`data-gosx-live-bind="noteBody"`,
 				`data-gosx-live-bind="liveIndicator"`,
 			} {
 				if !strings.Contains(body, binding) {
@@ -270,15 +268,9 @@ func TestMatchupsWheelCarriesLiveWinChanceText(t *testing.T) {
 	}
 }
 
-// TestMatchupsFreshnessClauseIsVisibleInsideTheStatusLine pins wave-6
-// item 8: checkedAt/liveStatus/refreshLabel used to sit outside the
-// status line, visually-hidden — a sighted user saw no freshness clause
-// anywhere on the page, even though the live-bind values already carried
-// one ("Waiting for kickoff · Checked Tue Sep 1 · 4:41 PM EDT · Ledger
-// unavailable"). They must now render inside .matchup-status-line, not
-// hidden, keeping their own data-gosx-live-bind attributes so a poll
-// still updates them in place.
-func TestMatchupsFreshnessClauseIsVisibleInsideTheStatusLine(t *testing.T) {
+// The checked clock stays visible; verbose feed details remain available
+// in the disclosure, and both continue to update through live bindings.
+func TestMatchupsFreshnessAndScoringDetailsRemainAvailable(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestMatchupsPageFixtureProcess$")
 	cmd.Env = append(os.Environ(), "MATCHUPS_RENDER_FIXTURE=live",
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=true", "GOOGLE_CLIENT_ID=")
@@ -296,13 +288,12 @@ func TestMatchupsFreshnessClauseIsVisibleInsideTheStatusLine(t *testing.T) {
 		t.Fatalf("status line paragraph never closes: %s", body)
 	}
 	statusLine := body[statusLineStart : statusLineStart+statusLineEndOffset]
-	for _, want := range []string{
-		`data-gosx-live-bind="checkedAt"`,
-		`data-gosx-live-bind="liveStatus"`,
-		`data-gosx-live-bind="refreshLabel"`,
-	} {
-		if !strings.Contains(statusLine, want) {
-			t.Errorf("status line is missing the freshness bind %q: %s", want, statusLine)
+	if !strings.Contains(statusLine, `data-gosx-live-bind="checkedAt"`) {
+		t.Errorf("status line is missing the checked clock: %s", statusLine)
+	}
+	for _, want := range []string{`<summary>Scoring details</summary>`, `data-gosx-live-bind="liveStatus"`, `data-gosx-live-bind="refreshLabel"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("scoring details missing %q", want)
 		}
 	}
 	for _, hidden := range []string{

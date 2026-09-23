@@ -2771,6 +2771,39 @@ button.badge-option:hover {
   gap: var(--space-3xl);
 }
 
+/* Task pages lead with their controls and data. Their content, rather than a
+   fixed empty masthead, determines the space above the first section. */
+.draft-masthead {
+  min-height: 0;
+}
+
+.wire-masthead {
+  min-height: 0;
+}
+
+.hero-format {
+  display: block;
+  margin-bottom: var(--space-md);
+  color: var(--color-text-secondary);
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+}
+
+.team-projection-details {
+  margin-top: var(--space-xs);
+}
+
+.team-projection-details summary {
+  width: fit-content;
+  cursor: pointer;
+  font-size: var(--type-xs);
+}
+
+.team-projection-details small {
+  display: block;
+  margin-top: var(--space-xs);
+}
+
 /* Grid items otherwise preserve the intrinsic width of dense console
    controls, allowing a masthead card to push the document past its frame. */
 .page-masthead > *,
@@ -10714,20 +10747,6 @@ body.is-on-clock .draft-clock-panel {
     white-space: normal;
   }
 
-  .matchups-page .matchup-status-line__ledger {
-    display: none;
-  }
-
-  /* Preseason guard (2026-09-01 UX audit, finding 5): the rule above
-     assumes the live source phrase and games count fill the phone row.
-     Before the season both are empty strings, and hiding the ledger
-     stamp too left the strip an empty box — an aria-live region
-     announcing nothing. When the source phrase is empty, the ledger
-     stamp is the only truthful content the strip has: keep it. */
-  .matchups-page .matchup-status-line:has(.matchup-status-line__source:empty) .matchup-status-line__ledger {
-    display: inline;
-  }
-
   .matchups-page .matchup-status-line__games {
     flex: 0 0 auto;
   }
@@ -10813,6 +10832,34 @@ body.is-on-clock .draft-clock-panel {
 
 .matchup-status-line__games {
   margin-left: auto;
+}
+
+.matchup-status-details {
+  margin: 0 0 var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-top: 0;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--type-xs);
+}
+
+.matchup-status-details summary {
+  width: fit-content;
+  color: var(--color-accent);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.matchup-status-details[open] {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.matchup-status-details summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 /* Item 4 (wave 6, second audit pass — rowan): 0.6875rem (11px) sat below
@@ -20291,26 +20338,9 @@ body.is-on-clock .draft-command__pill-sentence {
   }
 }
 
-/* Item 2: on a phone, before kickoff, the status-line strip (state chip,
-   source phrase, games-final count, and a four-clause freshness
-   sentence) rendered ahead of the featured matchup card — six wrapped
-   lines above any score. The freshness clause (liveStatus/checkedAt/
-   refreshLabel) restates the same
-   kickoff fact the masthead's own plain-language state line
-   (.matchups-masthead__state, always rendered above both) already
-   carries; hiding it here compacts the strip to the one line that is
-   NOT already said above (state chip + source) plus the games-final
-   count, matching the existing .matchup-status-line__ledger phone rule
-   right above this file's own equivalent hide. Order (below) then
-   promotes the featured/scorebug card ahead of whatever is left of the
-   strip regardless of source order (matchupsIsGameDay's own DOM-order
-   contract, mobile_score_first_test.go, is untouched — this is a
-   visual reorder only). */
+/* On phones, lead with the featured score and then show the compact
+   status line and its scoring details disclosure. */
 @media (width <= 38rem) {
-  .matchups-page .matchup-status-line__freshness {
-    display: none;
-  }
-
   .matchups-page.page {
     display: flex;
     flex-direction: column;
@@ -20321,6 +20351,7 @@ body.is-on-clock .draft-command__pill-sentence {
   }
 
   .matchups-page.page > .matchup-status-line,
+  .matchups-page.page > .matchup-status-details,
   .matchups-page.page > .matchup-week-notice,
   .matchups-page.page > .matchup-week-notice--warning {
     order: 2;

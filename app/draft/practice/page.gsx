@@ -15,10 +15,7 @@ func Page() Node {
 					{data.league.name}
 				</span>
 				<h1>Practice draft</h1>
-				<TextBlock as="p" class="lede" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
-					See what a live draft looks like before {data.real_draft.day_name}.
-				</TextBlock>
-				<TextBlock as="p" class="muted" font="400 15px Plus Jakarta Sans" lineHeight={22} text="You take picks on the clock in a copy of the draft room. The other seats are played by bots. Nothing you do here is saved." />
+				<p class="muted">Bot opponents · Practice picks are not saved.</p>
 			</div>
 			<div class="draft-clock-panel">
 				<span>Real draft</span>
@@ -32,7 +29,6 @@ func Page() Node {
 				<If cond={data.real_draft.published == false}>
 					<strong class="mono">NOT SET</strong>
 					<div class="draft-clock-meta">
-						<span class="mono">Draft time not published yet</span>
 						<span class="mono">{data.rounds} rounds · {data.pick_clock_label} per pick</span>
 					</div>
 				</If>
@@ -57,9 +53,7 @@ func Page() Node {
 		<If cond={data.practice.allowed}>
 			<section class="practice-start" aria-labelledby="practice-start-title">
 				<h2 id="practice-start-title">Choose where to start</h2>
-				<TextBlock as="p" class="muted" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis">
-					You sit in your real seat, <strong>{data.practice_team_name}</strong>, in the real draft order. Earlier rounds are filled in for you. The practice runs until the last pick of the sandbox draft, or until you leave.
-				</TextBlock>
+				<p class="muted">Your real seat and order · Earlier rounds filled automatically.</p>
 				<form method="post" action={data.start_action} class="practice-start__form" data-gosx-managed="false">
 					<input type="hidden" name="csrf_token" value={data.csrf}></input>
 					<fieldset class="practice-start__options">

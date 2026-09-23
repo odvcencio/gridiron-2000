@@ -123,6 +123,7 @@ type ActionCenterActionCard struct {
 
 type ActionCenterPanelProps struct {
 	Stage               string
+	IsEntry             bool
 	StageLabel          string
 	Heading             string
 	Summary             string
@@ -221,8 +222,7 @@ component ActionCenterPanel(props: ActionCenterPanelProps) {
 			<div>
 				<span class="section-index">{props.StageLabel}</span>
 				<h1 id="home-action-center-heading">Home · {props.WeekLabel}</h1>
-				<p class="home-action-center__lede">{props.Heading}</p>
-				<p>{props.Summary}</p>
+				<If cond={props.IsEntry}><p class="home-action-center__lede">{props.Heading}</p></If>
 			</div>
 			<span class="home-action-center__status mono">ACTION CENTER</span>
 			<If cond={props.HasUrgent}>
@@ -386,16 +386,12 @@ func Page() Node {
 						{" "}
 						<span>{data.public_entry.headline}</span>
 					</h1>
-					<p class="hero-deck">
-						A private <strong>{data.league.format_blurb}</strong> for <strong>{data.league.seat_count_word}</strong> managers: lineups, waivers, and a commissioner-published league record.
-					</p>
 					<p class="entry-status">
 						<strong>{data.public_entry.state_label}</strong>
 						·
 						{data.public_entry.membership_label}
 					</p>
-					<p class="entry-note">{data.public_entry.detail}</p>
-					<p class="entry-policy-detail">{data.public_entry.membership_detail}</p>
+					<span class="mono hero-format">{data.league.format_blurb}</span>
 					<div class="hero-actions">
 						<a href="/login" data-gosx-link class="button button--primary">
 							Sign in with Google
@@ -408,10 +404,7 @@ func Page() Node {
 					    and native mode would flatten <strong> into plain text. No
 					    CSS truncation exists on .demo-message to retire either. */}
 					<If cond={data.viewer.demo}>
-						<p class="demo-message">
-							<strong>REHEARSAL MODE:</strong>
-							explore every page without signing in.
-						</p>
+						<p class="demo-message"><strong>REHEARSAL MODE</strong> · All pages open</p>
 					</If>
 				</div>
 				<aside class="draft-transmission" aria-labelledby="draft-event-heading-public">
@@ -424,8 +417,8 @@ func Page() Node {
 					</div>
 					<div class="draft-transmission__body">
 						<h2 id="draft-event-heading-public">{data.draft.event_label}</h2>
-						<time class="event-date">{data.draft.long_date}</time>
 						<If cond={data.draft.published}>
+							<time class="event-date">{data.draft.long_date}</time>
 							<div class="event-time">
 								<strong>{data.draft.time}</strong>
 								<span>{data.draft.timezone}</span>
@@ -435,7 +428,7 @@ func Page() Node {
 							<span class="event-state__mark" aria-hidden="true"></span>
 							<strong>{data.draft.status_label}</strong>
 						</div>
-						<p class="event-note">{data.draft.status_note}</p>
+						<If cond={data.draft.published && data.draft.started == false && data.draft.complete == false}><p class="event-note">Commissioner opens the room.</p></If>
 					</div>
 					<If cond={data.draft.window_reached == false && data.draft.published}>
 						<div class="countdown-strip">
@@ -473,7 +466,6 @@ func Page() Node {
 						<h2 id="home-practice-heading">Practice the draft room</h2>
 					</div>
 				</header>
-				<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} text="Take a few picks on the clock against the other seats, played by bots. Nothing you do there counts." />
 				<a href={data.practice.href} data-gosx-link class="access-link">Open the practice draft →</a>
 			</section>
 		</If>
@@ -485,12 +477,7 @@ func Page() Node {
 						<h2 id="home-draft-results-heading">Draft results</h2>
 					</div>
 				</header>
-				<If cond={data.draft_first_pick_has}>
-					<p>You opened with {data.draft_first_pick_name} at {data.draft_first_pick_label}.</p>
-				</If>
-				<If cond={data.draft_first_pick_has == false}>
-					<p>Every pick is locked. See who drafted whom, round by round.</p>
-				</If>
+				<If cond={data.draft_first_pick_has}><p>First pick: {data.draft_first_pick_name} · {data.draft_first_pick_label}</p></If>
 				<a href="/draft/results" data-gosx-link class="access-link">Open Draft results →</a>
 			</section>
 		</If>
@@ -643,11 +630,6 @@ func Page() Node {
 							</p>
 						</div>
 					</Each>
-				</div>
-				<div class="commissioner-note">
-					<span>Commissioner’s desk</span>
-					<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} text="Scheduled time is the meeting point, not an auto-start. The commissioner randomizes draft order about one hour before the room opens. Draft order locks when the commissioner starts the draft." />
-					<a href="/draft" data-gosx-link>Review draft protocol</a>
 				</div>
 			</aside>
 		</div>

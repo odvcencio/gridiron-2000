@@ -75,7 +75,7 @@ func TestLockerRendersRehearsalModeDisclosure(t *testing.T) {
 	if !strings.Contains(body, "REHEARSAL MODE:") {
 		t.Fatal("locker template is missing the REHEARSAL MODE disclosure")
 	}
-	if !strings.Contains(body, "read-only while demo mode is on") {
+	if !strings.Contains(body, "Read only · Sign in to post.") {
 		t.Fatal("locker's disclosure must say posting is read-only, not open, in demo mode")
 	}
 }

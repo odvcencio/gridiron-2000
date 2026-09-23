@@ -413,7 +413,7 @@ func Page() Node {
 			<If cond={data.viewer.demo}>
 				<p class="demo-message">
 					<strong>REHEARSAL MODE:</strong>
-					the console is open to everyone while demo mode is on.
+					Public demo.
 				</p>
 			</If>
 		</div>
@@ -778,15 +778,12 @@ func TeamLineupRegion() Node {
 				<div>
 					<span>Starting projection</span>
 					<strong class="mono">{data.projected}</strong>
-					<small class="team-command-strip__hint">Counts toward team score</small>
 				</div>
 				<div class="team-command-strip__projection team-command-strip__projection--bench">
-					<span>Bench projection</span>
+					<span>Bench · not scored</span>
 					<strong class="mono">{data.bench_projected}</strong>
-					<small class="team-command-strip__hint">{data.bench_projection_coverage_label} · <span>Not included in team score</span></small>
-					<If cond={data.bench_projection_note != ""}>
-						<small class="team-command-strip__hint">{data.bench_projection_note}</small>
-					</If>
+					<small class="team-command-strip__hint">{data.bench_projection_coverage_label}</small>
+					<If cond={data.bench_projection_note != ""}><details class="team-projection-details"><summary>Projection details</summary><small>Not included in team score. {data.bench_projection_note}</small></details></If>
 				</div>
 				<div>
 					<span>Starters</span>
@@ -873,7 +870,6 @@ func TeamLineupRegion() Node {
 							<span class="section-index">PRE-DRAFT // YOUR SETUP</span>
 							<h2 id="predraft-progress-title">Get this franchise draft-ready</h2>
 						</div>
-						<p>The scheduled time is the room’s meeting point—not an automatic start. The commissioner intentionally starts the draft after managers check in.</p>
 					</header>
 					<div class="checklist predraft-progress__list">
 						<div class="checklist-item">
@@ -885,11 +881,8 @@ func TeamLineupRegion() Node {
 							</If>
 							<div class="checklist-item__text">
 								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Claim and personalize your franchise" />
-								<If cond={data.team_name_is_seed_placeholder == false}>
-									<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="Your seat is secured. Team name, image, badge, and co-manager controls live in Customize your team." />
-								</If>
 								<If cond={data.team_name_is_seed_placeholder}>
-									<small>Your seat is secured, but your team is still called "<TextBlock as="span" font="400 13px Plus Jakarta Sans" lineHeight={18} text={data.team.name} />". Personalize it below.</small>
+									<small>Using the default team name</small>
 								</If>
 							</div>
 							<a href="/team?identity=edit#team-identity" data-gosx-link class="board-button">Customize team →</a>
@@ -903,12 +896,7 @@ func TeamLineupRegion() Node {
 							</If>
 							<div class="checklist-item__text">
 								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Rank your draft targets" />
-								<If cond={data.predraft_has_board}>
-									<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18}>{data.predraft_board_count} players ranked. Keep refining—the board drives your draft-room shortlist and autopick order.</TextBlock>
-								</If>
-								<If cond={data.predraft_has_board == false}>
-									<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="No players ranked yet. Add targets in the order you would want them drafted." />
-								</If>
+								<small>{data.predraft_board_count} players ranked</small>
 							</div>
 							<a href="/board" data-gosx-link class="board-button">Open board →</a>
 						</div>
@@ -921,12 +909,8 @@ func TeamLineupRegion() Node {
 							</If>
 							<div class="checklist-item__text">
 								<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text="Confirm your room status" />
-								<If cond={data.predraft_ready}>
-									<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="You are marked ready. You can change that status any time before the commissioner starts." />
-								</If>
-								<If cond={data.predraft_ready == false}>
-									<TextBlock as="small" font="400 13px Plus Jakarta Sans" lineHeight={18} text="You are not marked ready. Check the room details, then tell the commissioner you are present." />
-								</If>
+								<If cond={data.predraft_ready}><small>Ready</small></If>
+								<If cond={data.predraft_ready == false}><small>Not ready</small></If>
 							</div>
 							<a href="/draft#ready-toggle" data-gosx-link class="board-button">Open draft room →</a>
 						</div>

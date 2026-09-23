@@ -261,7 +261,7 @@ func TestPublicLandingPreservesConfiguredModeAndEventTruth(t *testing.T) {
 		"4:00 PM EDT",
 		"Eastern Time",
 		"SCHEDULED WINDOW",
-		"The commissioner controls when the room opens.",
+		"Commissioner opens the room.",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("landing page omitted %q; body: %s", want, body)
@@ -439,7 +439,7 @@ func TestHomepageStandingsPendingStateRendersExplicitly(t *testing.T) {
 
 func TestHomepageStandingsRendersFinalizedScheduleData(t *testing.T) {
 	body := runHomepageStandingsFixture(t, "scored")
-	for _, want := range []string{"2026 standings", "Through Week 1", "standing-row", "0–0–1", "0.0", "Scheduled time is the meeting point", "randomizes draft order about one hour", "Draft order locks when the commissioner starts the draft"} {
+	for _, want := range []string{"2026 standings", "Through Week 1", "standing-row", "0–0–1", "0.0"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("scored homepage missing %q: %s", want, body)
 		}
@@ -833,7 +833,7 @@ func TestHomepagePostDraftCardShowsTheViewerOwnOpeningPick(t *testing.T) {
 	body := string(output)
 	for _, want := range []string{
 		`class="score-command draft-results-card"`, ">Draft results<", `href="/draft/results"`,
-		"You opened with",
+		"First pick:",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("post-draft home page missing %q: %s", want, body)

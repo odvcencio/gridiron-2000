@@ -189,7 +189,7 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 	if !strings.Contains(body, "name=\"week\" value=\"2\"") {
 		t.Fatalf("pick forms must carry the selected week as a hidden field, got: %s", body)
 	}
-	for _, want := range []string{"FROZEN LINE", "BUF +3.5", "MIA -3.5", "WIN · BUF COVERED", "1 - 0", "THE LINE FREEZES THURSDAY"} {
+	for _, want := range []string{"FROZEN LINE", "BUF +3.5", "MIA -3.5", "WIN · BUF COVERED", "1 - 0", "LINE FREEZES THURSDAY"} {
 		if !strings.Contains(compactBody, want) {
 			t.Fatalf("expected ATS Pick'em contract %q in rendered page, got: %s", want, body)
 		}
@@ -331,10 +331,10 @@ func TestPickemSheetServesTheLeagueRecordAfterLock(t *testing.T) {
 	}
 	// A week still holding an open game keeps the pick rule note and the
 	// slate action; only a settled week trades them for the record note.
-	if !strings.Contains(compact, "THE LINE FREEZES THURSDAY") {
+	if !strings.Contains(compact, "LINE FREEZES THURSDAY") {
 		t.Fatalf("an unsettled week keeps the pick rule note, got: %s", body)
 	}
-	if strings.Contains(compact, "THIS WEEK IS SETTLED") {
+	if strings.Contains(compact, "WEEK SETTLED") {
 		t.Fatalf("a week with an open game must not claim to be settled, got: %s", body)
 	}
 
@@ -356,10 +356,10 @@ func TestPickemSheetServesTheLeagueRecordAfterLock(t *testing.T) {
 	if !strings.Contains(settled, `class="pickem-week-record" data-state="FINAL"`) {
 		t.Fatalf("a settled week must report FINAL, got: %s", settled)
 	}
-	if !strings.Contains(settledCompact, "THIS WEEK IS SETTLED") {
+	if !strings.Contains(settledCompact, "WEEK SETTLED") {
 		t.Fatalf("a settled week must trade the pick rule note for the record note, got: %s", settled)
 	}
-	if strings.Contains(settledCompact, "THE LINE FREEZES THURSDAY") {
+	if strings.Contains(settledCompact, "LINE FREEZES THURSDAY") {
 		t.Fatalf("a settled week must not still advertise an open sheet, got: %s", settled)
 	}
 	// Every row now carries the record, the previously open one included.

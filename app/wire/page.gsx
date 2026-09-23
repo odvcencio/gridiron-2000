@@ -163,7 +163,6 @@ func Page() Node {
 					<span class="signal-mark" aria-hidden="true"></span>
 					PRIVATE LEAGUE NEWS
 				</span>
-				<p class="page-kicker">News, community tips, and social · always free</p>
 				<h1>Signal Wire</h1>
 			</div>
 			<div class="masthead-console wire-console">
@@ -191,26 +190,6 @@ func Page() Node {
 			<a href="#wire-sources" class="board-button">Sources</a>
 			<a href="#community-input" class="board-button">Send a tip</a>
 		</nav>
-
-		<section class="wire-trust-strip" aria-label="Data confidence">
-			<div>
-				<span>01</span>
-				<strong>Crowd + publishers alert us</strong>
-				<small>Fast, mixed-source, <a href="/help/data-state-and-freshness" data-gosx-link>provisional</a></small>
-			</div>
-			<i aria-hidden="true">→</i>
-			<div>
-				<span>02</span>
-				<strong>League clusters the evidence</strong>
-				<small>Links, <a href="/help/data-state-and-freshness" data-gosx-link>trust tier</a>, timestamps</small>
-			</div>
-			<i aria-hidden="true">→</i>
-			<div>
-				<span>03</span>
-				<strong>Open stats reconcile</strong>
-				<small>Corrected ledger wins every dispute</small>
-			</div>
-		</section>
 
 		<div class="wire-layout">
 			<section class="wire-stage" id="wire-feed">

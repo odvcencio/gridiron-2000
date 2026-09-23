@@ -306,11 +306,6 @@ func PickemLiveRegion() Node {
 					{data.week}
 				</span>
 				<h1>Pick'em</h1>
-				<p class="page-subhead">Call your shots.</p>
-				<p>
-					Pick against the frozen market spread. Each game stays open until its own kickoff.
-					Your first valid pick enters you for the season. After entry, every unpicked kickoff is a loss — later games still stay open.
-				</p>
 			</div>
 			<div class="draft-clock-panel">
 				<span>Your picks this week</span>
@@ -366,7 +361,6 @@ func PickemLiveRegion() Node {
 				·
 				{data.week_state}
 			</span>
-			<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.week_state_note} />
 			<If cond={data.has_week_winner}>
 				<p class="pickem-week-record__winner">
 					<span class="pickem-week-record__mark" aria-hidden="true">◎</span>
@@ -405,7 +399,7 @@ func PickemLiveRegion() Node {
 			<If cond={data.viewer.demo}>
 				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>REHEARSAL MODE:</strong>
-					the console is open to everyone while demo mode is on.
+					Public demo.
 				</TextBlock>
 			</If>
 		</div>
@@ -422,16 +416,10 @@ func PickemLiveRegion() Node {
 				</div>
 			</div>
 			<If cond={data.week_settled == false}>
-				<p class="pickem-rule-note">
-					<strong>THE LINE FREEZES THURSDAY.</strong>
-					The sheet does not. Every matchup accepts picks until that game's kickoff. Your first valid pick enters you for the season; after that, every non-void game you leave unpicked at kickoff is a loss. Games that have not started remain available, and weeks before you entered are not scored against you.
-				</p>
+				<p class="pickem-rule-note"><strong>LINE FREEZES THURSDAY</strong> Picks lock at kickoff · Unpicked games count as losses after entry.</p>
 			</If>
 			<If cond={data.week_settled}>
-				<p class="pickem-rule-note pickem-rule-note--settled">
-					<strong>THIS WEEK IS SETTLED.</strong>
-					Every game below is closed. The sheet keeps the record: each row names the frozen line, the final score, and every call the league made on that game. Nothing here changes again.
-				</p>
+				<p class="pickem-rule-note pickem-rule-note--settled"><strong>WEEK SETTLED</strong> · Final scores and picks below.</p>
 			</If>
 			<If cond={data.has_weeks}>
 				<div class="pickem-weeknav">

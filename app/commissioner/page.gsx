@@ -24,7 +24,6 @@ func FleetReadout(props FleetReadoutProps) Node {
 			<div class="draft-masthead__copy">
 				<span class="signal-label"><span class="signal-mark" aria-hidden="true"></span>COMMISSIONER HQ · READ ONLY</span>
 				<h1>Commissioner HQ</h1>
-				<p><strong>Every league. One readout.</strong> One page for every league. Each league keeps its own record.<br></br>Every action stays on its owning league.</p>
 			</div>
 			<If cond={props.IsCommissioner}>
 				<div class="draft-clock-panel commissioner-hq__fleet-total" aria-label="Fleet totals">
@@ -69,7 +68,6 @@ func FleetReadout(props FleetReadoutProps) Node {
 				<div class="commissioner-hq__subhead">
 					<span class="signal-label">NEEDS ATTENTION</span>
 					<h2 id="commissioner-attention-heading">Attention by league</h2>
-					<p>Sorted by severity and count.<br></br>Open the owning league section.</p>
 				</div>
 				<If cond={props.AttentionCount == 0}>
 					<p class="commissioner-hq__empty">No open flags. Every configured league is clear.</p>

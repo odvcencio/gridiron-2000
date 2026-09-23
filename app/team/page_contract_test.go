@@ -1227,7 +1227,7 @@ func TestTeamLineupMovementAndProjectionContracts(t *testing.T) {
 	for _, want := range []string{
 		`<span>Starting projection</span>`,
 		`{data.projected}`,
-		`<span>Bench projection</span>`,
+		`<span>Bench · not scored</span>`,
 		`{data.bench_projected}`,
 		`Not included in team score`,
 		`{data.bench_projection_coverage_label}`,

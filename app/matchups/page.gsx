@@ -437,42 +437,10 @@ func Scorebug(props ScorebugData) Node {
 // Page's status line (below) is one composed sentence for assistive tech
 // (AT) — state, source phrase, ledger stamp, games-final count, in the
 // mockup's own order. wave-6 item 8: the raw bookkeeping spans a poll
-// needs (liveStatus/refreshLabel) used to sit outside the role="status"
-// region entirely, visually-hidden — a sighted user saw no freshness
-// clause anywhere on the page at all (the 2026-09-01 re-audit), even
-// though the live-bind values already carried one, e.g. "Waiting for
-// kickoff · Checked Tue Sep 1 · 4:41 PM EDT · Ledger unavailable". They
-// are now the status line's own trailing clause, visible to sighted and
-// AT users alike (role="status"/aria-live="polite" announces this whole
-// paragraph's text as it changes), keeping every data-gosx-live-bind
-// attribute so a poll still updates them in place. LEDGER's own
-// sourceLine value is the literal string "Weekly ledger (nflverse)"
-// (liveSourceLine, feed.go): the same words the static ledger-stamp span
-// always opens with, so that span only renders once the live state has
-// moved off LEDGER and the two no longer say the same thing back to back
-// (item 2).
-//
-// wave-8 audit item 4: liveStatus (service.go's liveStatusText) used to
-// compose its own "... · Checked ... · Ledger ..." clause AND the
-// freshness clause below carried its own separate static "· Checked
-// {checkedAt}" segment right beside it — the same clock, named twice in
-// one rendered sentence. liveStatusText no longer names Checked at all
-// (it only names the Ledger clock); the freshness clause's own checkedAt
-// bind below is now the sentence's one and only "Checked" mention.
-// liveStatusText also no longer says "Ledger Unavailable" before this
-// week's first kickoff — a genuine "nothing has posted yet" state, not an
-// outage — in favor of "Weekly ledger opens after the first game", which
-// no longer contradicts the source clause's "Weekly ledger (nflverse)"
-// right above it.
-// MatchupStatusBlock is the A5/A6 status paragraph (state chip, source
-// line, ledger stamp, games-final count, freshness clause) plus the
-// week-notice line, split out of Page() (item 1, wave 7b) so it can
-// render on either side of MatchupScoreBlock: Page() puts this block
-// first on a still-scheduled week (nothing to score yet, so the status
-// context leads) and after it on game day (matchupsIsGameDay,
-// page.server.go) once there is a real score to lead with instead. Both
-// call sites read the same "data" binding this function does, so moving
-// it costs nothing beyond the two-call duplication.
+// MatchupStatusBlock keeps game state, final count, and the checked clock
+// visible. Feed provenance and projection guidance live in a disclosure.
+// Page() positions the block before scheduled games and after the score
+// card on game day; both positions retain the same live bindings.
 func MatchupStatusBlock() Node {
 	return <>
 		<p class="matchup-status-line" role="status" aria-live="polite">
@@ -487,16 +455,20 @@ func MatchupStatusBlock() Node {
 			<If cond={data.status_line.closed_early}>
 				<span class="state-chip state-chip--closed-early">CLOSED EARLY</span>
 			</If>
+			<span class="mono muted matchup-status-line__games" data-gosx-live-bind="gamesFinal">{data.status_line.games_final}</span>
+			<span class="mono muted matchup-status-line__freshness">Checked <span data-gosx-live-bind="checkedAt">{data.status_line.checked_at}</span></span>
+		</p>
+		<details class="matchup-status-details">
+			<summary>Scoring details</summary>
 			<span class="mono matchup-status-line__source" data-gosx-live-bind="sourceLine">{data.status_line.source_line}</span>
 			<If cond={data.status_line.live_state != "LEDGER"}>
 				<span class="mono muted matchup-status-line__ledger">Weekly ledger (nflverse) · <span data-gosx-live-bind="statsUpdatedAt">{data.status_line.stats_updated_at}</span></span>
 			</If>
-			<span class="mono muted matchup-status-line__games" data-gosx-live-bind="gamesFinal">{data.status_line.games_final}</span>
-			<span class="mono muted matchup-status-line__freshness">· <span data-gosx-live-bind="liveStatus">{data.live.live_status}</span> · Checked <span data-gosx-live-bind="checkedAt">{data.status_line.checked_at}</span> · <span data-gosx-live-bind="refreshLabel">{data.live.refresh_label}</span></span>
+			<span class="mono muted"><span data-gosx-live-bind="liveStatus">{data.live.live_status}</span> · <span data-gosx-live-bind="refreshLabel">{data.live.refresh_label}</span></span>
 			<span class="mono muted matchup-status-line__projection" data-gosx-live-bind="projectionNote">{data.live.projection_note}</span>
 			<If cond={data.projection_help_href != ""}><a class="access-link matchup-status-line__projection-help" href={data.projection_help_href} data-gosx-link>Read projection guidance →</a></If>
 			<If cond={data.projection_help_href == ""}><a class="access-link matchup-status-line__projection-help" href="/help/lineups-locks-matchups-and-scoring" data-gosx-link>Read projection guidance →</a></If>
-		</p>
+		</details>
 		<If cond={data.status_line.closed_early}>
 			<p class="matchup-week-notice matchup-week-notice--warning" role="status">Week {data.week} closed early: {data.status_line.games_final} at close. Scores may not reflect the final box score.</p>
 		</If>
@@ -525,7 +497,6 @@ func MatchupScoreBlock() Node {
 					<a href="/help/commissioner-operations" data-gosx-link class="access-link">Read postseason and recovery help →</a>
 				</section>
 			</If>
-			<div class="data-note"><span data-gosx-live-bind="noteTitle">{data.live.note_title}</span><p data-gosx-live-bind="noteBody">{data.live.note_body}</p></div>
 		</aside>
 	</div>
 }

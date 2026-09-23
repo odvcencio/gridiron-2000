@@ -21,9 +21,6 @@ func Page() Node {
 					LEAGUE MESSAGE BOARD
 				</span>
 				<h1>Locker Room</h1>
-				<p>
-					<strong>Talk to your league.</strong> Post league business, trash talk, and updates. Every admitted member can read and post here — seatless managers included.
-				</p>
 			</div>
 			<div class="draft-clock-panel">
 				<span>Posts on record</span>
@@ -38,7 +35,7 @@ func Page() Node {
 			<If cond={data.demo_mode}>
 				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22}>
 					<strong>REHEARSAL MODE:</strong>
-					posting and moderation are read-only while demo mode is on. Sign in to participate.
+					Read only · Sign in to post.
 				</TextBlock>
 			</If>
 			<If cond={data.has_notice}><TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.notice} /></If>
