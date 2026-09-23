@@ -1,0 +1,24 @@
+# gridiron-2000-hq-v1: the ClusterIP Service in front of the Commissioner
+# HQ v1 provider's private listener (container port hq-v1/8091,
+# deployment.yaml). It carries no public route — no Ingress mounts it —
+# and hq-v1-network-policy.yaml restricts ingress on this port to
+# gridiron-2000 pods in this namespace. Reconciled into deploy/k8s/,
+# 2026-09-23 (ops-drift hardening): this Service was already live (created
+# 2026-08-26 per deploy/README.md's Commissioner HQ v1 rollout) but had
+# never landed in the tracked manifest set.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gridiron-2000-hq-v1
+  namespace: gridiron
+  labels:
+    app: gridiron-2000
+    app.kubernetes.io/component: commissioner-hq-provider
+spec:
+  type: ClusterIP
+  selector:
+    app: gridiron-2000
+  ports:
+    - name: hq-v1
+      port: 8091
+      targetPort: hq-v1

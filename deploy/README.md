@@ -1,5 +1,27 @@
 # Deploy — league.json and the ConfigMap
 
+## deploy/k8s/ is authoritative
+
+Every hand-authored file directly under `deploy/k8s/` (not `deploy/k8s/sk/`,
+not `deploy/generated/`) is the source of truth for the flagship's live
+objects in the `gridiron` namespace: the Deployment, its Services, its
+NetworkPolicy, and its non-league ConfigMaps. `kubectl diff -f deploy/k8s/`
+against the live namespace must show no change beyond a deliberately
+recorded, in-flight edit — see `deploy_topology_contract_test.go`'s own
+comment and tests for the invariants this enforces in CI. A live
+`kubectl edit`/`patch`/`set image` that is not also committed here is
+drift; reconcile it into a tracked manifest the same day it is found,
+never leave it for the next release to rediscover (ops-drift hardening,
+2026-09-23, found and fixed exactly this: the Commissioner HQ v1
+provider's env block, its private port, its registry ConfigMap, its
+Service, and its NetworkPolicy were all live but untracked, and the
+tracked `APP_IMAGE_DIGEST` had drifted from the actually running image).
+`gridiron-2000-league-config` is the one deliberate, documented exception
+— see "Why a ConfigMap, not a file in this repo" below — and Secret data
+is never committed at all; only the `secret.example.yaml` placeholder
+pattern is tracked, so a masked `kubectl diff` on a Secret is expected and
+is not drift.
+
 ## Fleetgen authoring and release order
 
 For first install, author each public league and run the canonical leaguecheck,

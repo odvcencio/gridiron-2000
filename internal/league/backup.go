@@ -320,6 +320,71 @@ func (s *Service) WriteBackupSnapshotFile(ctx context.Context, dir string, now t
 	return path, manifest, nil
 }
 
+// WriteDatabaseSnapshotGZ writes a fresh, consistent VACUUM INTO
+// snapshot of the live database, gzip-compressed, to a new file staged
+// under the data directory's own temp area — never the shared system
+// temp directory (Store.DataDir's own doc comment: a snapshot must never
+// leave the volume the operator already trusts with league state).
+// Unlike WriteBackupArchive/WriteBackupSnapshotFile, the result carries
+// no tar wrapper, no league.json, and no manifest.json: just the
+// compressed database, for a caller that wants the smallest possible
+// off-host object (main's gcsBackupSink, ops-drift hardening 2026-09-23
+// — the local admin-downloadable archive and this off-host snapshot are
+// deliberately two independent artifacts, not the same file reused).
+//
+// Returns the staged path and a cleanup func the caller must call once
+// done with it (success or failure) to remove both the staged file and
+// its parent temp directory.
+func (s *Service) WriteDatabaseSnapshotGZ(ctx context.Context) (path string, cleanup func(), err error) {
+	if s == nil || s.store == nil {
+		return "", nil, errors.New("league: service has no store to snapshot")
+	}
+	stageParent := s.store.DataDir()
+	if stageParent == "" {
+		return "", nil, errors.New("league: snapshot requires a persistent database (no data directory)")
+	}
+	stageDir, err := os.MkdirTemp(stageParent, ".gridiron-gcs-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("stage GCS snapshot temp dir: %w", err)
+	}
+	cleanup = func() { _ = os.RemoveAll(stageDir) }
+
+	rawPath := filepath.Join(stageDir, BackupDBEntryName)
+	if err := s.store.VacuumSnapshot(ctx, rawPath); err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	rawFile, err := os.Open(rawPath)
+	if err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	defer rawFile.Close()
+
+	gzPath := filepath.Join(stageDir, BackupDBEntryName+".gz")
+	out, err := os.OpenFile(gzPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("create GCS snapshot file: %w", err)
+	}
+	gz := gzip.NewWriter(out)
+	if _, err := io.Copy(gz, rawFile); err != nil {
+		out.Close()
+		cleanup()
+		return "", nil, fmt.Errorf("gzip GCS snapshot: %w", err)
+	}
+	if err := gz.Close(); err != nil {
+		out.Close()
+		cleanup()
+		return "", nil, fmt.Errorf("finish GCS snapshot gzip: %w", err)
+	}
+	if err := out.Close(); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("finish GCS snapshot file: %w", err)
+	}
+	return gzPath, cleanup, nil
+}
+
 // RotateBackups keeps the keep most recent gridiron-snapshot-*.tar.gz files
 // in dir (by name, which sorts chronologically — see snapshotFileName) and
 // removes the rest. keep <= 0 is treated as "keep nothing produced by

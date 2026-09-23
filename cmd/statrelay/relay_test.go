@@ -604,3 +604,210 @@ func TestBudgetChargesOncePerCollapsedSingleflightFetch(t *testing.T) {
 		t.Fatalf("budgetUsed = %d, want 1 (one unit per real upstream fetch, not per client request)", relay.budgetUsed)
 	}
 }
+
+// TestAllowlistedEndpointsAreProxied covers the closed set of Tank01
+// endpoints this relay actually forwards (ops-drift hardening,
+// 2026-09-23): every path allowedUpstreamPaths names must still reach
+// the upstream and cache normally.
+func TestAllowlistedEndpointsAreProxied(t *testing.T) {
+	upstream := newStubUpstream(`{"statusCode":200,"body":[]}`)
+	server := upstream.server()
+	defer server.Close()
+	relay, _ := relayForTest(t, server, t.TempDir(), "test-key")
+
+	for path := range allowedUpstreamPaths {
+		t.Run(path, func(t *testing.T) {
+			rec := doGet(t, relay, path)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("GET %s = %d, want 200", path, rec.Code)
+			}
+		})
+	}
+}
+
+// TestNonAllowlistedPathIsRefusedWithoutTouchingUpstream is the allow-list's
+// own regression test (ops-drift hardening, 2026-09-23): a path outside
+// allowedUpstreamPaths — whether a genuinely unrelated route or a Tank01
+// endpoint this app just never calls — must never reach the upstream
+// client, the cache, or the daily budget. The relay holds the fleet's
+// only real Tank01 credential; an unbounded proxy path is an unbounded
+// spending surface for anything that can reach this Service.
+func TestNonAllowlistedPathIsRefusedWithoutTouchingUpstream(t *testing.T) {
+	upstream := newStubUpstream(`{"statusCode":200,"body":[]}`)
+	server := upstream.server()
+	defer server.Close()
+	relay, _ := relayForTest(t, server, t.TempDir(), "test-key")
+	relay.dailyBudget = 10
+
+	for _, path := range []string{
+		"/getNFLDepthCharts", // a real Tank01 endpoint this app never calls
+		"/../etc/passwd",     // path traversal attempt
+		"/getNFLPlayerInfo",  // plausible-looking but not allow-listed
+		"/",                  // root
+	} {
+		t.Run(path, func(t *testing.T) {
+			rec := doGet(t, relay, path)
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("GET %s = %d, want 404", path, rec.Code)
+			}
+		})
+	}
+	if got := upstream.count(); got != 0 {
+		t.Fatalf("upstream hits = %d, want 0 (a refused path must never reach the upstream client)", got)
+	}
+	if relay.budgetUsed != 0 {
+		t.Fatalf("budgetUsed = %d, want 0 (a refused path must never spend budget)", relay.budgetUsed)
+	}
+}
+
+// TestCacheEntryCapEvictsOldestFetched covers the in-memory size cap
+// (ops-drift hardening, 2026-09-23): once the cache holds more than
+// maxEntries, the next write evicts the oldest-fetched entry (by
+// cacheEntry.FetchedAt) to make room, not an arbitrary one, and never
+// leaves the cache over the cap.
+func TestCacheEntryCapEvictsOldestFetched(t *testing.T) {
+	upstream := newStubUpstream(`{"statusCode":200,"body":[]}`)
+	server := upstream.server()
+	defer server.Close()
+	relay, clock := relayForTest(t, server, t.TempDir(), "test-key")
+	relay.maxEntries = 2
+
+	doGet(t, relay, "/getNFLBoxScore?gameID=oldest")
+	clock.advance(time.Second)
+	doGet(t, relay, "/getNFLBoxScore?gameID=middle")
+	clock.advance(time.Second)
+	doGet(t, relay, "/getNFLBoxScore?gameID=newest")
+
+	relay.mu.RLock()
+	defer relay.mu.RUnlock()
+	if len(relay.cache) != 2 {
+		t.Fatalf("cache holds %d entries, want 2 (maxEntries)", len(relay.cache))
+	}
+	if _, present := relay.cache["/getNFLBoxScore?gameID=oldest"]; present {
+		t.Error("the oldest-fetched entry is still cached; want it evicted")
+	}
+	for _, want := range []string{"/getNFLBoxScore?gameID=middle", "/getNFLBoxScore?gameID=newest"} {
+		if _, present := relay.cache[want]; !present {
+			t.Errorf("%s was evicted; want it kept (only the oldest entry should be dropped)", want)
+		}
+	}
+}
+
+// TestCacheEntryCapZeroMeansUnlimited covers maxEntries's "0 = unlimited"
+// idiom, matching dailyBudget's own convention: a relay with no cap set
+// (the zero value) must never evict.
+func TestCacheEntryCapZeroMeansUnlimited(t *testing.T) {
+	upstream := newStubUpstream(`{"statusCode":200,"body":[]}`)
+	server := upstream.server()
+	defer server.Close()
+	relay, _ := relayForTest(t, server, t.TempDir(), "test-key")
+	// relay.maxEntries left at its zero value.
+
+	for _, gameID := range []string{"a", "b", "c", "d", "e"} {
+		doGet(t, relay, "/getNFLBoxScore?gameID="+gameID)
+	}
+
+	relay.mu.RLock()
+	defer relay.mu.RUnlock()
+	if len(relay.cache) != 5 {
+		t.Fatalf("cache holds %d entries, want 5 (maxEntries=0 must never evict)", len(relay.cache))
+	}
+}
+
+// TestDiskBudgetEvictsOldestWrittenFiles covers the on-disk size cap
+// (ops-drift hardening, 2026-09-23): once the persisted cache directory
+// exceeds maxDiskBytes, the relay deletes the oldest-written files until
+// it is back under budget, so an unbounded on-disk mirror can never
+// exhaust the PVC statrelay-data mounts (deploy/k8s/statrelay.yaml).
+// Every entry here uses a >=1-minute TTL (persist's own threshold,
+// relay.go's ServeHTTP) so each one is actually written to disk.
+func TestDiskBudgetEvictsOldestWrittenFiles(t *testing.T) {
+	upstream := newStubUpstream(`{"statusCode":200,"body":[]}`)
+	server := upstream.server()
+	defer server.Close()
+	dir := t.TempDir()
+	relay, clock := relayForTest(t, server, dir, "test-key")
+	// getNFLTeams' TTL is defaultTTL (6h, well over persist's 1-minute
+	// floor), so every fetch below actually mirrors to disk.
+	paths := []string{
+		"/getNFLTeams?x=oldest",
+		"/getNFLTeams?x=middle",
+		"/getNFLTeams?x=newest",
+	}
+	var sizes []int64
+	for i, path := range paths {
+		doGet(t, relay, path)
+		clock.advance(time.Second)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var total int64
+		for _, e := range entries {
+			info, err := e.Info()
+			if err != nil {
+				t.Fatal(err)
+			}
+			total += info.Size()
+		}
+		if i == 0 {
+			sizes = append(sizes, total)
+		}
+	}
+	if len(sizes) == 0 || sizes[0] <= 0 {
+		t.Fatalf("expected at least one persisted file after the first fetch, got sizes=%v", sizes)
+	}
+	// Cap the disk budget at just over one file's worth: after the three
+	// fetches above already ran unbounded, apply the cap and force one
+	// more write so enforceDiskBudget actually runs against a
+	// now-over-budget directory.
+	relay.maxDiskBytes = sizes[0] + 1
+	doGet(t, relay, "/getNFLTeams?x=trigger")
+	relay.enforceDiskBudget()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var total int64
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			t.Fatal(err)
+		}
+		total += info.Size()
+	}
+	if total > relay.maxDiskBytes {
+		t.Fatalf("data dir uses %d bytes, want <= maxDiskBytes (%d)", total, relay.maxDiskBytes)
+	}
+	// The oldest file (x=oldest) must be the one gone, not an arbitrary
+	// survivor: diskFilename is a content hash of the key, so check by
+	// re-deriving the oldest key's filename.
+	oldestFile := diskFilename("/getNFLTeams?x=oldest")
+	if _, err := os.Stat(filepath.Join(dir, oldestFile)); err == nil {
+		t.Error("the oldest-written file is still on disk; want it evicted first")
+	}
+}
+
+// TestDiskBudgetZeroMeansUnlimited covers maxDiskBytes's "0 = unlimited"
+// idiom: a relay with no disk cap set (the zero value) must never delete
+// a persisted file.
+func TestDiskBudgetZeroMeansUnlimited(t *testing.T) {
+	upstream := newStubUpstream(`{"statusCode":200,"body":[]}`)
+	server := upstream.server()
+	defer server.Close()
+	dir := t.TempDir()
+	relay, _ := relayForTest(t, server, dir, "test-key")
+	// relay.maxDiskBytes left at its zero value.
+
+	doGet(t, relay, "/getNFLTeams")
+	relay.enforceDiskBudget()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("data dir holds %d files, want 1 (maxDiskBytes=0 must never evict)", len(entries))
+	}
+}

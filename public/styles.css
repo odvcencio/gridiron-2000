@@ -3720,17 +3720,30 @@ button.badge-option:hover {
 
 .team-command-strip > div {
   display: grid;
+  /* A grid item's default min-width is auto (its content's own min-content
+     size), not 0 — the classic grid-blowout trap. Without this, a tile
+     whose value is one unbreakable word ("DYNASTY") refuses to shrink
+     below that word's full width even when its track is squeezed (the
+     Locks tile's own auto-sized column, on the right, claims whatever it
+     needs first), so the word paints straight through its own box edge
+     and into the next tile's text ("DYNASTYSunday, September 27...",
+     owner report, 2026-09-23). min-width: 0 lets the box itself shrink to
+     its track's real width; overflow-wrap below then wraps the word
+     inside that narrower box instead of overflowing it. */
+  min-width: 0;
 }
 
 .team-command-strip span {
   color: var(--color-text-muted);
   font-size: var(--type-xs);
   text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 
 .team-command-strip strong {
   color: var(--color-text-primary);
   font-size: var(--type-lg);
+  overflow-wrap: anywhere;
 }
 
 .team-identity-settings {
@@ -5980,6 +5993,32 @@ body.is-on-clock .draft-clock-panel {
 .board-row[data-picked="true"] .player-headshot,
 .board-row[data-picked="true"] .pool-player__text {
   opacity: 0.45;
+}
+
+/* A drafted (struck-through) row's own name and team/bye line collided —
+   "wrap and overlap" (owner report, 2026-09-23) — because both are
+   TextBlock-managed ([data-gosx-text-layout]), and the shared rule that
+   retires the classic CSS-only single-line clamp for any TextBlock
+   field (".pool-player strong[data-gosx-text-layout], .pool-player__text
+   > small[data-gosx-text-layout]", below) outranks the plain,
+   unqualified base clamp by one attribute selector, so it wins even on
+   the very first, pre-enhancement paint: nothing single-lines these two
+   fields until the client runtime finishes measuring and clamping them.
+   A picked row is exactly the case a manager is least likely to still be
+   actively watching re-render, so a stale/slow enhancement pass is the
+   most likely to be the one they notice. This restores the classic,
+   JS-independent nowrap/ellipsis clamp for a picked row's own name and
+   detail line specifically, at higher specificity than the retiring
+   rule (one more attribute selector each), so it holds regardless of
+   the runtime's own state; both fields already clamp to exactly one
+   line by design (BoardRow's own maxLines={1} on each), so this can
+   only ever match what a successful enhancement pass already renders. */
+.board-row[data-picked="true"] .pool-player strong[data-gosx-text-layout],
+.board-row[data-picked="true"] .pool-player__text > small[data-gosx-text-layout] {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .board-controls {
@@ -15615,6 +15654,18 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
    the ellipsis lands — it just truncates at the row's own width, exactly
    like every other single-line mono/pool cell in this file. */
 .pool-player__text small {
+  /* min-width: 0 (owner report, 2026-09-23: the player pool's matchup
+     line overlaps itself, reproduced under "Rome Odunze"): every other
+     class this shrink-to-fit shape covers already pairs its clamp with
+     min-width: 0 (.pool-player--photo .pool-player__text, above, and the
+     shared .pool-player/.mini-team/etc rule elsewhere in this file) —
+     this rule's own overflow/white-space/text-overflow clamp was the one
+     place in the same shrink-to-fit family missing it. .pool-player__text
+     is itself display: grid, so each <small> here is a grid item, and a
+     grid item's default min-width is auto (its own min-content), not 0;
+     belt-and-braces with the rest of this shape's own established
+     pattern rather than leaving this one clamp the sole exception to it. */
+  min-width: 0;
   display: block;
   overflow: hidden;
   white-space: nowrap;
