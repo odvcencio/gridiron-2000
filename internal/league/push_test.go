@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -108,9 +109,22 @@ func TestRecordAndSendAlsoPushesToEveryDeviceAndDropsGoneOnes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// pushNotify fans out one goroutine per device (push.go: "off the
+	// request path", by design — a real send should not serialize on
+	// another device's network round trip), so this mock's send callback
+	// runs concurrently for the two devices registered above. sentMu
+	// guards the shared accumulator against exactly that: without it, two
+	// goroutines' unsynchronized append(sent, ...) is a genuine data race
+	// (caught by -race, gridiron-2000 CI run 35843792928) — the same
+	// reason draft_events_test.go's draftEventRecorder carries its own
+	// mutex for the identical "one goroutine writes, this test reads"
+	// shape.
+	var sentMu sync.Mutex
 	var sent []string
 	svc.SetPushConfig(PushConfig{PublicKey: "VAPIDPUB"}, func(sub PushSubscription, payload PushPayload) error {
+		sentMu.Lock()
 		sent = append(sent, sub.Endpoint+"|"+payload.Title+"|"+payload.URL)
+		sentMu.Unlock()
 		if strings.HasSuffix(sub.Endpoint, "/gone") {
 			return ErrPushSubscriptionGone
 		}
@@ -118,6 +132,8 @@ func TestRecordAndSendAlsoPushesToEveryDeviceAndDropsGoneOnes(t *testing.T) {
 	})
 	svc.pushNotify("ash@example.com", renderedNotification{Category: categoryPickem, Subject: "WEEK 2 PICKS DUE", Text: "Three games lock at 1:00 PM.\nMore text."}, "/pickem")
 	svc.waitForPush()
+	sentMu.Lock()
+	defer sentMu.Unlock()
 	if len(sent) != 2 {
 		t.Fatalf("sent = %v, want one push per device", sent)
 	}
