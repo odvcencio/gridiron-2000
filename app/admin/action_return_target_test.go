@@ -53,6 +53,7 @@ var adminActionSection = map[string]string{
 	"schedule-regenerate":  "schedule",
 	"close-week-ready":     "week-close",
 	"close-week-force":     "week-close",
+	"finalstats-reopen":    "week-close",
 	"run-waivers":          "week-close",
 	"playoff-preview":      "playoffs",
 	"playoff-publish":      "playoffs",

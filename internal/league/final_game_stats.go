@@ -2,6 +2,8 @@ package league
 
 import (
 	"fmt"
+	"log"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -85,6 +87,87 @@ func (s *Store) RecordFinalGameStats(record FinalGameStats) error {
 			s.dirty = previousDirty
 		}
 		return err
+	}
+	return nil
+}
+
+// ReopenFinalGameStats removes one game's frozen final box, so exactly one
+// later RecordFinalGameStats call — the next automatic poll, once an
+// upstream feed or NFL stat correction lands, or a commissioner's own
+// manual re-entry — wins for that key again. RecordFinalGameStats's
+// write-once guard exists to win the race against the poller re-posting a
+// still-settling number mid-game, not to survive a real correction for
+// the rest of the season; this is the one commissioner-only escape hatch
+// for that, so a wrong box does not need the ResetLeague sledgehammer
+// (which also wipes every seat, pick, and roster).
+//
+// Every other game's frozen box, and this game's own write-once guard the
+// moment a new box lands, are untouched: reopening one key never disarms
+// the general first-write-wins protection.
+func (s *Store) ReopenFinalGameStats(week int, gameID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
+	gameID = strings.TrimSpace(gameID)
+	if week < 1 || gameID == "" {
+		return fmt.Errorf("reopening a final box requires a week and game ID")
+	}
+	if s.state.Schedule == nil {
+		return fmt.Errorf("no active schedule; there is no final box to reopen")
+	}
+	// A posted (closed) fantasy week already refuses every
+	// RecordFinalGameStats write, by design (see that method's own
+	// posted-week guard) — a closed week's score is immutable. Reopening
+	// a game in that state would clear its box with no way for any later
+	// write to ever refill it, a one-way data loss instead of the
+	// targeted correction this action exists for.
+	for _, wk := range s.state.Schedule.Weeks {
+		if wk.Week == week && scheduleWeekIsFinal(wk) {
+			return fmt.Errorf("week %d is already closed and posted; its final boxes cannot be reopened", week)
+		}
+	}
+	season := s.state.Schedule.Season
+	key := finalGameStatsKey(season, week, gameID)
+	if _, exists := s.state.FinalGameStats[key]; !exists {
+		return fmt.Errorf("no final box recorded for game %q in week %d", gameID, week)
+	}
+	previous := s.state.FinalGameStats
+	previousDirty := s.dirty
+	updated := make(map[string]FinalGameStats, len(previous))
+	for id, saved := range previous {
+		if id == key {
+			continue
+		}
+		updated[id] = saved
+	}
+	s.state.FinalGameStats = updated
+	if err := s.persistLocked(colScalars); err != nil {
+		if persistDispositionOf(err) == persistNotCommitted {
+			s.state.FinalGameStats = previous
+			s.dirty = previousDirty
+		}
+		return err
+	}
+	return nil
+}
+
+// AdminReopenFinalGameStats is ReopenFinalGameStats's commissioner-facing
+// entry point: it authorizes the request, reopens the box, and leaves a
+// durable, person-attributed audit record (RecordCommissionerEvent) so
+// "who reopened this and when" survives the correction that follows.
+func (s *Service) AdminReopenFinalGameStats(r *http.Request, week int, gameID string) error {
+	if err := s.requireCommissioner(r); err != nil {
+		return err
+	}
+	gameID = strings.TrimSpace(gameID)
+	if err := s.store.ReopenFinalGameStats(week, gameID); err != nil {
+		return err
+	}
+	summary := fmt.Sprintf("reopened the final box for %s (week %d)", gameID, week)
+	if _, err := s.RecordCommissionerEvent(r, "finalstats.reopen", summary, CommissionerEventRefs{Week: week}); err != nil {
+		log.Printf("commissioner event: finalstats.reopen: %v", err)
 	}
 	return nil
 }

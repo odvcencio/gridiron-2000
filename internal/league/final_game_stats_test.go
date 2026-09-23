@@ -1,6 +1,7 @@
 package league
 
 import (
+	"net/http"
 	"path/filepath"
 	"testing"
 	"time"
@@ -155,6 +156,155 @@ func TestCompleteFinalBoxFreezesEveryScoringCategory(t *testing.T) {
 	}
 	if records := reloaded.finalGameRecords(1); len(records) != 1 || !records[0].Complete {
 		t.Fatalf("complete final marker lost after restart: %+v", records)
+	}
+}
+
+// TestReopenFinalGameStatsAllowsOneMoreAutomaticWrite covers the audit
+// finding: RecordFinalGameStats's write-once guard must stay intact for
+// ordinary automatic writes (the poller race it exists for), but a
+// commissioner-reopened game must accept exactly one more write — the
+// correction the reopen exists for — and then be write-once again.
+func TestReopenFinalGameStatsAllowsOneMoreAutomaticWrite(t *testing.T) {
+	svc := newTestService(t, true)
+	schedule, err := GenerateSchedule(ScheduleParams{Season: 2026, TeamIDs: teamIDList(svc.teams), StartWeek: 1, Weeks: 1, Seed: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+	allen := normalizePlayerKey("Josh Allen", "QB")
+	if err := svc.RecordFinalGameStats(1, "bal-buf", "BAL", "BUF", []WeekStatLine{
+		{Key: allen, Stats: map[string]float64{"passTD": 1}},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	// The ordinary write-once guard: a second automatic write is silently
+	// ignored, exactly like TestFinalGameStatsSurviveLedgerCorrectionsAndRestart.
+	if err := svc.RecordFinalGameStats(1, "bal-buf", "BAL", "BUF", []WeekStatLine{
+		{Key: allen, Stats: map[string]float64{"passTD": 9}},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := weekStatLinesByKey(svc.store.FinalGameLines(1))[allen]; got.Stats["passTD"] != 1 {
+		t.Fatalf("write-once guard did not hold before reopening: %+v", got)
+	}
+
+	if err := svc.store.ReopenFinalGameStats(1, "bal-buf"); err != nil {
+		t.Fatalf("ReopenFinalGameStats: %v", err)
+	}
+	if got := svc.store.FinalGameLines(1); len(got) != 0 {
+		t.Fatalf("reopened game still has a frozen box: %+v", got)
+	}
+
+	// The correction: exactly one more write must now win.
+	if err := svc.RecordFinalGameStats(1, "bal-buf", "BAL", "BUF", []WeekStatLine{
+		{Key: allen, Stats: map[string]float64{"passTD": 2}},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := weekStatLinesByKey(svc.store.FinalGameLines(1))[allen]; got.Stats["passTD"] != 2 {
+		t.Fatalf("corrected write after reopen = %+v, want passTD 2", got)
+	}
+	// The write-once guard is back in force immediately after the
+	// correction lands: a further automatic write does not win.
+	if err := svc.RecordFinalGameStats(1, "bal-buf", "BAL", "BUF", []WeekStatLine{
+		{Key: allen, Stats: map[string]float64{"passTD": 99}},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := weekStatLinesByKey(svc.store.FinalGameLines(1))[allen]; got.Stats["passTD"] != 2 {
+		t.Fatalf("write-once guard did not re-arm after the correction: %+v", got)
+	}
+}
+
+func TestReopenFinalGameStatsRequiresAnExistingRecord(t *testing.T) {
+	svc := newTestService(t, true)
+	schedule, err := GenerateSchedule(ScheduleParams{Season: 2026, TeamIDs: teamIDList(svc.teams), StartWeek: 1, Weeks: 1, Seed: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.ReopenFinalGameStats(1, "no-such-game"); err == nil {
+		t.Fatal("expected an error reopening a game with no recorded final box")
+	}
+}
+
+func TestReopenFinalGameStatsRefusesAPostedWeek(t *testing.T) {
+	svc := newTestService(t, true)
+	schedule, err := GenerateSchedule(ScheduleParams{Season: 2026, TeamIDs: teamIDList(svc.teams), StartWeek: 1, Weeks: 1, Seed: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RecordFinalGameStats(1, "bal-buf", "BAL", "BUF", []WeekStatLine{
+		{Key: normalizePlayerKey("Josh Allen", "QB"), Stats: map[string]float64{"passTD": 1}},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	before := svc.store.FinalGameLines(1)
+	week := schedule.Weeks[0]
+	for i := range week.Matchups {
+		week.Matchups[i].Final = true
+	}
+	if err := svc.store.CommitScheduleWeekClose(week, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.ReopenFinalGameStats(1, "bal-buf"); err == nil {
+		t.Fatal("expected a refusal reopening a final box in an already-posted week")
+	}
+	after := svc.store.FinalGameLines(1)
+	if len(after) != len(before) {
+		t.Fatalf("posted week's final box changed after a refused reopen: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestAdminReopenFinalGameStatsRequiresCommissioner(t *testing.T) {
+	svc := newTestService(t, false)
+	request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+	if err := svc.AdminReopenFinalGameStats(request, 1, "bal-buf"); err == nil {
+		t.Fatal("expected a refusal for a non-commissioner request")
+	}
+}
+
+func TestAdminReopenFinalGameStatsRecordsAuditEvent(t *testing.T) {
+	svc := newTestService(t, true)
+	schedule, err := GenerateSchedule(ScheduleParams{Season: 2026, TeamIDs: teamIDList(svc.teams), StartWeek: 1, Weeks: 1, Seed: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RecordFinalGameStats(1, "bal-buf", "BAL", "BUF", []WeekStatLine{
+		{Key: normalizePlayerKey("Josh Allen", "QB"), Stats: map[string]float64{"passTD": 1}},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+	if err := svc.AdminReopenFinalGameStats(request, 1, "bal-buf"); err != nil {
+		t.Fatalf("AdminReopenFinalGameStats: %v", err)
+	}
+	if got := svc.store.FinalGameLines(1); len(got) != 0 {
+		t.Fatalf("box still frozen after AdminReopenFinalGameStats: %+v", got)
+	}
+	events := svc.store.Snapshot().CommissionerEvents
+	if len(events) != 1 {
+		t.Fatalf("commissioner events = %d, want 1", len(events))
+	}
+	event := events[0]
+	if event.Kind != "finalstats.reopen" {
+		t.Errorf("event kind = %q, want finalstats.reopen", event.Kind)
+	}
+	if event.Refs.Week != 1 {
+		t.Errorf("event refs.week = %d, want 1", event.Refs.Week)
+	}
+	if event.Summary == "" {
+		t.Error("event summary is empty")
 	}
 }
 

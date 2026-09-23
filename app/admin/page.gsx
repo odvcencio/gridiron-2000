@@ -1071,6 +1071,23 @@ func Page() Node {
 								<button class="button button--danger" type="submit">Force close week {data.close_form.week}</button>
 							</form>
 						</If>
+						<div class="pool-toolbar">
+							<div>
+								<span class="section-index">02B // REOPEN A FINAL BOX</span>
+								<h2 id="admin-finalstats-reopen-heading">Reopen a final box</h2>
+								<p class="scoring-note">A saved final box is write-once. Use this only for an NFL stat correction or a bad upstream feed: it clears one game's frozen box, and the next accepted update applies once before the write-once protection re-arms. A week already closed cannot be reopened this way.</p>
+							</div>
+						</div>
+						<form method="post" action={actionPath("finalstats-reopen")} data-gosx-managed="true" class="clock-controls">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<label class="mono" for="admin-finalstats-reopen-week">WEEK //</label>
+							<input id="admin-finalstats-reopen-week" class="scoring-input" type="number" name="week" min="1" max="18" required="required"></input>
+							<label class="mono" for="admin-finalstats-reopen-game">GAME ID //</label>
+							<input id="admin-finalstats-reopen-game" class="scoring-input" type="text" name="game_id" autocomplete="off" placeholder="bal-buf" required="required"></input>
+							<label class="mono" for="admin-finalstats-reopen-confirm">TYPE REOPEN &lt;GAME ID&gt; //</label>
+							<input id="admin-finalstats-reopen-confirm" class="scoring-input typed-confirm-input" name="confirm" autocomplete="off" enterkeyhint="done" placeholder="REOPEN BAL-BUF"></input>
+							<button class="button button--danger" type="submit">Reopen final box</button>
+						</form>
 					</If>
 					<div class="pool-toolbar">
 						<div>
