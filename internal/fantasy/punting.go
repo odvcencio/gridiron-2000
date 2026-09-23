@@ -6,6 +6,28 @@ import (
 	"strings"
 )
 
+// PuntQualifiesForYardsBonus is the single, shared 40+-yard puntYards
+// bonus threshold (WP-R2). A blocked punt never qualifies, regardless of
+// its recorded distance — its landing spot is not a real kick. Every
+// punting-stat producer in this codebase (main.go's
+// addPuntingStatsFromPBP and addPuntingStatsFromBoxScore,
+// addLivePuntingStats below) must call this function rather than
+// hardcoding the 40-yard threshold itself: the audit that found this
+// duplicated across two independently maintained mappers (2026-09-23,
+// "## Correctness" item 6) is the reason it now lives in exactly one
+// place.
+func PuntQualifiesForYardsBonus(distance float64, blocked bool) bool {
+	return !blocked && distance >= 40
+}
+
+// PuntQualifiesForLong50 is the single, shared 50+-yard "punt long"
+// bonus threshold — the other constant duplicated across producers
+// (audit item 6, alongside PuntQualifiesForYardsBonus above). A blocked
+// punt never qualifies.
+func PuntQualifiesForLong50(distance float64, blocked bool) bool {
+	return !blocked && distance >= 50
+}
+
 // addLivePuntingStats reads the provider's per-player aggregates, not its
 // team-level totals. A valid punts count retains a real zero-stat row too.
 // Aggregates cannot reconstruct every 40+/50+ punt or its landing position:
@@ -30,10 +52,13 @@ func addLivePuntingStats(stats map[string]float64, entry map[string]any) bool {
 	longest, longKnown := nonnegativePuntingStat(group["puntLong"])
 	yards, yardsKnown := nonnegativePuntingStat(group["puntYds"])
 	if punts > 0 && longKnown && yardsKnown && longest <= yards {
-		if longest >= 50 {
+		// The live aggregate carries no per-punt blocked flag for the
+		// longest punt specifically, so blocked=false here — matching
+		// this function's existing, unchanged fallback behavior.
+		if PuntQualifiesForLong50(longest, false) {
 			stats["puntLong50"] = 1 // at least this longest punt is confirmed
 		}
-		if longest >= 40 && (punts != 1 || longest == yards) {
+		if PuntQualifiesForYardsBonus(longest, false) && (punts != 1 || longest == yards) {
 			stats["puntYards"] = longest
 		}
 	}
