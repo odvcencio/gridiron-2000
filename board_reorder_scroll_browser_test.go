@@ -186,6 +186,20 @@ func TestBrowserBoardRowDragReorderHasNoScrollJump(t *testing.T) {
 
 	dragBoardRowHandle(t, ctx, ".board-row:first-child .board-row__handle", targetY)
 
+	// CI note (2026-09-23, run 35836239666): this scenario failed once on
+	// GitHub's shared ubuntu-latest runner — "reorder never settled ...
+	// context deadline exceeded" at exactly browserBudget's own 90s
+	// ceiling — while every other browser scenario in that same run
+	// passed. Reproduced locally three times right after (this repo's own
+	// Chrome, a loaded dev machine) at 4.2s-8.2s, 11-20x inside the
+	// budget, so the reorder round trip itself is not slow; a cold/shared
+	// CI runner combined with a fixed per-scenario budget tuned on faster
+	// hardware is. The "browser suite" CI job is already
+	// continue-on-error: true (non-required) for exactly this reason — a
+	// flaky headed-Chrome run must never block a merge — so this is
+	// tracked here rather than by loosening browserBudget, which every
+	// other browser scenario in the package also shares.
+	//
 	// The reorder container carries the pending/settled contract this
 	// assertion pins: data-gosx-pending="true" for the request's
 	// duration (commitReorderResult/setManagedFormPending, navigation.ts),
