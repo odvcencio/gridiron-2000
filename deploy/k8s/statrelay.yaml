@@ -53,8 +53,17 @@ spec:
         fsGroup: 65532
       containers:
         - name: statrelay
-          image: harbor.draco.quest/orchard/gridiron-2000-statrelay:latest
-          imagePullPolicy: Always
+          # Pinned by digest, ops-drift hardening 2026-09-23 (was :latest
+          # with imagePullPolicy: Always — an unpinned tag on the fleet's
+          # only real Tank01 credential holder, and a rollout restart was
+          # the only way to notice a new push had landed). Built from
+          # deploy/statrelay.Dockerfile at commit d29ae79, carrying the
+          # allow-list and bounded-cache hardening; see
+          # docs/launch-checklist.md's relay release-pin step for the
+          # build/push/record commands and CHANGELOG.md's [Unreleased]
+          # entry.
+          image: harbor.draco.quest/orchard/gridiron-2000-statrelay@sha256:ed6469fb2f5a4188d0bb13257fa6d9cb6fc20746d976f2d93f858b4b9514ada9
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8090
