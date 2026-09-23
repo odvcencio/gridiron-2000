@@ -1574,6 +1574,31 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		// feed degradation remains diagnostic only and never changes readiness.
 		ctx.NoStore()
 		ctx.CacheTag("health")
+		persistenceErr := league.Default().PersistenceError()
+		persistenceReady, persistenceStatus, _ := persistenceHealth(persistenceErr)
+		if persistenceStatus != http.StatusOK {
+			ctx.SetStatus(persistenceStatus)
+		}
+		// The rich payload below carries internal operational detail (feed
+		// modes, HQ federation flags, backup sink state, pool internals) that
+		// an anonymous caller has no need to see (ops-drift hardening,
+		// 2026-09-23). It stays available to two trusted callers only: a
+		// signed-in commissioner (browser session, IsCommissioner) and a
+		// request whose RemoteAddr is loopback — the same trust boundary
+		// isLoopbackRemote already draws for the /test/* harness routes,
+		// reached in production only via `kubectl exec`/`port-forward`
+		// directly into the pod (never through the Service/Ingress, which
+		// always shows a real peer address). Every other caller gets the
+		// readiness-probe-safe minimal shape the task calls for: {ok,
+		// appVersion}. The HTTP status code above is unaffected either way,
+		// so the Deployment's readinessProbe (status-only) keeps working.
+		if !league.Default().IsCommissioner(ctx.Request) && !isLoopbackRemote(ctx.Request) {
+			return map[string]any{
+				"ok":         persistenceReady,
+				"appVersion": appVersion,
+			}, nil
+		}
+		persistenceMessage := mapPersistenceHealthError(persistenceErr)
 		wireStatus := signalFeed.Status()
 		openStatus := openStats.Status()
 		poolStatus := fantasyPool.Status()
@@ -1582,8 +1607,6 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		if !draftStartedAt.IsZero() {
 			draftStartedAtText = draftStartedAt.Format(time.RFC3339)
 		}
-		persistenceErr := league.Default().PersistenceError()
-		persistenceReady, persistenceStatus, persistenceMessage := persistenceHealth(persistenceErr)
 		stateSchema := league.Default().StateSchemaCompatibility()
 		blitzHealth := league.Default().BlitzDependencyHealth()
 		rosterCapacity := league.Default().TeamCount() * league.CurrentDraftRounds()
@@ -1591,9 +1614,6 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		poolCoverage := 0.0
 		if rosterCapacity > 0 {
 			poolCoverage = float64(poolStatus.PoolLimit) / float64(rosterCapacity)
-		}
-		if persistenceStatus != http.StatusOK {
-			ctx.SetStatus(persistenceStatus)
 		}
 		return map[string]any{
 			"ok":               persistenceReady,
