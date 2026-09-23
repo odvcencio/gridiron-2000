@@ -50,6 +50,7 @@ func TestFinalBoxPersistenceFailureKeepsGameRetryable(t *testing.T) {
 	}, nil, nil)
 	final := inProgressBox("20250907_BAL@BUF")
 	final.Final, final.InProgress = true, false
+	final.ScoringComplete = true
 	if _, err := poller.record(game, final, now); err == nil {
 		t.Fatal("first final record succeeded despite persistence failure")
 	}
@@ -58,6 +59,33 @@ func TestFinalBoxPersistenceFailureKeepsGameRetryable(t *testing.T) {
 	}
 	if changed, err := poller.record(game, final, now.Add(time.Second)); err != nil || !changed || !poller.finalDone[game.ID] {
 		t.Fatalf("second final record = changed %v, err %v, done %v", changed, err, poller.finalDone[game.ID])
+	}
+}
+
+func TestIncompleteFinalBoxRemainsRetryableUntilScoringIsComplete(t *testing.T) {
+	now := kickoff.Add(3 * time.Hour)
+	game := fixtureSchedule()[0]
+	finalizations := 0
+	poller := New(Config{Enabled: true, Now: func() time.Time { return now },
+		Finalize: func(Game, fantasy.BoxScore) error {
+			finalizations++
+			return nil
+		},
+	}, nil, nil)
+	final := inProgressBox("20250907_BAL@BUF")
+	final.Final, final.InProgress, final.Period = true, false, "Final"
+	if changed, err := poller.record(game, final, now); err == nil || changed {
+		t.Fatalf("incomplete final = changed %v, err %v", changed, err)
+	}
+	if poller.finalDone[game.ID] || finalizations != 0 {
+		t.Fatal("incomplete final was accepted")
+	}
+	final.ScoringComplete = true
+	if changed, err := poller.record(game, final, now.Add(time.Second)); err != nil || !changed {
+		t.Fatalf("complete final = changed %v, err %v", changed, err)
+	}
+	if !poller.finalDone[game.ID] || finalizations != 1 {
+		t.Fatal("complete final was not frozen once")
 	}
 }
 

@@ -734,6 +734,12 @@ func (p *Poller) record(game Game, box fantasy.BoxScore, now time.Time) (bool, e
 		return false, nil
 	}
 	if box.Final && p.cfg.Finalize != nil {
+		// A final game status does not mean its scoring payload is complete.
+		// Keep polling until every category can be frozen together; otherwise
+		// the weekly feed could revise a score already presented as final.
+		if !box.ScoringComplete {
+			return false, fmt.Errorf("final box for %s has incomplete scoring details", game.ID)
+		}
 		if err := p.cfg.Finalize(game, box); err != nil {
 			return false, fmt.Errorf("persist final box for %s: %w", game.ID, err)
 		}
