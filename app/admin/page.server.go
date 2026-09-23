@@ -449,7 +449,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				info := league.Default().AdminWeekCloseInfo(week, time.Now())
+				info := league.Default().AdminWeekCloseInfo(week, league.Default().Now())
 				if !info.Exists {
 					return action.Validation(info.Reason, map[string]string{"admin": info.Reason}, ctx.FormData)
 				}
@@ -469,7 +469,7 @@ func init() {
 					message := "type " + expected + " to confirm"
 					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
 				}
-				info := league.Default().AdminWeekCloseInfo(week, time.Now())
+				info := league.Default().AdminWeekCloseInfo(week, league.Default().Now())
 				if !info.Exists {
 					return action.Validation(info.Reason, map[string]string{"admin": info.Reason}, ctx.FormData)
 				}
@@ -561,7 +561,7 @@ func init() {
 				return nil
 			},
 			"playoff-preview": func(ctx *action.Context) error {
-				preview, err := league.Default().AdminPreviewPlayoffs(ctx.Request, time.Now())
+				preview, err := league.Default().AdminPreviewPlayoffs(ctx.Request, league.Default().Now())
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", adminPlainLanguageError(err))
 				}
@@ -578,7 +578,7 @@ func init() {
 					message := "type " + league.PlayoffPublishConfirmation + " to confirm"
 					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
 				}
-				published, err := league.Default().AdminPublishPlayoffs(ctx.Request, previewID, ctx.FormData["confirm"], time.Now())
+				published, err := league.Default().AdminPublishPlayoffs(ctx.Request, previewID, ctx.FormData["confirm"], league.Default().Now())
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
@@ -586,7 +586,7 @@ func init() {
 				return nil
 			},
 			"playoff-advance": func(ctx *action.Context) error {
-				advanced, err := league.Default().AdminAdvancePlayoffsFromLedger(ctx.Request, time.Now())
+				advanced, err := league.Default().AdminAdvancePlayoffsFromLedger(ctx.Request, league.Default().Now())
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
@@ -611,7 +611,7 @@ func init() {
 				}
 				corrected, err := league.Default().AdminCorrectPlayoff(ctx.Request, league.PlayoffCorrection{
 					MatchupID: matchupID, WinnerTeamID: winnerID, HomeScore: homeScore, AwayScore: awayScore,
-					ScoresProvided: scoresProvided, Reason: reason, Confirmation: ctx.FormData["confirm"], At: time.Now(),
+					ScoresProvided: scoresProvided, Reason: reason, Confirmation: ctx.FormData["confirm"], At: league.Default().Now(),
 				})
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)

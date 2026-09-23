@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"time"
+
+	"gridiron-2000/internal/loopguard"
 )
 
 const pickemFallbackThursdayHour = 20
@@ -135,13 +137,27 @@ func (s *Store) ReconcilePickemMarkets(now time.Time, games []GameInfo, eastern 
 
 // pickemMarketTick is the testable, single-pass market synchronizer. It
 // records moving candidates before the boundary and performs the exact-once
-// freeze/void transition at or after it.
+// freeze/void transition at or after it, then backfills any legacy pick's
+// missing entry timestamp (BackfillPickemEnteredAt).
+//
+// Both used to also run inline on GET (DashboardData, ActionCenterData,
+// PickemData, pickemHomeSummary — audit item 10, 2026-09-23): a page load
+// silently wrote to the store, with its error discarded (`_ =`). They now
+// run only here, on this function's own ticker (StartPickemMarketSync),
+// with every error logged instead of swallowed. A GET handler reads
+// whatever this tick last reconciled — at most pickemMarketSyncPeriod
+// stale, the same staleness the ticker already promised while a page was
+// closed.
 func (s *Service) pickemMarketTick(now time.Time) error {
 	eastern, err := time.LoadLocation("America/New_York")
 	if err != nil {
 		eastern = time.UTC
 	}
-	return s.store.ReconcilePickemMarkets(now, s.schedule(), eastern)
+	games := s.schedule()
+	if err := s.store.ReconcilePickemMarkets(now, games, eastern); err != nil {
+		return err
+	}
+	return s.store.BackfillPickemEnteredAt(games)
 }
 
 // StartPickemMarketSync starts the schedule-to-contest-line lifecycle. The
@@ -159,9 +175,14 @@ func (s *Service) StartPickemMarketSync(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := s.pickemMarketTick(s.clock()); err != nil {
-					log.Printf("pickem market sync: %v", err)
-				}
+				// loopguard.Tick: a panic in one pass must not end pickem
+				// market sync for the rest of the process's life (audit
+				// item 12); the next tick still runs.
+				loopguard.Tick("pickemMarketSync", 0, func() {
+					if err := s.pickemMarketTick(s.clock()); err != nil {
+						log.Printf("pickem market sync: %v", err)
+					}
+				})
 			}
 		}
 	}()

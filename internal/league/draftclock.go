@@ -7,6 +7,8 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	"gridiron-2000/internal/loopguard"
 )
 
 const (
@@ -79,7 +81,10 @@ func (s *Service) StartDraftClock(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				s.clockTick(s.clock())
+				// loopguard.Tick: a panic in one tick's clock decision must
+				// not end draft-clock enforcement for the rest of the
+				// process's life (audit item 12); the next tick still runs.
+				loopguard.Tick("draftClock", 0, func() { s.clockTick(s.clock()) })
 			}
 		}
 	}()

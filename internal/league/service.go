@@ -1940,25 +1940,17 @@ func (s *Service) ClaimFantasySeat(r *http.Request, teamName, motif string) (Tea
 // it is unit-testable without forging Google auth (see ClaimFantasySeat,
 // the thin public wrapper that resolves those two from the request).
 //
-// Atomicity design: the three writes — AssignMember (claim the next open
-// seat), Store.SetTeamName, Store.ClaimBadge — are not one store
-// transaction; each of those three primitives already owns its own
-// lock/persist, and merging them would mean either duplicating all three
-// under Store or growing a bespoke fourth Store method whose only caller
-// is this one path, for a rollback need that is otherwise rare (a badge
-// motif race between two concurrent signups is the only realistic
-// failure once the seat itself is claimed). Instead this method rolls
-// back on a later failure: a name-set failure releases the just-claimed
-// seat, and a badge-claim failure releases both the name and the seat —
-// so a half-finished signup (a claimed seat with a placeholder name, or a
-// name with no badge) never sits there for the next visitor to trip
-// over. A best-effort motif-availability pre-check runs before the seat
-// is even claimed, to keep the common "stale page, someone else already
-// took that motif" case from claiming (and then rolling back) a seat at
-// all; the store-level ClaimBadge call afterward remains the one
-// authoritative check for the true concurrent-signup race, and its exact
-// "that badge is already claimed by <team>" message is what both paths
-// surface.
+// Atomicity design (audit item 11, 2026-09-23): the write itself is one
+// store transaction, Store.ClaimFantasySeatTransaction — seat assignment,
+// team naming, and badge claim all land in the same clone/persist cycle,
+// so a failure partway through leaves the store completely unchanged.
+// There is no rollback to get wrong, because nothing partial is ever
+// applied in the first place. A best-effort motif-availability pre-check
+// still runs before the store call, to keep the common "stale page,
+// someone else already took that motif" case from even attempting a
+// write; ClaimFantasySeatTransaction remains the one authoritative check
+// for the true concurrent-signup race, and its exact "that badge is
+// already claimed by <team>" message is what both paths surface.
 func (s *Service) claimFantasySeat(email, name, teamName, motif string) (Team, error) {
 	email = s.identityResolver.Resolve(email)
 	state := s.store.Snapshot()
@@ -2004,25 +1996,22 @@ func (s *Service) claimFantasySeat(email, name, teamName, motif string) (Team, e
 			return Team{}, claimValidationError(ClaimFieldMotif, &badgeTakenError{teamName: s.teamByID(holderTeamID).Name})
 		}
 	}
-	member, err = s.assignMember(email, name)
+	topologyMutationMu.Lock()
+	defer topologyMutationMu.Unlock()
+	s.topologyMutationCheckpoint("claim-fantasy-seat-before-store")
+	member, err = s.store.ClaimFantasySeatTransaction(email, name, displayName, motif)
 	if err != nil {
-		return Team{}, err
-	}
-	teamID := member.TeamID
-	if err := s.store.SetTeamName(teamID, displayName); err != nil {
-		_ = s.store.ReleaseSeat(teamID)
-		return Team{}, claimValidationError(ClaimFieldTeamName, err)
-	}
-	if err := s.store.ClaimBadge(teamID, motif); err != nil {
-		_ = s.store.SetTeamName(teamID, "")
-		_ = s.store.ReleaseSeat(teamID)
 		var claimed *badgeClaimedError
 		if errors.As(err, &claimed) {
 			return Team{}, claimValidationError(ClaimFieldMotif, &badgeTakenError{teamName: s.teamByID(claimed.teamID).Name})
 		}
-		return Team{}, claimValidationError(ClaimFieldMotif, err)
+		if errors.Is(err, ErrLeagueFull) {
+			return Team{}, err
+		}
+		return Team{}, claimValidationError(ClaimFieldTeamName, err)
 	}
-	return s.teamByID(teamID), nil
+	s.notifySeatClaimed(member)
+	return s.teamByID(member.TeamID), nil
 }
 
 func (s *Service) Viewer(r *http.Request) map[string]any {
@@ -2088,9 +2077,10 @@ func (s *Service) Viewer(r *http.Request) map[string]any {
 func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string]any {
 	now := s.clock()
 	live := s.feed.Snapshot(ctx, now)
-	games := s.schedule()
-	_ = s.store.ReconcilePickemMarkets(now, games, nil)
-	_ = s.store.BackfillPickemEnteredAt(games)
+	// Pick'em market reconciliation and entry-timestamp backfill no longer
+	// run inline here: a GET must not write to the store (audit item 10).
+	// StartPickemMarketSync's ticker (pickemMarketTick) keeps both current
+	// instead, at most pickemMarketSyncPeriod stale.
 	state := s.store.Snapshot()
 	viewer := s.Viewer(r)
 	hasSeat, _ := viewer["has_seat"].(bool)
@@ -7404,9 +7394,10 @@ func max(a, b int) int {
 func (s *Service) ActionCenterData(r *http.Request) map[string]any {
 	now := s.clock()
 	viewer := s.Viewer(r)
-	games := s.schedule()
-	_ = s.store.ReconcilePickemMarkets(now, games, nil)
-	_ = s.store.BackfillPickemEnteredAt(games)
+	// Pick'em market reconciliation and entry-timestamp backfill no longer
+	// run inline here: a GET must not write to the store (audit item 10).
+	// StartPickemMarketSync's ticker (pickemMarketTick) keeps both current
+	// instead, at most pickemMarketSyncPeriod stale.
 	state := s.store.Snapshot()
 	pickemHome := s.pickemHomeSummaryFromSnapshot(r, state, now)
 	return s.actionCenterDataForSnapshot(r, state, viewer, pickemHome, now)

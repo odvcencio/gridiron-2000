@@ -664,27 +664,21 @@ func (s *Service) pickemOwner(r *http.Request) (string, error) {
 }
 
 // PickemDataReadOnly assembles the same authoritative Pick'em projection as
-// PickemData without performing the page-load reconciliation/backfill writes.
-// The lifecycle market synchronizer owns those transitions; repeated fragment
-// polling must observe state, never provision a member or mutate durable
-// markets/entry timestamps as a side effect of GET.
+// PickemData. The lifecycle market synchronizer (StartPickemMarketSync's
+// ticker) owns every reconciliation/backfill write; neither this nor
+// PickemData performs one — a GET must never provision a member or mutate
+// durable markets/entry timestamps as a side effect (audit item 10).
 func (s *Service) PickemDataReadOnly(r *http.Request) map[string]any {
-	return s.pickemData(r, false)
+	return s.pickemData(r)
 }
 
 func (s *Service) PickemData(r *http.Request) map[string]any {
-	return s.pickemData(r, true)
+	return s.pickemData(r)
 }
 
-func (s *Service) pickemData(r *http.Request, reconcile bool) map[string]any {
+func (s *Service) pickemData(r *http.Request) map[string]any {
 	now := s.clock()
 	allGames := s.schedule()
-	if reconcile {
-		// A page load is also an immediate reconciliation opportunity. The
-		// lifecycle ticker remains authoritative when nobody has the page open.
-		_ = s.store.ReconcilePickemMarkets(now, allGames, nil)
-		_ = s.store.BackfillPickemEnteredAt(allGames)
-	}
 	state := s.store.Snapshot()
 	viewerKey, _ := s.pickemViewerKeyForState(r, state)
 	currentWeek := s.pickemWeek(allGames, now)
@@ -1127,15 +1121,12 @@ func (s *Service) PickemSet(r *http.Request, gameID, team string) (GameInfo, err
 // and streak, so signing in without a team seat lands on a complete,
 // honest home screen instead of an empty fantasy dashboard (build item 3).
 //
-// It takes no PersistedState parameter: ReconcilePickemMarkets and
-// BackfillPickemEnteredAt below mutate the store, so any snapshot a
-// caller could supply would already be stale by the time this function
-// reads it. The fresh Snapshot() must come after reconciliation, not
-// before, so this function always takes its own.
+// It no longer reconciles/backfills inline (audit item 10): a GET must not
+// write to the store. StartPickemMarketSync's ticker keeps both current
+// instead, so the Snapshot() below is at most pickemMarketSyncPeriod
+// stale — the same staleness bound a caller already accepted for any other
+// GET path this fix touches.
 func (s *Service) pickemHomeSummary(r *http.Request, now time.Time) map[string]any {
-	allGames := s.schedule()
-	_ = s.store.ReconcilePickemMarkets(now, allGames, nil)
-	_ = s.store.BackfillPickemEnteredAt(allGames)
 	state := s.store.Snapshot()
 	return s.pickemHomeSummaryFromSnapshot(r, state, now)
 }

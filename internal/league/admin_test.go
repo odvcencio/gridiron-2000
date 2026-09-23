@@ -1005,15 +1005,26 @@ func TestAdminDataReportsInviteAcceptanceAndReadiness(t *testing.T) {
 	}
 }
 
-// TestAdminDataRedactsMemberPIIForNonCommissioner covers the AdminData data
-// exposure finding: app/admin/page.gsx's own <If cond={data.is_commissioner}>
-// gate was the only thing keeping every member email, invite, and per-seat
-// release token out of a non-commissioner viewer's hands — the returned map
-// itself carried them regardless of who asked. AdminData must redact those
-// fields itself before the map ever leaves this function, so a
-// non-commissioner viewer (signed in or not) never receives them, while the
-// aggregate counts the console's masthead needs stay accurate.
-func TestAdminDataRedactsMemberPIIForNonCommissioner(t *testing.T) {
+// TestAdminDataRedactsMemberPIIForNonCommissioner covered the AdminData
+// data exposure finding under the previous design: field-by-field
+// redaction of member email/invite/release-token data, while the
+// aggregate counts and redacted seat/invite lists still shipped.
+// TestAdminDataReturnsEarlyForNonCommissionerWithNoCommissionerFields
+// below supersedes it (audit item 16, 2026-09-23): AdminData now returns
+// early for a non-commissioner, so none of those fields — redacted or
+// not — are present at all.
+
+// TestAdminDataReturnsEarlyForNonCommissionerWithNoCommissionerFields is
+// the audit's exact demand (2026-09-23, "## Correctness" item 16):
+// AdminData used to build the FULL commissioner view for any signed-in
+// member — mail health, the config source path, and the roster
+// correction panel included — and rely on app/admin/page.gsx's own
+// <If cond={data.is_commissioner}> to hide it, with only per-seat
+// email/release-token fields redacted server-side. AdminData must now
+// return early for a non-commissioner, before computing any of that, so
+// the map itself never carries a single commissioner-only field — not a
+// redacted placeholder, entirely absent.
+func TestAdminDataReturnsEarlyForNonCommissionerWithNoCommissionerFields(t *testing.T) {
 	service := newTestService(t, false)
 	t.Setenv("COMMISSIONER_EMAILS", "boss@example.com")
 
@@ -1027,57 +1038,33 @@ func TestAdminDataRedactsMemberPIIForNonCommissioner(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// No auth middleware runs here at all: an unsigned-in visitor is the
-	// broadest case IsCommissioner refuses, and the fields AdminData
-	// redacts are gated on isCommissioner alone, not on sign-in state.
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
 	data := service.AdminData(request)
 
 	if data["is_commissioner"] != false {
 		t.Fatalf("is_commissioner = %v, want false", data["is_commissioner"])
 	}
-	if got := data["invite_count"]; got != 1 {
-		t.Errorf("invite_count = %v, want 1 (counts must survive redaction)", got)
+	// Every field a commissioner-only section of the template reads —
+	// not an exhaustive list of every key AdminData has ever emitted, but
+	// every one this audit item and the redaction test above named.
+	commissionerOnlyKeys := []string{
+		"mail", "mail_enabled", "config_source", "is_default_config",
+		"roster_correction", "roster_shape", "seats", "invites",
+		"seatless_members", "invite_count", "member_count", "seat_count",
+		"ready_count", "pick_count", "schedule", "draft", "clock",
+		"clock_duration_source", "pool", "invite_preview", "league",
+		"announcements", "announcements_empty", "current_pick_token",
+		"previous_pick_token", "draft_required_players",
 	}
-	if got := data["member_count"]; got != 1 {
-		t.Errorf("member_count = %v, want 1 (counts must survive redaction)", got)
+	for _, key := range commissionerOnlyKeys {
+		if _, present := data[key]; present {
+			t.Errorf("AdminData for a non-commissioner returned commissioner-only key %q (value %#v); it must be entirely absent, not redacted", key, data[key])
+		}
 	}
-
 	dump := fmt.Sprintf("%#v", data)
 	for _, leaked := range []string{"pending@example.com", "seatless@example.com", "primary@example.com"} {
 		if strings.Contains(dump, leaked) {
 			t.Errorf("AdminData for a non-commissioner leaked %q somewhere in the payload:\n%s", leaked, dump)
-		}
-	}
-
-	seats, ok := data["seats"].([]map[string]any)
-	if !ok || len(seats) == 0 {
-		t.Fatal("seats missing or empty")
-	}
-	for _, seat := range seats {
-		if seat["email"] != "" {
-			t.Errorf("seat email = %v, want redacted", seat["email"])
-		}
-		if seat["release_token"] != "" {
-			t.Errorf("seat release_token = %v, want redacted", seat["release_token"])
-		}
-	}
-	invites, ok := data["invites"].([]map[string]any)
-	if !ok || len(invites) != 1 {
-		t.Fatalf("invites = %#v, want exactly 1 (redacted, not removed)", data["invites"])
-	}
-	for _, invite := range invites {
-		if invite["email"] != "" || invite["mailto"] != "" {
-			t.Errorf("invite = %+v, want email/mailto redacted", invite)
-		}
-	}
-	seatlessMembers, ok := data["seatless_members"].([]map[string]any)
-	if !ok || len(seatlessMembers) != 1 {
-		t.Fatalf("seatless_members = %#v, want exactly 1 (redacted, not removed)", data["seatless_members"])
-	}
-	for _, member := range seatlessMembers {
-		if member["email"] != "" || member["name"] != "" {
-			t.Errorf("seatless member = %+v, want redacted", member)
 		}
 	}
 }

@@ -95,6 +95,14 @@ func TestTrimUnclaimedSeatsDropsUnclaimedKeepsClaimed(t *testing.T) {
 
 // TestTrimUnclaimedSeatsRequiresCommissioner mirrors every other Admin*
 // method's non-commissioner rejection precedent (roster_shape_test.go).
+//
+// This calls TrimUnclaimedSeats directly, not through the
+// trimUnclaimedSeatsForTest helper the other tests in this file share:
+// AdminData now returns early for a non-commissioner with none of the
+// commissioner-only fields, including unclaimed_seat_count/token (audit
+// item 16), and TrimUnclaimedSeats itself checks requireCommissioner
+// before it ever looks at confirmation or token, so a real count/token
+// is not needed to prove the rejection.
 func TestTrimUnclaimedSeatsRequiresCommissioner(t *testing.T) {
 	t.Cleanup(clearSeatTrim)
 	svc := newTestService(t, false) // not demo mode: no free commissioner grant
@@ -103,7 +111,7 @@ func TestTrimUnclaimedSeatsRequiresCommissioner(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		claimSeat(t, svc, fmt.Sprintf("member-%d@example.com", i))
 	}
-	if _, _, err := trimUnclaimedSeatsForTest(t, svc, request); err == nil {
+	if _, _, err := svc.TrimUnclaimedSeats(request, "", ""); err == nil {
 		t.Fatal("a non-commissioner request must be rejected")
 	}
 	if got := len(defaultTeams()); got != 8 {

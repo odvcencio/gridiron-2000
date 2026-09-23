@@ -10,6 +10,7 @@ import (
 
 	hqv1 "gridiron-2000/internal/commissionerhq/v1"
 	"gridiron-2000/internal/commissionerhq/v1transport"
+	"gridiron-2000/internal/loopguard"
 )
 
 const (
@@ -189,8 +190,19 @@ func (service *Service) Collect(ctx context.Context) Portfolio {
 				if aggregateContext.Err() != nil {
 					return
 				}
-				summary, err := service.fetchBounded(aggregateContext, job.connection)
-				results <- attemptResult{job: job, summary: summary, err: err}
+				// loopguard.Tick: recover() only protects its own
+				// goroutine's call stack, so a panic fetching one
+				// connection (a malformed provider response) must not
+				// kill the whole process — every other worker and the
+				// caller's own request goroutine included (audit item
+				// 12; the same fan-out shape commissionerhq.Service.Fleet
+				// already guards). A recovered panic here simply leaves
+				// this job's result unsent; Collect's own aggregateContext
+				// timeout below still expires it like any other slow job.
+				loopguard.Tick("v1fleet.Collect", 0, func() {
+					summary, err := service.fetchBounded(aggregateContext, job.connection)
+					results <- attemptResult{job: job, summary: summary, err: err}
+				})
 			}
 		}()
 	}

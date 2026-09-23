@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gridiron-2000/internal/loopguard"
 )
 
 // Service owns the normalized draft pool. With a Tank01 key it syncs on an
@@ -274,13 +276,15 @@ func (s *Service) syncLoop(ctx context.Context) {
 		case <-timer.C:
 		}
 	}
-	if err := s.SyncNow(ctx); err != nil {
+	var syncErr error
+	loopguard.Tick("fantasy.syncLoop", 0, func() { syncErr = s.SyncNow(ctx) })
+	if syncErr != nil {
 		// The retry below covers startup races; the last good cache keeps serving.
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(2 * time.Minute):
-			_ = s.SyncNow(ctx)
+			loopguard.Tick("fantasy.syncLoop", 0, func() { _ = s.SyncNow(ctx) })
 		}
 	}
 	ticker := time.NewTicker(s.config.SyncInterval)
@@ -290,7 +294,10 @@ func (s *Service) syncLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = s.SyncNow(ctx)
+			// loopguard.Tick: a panic in one sync pass must not end pool
+			// syncing for the rest of the process's life (audit item 12);
+			// the next tick still runs.
+			loopguard.Tick("fantasy.syncLoop", 0, func() { _ = s.SyncNow(ctx) })
 		}
 	}
 }

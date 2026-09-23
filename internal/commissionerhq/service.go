@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"gridiron-2000/internal/loopguard"
+
 	"m31labs.dev/gosx/auth"
 )
 
@@ -175,17 +177,24 @@ func (s *Service) Fleet(ctx context.Context) []FleetEntry {
 		go func() {
 			defer group.Done()
 			for job := range jobs {
-				summary, err := s.fetch(ctx, job.peer)
-				publicURL := ""
-				if job.peer.PublicURL != nil {
-					publicURL = job.peer.PublicURL.String()
-				}
-				entries[job.index] = FleetEntry{
-					PeerID:    job.peer.ID,
-					PublicURL: publicURL,
-					Summary:   summary,
-					Error:     displayError(err),
-				}
+				// loopguard.Tick: recover() only protects its own
+				// goroutine's call stack, so a panic fetching one peer
+				// (a malformed response) must not kill the whole
+				// process — every other worker and the caller's own
+				// request goroutine included (audit item 12).
+				loopguard.Tick("commissionerhq.fleetFetch", 0, func() {
+					summary, err := s.fetch(ctx, job.peer)
+					publicURL := ""
+					if job.peer.PublicURL != nil {
+						publicURL = job.peer.PublicURL.String()
+					}
+					entries[job.index] = FleetEntry{
+						PeerID:    job.peer.ID,
+						PublicURL: publicURL,
+						Summary:   summary,
+						Error:     displayError(err),
+					}
+				})
 			}
 		}()
 	}

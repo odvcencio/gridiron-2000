@@ -188,8 +188,11 @@ func TestClaimFantasySeatRejectsWhenFull(t *testing.T) {
 // TestClaimFantasySeatRejectsTakenMotifAndRollsBack claims "wolf" for one
 // team directly, then drives a second signup at the same motif through
 // claimFantasySeat: it must fail with the exact "already claimed by"
-// message and must not leave the second seat claimed (the atomic
-// rollback contract in claimFantasySeat's doc comment).
+// message and must not leave the second seat claimed. "RollsBack" in this
+// test's name is now a misnomer worth keeping honest: since
+// ClaimFantasySeatTransaction is one store transaction (audit item 11),
+// a rejected signup never applies anything to begin with — there is
+// nothing to roll back, which is exactly why this assertion holds.
 func TestClaimFantasySeatRejectsTakenMotifAndRollsBack(t *testing.T) {
 	service := newTestService(t, false)
 	admitSeatlessForClaim(t, service, "b@example.com")
@@ -211,6 +214,40 @@ func TestClaimFantasySeatRejectsTakenMotifAndRollsBack(t *testing.T) {
 	}
 	if got := claimedSeatCount(service.store.Snapshot().Members); got != before {
 		t.Fatalf("claimed seat count = %d, want %d (rollback must release the seat)", got, before)
+	}
+}
+
+// TestClaimFantasySeatTransactionLeavesStateByteIdenticalOnFailure is the
+// direct atomicity proof audit item 11 asks for: a failed
+// ClaimFantasySeatTransaction call — here, a badge motif already claimed
+// by a DIFFERENT team than the one about to be assigned — must leave the
+// store's entire snapshot byte-for-byte unchanged, not just "no seat
+// claimed". A three-separate-write version with a failing rollback could
+// still land a name or a badge before the failure; one transaction
+// cannot, because nothing is applied until the single persist call at
+// its end succeeds.
+//
+// team-1 is seated first (a direct AssignMember, not through the
+// transaction under test) so the free-seat search lands on team-2 for
+// "c@example.com" — a genuine cross-team collision on "wolf", not the
+// no-op case of a team re-claiming the motif it already holds.
+func TestClaimFantasySeatTransactionLeavesStateByteIdenticalOnFailure(t *testing.T) {
+	service := newTestService(t, false)
+	if _, _, err := service.store.AssignMember("holder@example.com", "Holder"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.ClaimBadge("team-1", "wolf"); err != nil {
+		t.Fatal(err)
+	}
+	admitSeatlessForClaim(t, service, "c@example.com")
+	before := service.store.Snapshot()
+
+	if _, err := service.store.ClaimFantasySeatTransaction("c@example.com", "C", "Doomed Signup", "wolf"); err == nil {
+		t.Fatal("a taken motif must be rejected")
+	}
+	after := service.store.Snapshot()
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("a rejected ClaimFantasySeatTransaction changed durable state:\nbefore: %#v\n after: %#v", before, after)
 	}
 }
 

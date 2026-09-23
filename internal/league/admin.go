@@ -276,14 +276,25 @@ func (s *Service) CommissionerAttentionDataReadOnly(_ *http.Request) map[string]
 	}
 }
 
-// AdminData builds the commissioner console's full view model. Every
-// member email, invite, and per-seat release token it carries is
-// commissioner-only data: a signed-in non-commissioner reaches this page
-// too (app/admin/page.gsx's own RESTRICTED branch is the only thing it
-// renders for them), so those fields are redacted here — not left to the
-// template's <If> gate alone — before the map ever leaves this function.
+// AdminData builds the commissioner console's full view model. A
+// signed-in non-commissioner reaches this page too (app/admin/page.gsx's
+// own RESTRICTED branch is the only thing it renders for them), so this
+// returns early with nothing but is_commissioner=false for them (audit
+// item 16, 2026-09-23) — not a map built in full and then redacted field
+// by field. Every prior leak this closed (mail health, the config source
+// path, the roster-correction panel, member email/invite/release-token
+// data) shared the same root cause: computing the full commissioner view
+// before checking who was asking, and trusting the template's own <If>
+// gate to hide the result. See
+// TestAdminDataReturnsEarlyForNonCommissionerWithNoCommissionerFields.
 func (s *Service) AdminData(r *http.Request) map[string]any {
 	isCommissioner := s.IsCommissioner(r)
+	if !isCommissioner {
+		return map[string]any{
+			"is_commissioner": false,
+			"demo_mode":       s.demoMode,
+		}
+	}
 	state := s.store.Snapshot()
 	unclaimedSeatIDs := s.unclaimedSeatIDs(state)
 	identityAvailable, identityError := s.identityView()
@@ -976,7 +987,7 @@ func inviteMailto(s *Service, r *http.Request, email string) string {
 // already own. This carries no claim language: just the room link and
 // the draft time.
 func nudgeMailto(s *Service, r *http.Request, email string) string {
-	draft := s.draftSummary(time.Now())
+	draft := s.draftSummary(s.clock())
 	longDate, _ := draft["long_date"].(string)
 	draftTime, _ := draft["time"].(string)
 	roomURL := s.leagueDraftRoomURL(r)
@@ -1295,7 +1306,7 @@ func (s *Service) leagueURLIsConfigured(r *http.Request) bool {
 // leagueJoinURL's unconfigured-default fallback; pass nil when no request
 // is available (r's absence never changes behavior for a configured URL).
 func (s *Service) InviteEmailTemplate(r *http.Request, email string) (subject, text, htmlBody string) {
-	draft := s.draftSummary(time.Now())
+	draft := s.draftSummary(s.clock())
 	shortDate, _ := draft["date"].(string)
 	longDate, _ := draft["long_date"].(string)
 	draftTime, _ := draft["time"].(string)

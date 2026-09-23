@@ -186,6 +186,12 @@ func TestPickemDataShape(t *testing.T) {
 	now := time.Now()
 	games := pickemFixture(now)
 	service.SetScheduleSource(func() []GameInfo { return games })
+	// PickemData no longer reconciles inline on GET (audit item 10); the
+	// market lifecycle ticker (pickemMarketTick) owns that write, so a
+	// test that sets up markets synchronously must call it too.
+	if err := service.pickemMarketTick(now); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := service.store.SetPickem("demo-guest", "g-final", "BUF", games[0].Kickoff.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
@@ -245,6 +251,11 @@ func TestPickemDataWrongPickFlag(t *testing.T) {
 	now := time.Now()
 	games := pickemFixture(now)
 	service.SetScheduleSource(func() []GameInfo { return games })
+	// PickemData no longer reconciles inline on GET (audit item 10); see
+	// TestPickemDataShape's identical comment.
+	if err := service.pickemMarketTick(now); err != nil {
+		t.Fatal(err)
+	}
 	if err := service.store.SetPickem("demo-guest", "g-final", "MIA", games[0].Kickoff.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -287,6 +298,11 @@ func TestPickemLeaderboardRanking(t *testing.T) {
 	now := time.Now()
 	games := pickemFixture(now)
 	service.SetScheduleSource(func() []GameInfo { return games })
+	// PickemData no longer reconciles inline on GET (audit item 10); see
+	// TestPickemDataShape's identical comment.
+	if err := service.pickemMarketTick(now); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, _, err := service.store.AssignMember("a@example.com", "Alice"); err != nil {
 		t.Fatal(err)
@@ -481,6 +497,12 @@ func TestPickemDataMarksFutureUnavailableMarketWithoutClosingNeighbor(t *testing
 		{ID: "neighbor", Week: 1, Kickoff: now.Add(4 * time.Hour), Away: "EEE", Home: "FFF", SpreadLinePresent: true, SpreadLineTenths: 25, SourceObservedAt: now.Add(-14 * 24 * time.Hour)},
 	}
 	service.SetScheduleSource(func() []GameInfo { return games })
+	// PickemData no longer reconciles inline on GET (audit item 10); see
+	// TestPickemDataShape's identical comment. This reconciles "neighbor"
+	// into an open, pickable market before "void-game" is forced below.
+	if err := service.pickemMarketTick(now); err != nil {
+		t.Fatal(err)
+	}
 	service.store.mu.Lock()
 	service.store.state.PickemMarkets["void-game"] = PickemMarket{
 		Week: 1, Kickoff: games[0].Kickoff, Away: "AAA", Home: "BBB", LockAt: now.Add(time.Hour), Void: true,
@@ -545,6 +567,11 @@ func TestSeatlessMemberPicksAppearsOnLeaderboardNoSeatAssigned(t *testing.T) {
 	now := time.Now()
 	games := pickemFixture(now)
 	service.SetScheduleSource(func() []GameInfo { return games })
+	// PickemData no longer reconciles inline on GET (audit item 10); see
+	// TestPickemDataShape's identical comment.
+	if err := service.pickemMarketTick(now); err != nil {
+		t.Fatal(err)
+	}
 
 	member, err := service.EnsureMember("seatless@example.com", "Sea Tless")
 	if err != nil {
@@ -920,6 +947,11 @@ func TestPickemLeaderboardSharedRankOnTie(t *testing.T) {
 	now := time.Now()
 	games := pickemFixture(now)
 	service.SetScheduleSource(func() []GameInfo { return games })
+	// PickemData no longer reconciles inline on GET (audit item 10); see
+	// TestPickemDataShape's identical comment.
+	if err := service.pickemMarketTick(now); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, _, err := service.store.AssignMember("a@example.com", "Alice"); err != nil {
 		t.Fatal(err)
@@ -1058,6 +1090,13 @@ func TestPickemFirstThursdaySubmissionForMondayMakesSundayAnObligation(t *testin
 	}
 
 	now = games[1].Kickoff.Add(time.Hour)
+	// PickemData no longer reconciles inline on GET (audit item 10); see
+	// TestPickemDataShape's identical comment. now just advanced past
+	// "sunday"'s kickoff, so this reconcile is what actually turns its
+	// market into the missed_loss the assertions below expect.
+	if err := service.pickemMarketTick(now); err != nil {
+		t.Fatal(err)
+	}
 	data := service.PickemData(request)
 	rows := data["games"].([]PickemGameRow)
 	byID := make(map[string]PickemGameRow, len(rows))
@@ -1175,6 +1214,11 @@ func TestPickemWeeklyLeaderboardKeepsEntrantForSkippedLaterWeek(t *testing.T) {
 		{ID: "week2-b", Week: 2, Kickoff: now.Add(-time.Hour), Away: "E", Home: "F", SpreadLinePresent: true, SourceObservedAt: now.Add(-14 * 24 * time.Hour)},
 	}
 	service.SetScheduleSource(func() []GameInfo { return games })
+	// PickemData no longer reconciles inline on GET (audit item 10); see
+	// TestPickemDataShape's identical comment.
+	if err := service.pickemMarketTick(now); err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err := service.store.AssignMember("entrant@example.com", "Entrant"); err != nil {
 		t.Fatal(err)
 	}

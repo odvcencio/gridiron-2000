@@ -461,7 +461,7 @@ func leagueScheduleSource(stats *openstats.Service) league.ScheduleSource {
 // SetPunterProjections already uses for league.PunterProjection.
 func currentNFLWeekFunc(stats *openstats.Service) func() int {
 	return func() int {
-		return currentNFLWeekAt(stats.ScheduleSnapshot().Games, time.Now())
+		return currentNFLWeekAt(stats.ScheduleSnapshot().Games, league.Default().Now())
 	}
 }
 
@@ -569,7 +569,7 @@ func pointsAllowedByTeam(games []openstats.ScheduleGame, eastern *time.Location,
 // unplayed or in-progress game never reads as a shutout.
 func dstWeekStatLines(stats *openstats.Service, eastern *time.Location, week int) []league.WeekStatLine {
 	rows := stats.TeamStats(openstats.TeamStatsQuery{Week: week, Limit: 64})
-	allowed := pointsAllowedByTeam(stats.Games(week), eastern, time.Now())
+	allowed := pointsAllowedByTeam(stats.Games(week), eastern, league.Default().Now())
 	// offenseYards indexes each team's OWN total net yards so the loop
 	// below can read a defense's yards allowed off its opponent's row
 	// (2026-09-09). nflverse's passing_yards excludes sack losses and

@@ -464,7 +464,16 @@ func nextWaiverProcessingRun(cfg Config, processedThrough, now time.Time) time.T
 // the first daily process instant at or after droppedAt plus
 // waivers.clear_days days.
 func clearsAt(cfg Config, droppedAt time.Time) time.Time {
-	threshold := droppedAt.Add(time.Duration(cfg.Waivers.ClearDays) * 24 * time.Hour)
+	// AddDate in league time, not a fixed ClearDays*24h duration (audit
+	// item 14): a fixed duration silently gains or loses an hour across a
+	// DST transition in the league's own timezone (America/New_York by
+	// default), which can clear a claim a full day early or late —
+	// TestClearsAtSpansDSTFallBackWithoutClearingADayEarly reproduces the
+	// exact case. AddDate on a Time in a *time.Location adds calendar
+	// days and lets that Location resolve the correct UTC offset for the
+	// resulting date, exactly as firstRunAtOrAfter already does below.
+	_, _, loc := waiverProcessClock(cfg)
+	threshold := droppedAt.In(loc).AddDate(0, 0, cfg.Waivers.ClearDays)
 	return firstRunAtOrAfter(cfg, threshold)
 }
 

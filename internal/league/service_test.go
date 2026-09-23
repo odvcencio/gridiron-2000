@@ -1307,6 +1307,12 @@ func TestPickemHomeSummaryComputation(t *testing.T) {
 	now := time.Now()
 	games := pickemFixture(now)
 	service.SetScheduleSource(func() []GameInfo { return games })
+	// pickemHomeSummary no longer reconciles inline on GET (audit item
+	// 10); the market lifecycle ticker (pickemMarketTick) owns that
+	// write, so a test that sets up markets synchronously must call it.
+	if err := service.pickemMarketTick(now); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := service.store.SetPickem("demo-guest", "g-final", "BUF", games[0].Kickoff.Add(-time.Hour)); err != nil {
 		t.Fatal(err)

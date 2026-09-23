@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gridiron-2000/internal/loopguard"
 )
 
 const (
@@ -466,7 +468,7 @@ func (service *Service) ExportCSV(writer io.Writer, dataset string) error {
 }
 
 func (service *Service) syncLoop(ctx context.Context, dataset string, interval time.Duration) {
-	_ = service.syncDataset(ctx, dataset)
+	loopguard.Tick("openstats.syncLoop."+dataset, 0, func() { _ = service.syncDataset(ctx, dataset) })
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -474,7 +476,10 @@ func (service *Service) syncLoop(ctx context.Context, dataset string, interval t
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = service.syncDataset(ctx, dataset)
+			// loopguard.Tick: a panic in one dataset sync (a malformed
+			// upstream CSV row) must not end syncing for the rest of the
+			// process's life (audit item 12); the next tick still runs.
+			loopguard.Tick("openstats.syncLoop."+dataset, 0, func() { _ = service.syncDataset(ctx, dataset) })
 		}
 	}
 }

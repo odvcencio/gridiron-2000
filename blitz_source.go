@@ -14,6 +14,7 @@ import (
 
 	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
+	"gridiron-2000/internal/loopguard"
 )
 
 // blitzSlateLabels is the hardcoded {slate ID -> Tank01 gameWeek label}
@@ -165,8 +166,14 @@ func (p *blitzPoller) Snapshot() league.BlitzSnapshot {
 // whatever data is available; then one tick per 60s until ctx is done or
 // the contest sunsets (section 4.5).
 func (p *blitzPoller) run(ctx context.Context) {
-	p.loadCachedFinals()
-	p.probeSlates(ctx)
+	// loopguard.Tick: this goroutine (go poller.run(ctx), main.go) has no
+	// caller to recover a panic for it, so a malformed provider response
+	// during boot probing or any later tick would otherwise crash the
+	// whole process, not just this feature (audit item 12).
+	loopguard.Tick("blitzPoller.boot", 0, func() {
+		p.loadCachedFinals()
+		p.probeSlates(ctx)
+	})
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -178,7 +185,7 @@ func (p *blitzPoller) run(ctx context.Context) {
 				log.Printf("blitz: sunset reached (48h past the last pre3 kickoff); the poller is stopping")
 				return
 			}
-			p.tick(ctx)
+			loopguard.Tick("blitzPoller", 0, func() { p.tick(ctx) })
 		}
 	}
 }

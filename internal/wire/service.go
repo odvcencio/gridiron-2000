@@ -17,6 +17,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"gridiron-2000/internal/loopguard"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -322,7 +324,13 @@ func (service *Service) run(ctx context.Context) {
 	backoff := service.config.ReconnectMin
 	for ctx.Err() == nil {
 		service.setRuntimeState(ModeConnecting, true, "", time.Time{})
-		err := service.consume(ctx)
+		// loopguard.Tick: a panic while consuming one message (a malformed
+		// signal payload) must not end the whole process — the existing
+		// error-driven backoff below already handles a returned error;
+		// this adds the same panic recovery every other loop gets (audit
+		// item 12).
+		var err error
+		loopguard.Tick("wireSignalStream", 0, func() { err = service.consume(ctx) })
 		if ctx.Err() != nil {
 			return
 		}

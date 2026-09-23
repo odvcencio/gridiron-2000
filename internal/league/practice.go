@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gridiron-2000/internal/loopguard"
 )
 
 // Practice draft (owner ask, 2026-09-04: "a draft room feature around
@@ -361,7 +363,10 @@ func (p *PracticeRegistry) Run(ctx context.Context) {
 				p.mu.Unlock()
 				return
 			case <-ticker.C:
-				p.Tick(p.base.clock())
+				// loopguard.Tick: a panic in one tick's session sweep must
+				// not end practice-draft ticking for the rest of the
+				// process's life (audit item 12); the next tick still runs.
+				loopguard.Tick("practiceRegistry", 0, func() { p.Tick(p.base.clock()) })
 			}
 		}
 	}()
