@@ -22275,3 +22275,13 @@ body.is-on-clock .draft-command__pill-sentence {
     display: none;
   }
 }
+
+/* Projection tooltip ledger (owner report 2026-09-18): the projection now
+   explains itself stat by stat, like the points tooltip beside it. It
+   reuses .points-tip__rows' ledger shape; this only spaces it from the
+   total above. */
+.projection-tip__rows {
+  margin-top: var(--space-xs);
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--color-border);
+}

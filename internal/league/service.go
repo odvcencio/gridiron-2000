@@ -6044,10 +6044,11 @@ func starterLedgerMaps(rows []StarterLedgerRow) []map[string]any {
 			"points": row.PointsText, "provenance": row.Provenance, "join_state": row.JoinState,
 			"provenance_text": ledgerLineupText(row.Provenance), "join_state_text": ledgerStatsText(row.JoinState),
 			"detail": row.Detail, "source": row.Source, "source_text": ledgerSourceText(row.Source), "game_state": row.GameState,
-			"breakdown":    row.Breakdown,
-			"injury":       row.Injury,
-			"injury_label": row.InjuryLabel,
-			"possession":   row.Possession,
+			"breakdown":            row.Breakdown,
+			"projection_breakdown": row.ProjectionBreakdown,
+			"injury":               row.Injury,
+			"injury_label":         row.InjuryLabel,
+			"possession":           row.Possession,
 		})
 	}
 	return out

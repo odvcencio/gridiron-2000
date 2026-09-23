@@ -691,6 +691,7 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 		}
 		row.PointsText = fmt.Sprintf("%.1f", row.Points)
 		row.BreakdownLabel, row.BreakdownTotal = "TOTAL", row.PointsText
+		row.ProjectionBreakdown = starterProjectionBreakdown(assignment.Player, values)
 		if row.Breakdown == "" {
 			// Nothing scored yet. Explain the projection instead of opening
 			// an empty panel over a bare "TOTAL 0.0" — see

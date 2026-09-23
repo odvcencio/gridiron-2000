@@ -161,11 +161,15 @@ type StarterCellData struct {
 	HasNFLTeam      bool
 	Proj            string
 	OriginalProj    string
-	Points          string
-	Provenance      string
-	JoinState       string
-	Detail          string
-	Source          string
+	// ProjBreakdown is the projection's own stat-by-stat ledger
+	// (league.StarterLedgerRow.ProjectionBreakdown), shown in the
+	// projection tooltip the way Breakdown is shown in the points one.
+	ProjBreakdown string
+	Points        string
+	Provenance    string
+	JoinState     string
+	Detail        string
+	Source        string
 	// Breakdown explains Points rule by rule
 	// (league.ScoreBreakdownText) — the owner's 2026-09-09 request to see
 	// where a player's points came from, not only the total.
@@ -239,6 +243,7 @@ func starterCellData(raw any, right bool) StarterCellData {
 		HasNFLTeam:      nflTeam != "",
 		Proj:            originalProj,
 		OriginalProj:    originalProj,
+		ProjBreakdown:   stringField(row, "projection_breakdown"),
 		Points:          stringField(row, "points"),
 		Provenance:      stringField(row, "provenance"),
 		JoinState:       stringField(row, "join_state"),
