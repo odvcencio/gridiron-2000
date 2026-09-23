@@ -30,30 +30,12 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.15-c4f99fc; built from
-          # c4f99fc7fcef05db6002e1f8a07afe852db0eb8a (main): GoSX v0.56.3.
-          # Two manager-visible RULES changes, not only display: an outright
-          # free-agent signing now exists only in the dead window between the
-          # run that settles a week and the next week's first kickoff, and an
-          # agreed trade executes at the next daily processing run rather
-          # than the instant its review clock expires. Also: the league week
-          # closes itself once settled, and at a deadline when a feed stalls,
-          # so a force close is no longer needed to rescue a stuck week;
-          # punter/kicker/D-ST pool floors rise to the NFL's own 32.
-          # No schema change; rollback to the previous image remains valid.
-          # Release build: 2026-09-15T18:14:21Z. This build fixes a LIVE
-          # defect: a long team name could not wrap on the Matchups starter
-          # ring (native-mode text hardcodes white-space: pre and inserts no
-          # wrap point without a fixed maxWidth), which scrolled the whole
-          # page sideways by 75px at 390px. It also moves the weekly turn to
-          # the first Tuesday midnight after a week's last kickoff, and
-          # half-weights the kicker/punter piece on the ring.
-          # Only flagship rolls. The inactive SK deployment remains untouched.
-          # The statrelay image is unchanged: cmd/statrelay has no dependency
-          # on internal/league, so this release cannot reach it.
-          # On rollout the roster-ops tick closes any week whose games are
-          # final and whose stats have settled, within a minute of boot.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:3da033a10099f42921ca89c23b1243d077a9c7eff9054b5b1b49d417e02a5ba5
+          # Live/final scoring parity release, source 4bee908 (main).
+          # Logical state schema advances 11 -> 12; physical schema stays 12.
+          # Use the tested fallback digest or a verified pre-roll restore,
+          # never an image-only rollback to the former schema-11 binary.
+          # Flagship only; statrelay and inactive SK remain unchanged.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:a51656fdd33263b4d7500df760c5b0e11960082a62416e99a543f6fee4c5a6d1
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
