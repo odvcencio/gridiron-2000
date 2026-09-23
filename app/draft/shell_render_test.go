@@ -111,7 +111,7 @@ func houseRankSupplyFiller(startIndex int) []league.Player {
 // fallback-mode twin.
 func TestDraftShellRendersEveryDraftState(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestDraftShellRendersEveryDraftStateFixtureProcess$")
-	cmd.Env = append(os.Environ(), "DRAFT_SHELL_FIXTURE=1", "DRAFT_LIVE_MODE=target", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=false", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=", "COMMISSIONER_EMAILS="+shellCommissioner)
+	cmd.Env = append(os.Environ(), "DRAFT_SHELL_FIXTURE=1", "DRAFT_LIVE_MODE=target", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=false", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=", "COMMISSIONER_EMAILS="+shellCommissioner)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("draft shell fixture process: %v\n%s", err, output)
 	}
@@ -299,7 +299,7 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 // it is what actually RENDERS once the env selects fallback.
 func TestDraftShellFallbackModeRestoresRegionRefetch(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestDraftShellFallbackModeRestoresRegionRefetchFixtureProcess$")
-	cmd.Env = append(os.Environ(), "DRAFT_LIVE_MODE_FIXTURE=1", "DRAFT_LIVE_MODE=fallback", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=false", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=", "COMMISSIONER_EMAILS="+shellCommissioner)
+	cmd.Env = append(os.Environ(), "DRAFT_LIVE_MODE_FIXTURE=1", "DRAFT_LIVE_MODE=fallback", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=false", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=", "COMMISSIONER_EMAILS="+shellCommissioner)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("fallback live-mode fixture process: %v\n%s", err, output)
 	}

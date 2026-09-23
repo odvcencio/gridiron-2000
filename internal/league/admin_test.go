@@ -1005,6 +1005,83 @@ func TestAdminDataReportsInviteAcceptanceAndReadiness(t *testing.T) {
 	}
 }
 
+// TestAdminDataRedactsMemberPIIForNonCommissioner covers the AdminData data
+// exposure finding: app/admin/page.gsx's own <If cond={data.is_commissioner}>
+// gate was the only thing keeping every member email, invite, and per-seat
+// release token out of a non-commissioner viewer's hands — the returned map
+// itself carried them regardless of who asked. AdminData must redact those
+// fields itself before the map ever leaves this function, so a
+// non-commissioner viewer (signed in or not) never receives them, while the
+// aggregate counts the console's masthead needs stay accurate.
+func TestAdminDataRedactsMemberPIIForNonCommissioner(t *testing.T) {
+	service := newTestService(t, false)
+	t.Setenv("COMMISSIONER_EMAILS", "boss@example.com")
+
+	if err := service.store.AddInvite("pending@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.store.EnsureMember("seatless@example.com", "Seatless Person"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.store.AssignMember("primary@example.com", "Primary Manager"); err != nil {
+		t.Fatal(err)
+	}
+
+	// No auth middleware runs here at all: an unsigned-in visitor is the
+	// broadest case IsCommissioner refuses, and the fields AdminData
+	// redacts are gated on isCommissioner alone, not on sign-in state.
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	data := service.AdminData(request)
+
+	if data["is_commissioner"] != false {
+		t.Fatalf("is_commissioner = %v, want false", data["is_commissioner"])
+	}
+	if got := data["invite_count"]; got != 1 {
+		t.Errorf("invite_count = %v, want 1 (counts must survive redaction)", got)
+	}
+	if got := data["member_count"]; got != 1 {
+		t.Errorf("member_count = %v, want 1 (counts must survive redaction)", got)
+	}
+
+	dump := fmt.Sprintf("%#v", data)
+	for _, leaked := range []string{"pending@example.com", "seatless@example.com", "primary@example.com"} {
+		if strings.Contains(dump, leaked) {
+			t.Errorf("AdminData for a non-commissioner leaked %q somewhere in the payload:\n%s", leaked, dump)
+		}
+	}
+
+	seats, ok := data["seats"].([]map[string]any)
+	if !ok || len(seats) == 0 {
+		t.Fatal("seats missing or empty")
+	}
+	for _, seat := range seats {
+		if seat["email"] != "" {
+			t.Errorf("seat email = %v, want redacted", seat["email"])
+		}
+		if seat["release_token"] != "" {
+			t.Errorf("seat release_token = %v, want redacted", seat["release_token"])
+		}
+	}
+	invites, ok := data["invites"].([]map[string]any)
+	if !ok || len(invites) != 1 {
+		t.Fatalf("invites = %#v, want exactly 1 (redacted, not removed)", data["invites"])
+	}
+	for _, invite := range invites {
+		if invite["email"] != "" || invite["mailto"] != "" {
+			t.Errorf("invite = %+v, want email/mailto redacted", invite)
+		}
+	}
+	seatlessMembers, ok := data["seatless_members"].([]map[string]any)
+	if !ok || len(seatlessMembers) != 1 {
+		t.Fatalf("seatless_members = %#v, want exactly 1 (redacted, not removed)", data["seatless_members"])
+	}
+	for _, member := range seatlessMembers {
+		if member["email"] != "" || member["name"] != "" {
+			t.Errorf("seatless member = %+v, want redacted", member)
+		}
+	}
+}
+
 // TestCommissionerForceAutopick checks AdminForceAutopick's authority gate,
 // its live-draft gate, and that it fires while paused with provenance
 // MadeBy == "commissioner".

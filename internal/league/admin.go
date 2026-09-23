@@ -276,7 +276,14 @@ func (s *Service) CommissionerAttentionDataReadOnly(_ *http.Request) map[string]
 	}
 }
 
+// AdminData builds the commissioner console's full view model. Every
+// member email, invite, and per-seat release token it carries is
+// commissioner-only data: a signed-in non-commissioner reaches this page
+// too (app/admin/page.gsx's own RESTRICTED branch is the only thing it
+// renders for them), so those fields are redacted here — not left to the
+// template's <If> gate alone — before the map ever leaves this function.
 func (s *Service) AdminData(r *http.Request) map[string]any {
+	isCommissioner := s.IsCommissioner(r)
 	state := s.store.Snapshot()
 	unclaimedSeatIDs := s.unclaimedSeatIDs(state)
 	identityAvailable, identityError := s.identityView()
@@ -286,8 +293,13 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		claimed := strings.TrimSpace(member.Email) != ""
 		item := s.teamMap(s.teamView(state, team.ID))
 		item["release_confirmation"] = seatReleaseConfirmation(team.ID, item["name"].(string))
-		item["release_token"] = seatReleaseToken(state, team.ID, item["name"].(string))
-		item["email"] = member.Email
+		if isCommissioner {
+			item["release_token"] = seatReleaseToken(state, team.ID, item["name"].(string))
+			item["email"] = member.Email
+		} else {
+			item["release_token"] = ""
+			item["email"] = ""
+		}
 		item["managed"] = claimed
 		item["ready"] = state.Ready[team.ID]
 		item["autopick"] = claimed && state.Autopick[team.ID]
@@ -322,7 +334,9 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		item["identity_error"] = identityError
 		for _, candidate := range teamMembers(state.Members, team.ID) {
 			if candidate.Role == "co" {
-				item["co_email"] = candidate.Email
+				if isCommissioner {
+					item["co_email"] = candidate.Email
+				}
 				item["has_co"] = true
 			}
 		}
@@ -348,6 +362,12 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 	slices.SortFunc(seatlessMembers, func(a, b map[string]any) int {
 		return strings.Compare(a["email"].(string), b["email"].(string))
 	})
+	if !isCommissioner {
+		for _, member := range seatlessMembers {
+			member["email"] = ""
+			member["name"] = ""
+		}
+	}
 	envEmails := splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS"))
 	envSet := make(map[string]bool, len(envEmails))
 	invites := make([]map[string]any, 0, len(envEmails)+len(state.Invites))
@@ -373,6 +393,16 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		}
 		if ready, _ := invite["ready"].(bool); ready {
 			inviteReadyCount++
+		}
+	}
+	// The aggregate counts above are already final plain integers; redact
+	// each invite's email/mailto now so neither the returned "invites"
+	// list nor the preview lookup below (which reads invite["email"]) can
+	// hand a non-commissioner viewer another member's address.
+	if !isCommissioner {
+		for _, invite := range invites {
+			invite["email"] = ""
+			invite["mailto"] = ""
 		}
 	}
 	orderIDs := state.DraftOrder
@@ -435,7 +465,7 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		"playoff_truth":          s.playoffTruthMap(state, now, true),
 		"identity_available":     identityAvailable,
 		"identity_error":         identityError,
-		"is_commissioner":        s.IsCommissioner(r),
+		"is_commissioner":        isCommissioner,
 		"seats":                  seats,
 		"invites":                invites,
 		"invite_count":           len(invites),

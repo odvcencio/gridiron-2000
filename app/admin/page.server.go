@@ -475,6 +475,36 @@ func init() {
 				}
 				return adminCloseWeek(ctx, week, info)
 			},
+			// finalstats-reopen is the commissioner-only escape hatch for a
+			// frozen final box (RecordFinalGameStats is first-write-wins):
+			// an NFL stat correction or a bad upstream feed needs a way
+			// back in that is not ResetLeague, which also wipes every
+			// seat, pick, and roster. Reopening clears only the named
+			// game's frozen box; the write-once guard still protects
+			// every other game, and re-arms for this one the moment the
+			// next write lands.
+			"finalstats-reopen": func(ctx *action.Context) error {
+				week, err := adminPositiveInt(ctx.FormData["week"], "week")
+				if err != nil {
+					return actionui.Validation(ctx, "admin", "admin", err)
+				}
+				gameID := strings.TrimSpace(ctx.FormData["game_id"])
+				if gameID == "" {
+					message := "game ID is required"
+					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+				}
+				expected := "REOPEN " + strings.ToUpper(gameID)
+				if strings.TrimSpace(ctx.FormData["confirm"]) != expected {
+					message := "type " + expected + " to confirm"
+					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+				}
+				if err := league.Default().AdminReopenFinalGameStats(ctx.Request, week, gameID); err != nil {
+					return actionui.Validation(ctx, "admin", "admin", err)
+				}
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("week-close"),
+					fmt.Sprintf("Reopened the final box for %s (week %d). The next box score update applies once.", gameID, week))
+				return nil
+			},
 			// run-waivers wires F5's commissioner force-run (2026-08-30
 			// review, finding 3): AdminRunWaivers itself already existed
 			// with zero non-test references, and this docs/season-operations.md

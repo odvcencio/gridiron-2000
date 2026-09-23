@@ -41,7 +41,7 @@ func TestLedgerCSVHandlerRejectsMethodAndUnauthorized(t *testing.T) {
 // including drafted_label (wave 7 item 5).
 func TestLedgerCSVHandlerServesCSV(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestLedgerCSVHandlerServesCSVFixtureProcess$")
-	cmd.Env = append(os.Environ(), "LEDGER_CSV_FIXTURE=1", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=")
+	cmd.Env = append(os.Environ(), "LEDGER_CSV_FIXTURE=1", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("ledger csv fixture process: %v\n%s", err, output)
 	}

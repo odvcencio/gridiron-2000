@@ -482,6 +482,10 @@ func replayFixtureDir(t *testing.T) string {
 func TestLiveScoringInputsRefusesReplayOutsideLocalAppEnv(t *testing.T) {
 	hermeticEnv(t)
 	t.Setenv("APP_ENV", "production")
+	// A non-local APP_ENV now also fail-closes on SESSION_SECRET
+	// (AppConfig.validate); this test's subject is the replay gate, not
+	// that check, so it needs a real one to reach BuildApp at all.
+	t.Setenv("SESSION_SECRET", strings.Repeat("s", minSessionSecretBytes))
 	t.Setenv("LIVE_SCORING_ENABLED", "true")
 	t.Setenv("LIVE_REPLAY_FIXTURE", replayFixtureDir(t))
 	cfg, err := AppConfigFromEnv()
@@ -509,6 +513,9 @@ func TestLiveScoringInputsRefusesReplayOutsideLocalAppEnv(t *testing.T) {
 func TestLiveScoringInputsAllowsReplayInProductionWithOverride(t *testing.T) {
 	hermeticEnv(t)
 	t.Setenv("APP_ENV", "production")
+	// See TestLiveScoringInputsRefusesReplayOutsideLocalAppEnv: a non-local
+	// APP_ENV now also fail-closes on SESSION_SECRET.
+	t.Setenv("SESSION_SECRET", strings.Repeat("s", minSessionSecretBytes))
 	t.Setenv("LIVE_SCORING_ENABLED", "true")
 	t.Setenv("LIVE_REPLAY_ALLOW_PRODUCTION", "true")
 	t.Setenv("LIVE_REPLAY_FIXTURE", replayFixtureDir(t))

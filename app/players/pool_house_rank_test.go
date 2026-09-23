@@ -26,7 +26,7 @@ func TestPlayersPoolFragmentRowsShowHouseRankLabel(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"PLAYERS_POOL_HOUSE_RANK_FIXTURE=1",
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
-		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=",
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=",
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("players pool house-rank fixture process: %v\n%s", err, output)

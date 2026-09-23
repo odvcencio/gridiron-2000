@@ -97,7 +97,7 @@ func postAs(t *testing.T, handler http.Handler, email, path string, fields url.V
 // live real draft closes the lobby with its reason.
 func TestPracticeRoomRendersFromTheSandbox(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestPracticeRoomRendersFromTheSandboxFixtureProcess$")
-	cmd.Env = append(os.Environ(), "PRACTICE_RENDER_FIXTURE=1", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=false", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=", "COMMISSIONER_EMAILS="+practiceCommissioner)
+	cmd.Env = append(os.Environ(), "PRACTICE_RENDER_FIXTURE=1", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=false", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=", "COMMISSIONER_EMAILS="+practiceCommissioner)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("practice render fixture process: %v\n%s", err, output)
 	}

@@ -202,7 +202,7 @@ func TestAdminDraftControlsActionPathFreshnessFixture(t *testing.T) {
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
 		"DEMO_MODE=true",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
@@ -355,7 +355,7 @@ func TestAdminRunWaiversControlFreshnessFixture(t *testing.T) {
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
 		"DEMO_MODE=true",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
@@ -456,7 +456,7 @@ func TestAdminForceRunWaiversRendersEnabledWithOpenClaim(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestAdminForceRunWaiversRendersEnabledWithOpenClaimFixtureProcess$")
 	cmd.Env = append(os.Environ(),
 		"ADMIN_OPEN_CLAIM_FIXTURE=1",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
@@ -626,7 +626,7 @@ func TestDrawOrderGatesOnDraftStartedNotOrderRandomized(t *testing.T) {
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
 		"DEMO_MODE=true",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
@@ -811,7 +811,7 @@ func TestAdminPreDraftRunbookHeadingLinksTheTaskBoardOnAdmin(t *testing.T) {
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
 		"DEMO_MODE=true",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
@@ -853,7 +853,7 @@ func TestAdminDraftNightHeadingDropsPlaceholderDateButKeepsPublishedForm(t *test
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
 		"DEMO_MODE=true",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 		"ADMIN_TASK_DRAFT_PUBLISHED=true",
 	)
@@ -932,7 +932,7 @@ func TestInvitesPanelBranchesOnOpenSeatCount(t *testing.T) {
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
 		"DEMO_MODE=true",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
@@ -1053,7 +1053,7 @@ func TestAdminSeasonControlsRenderAndRetainInvalidGeneration(t *testing.T) {
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
 		"DEMO_MODE=true",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
@@ -1228,7 +1228,7 @@ func TestAdminScheduleSeasonLabelUsesConfigSeasonNotSentinelYear(t *testing.T) {
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
 		"DEMO_MODE=true",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
@@ -1297,7 +1297,7 @@ func TestForceCloseWeekConfirmPlaceholderInterpolatesWeek(t *testing.T) {
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
 		"DEMO_MODE=true",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
@@ -1363,7 +1363,7 @@ func TestForceCloseWeekClearsConfirmAfterSuccess(t *testing.T) {
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
 		"DEMO_MODE=true",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
@@ -1455,7 +1455,7 @@ func TestWeekCloseTilesRenderPlainLanguageNotBooleansOrEmptyValues(t *testing.T)
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
 		"DEMO_MODE=true",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
@@ -1539,7 +1539,7 @@ func TestAnnouncementDeleteHasAccessibleNameAndReviewConfirmStep(t *testing.T) {
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
 		"DEMO_MODE=true",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
@@ -1709,7 +1709,7 @@ func TestAdminMastheadIsCommissionerOnly(t *testing.T) {
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
 		"DEMO_MODE=false",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
@@ -1980,7 +1980,7 @@ func TestRosterCorrectionReviewConfirmFlow(t *testing.T) {
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
 		"DEMO_MODE=true",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"runtime"
 	"sort"
@@ -459,6 +460,55 @@ func (s *Store) SetReady(teamID string, on bool) error {
 	return s.persistLocked(colReady)
 }
 
+// bestEffortPickBackup writes the same rolling .bak snapshot the old
+// inline s.backupSnapshotLocked() call used to, but without ever holding
+// s.mu for the VACUUM INTO: it takes a brief s.mu.RLock() only to read the
+// db handle and path (the same pattern VacuumSnapshot, backup.go, already
+// uses), releases it, then runs the copy with no Store lock held at all.
+//
+// Every draft-mutating public entry point (MakePick, UndoLastPick,
+// UndoLastPickIfCurrent, AutoPick, AutoPickIfCurrent) calls this before it
+// acquires s.mu.Lock() for its own validation and mutation. That ordering
+// still captures a pre-mutation-ish snapshot the same way the old inline
+// call did, and a failed validation after this call (a stale token, an
+// empty draft, ...) simply means this attempt's backup ran for no
+// mutation — harmless for a best-effort snapshot.
+//
+// The old inline call ran inside s.mu.Lock() — the same lock
+// Store.Snapshot/ReadableSnapshot need s.mu.RLock() for — for the whole
+// VACUUM INTO, a full logical copy of the database. On a real season's
+// database that stalled every reader (every page render in a live draft
+// room) for the snapshot's entire duration, on every single pick. Moving
+// the call before the lock is acquired removes that stall entirely: a
+// concurrent reader's RLock is compatible with this call's own brief
+// RLock, and once this call releases it, the VACUUM INTO itself holds no
+// Store lock a reader could ever wait on. It still serializes with any
+// other write against the single physical SQLite connection (the same
+// bounded, already-accepted cost VacuumSnapshot's own doc comment
+// describes for the nightly/on-demand backup), never against Store.mu.
+//
+// This does trade away one guarantee: the old call was inside the same
+// s.mu.Lock() as the mutation, so it was strictly ordered against every
+// other draft-mutating call too. Two picks racing from two different
+// requests can now each run their own backup concurrently, in whichever
+// order the database connection admits them — a harmless reordering for a
+// best-effort, same-host snapshot sitting on top of persistLocked's own
+// durable, atomic transaction (WAL crash-safety, unaffected by any of
+// this) and the nightly/on-demand backup archive (backup_scheduler.go,
+// WriteBackupArchive).
+func (s *Store) bestEffortPickBackup() {
+	s.mu.RLock()
+	db := s.db
+	dbPath := s.dbPath
+	s.mu.RUnlock()
+	if db == nil {
+		return
+	}
+	if err := backupSnapshotToBak(db, dbPath); err != nil {
+		log.Printf("league: rolling pick backup failed: %v", err)
+	}
+}
+
 // MakePick records a manual pick and arms the next deadline in the same
 // transaction: one lock acquisition, one persist covers both. madeBy is the
 // pick's provenance ("manager", or "commissioner" for a forced pick routed
@@ -468,6 +518,8 @@ func (s *Store) SetReady(teamID string, on bool) error {
 // itself always disarms the terminal pick so a stale caller cannot persist
 // a phantom round's deadline after the draft is complete.
 func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDeadline time.Time) (DraftPick, error) {
+	// Best-effort backup, before the write lock: see bestEffortPickBackup.
+	s.bestEffortPickBackup()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
@@ -494,8 +546,6 @@ func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDea
 	if expected != teamID {
 		return DraftPick{}, fmt.Errorf("%s is on the clock", expected)
 	}
-	// Best-effort backup: a failure here must not block the pick itself.
-	_ = s.backupSnapshotLocked()
 	pick := DraftPick{
 		Number:   number,
 		Round:    pickRound(activeTeamCount(s.state.DraftOrder), number),
@@ -548,6 +598,8 @@ func (s *Store) UndoLastPick(nextDeadline time.Time) error {
 }
 
 func (s *Store) undoLastPick(nextDeadline time.Time, expectedToken string, requireToken bool) error {
+	// Best-effort backup, before the write lock: see bestEffortPickBackup.
+	s.bestEffortPickBackup()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.undoLastPickLocked(nextDeadline, expectedToken, requireToken)
@@ -559,6 +611,8 @@ func (s *Store) undoLastPick(nextDeadline time.Time, expectedToken string, requi
 // action cannot validate one duration and re-arm the reopened slot with
 // another duration after a concurrent commissioner setting change.
 func (s *Store) UndoLastPickIfCurrent(now time.Time, fallbackDuration time.Duration, expectedToken string) error {
+	// Best-effort backup, before the write lock: see bestEffortPickBackup.
+	s.bestEffortPickBackup()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
@@ -581,8 +635,6 @@ func (s *Store) undoLastPickLocked(nextDeadline time.Time, expectedToken string,
 	if len(s.state.Picks) == 0 {
 		return errors.New("no picks to undo")
 	}
-	// Best-effort backup: a failure here must not block the undo itself.
-	_ = s.backupSnapshotLocked()
 	removed := s.state.Picks[len(s.state.Picks)-1]
 	prevDeadline := s.state.ClockDeadline
 	prevRemaining := s.state.ClockRemainingSec
@@ -624,6 +676,11 @@ func (s *Store) AutoPick(teamID, playerID, madeBy string, expectedNumber int, de
 }
 
 func (s *Store) autoPick(teamID, playerID, madeBy string, expectedNumber int, deadlineSeen time.Time, now time.Time, nextDeadline time.Time, expectedToken string, requireToken bool) (DraftPick, error) {
+	// Best-effort backup, before the write lock: see bestEffortPickBackup.
+	// The clock ticker only reaches AutoPick once a pick is actually due
+	// (draftclock.go's own "not yet due" early return), so this runs once
+	// per genuine auto-pick, the same frequency as the old inline call.
+	s.bestEffortPickBackup()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.autoPickLocked(teamID, playerID, madeBy, expectedNumber, deadlineSeen, now, nextDeadline, expectedToken, requireToken, 0)
@@ -635,6 +692,8 @@ func (s *Store) autoPick(teamID, playerID, madeBy string, expectedNumber int, de
 // reopened deadline is derived from the state under the same Store lock,
 // using the current persisted duration when one is set.
 func (s *Store) AutoPickIfCurrent(teamID, playerID, madeBy string, expectedNumber int, deadlineSeen time.Time, now time.Time, fallbackDuration time.Duration, expectedToken string) (DraftPick, error) {
+	// Best-effort backup, before the write lock: see bestEffortPickBackup.
+	s.bestEffortPickBackup()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.autoPickLocked(teamID, playerID, madeBy, expectedNumber, deadlineSeen, now, time.Time{}, expectedToken, true, fallbackDuration)
@@ -678,10 +737,6 @@ func (s *Store) autoPickLocked(teamID, playerID, madeBy string, expectedNumber i
 	if requireToken && !s.state.ClockPaused && number < len(defaultTeams())*CurrentDraftRounds() {
 		nextDeadline = now.Add(s.clockDurationLocked(fallbackDuration))
 	}
-	// Best-effort backup: a failure here must not block the auto-pick
-	// itself. AutoPick mutates Picks the same way MakePick does, so it
-	// gets the same rolling .bak snapshot.
-	_ = s.backupSnapshotLocked()
 	pick := DraftPick{
 		Number:   number,
 		Round:    pickRound(activeTeamCount(s.state.DraftOrder), number),

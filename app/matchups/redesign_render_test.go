@@ -133,7 +133,7 @@ func TestRedesignedFeaturedTableRendersSlotProjTotalsAndBenches(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"MATCHUPS_RENDER_FIXTURE=scheduled",
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
-		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=",
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -203,7 +203,7 @@ func TestMatchupProjectionAndNavigationAffordancesRender(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"MATCHUPS_RENDER_FIXTURE=scheduled",
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
-		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=",
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {

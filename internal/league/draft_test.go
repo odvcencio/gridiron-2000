@@ -191,6 +191,14 @@ func TestUndoLastPickPreservesPause(t *testing.T) {
 // same rolling .bak snapshot MakePick writes, capturing the pre-undo
 // state (still carrying the pick about to be removed).
 //
+// The backup call (bestEffortPickBackup, store.go) moved to just before
+// undoLastPick acquires the Store's write lock, instead of just before
+// the mutation inside it, so Store.Snapshot/ReadableSnapshot readers are
+// never blocked behind the VACUUM INTO. It is still fully synchronous and
+// still runs before any of this call's own state changes, so — with no
+// concurrent mutator racing it, exactly this test's situation — it keeps
+// capturing the pre-undo state deterministically, the same as before.
+//
 // The backup is now a SQLite database written by VACUUM INTO, not a copy
 // of the JSON state file, so the check reads it through the engine
 // (openBackup) instead of decoding raw bytes. Everything it asserts about

@@ -270,7 +270,7 @@ func TestBuildAppNeverMountsSetupRoute(t *testing.T) {
 }
 
 func TestAppConfigRefusesHarnessSwitchesOutsideLocalEnvironments(t *testing.T) {
-	for _, appEnv := range []string{"production", "prod", "staging", "Production", "canary"} {
+	for _, appEnv := range []string{"production", "prod", "staging", "Production", "canary", ""} {
 		t.Run("auth/"+appEnv, func(t *testing.T) {
 			t.Setenv("APP_ENV", appEnv)
 			t.Setenv("GRIDIRON_TEST_POOL", "")
@@ -291,7 +291,7 @@ func TestAppConfigRefusesHarnessSwitchesOutsideLocalEnvironments(t *testing.T) {
 }
 
 func TestAppConfigAcceptsHarnessSwitchesInLocalEnvironments(t *testing.T) {
-	for _, appEnv := range []string{"", "local", "development", "test", "TEST"} {
+	for _, appEnv := range []string{"local", "development", "test", "TEST"} {
 		t.Run("env/"+appEnv, func(t *testing.T) {
 			t.Setenv("APP_ENV", appEnv)
 			t.Setenv("GRIDIRON_TEST_AUTH", "1")
@@ -305,6 +305,42 @@ func TestAppConfigAcceptsHarnessSwitchesInLocalEnvironments(t *testing.T) {
 			}
 			if cfg.TestPool != "offline-live" {
 				t.Errorf("TestPool = %q, want \"offline-live\"", cfg.TestPool)
+			}
+		})
+	}
+}
+
+// TestAppConfigFromEnvFailsClosedOnSessionSecret covers the boot-time
+// safety rule: outside a local APP_ENV, a missing, default, or short
+// SESSION_SECRET must refuse to boot rather than sign real cookies with a
+// public or guessable key. An unset APP_ENV counts as production.
+func TestAppConfigFromEnvFailsClosedOnSessionSecret(t *testing.T) {
+	strongSecret := strings.Repeat("s", minSessionSecretBytes)
+	cases := map[string]struct {
+		appEnv  string
+		secret  string
+		wantErr bool
+	}{
+		"missing secret in production":        {"production", "", true},
+		"default secret in production":        {"production", defaultSessionSecret, true},
+		"31-byte secret in production":        {"production", strings.Repeat("s", minSessionSecretBytes-1), true},
+		"32-byte secret in production":        {"production", strongSecret, false},
+		"missing secret with unset APP_ENV":   {"", "", true},
+		"strong secret with unset APP_ENV":    {"", strongSecret, false},
+		"missing secret in development is ok": {"development", "", false},
+		"missing secret in test is ok":        {"test", "", false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("APP_ENV", tc.appEnv)
+			t.Setenv("SESSION_SECRET", tc.secret)
+			clearEnv(t, "GRIDIRON_TEST_AUTH", "GRIDIRON_TEST_POOL", "GRIDIRON_TEST_CLOCK")
+			_, err := AppConfigFromEnv()
+			if tc.wantErr && err == nil {
+				t.Fatal("expected refusal, got nil error")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected refusal: %v", err)
 			}
 		})
 	}

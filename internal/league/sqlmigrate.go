@@ -530,11 +530,35 @@ func compareImportedState(decoded, stored PersistedState) error {
 		wantJSON, gotJSON)
 }
 
+// backupVacuumHook is backupSnapshotToBak's test-only interception point;
+// see that function's doc comment. Production never sets it.
+var backupVacuumHook func()
+
 // backupSnapshotLocked writes a consistent copy of the whole database to
 // <database>.bak, replacing the previous copy atomically. It is the
-// SQLite-native successor to the JSON engine's rolling .bak file, and the
-// draft-mutating paths (MakePick, AutoPick, UndoLastPick) still call it
-// best-effort before they mutate.
+// SQLite-native successor to the JSON engine's rolling .bak file.
+//
+// It is not on any draft-mutating path any more (see store.go's
+// triggerPickBackupLocked doc comment): the mutation-time snapshot moved
+// off the write lock, onto its own background goroutine, so this method
+// stays only as a directly callable synchronous helper — tests and
+// benchmarks that want a backup on demand, under the lock they already
+// hold, still have that seam.
+func (s *Store) backupSnapshotLocked() error {
+	if s.db == nil {
+		return nil
+	}
+	return backupSnapshotToBak(s.db, s.dbPath)
+}
+
+// backupSnapshotToBak is backupSnapshotLocked's lock-free core: it takes
+// the *sql.DB handle and target dbPath directly, rather than reading them
+// from a Store, so a caller that must not hold the Store's mu for the
+// call's whole duration — store.go's bestEffortPickBackup, called before
+// MakePick/UndoLastPick/AutoPick acquire s.mu.Lock() — can run the exact
+// same rolling backup without blocking Store.Snapshot/ReadableSnapshot
+// (and every other s.mu.RLock reader) for as long as the VACUUM INTO
+// takes.
 //
 // The mechanism is VACUUM INTO, not a file copy. Under WAL a plain copy of
 // the database file alone is not a valid snapshot: the newest committed
@@ -544,11 +568,19 @@ func compareImportedState(decoded, stored PersistedState) error {
 // The result lands on a unique temporary name first, then renames over
 // the previous backup, so a crash mid-backup can never leave a truncated
 // .bak in place of a good one.
-func (s *Store) backupSnapshotLocked() error {
-	if s.db == nil {
+func backupSnapshotToBak(db *sql.DB, dbPath string) error {
+	if db == nil {
 		return nil
 	}
-	dir := filepath.Dir(s.dbPath)
+	// backupVacuumHook is a test-only seam, called right before the VACUUM
+	// INTO itself: nil (a no-op) in production. A test sets it to hold the
+	// call open on demand, so it can deterministically prove a concurrent
+	// Store.Snapshot() is not blocked behind an in-progress backup — see
+	// TestBestEffortPickBackupDoesNotBlockConcurrentSnapshot (store_test.go).
+	if backupVacuumHook != nil {
+		backupVacuumHook()
+	}
+	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
@@ -566,13 +598,13 @@ func (s *Store) backupSnapshotLocked() error {
 		return err
 	}
 	defer os.Remove(tmpPath)
-	if _, err := s.db.Exec(`VACUUM INTO ?`, tmpPath); err != nil {
+	if _, err := db.Exec(`VACUUM INTO ?`, tmpPath); err != nil {
 		return err
 	}
 	if err := os.Chmod(tmpPath, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, s.dbPath+".bak")
+	return os.Rename(tmpPath, dbPath+".bak")
 }
 
 // openBackup opens the rolling backup written by backupSnapshotLocked and

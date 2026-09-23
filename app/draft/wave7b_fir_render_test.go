@@ -24,7 +24,7 @@ func TestDraftCommandPillMarkupIsPresentAndSheetControlsAreReachable(t *testing.
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
 		"DEMO_MODE=false",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 		"COMMISSIONER_EMAILS=fir-pill-commissioner@example.com",
 	)

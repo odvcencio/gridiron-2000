@@ -27,7 +27,7 @@ func TestPlayersPoolRowAndConfirmSentencesRenderThroughTextBlock(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"TEXTFLOW_POOL_ROW_FIXTURE=1",
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
-		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=",
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {

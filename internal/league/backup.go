@@ -182,15 +182,34 @@ func snapshotFileName(when time.Time) string {
 // supported way back in is cmd/leaguerestore, run offline against a
 // stopped app; see its doc comment.
 func (s *Service) WriteBackupArchive(ctx context.Context, w io.Writer, now time.Time, appVersion string) (BackupManifest, error) {
-	var manifest BackupManifest
 	if s == nil || s.store == nil {
-		return manifest, errors.New("league: service has no store to back up")
+		return BackupManifest{}, errors.New("league: service has no store to back up")
 	}
-	compat := s.store.StateSchemaCompatibility()
+	configPath := ""
+	if path, ok := strings.CutPrefix(s.cfg.Source, "file:"); ok {
+		configPath = path
+	}
+	return WriteStoreBackupArchive(ctx, s.store, w, now, appVersion, configPath)
+}
+
+// WriteStoreBackupArchive is WriteBackupArchive's store-level core: it
+// builds the exact same archive (a VACUUM INTO snapshot, an optional
+// league.json when configPath names one, and manifest.json) from a Store
+// alone, with no Service required. WriteBackupArchive calls this with its
+// own store and the config path its cfg.Source names; a caller outside
+// this package that already holds a Store — cmd/leaguerestore's own test
+// suite, proving a real archive round-trips, rather than one hand-built
+// from tar primitives — can call it directly.
+func WriteStoreBackupArchive(ctx context.Context, store *Store, w io.Writer, now time.Time, appVersion string, configPath string) (BackupManifest, error) {
+	var manifest BackupManifest
+	if store == nil {
+		return manifest, errors.New("league: nil store has no database to back up")
+	}
+	compat := store.StateSchemaCompatibility()
 	if !compat.Compatible {
 		return manifest, errors.New("league: store schema is not in a known-compatible state; refusing to back up")
 	}
-	stageParent := s.store.DataDir()
+	stageParent := store.DataDir()
 	if stageParent == "" {
 		return manifest, errors.New("league: backup requires a persistent database (no data directory)")
 	}
@@ -201,7 +220,7 @@ func (s *Service) WriteBackupArchive(ctx context.Context, w io.Writer, now time.
 	defer os.RemoveAll(stageDir)
 
 	dbSnapshotPath := filepath.Join(stageDir, BackupDBEntryName)
-	if err := s.store.VacuumSnapshot(ctx, dbSnapshotPath); err != nil {
+	if err := store.VacuumSnapshot(ctx, dbSnapshotPath); err != nil {
 		return manifest, err
 	}
 	if err := os.Chmod(dbSnapshotPath, 0o600); err != nil {
@@ -226,7 +245,7 @@ func (s *Service) WriteBackupArchive(ctx context.Context, w io.Writer, now time.
 
 	var configBytes []byte
 	configIncluded := false
-	if configPath, ok := strings.CutPrefix(s.cfg.Source, "file:"); ok {
+	if configPath != "" {
 		raw, err := os.ReadFile(configPath)
 		if err != nil {
 			return manifest, fmt.Errorf("read league config for backup: %w", err)

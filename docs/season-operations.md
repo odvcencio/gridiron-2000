@@ -262,6 +262,8 @@ Market ADP ranks players for a generic fantasy market, not the league's own rost
 
 Regular-season live scoring (`internal/livescore`) is gated by `LIVE_SCORING_ENABLED`, defaulting to `false`. It overlays live data onto the mirrored nflverse ledger. Live boxes now include player two-point conversions, individual punt plays, and D/ST events from the team and player blocks. A real provider box is accepted as final only when its punt plays reconcile with its aggregate and both D/ST team blocks are present. The first complete final box is saved durably and locks every scoring category for that NFL game through later ledger imports, week close, and process restarts. Games without an accepted complete final box use the weekly mirror and remain provisional. A closed fantasy week's posted total remains immutable.
 
+If the NFL (or the upstream provider) corrects a game's stats after Gridiron already saved a final box, or a bad feed saved a wrong one, a commissioner can reopen that one game from `/admin` (Week close section, "Reopen a final box"): type the week, the game ID, and `REOPEN <GAME ID>` to confirm. Reopening clears only that game's frozen box — every other game keeps its own write-once protection — and records a person-attributed audit entry. The next accepted box for that game wins once, then the write-once protection re-arms automatically. This is the targeted fix for one wrong box; it does not touch picks, rosters, or any other week. A week already closed by the commissioner keeps its posted total immutable regardless (see above): reopen the game's final box before closing the week, not after.
+
 ### Polling architecture
 
 Live scoring fetches Tank01 in three layers instead of blanket-polling every in-progress game's box score on one cadence:

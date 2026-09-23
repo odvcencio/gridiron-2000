@@ -1597,6 +1597,72 @@ func BenchmarkPersistPick(b *testing.B) {
 	}
 }
 
+// BenchmarkMakePick measures one draft pick end to end through the public
+// MakePick path — the same call the draft room's POST handler makes for a
+// human pick — against a realistic-size league database. This is the
+// before/after number for the per-pick rolling-backup change: before, the
+// pick's own s.mu.Lock() held for a synchronous VACUUM INTO of the whole
+// database; after, that VACUUM INTO runs before the lock is acquired at
+// all (store.go's bestEffortPickBackup), so this benchmark's per-op time
+// should track roughly BenchmarkPersistPick's, not BenchmarkBackupSnapshot's.
+func BenchmarkMakePick(b *testing.B) {
+	sqlitePersistVerify = false
+	defer func() { sqlitePersistVerify = true }()
+	clearRosterShape() // undo any runtime override an earlier test/benchmark left set
+	defer clearRosterShape()
+	dir := b.TempDir()
+	path := filepath.Join(dir, "league-state.json")
+	fixture := realisticFixture()
+	for i := 0; i < 400; i++ {
+		fixture.SentLog[fmt.Sprintf("onclock:team-%d:%d", i%8+1, i)] = time.Now().UTC()
+	}
+	// realisticFixture's own RosterOverride pins CurrentDraftRounds via
+	// setRosterShape on load (sqlstore.go), ignoring the DraftRounds
+	// override below entirely. This benchmark needs plain DraftRounds
+	// capacity control instead, so it can size the draft to b.N.
+	fixture.RosterOverride = nil
+	// A nil DraftOrder falls back to the same defaultTeamIDs() order on
+	// both sides of the b.N loop below (teamOnClock's own doc comment),
+	// avoiding any chance of the persisted/reloaded order drifting from
+	// this benchmark's own copy. realisticFixture's own 4 seeded Picks
+	// were drafted against its own (now-discarded) DraftOrder, so they
+	// would desync pick-number/team-on-the-clock math against the fresh
+	// nil order above; clear them so every pick in the b.N loop below is
+	// this benchmark's own.
+	fixture.DraftOrder = nil
+	fixture.Picks = nil
+	raw, err := json.Marshal(fixture)
+	if err != nil {
+		b.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		b.Fatal(err)
+	}
+	store := NewStore(path)
+	if err := store.StartupError(); err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() { _ = store.Close() })
+	store.draftLifecycleBypass = true
+
+	// Give the store enough draft rounds that b.N picks never trip "the
+	// draft is complete"; restored so this benchmark cannot leak a wider
+	// draft into any test sharing this process.
+	previousRounds := DraftRounds
+	DraftRounds = b.N + 8
+	defer func() { DraftRounds = previousRounds }()
+
+	now := time.Now().UTC()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		number := i + 1
+		team := teamOnClock(nil, number)
+		if _, err := store.MakePick(team, fmt.Sprintf("bench-pick-%d", i), "manager", now, now.Add(90*time.Second)); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // BenchmarkPersistTradeExecution measures the heaviest ordinary write: a
 // trade's status change plus the transaction it appends plus both sides'
 // zone clears.

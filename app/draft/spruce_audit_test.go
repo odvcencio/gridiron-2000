@@ -76,7 +76,7 @@ func TestSpruceAuditPreDraftMarkup(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"SPRUCE_PREDRAFT_FIXTURE=1",
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
-		"DEMO_MODE=false", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE="+leagueFile,
+		"DEMO_MODE=false", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE="+leagueFile,
 		"COMMISSIONER_EMAILS="+spruceCommissioner,
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -271,7 +271,7 @@ func TestSpruceAuditPosPChipPressed(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"SPRUCE_POSP_FIXTURE=1",
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
-		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=",
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=",
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("spruce pos=P fixture process: %v\n%s", err, output)
@@ -308,7 +308,7 @@ func TestSpruceAuditBoardGridTwoLineTeamName(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"SPRUCE_BOARD_FIXTURE=1",
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
-		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=",
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=",
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("spruce board fixture process: %v\n%s", err, output)

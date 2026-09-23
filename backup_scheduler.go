@@ -28,12 +28,16 @@ type backupSchedulerConfig struct {
 	Enabled bool
 	Keep    int
 	Dir     string
+	// Sinks copies each successful local snapshot off this host. Empty
+	// means no off-host sink is configured yet (BACKUP_OFFHOST_DIR unset).
+	Sinks []backupSink
 }
 
-// backupSchedulerConfigFromEnv reads BACKUP_ENABLED (default true) and
-// BACKUP_KEEP (default defaultBackupKeep). dataDir is the directory
-// holding league.db (league.Default().DataDir()); snapshots land in its
-// "backups" subdirectory, never a shared system temp path.
+// backupSchedulerConfigFromEnv reads BACKUP_ENABLED (default true),
+// BACKUP_KEEP (default defaultBackupKeep), and every configured off-host
+// sink (backupSinksFromEnv). dataDir is the directory holding league.db
+// (league.Default().DataDir()); local snapshots land in its "backups"
+// subdirectory, never a shared system temp path.
 func backupSchedulerConfigFromEnv(dataDir string) backupSchedulerConfig {
 	enabled := true
 	if raw := strings.TrimSpace(os.Getenv("BACKUP_ENABLED")); raw != "" {
@@ -51,7 +55,7 @@ func backupSchedulerConfigFromEnv(dataDir string) backupSchedulerConfig {
 	if dataDir != "" {
 		dir = filepath.Join(dataDir, "backups")
 	}
-	return backupSchedulerConfig{Enabled: enabled, Keep: keep, Dir: dir}
+	return backupSchedulerConfig{Enabled: enabled, Keep: keep, Dir: dir, Sinks: backupSinksFromEnv()}
 }
 
 // startBackupScheduler runs the nightly local snapshot loop: one VACUUM
@@ -85,11 +89,16 @@ func startBackupScheduler(ctx context.Context, service *league.Service, cfg back
 	}()
 }
 
-// runBackupSnapshotOnce writes one snapshot and rotates cfg.Dir to
-// cfg.Keep. A failure at either step is logged and never panics or stops
-// the loop; the next scheduled tick tries again.
+// runBackupSnapshotOnce writes one local snapshot, rotates cfg.Dir to
+// cfg.Keep, and then copies the fresh snapshot to every configured
+// off-host sink. Every step's outcome is recorded in backupHealthState for
+// /api/health, and a failure at any step — local write, local rotation, or
+// any one sink — is logged loudly. A failure never panics, never stops the
+// loop, and a sink failure never skips the other configured sinks: the
+// next scheduled tick, and the next sink, always get their own try.
 func runBackupSnapshotOnce(ctx context.Context, service *league.Service, cfg backupSchedulerConfig, appVersion string) {
 	path, _, err := service.WriteBackupSnapshotFile(ctx, cfg.Dir, time.Now(), appVersion)
+	backupHealthState.recordLocal(err)
 	if err != nil {
 		log.Printf("scheduled backup: failed: %v", err)
 		return
@@ -98,9 +107,17 @@ func runBackupSnapshotOnce(ctx context.Context, service *league.Service, cfg bac
 	removed, err := league.RotateBackups(cfg.Dir, cfg.Keep)
 	if err != nil {
 		log.Printf("scheduled backup: rotation failed: %v", err)
-		return
-	}
-	if len(removed) > 0 {
+	} else if len(removed) > 0 {
 		log.Printf("scheduled backup: rotated out %d old snapshot(s)", len(removed))
+	}
+
+	for _, sink := range cfg.Sinks {
+		sinkErr := sink.Copy(ctx, path)
+		backupHealthState.recordSink(sink.Name(), sinkErr)
+		if sinkErr != nil {
+			log.Printf("scheduled backup: off-host sink %s failed: %v", sink.Name(), sinkErr)
+			continue
+		}
+		log.Printf("scheduled backup: off-host sink %s copied %s", sink.Name(), filepath.Base(path))
 	}
 }

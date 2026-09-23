@@ -29,7 +29,7 @@ func TestPoolRowDetailLineDropsInjuryFromTheVisibleSummary(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"POOL_ROW_INJURY_FIXTURE=1",
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
-		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=",
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=",
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("pool row injury fixture process: %v\n%s", err, output)

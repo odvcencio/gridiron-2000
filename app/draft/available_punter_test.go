@@ -24,7 +24,7 @@ func TestAvailableFragmentPosPOrdersByPunterRank(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"AVAILABLE_POS_P_FIXTURE=1",
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
-		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=",
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=",
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("available pos=P fixture process: %v\n%s", err, output)

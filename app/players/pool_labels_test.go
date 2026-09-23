@@ -58,7 +58,7 @@ func TestPlayersPoolFragmentColumnHeaderShapeMatchesTheStatusRow(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"PLAYERS_POOL_LABELS_FIXTURE=1",
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
-		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=",
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=",
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("players pool column-header fixture process: %v\n%s", err, output)
@@ -107,7 +107,7 @@ func TestPlayersPoolCountAgreesWithSingularAndPlural(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"PLAYERS_POOL_COUNT_FIXTURE=1",
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
-		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=",
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=",
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("players pool count-agreement fixture process: %v\n%s", err, output)
@@ -153,7 +153,7 @@ func TestPlayersPoolFragmentRowsShowTheWeekPointsCell(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"PLAYERS_POOL_WEEK_POINTS_FIXTURE=1",
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
-		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=",
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=",
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("players pool week-points fixture process: %v\n%s", err, output)

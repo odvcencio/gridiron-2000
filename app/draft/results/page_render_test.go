@@ -72,7 +72,7 @@ func renderResultsForUserPath(t *testing.T, handler http.Handler, email, path st
 // present in the header.
 func TestDraftResultsRendersBeforeAndAfterCompletion(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestDraftResultsRendersBeforeAndAfterCompletionFixtureProcess$")
-	cmd.Env = append(os.Environ(), "RESULTS_FIXTURE=1", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=")
+	cmd.Env = append(os.Environ(), "RESULTS_FIXTURE=1", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("draft results fixture process: %v\n%s", err, output)
