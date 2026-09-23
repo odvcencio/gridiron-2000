@@ -349,3 +349,32 @@ func TestBoardStylesKeepDesktopRowsAndPagerControlsInBounds(t *testing.T) {
 		}
 	}
 }
+
+// TestBoardStylesClampPickedRowNameAndDetailIndependentlyOfJS is the
+// regression guard for the owner's "DYNASTYSunday..."-shaped report
+// (2026-09-23): a drafted (struck-through, data-picked="true") row's own
+// name and team/bye line are both TextBlock-managed
+// ([data-gosx-text-layout]), and the shared rule that retires the classic
+// CSS-only single-line clamp for any TextBlock field
+// (".pool-player strong[data-gosx-text-layout], .pool-player__text >
+// small[data-gosx-text-layout]") outranks an unqualified base clamp, so
+// nothing single-lines either field until the client runtime finishes
+// enhancing them — the pre-enhancement (or no-JS) paint just wraps, and a
+// wrapped name overlaps the detail line below it. This pins the
+// higher-specificity override that restores a JS-independent clamp for a
+// picked row's own name and detail line specifically.
+func TestBoardStylesClampPickedRowNameAndDetailIndependentlyOfJS(t *testing.T) {
+	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatalf("read board styles: %v", err)
+	}
+	source := string(styles)
+	for _, want := range []string{
+		`.board-row[data-picked="true"] .pool-player strong[data-gosx-text-layout],`,
+		`.board-row[data-picked="true"] .pool-player__text > small[data-gosx-text-layout] {`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("public/styles.css missing the picked-row JS-independent clamp override %q", want)
+		}
+	}
+}

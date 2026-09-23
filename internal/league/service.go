@@ -377,14 +377,16 @@ func Default() *Service {
 		// demo commissioner console. Demo mode bypasses the sign-in gate and
 		// grants commissioner powers to every visitor; one misconfigured or
 		// auto-loaded env file must not be able to open a live league to the
-		// internet. isLocalAppEnv is an allow-list ("", local, development,
-		// test), so APP_ENV=prod, APP_ENV=staging, APP_ENV=production, and
-		// every unknown label all refuse demo unconditionally.
+		// internet. IsLocalAppEnv is an allow-list (local, development,
+		// test), so an unset/empty APP_ENV, APP_ENV=prod, APP_ENV=staging,
+		// APP_ENV=production, and every unknown label all refuse demo
+		// unconditionally — a forgotten APP_ENV fails closed as production,
+		// never open as local (IsLocalAppEnv's own doc comment).
 		appEnv := os.Getenv("APP_ENV")
 		demoRequested := parseBool(os.Getenv("DEMO_MODE"), false)
 		demo := demoRequested && IsLocalAppEnv(appEnv)
 		if demoRequested && !demo {
-			log.Printf("league: DEMO_MODE=true requested but APP_ENV=%q is not a local environment (\"\", local, development, test); demo mode is refused", appEnv)
+			log.Printf("league: DEMO_MODE=true requested but APP_ENV=%q is not a local environment (local, development, test); demo mode is refused", appEnv)
 		}
 		draftTZ, err := time.LoadLocation(cfg.Timezone)
 		if err != nil || draftTZ == nil {
