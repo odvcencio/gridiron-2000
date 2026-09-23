@@ -150,9 +150,10 @@ type PlayerWeekStat struct {
 	// them to feed. Adding those is a scoring-rule decision for the
 	// commissioner, not a data limitation; see the DEFENSE group, which
 	// had exactly this shape until it was filled out.
-	FGMade   float64 `json:"fg_made"`
-	FGMissed float64 `json:"fg_missed"`
-	XPMade   float64 `json:"xp_made"`
+	FGMade    float64 `json:"fg_made"`
+	FGMissed  float64 `json:"fg_missed"`
+	FGBlocked float64 `json:"fg_blocked"`
+	XPMade    float64 `json:"xp_made"`
 	// Punting box-score aggregates (WP-R2): present on P-position rows in
 	// the same stats_player_week release. These are the honest fallback
 	// when the play-by-play mirror (PuntEvents) has no data for the
@@ -227,7 +228,10 @@ type TeamWeekStat struct {
 	DefSacks         float64 `json:"def_sacks"`
 	DefInterceptions float64 `json:"def_interceptions"`
 	DefTDs           float64 `json:"def_tds"`
-	DefSafeties      float64 `json:"def_safeties"`
+	// nflverse records a fumble-return touchdown separately from def_tds.
+	// Tank01 includes it in its D/ST defTD total.
+	FumbleRecoveryTDs float64 `json:"fumble_recovery_tds"`
+	DefSafeties       float64 `json:"def_safeties"`
 	// FumbleRecoveryOpp counts only recoveries of the OPPONENT's fumbles
 	// (a takeaway); recovering the team's own fumble (fumble_recovery_own
 	// in the source CSV) is not a defensive scoring event and is
@@ -256,14 +260,12 @@ type TeamWeekStat struct {
 	// returner; this scores the D/ST unit that fielded them, which is how
 	// a D/ST is conventionally credited with a return score.
 	SpecialTeamsTDs float64 `json:"special_teams_tds"`
-	// PassingYards and RushingYards are this team's OWN offensive output.
-	// They are read for the other side of the game: a defense's
-	// yards-allowed tier is its opponent's row summed, joined through
-	// OpponentTeam (see main.go's dstWeekStatLines). nflverse reports
-	// passing yards net of sack losses, so these two summed are the
-	// conventional "total net yards" a yards-allowed ladder is scored on.
-	PassingYards float64 `json:"passing_yards"`
-	RushingYards float64 `json:"rushing_yards"`
+	// PassingYards is gross passing yardage. SackYardsLost is signed
+	// negative in nflverse; add it to passing and rushing yards for the
+	// opponent's total net yards and the D/ST yards-allowed tier.
+	PassingYards  float64 `json:"passing_yards"`
+	RushingYards  float64 `json:"rushing_yards"`
+	SackYardsLost float64 `json:"sack_yards_lost"`
 }
 
 type TeamStatsQuery struct {

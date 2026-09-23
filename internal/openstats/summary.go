@@ -16,9 +16,23 @@ func NormalizePlayerKey(name, position string) string {
 	for _, part := range parts {
 		builder.WriteString(part)
 	}
-	builder.WriteByte('|')
-	builder.WriteString(strings.ToUpper(strings.TrimSpace(position)))
-	return builder.String()
+	nameKey := canonicalPlayerNameKey(builder.String())
+	return nameKey + "|" + strings.ToUpper(strings.TrimSpace(position))
+}
+
+// Tank01's display name and nflverse's legal/short name differ for these
+// players. Their ID namespaces also differ, so the weekly stat join needs
+// one shared name key. Keep league.normalizePlayerKey's table in sync.
+func canonicalPlayerNameKey(key string) string {
+	switch key {
+	case "andrewogletree":
+		return "drewogletree"
+	case "marquisebrown":
+		return "hollywoodbrown"
+	case "joshpalmer":
+		return "joshuapalmer"
+	}
+	return key
 }
 
 func normalizedNameParts(name string) []string {

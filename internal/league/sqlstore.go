@@ -658,6 +658,7 @@ const (
 	kvWatchlists              = "watchlists"
 	kvLockerReactions         = "locker_reactions"
 	kvPushSubscriptions       = "push_subscriptions"
+	kvFinalGameStats          = "final_game_stats"
 )
 
 // scheduleHeader is the SeasonSchedule minus its weeks: the part that has
@@ -744,6 +745,9 @@ var collectionSpecs = [collectionCount]collectionSpec{
 			}
 			if len(st.PushSubscriptions) > 0 {
 				put(kvPushSubscriptions, sink.jsonValue(st.PushSubscriptions))
+			}
+			if len(st.FinalGameStats) > 0 {
+				put(kvFinalGameStats, sink.jsonValue(st.FinalGameStats))
 			}
 		},
 	},
@@ -1498,6 +1502,11 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 			return state, fmt.Errorf("kv %s: %w", kvRosterOverride, err)
 		}
 		state.RosterOverride = &override
+	}
+	if raw, ok := scalars[kvFinalGameStats]; ok {
+		if err := json.Unmarshal([]byte(raw), &state.FinalGameStats); err != nil {
+			return state, fmt.Errorf("kv %s: %w", kvFinalGameStats, err)
+		}
 	}
 	if raw, ok := scalars[kvTrimmedTeamIDs]; ok {
 		var trimmed []string
@@ -2348,6 +2357,9 @@ func queryRows(db *sql.DB, query string, scan func(*sql.Rows) error) error {
 // contract lives; both the database loader and the JSON importer call it,
 // exactly as the old JSON loader's nil-map guards did.
 func normalizeState(state *PersistedState) {
+	if state.FinalGameStats == nil {
+		state.FinalGameStats = map[string]FinalGameStats{}
+	}
 	if state.Ready == nil {
 		state.Ready = map[string]bool{}
 	}

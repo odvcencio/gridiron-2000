@@ -155,6 +155,12 @@ func TestNormalizePlayerKeyParityWithOpenstats(t *testing.T) {
 		{"Michael Pittman Jr.", "wr"},
 		{"Travis Etienne", "RB"},
 		{"Travis Etienne Jr.", "RB"},
+		{"Andrew Ogletree", "TE"},
+		{"Drew Ogletree", "TE"},
+		{"Marquise Brown", "WR"},
+		{"Hollywood Brown", "WR"},
+		{"Josh Palmer", "WR"},
+		{"Joshua Palmer", "WR"},
 	}
 	for _, c := range cases {
 		want := openstats.NormalizePlayerKey(c.name, c.position)

@@ -133,13 +133,13 @@ func wpr2Fixture(t *testing.T, pbpCSV string) *openstats.Service {
 	const scheduleCSV = "game_id,season,game_type,week,gameday,gametime,away_team,away_score,home_team,home_score,result,spread_line\n" +
 		"2026_01_BUF_MIA,2026,REG,1,2020-01-01,13:00,BUF,24,MIA,0,-24,3.5\n" +
 		"2026_01_KC_DEN,2026,REG,1,2099-01-01,13:00,KC,,DEN,,,\n"
-	const teamStatsCSV = "season,week,team,season_type,game_id,opponent_team,def_sacks,def_interceptions,def_tds,def_safeties,fumble_recovery_opp,fumble_recovery_own\n" +
-		"2026,1,BUF,REG,2026_01_BUF_MIA,MIA,4,2,1,1,2,3\n" +
-		"2026,1,MIA,REG,2026_01_BUF_MIA,BUF,1,0,0,0,0,0\n"
-	const playerStatsHeader = "player_id,player_display_name,position,season,week,season_type,game_id,team,opponent_team,passing_yards,passing_tds,passing_interceptions,rushing_yards,rushing_tds,receptions,receiving_yards,receiving_tds,rushing_fumbles_lost,receiving_fumbles_lost,sack_fumbles_lost,fantasy_points,fantasy_points_ppr,fg_made,fg_missed,pat_made,pt_att,pt_yards,pt_long,pt_inside_20,pt_downed,pt_touchback,pt_blocked\n"
+	const teamStatsCSV = "season,week,team,season_type,game_id,opponent_team,def_sacks,def_interceptions,def_tds,fumble_recovery_tds,def_safeties,fumble_recovery_opp,fumble_recovery_own,passing_yards,rushing_yards,sack_yards_lost\n" +
+		"2026,1,BUF,REG,2026_01_BUF_MIA,MIA,4,2,1,1,1,2,3,299,10,-20\n" +
+		"2026,1,MIA,REG,2026_01_BUF_MIA,BUF,1,0,0,0,0,0,0,215,15,-35\n"
+	const playerStatsHeader = "player_id,player_display_name,position,season,week,season_type,game_id,team,opponent_team,passing_yards,passing_tds,passing_interceptions,rushing_yards,rushing_tds,receptions,receiving_yards,receiving_tds,rushing_fumbles_lost,receiving_fumbles_lost,sack_fumbles_lost,fantasy_points,fantasy_points_ppr,fg_made,fg_missed,fg_blocked,pat_made,pt_att,pt_yards,pt_long,pt_inside_20,pt_downed,pt_touchback,pt_blocked\n"
 	const week1Stats = playerStatsHeader +
-		"00-101,Example Kicker,K,2026,1,REG,2026_01_BUF_MIA,BUF,MIA,0,0,0,0,0,0,0,0,0,0,0,10.0,10.0,2,1,3,0,0,0,0,0,0,0\n" +
-		"00-102,PBP Punter,P,2026,1,REG,2026_01_BUF_MIA,BUF,MIA,0,0,0,0,0,0,0,0,0,0,0,0.0,0.0,0,0,0,3,140,55,1,0,0,0\n"
+		"00-101,Example Kicker,K,2026,1,REG,2026_01_BUF_MIA,BUF,MIA,0,0,0,0,0,0,0,0,0,0,0,10.0,10.0,2,1,1,3,0,0,0,0,0,0,0\n" +
+		"00-102,PBP Punter,P,2026,1,REG,2026_01_BUF_MIA,BUF,MIA,0,0,0,0,0,0,0,0,0,0,0,0.0,0.0,0,0,0,0,3,140,55,1,0,0,0\n"
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -206,7 +206,7 @@ func TestDSTWeekStatLinesFeedsDefenseKeysAndGatesShutout(t *testing.T) {
 	if !ok {
 		t.Fatalf("no WeekStatLine for BUF's DST: %+v", byKey)
 	}
-	if buf["dstSack"] != 4 || buf["dstInt"] != 2 || buf["dstTD"] != 1 || buf["dstSafety"] != 1 {
+	if buf["dstSack"] != 4 || buf["dstInt"] != 2 || buf["dstTD"] != 2 || buf["dstSafety"] != 1 {
 		t.Fatalf("BUF defense keys wrong: %+v", buf)
 	}
 	if buf["dstFumbleRec"] != 2 {
@@ -215,14 +215,10 @@ func TestDSTWeekStatLinesFeedsDefenseKeysAndGatesShutout(t *testing.T) {
 	if buf["dstPointsAllowed0"] != 1 {
 		t.Fatalf("BUF shutout band = %v, want 1 (MIA scored 0 in a final game)", buf["dstPointsAllowed0"])
 	}
-	// The fixture carries no offensive yardage columns, so there is no
-	// figure to band. Every defense getting the best yards band off a
-	// missing column is exactly the failure YardsAllowedRuleKey's zero
-	// guard exists to prevent.
-	for _, band := range []string{"dstYardsAllowed0", "dstYardsAllowed100", "dstYardsAllowed200"} {
-		if buf[band] != 0 {
-			t.Fatalf("BUF scored yards band %q from a source with no yardage at all: %+v", band, buf)
-		}
+	// MIA's 215 passing + 15 rushing - 35 sack yards = 195 net yards,
+	// crossing the 200-yard scoring boundary.
+	if buf["dstYardsAllowed100"] != 1 || buf["dstYardsAllowed200"] != 0 {
+		t.Fatalf("BUF yards-allowed band did not use net yards: %+v", buf)
 	}
 	miaKey := league.DSTStatKey("MIA")
 	mia, ok := byKey[miaKey]
@@ -236,6 +232,9 @@ func TestDSTWeekStatLinesFeedsDefenseKeysAndGatesShutout(t *testing.T) {
 	// points, but a real, explainable outcome rather than silence.
 	if mia["dstPointsAllowed21"] != 1 {
 		t.Fatalf("MIA points-allowed band = %+v, want the 21-27 band", mia)
+	}
+	if mia["dstYardsAllowed200"] != 1 || mia["dstYardsAllowed300"] != 0 {
+		t.Fatalf("MIA yards-allowed band did not subtract BUF sack losses: %+v", mia)
 	}
 }
 
@@ -324,7 +323,7 @@ func TestLeagueWeekStatsSourceUsesPlayByPlayForAPunterWithData(t *testing.T) {
 	if !ok {
 		t.Fatalf("no WeekStatLine for the kicker: %+v", byKey)
 	}
-	if kicker["fgMade"] != 2 || kicker["fgMissed"] != 1 || kicker["xpMade"] != 3 {
+	if kicker["fgMade"] != 2 || kicker["fgMissed"] != 2 || kicker["xpMade"] != 3 {
 		t.Fatalf("kicker stat line wrong: %+v", kicker)
 	}
 	punterKey := openstats.NormalizePlayerKey("PBP Punter", "P")

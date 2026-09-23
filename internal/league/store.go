@@ -39,16 +39,12 @@ var ErrLeagueFull = errors.New("all league seats are already assigned")
 // re-evaluates from a fresh snapshot. See AutoPick.
 var errStaleAutoPick = errors.New("auto-pick is stale")
 
-// currentSchemaVersion is the state file schema version this binary writes
-// and the highest version it accepts on load. See PersistedState's
-// SchemaVersion doc comment and Store.load. Stays 11 for J6 F19
-// (2026-09-04 audit, reworked the same day): LockerPost.CommissionerNote
-// persists through the existing kv-backed LockerCommissionerNotes set
-// (colScalars, sqlstore.go), the same additive-under-11 precedent
-// SeatReleaseNotices and RosterCorrectionNotices already use, so the
-// previous binary can still open the database for a same-season
-// rollback.
-const currentSchemaVersion = 11
+// currentSchemaVersion is the logical state version this binary writes.
+// FinalGameStats raises it because an older binary would otherwise delete
+// the unknown kv row on its next scalar write and lose settled scores.
+// The SQLite table layout is unchanged; the logical marker alone makes
+// that unsafe rollback refuse to open the league database.
+const currentSchemaVersion = 12
 
 // errSchemaTooNew is returned by NewStore/load when the state file's
 // SchemaVersion exceeds currentSchemaVersion: an older binary must not
@@ -222,6 +218,7 @@ func NewStoreWithIdentity(filePath string, resolver identity.Resolver) *Store {
 		shadow:   shadowIndex{},
 		state: PersistedState{
 			SchemaVersion:           currentSchemaVersion,
+			FinalGameStats:          map[string]FinalGameStats{},
 			Ready:                   map[string]bool{},
 			Picks:                   []DraftPick{},
 			Members:                 map[string]Member{},
@@ -1700,6 +1697,7 @@ func (s *Store) ResetLeague() error {
 	s.state.RosterOverride = nil
 	s.state.TrimmedTeamIDs = []string{}
 	s.state.Schedule = nil
+	s.state.FinalGameStats = map[string]FinalGameStats{}
 	s.state.Playoffs = nil
 	s.state.Phase = ""
 	s.state.BadgeClaims = map[string]string{}
@@ -4617,6 +4615,7 @@ func cloneState(in PersistedState) PersistedState {
 	out := PersistedState{
 		persistenceAuthority:    in.persistenceAuthority,
 		SchemaVersion:           in.SchemaVersion,
+		FinalGameStats:          make(map[string]FinalGameStats, len(in.FinalGameStats)),
 		Ready:                   make(map[string]bool, len(in.Ready)),
 		Picks:                   append([]DraftPick(nil), in.Picks...),
 		Members:                 make(map[string]Member, len(in.Members)),
@@ -4814,6 +4813,9 @@ func cloneState(in PersistedState) PersistedState {
 	}
 	for postID, note := range in.LockerCommissionerNotes {
 		out.LockerCommissionerNotes[postID] = note
+	}
+	for key, record := range in.FinalGameStats {
+		out.FinalGameStats[key] = cloneFinalGameStats(record)
 	}
 	for k, v := range in.TradeBlock {
 		out.TradeBlock[k] = v

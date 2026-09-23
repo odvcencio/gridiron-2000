@@ -562,7 +562,8 @@ func pointsAllowedByTeam(games []openstats.ScheduleGame, eastern *time.Location,
 // teams unit for week from the team-stats mirror (WP-R2, DEFENSE group):
 // dstSack, dstInt, dstFumbleRec (opponent-fumble recoveries only —
 // recovering the team's own fumble is not a defensive scoring event), and
-// dstTD, dstSafety feed directly from stats_team_week's def_* columns.
+// dstTD includes def_tds and fumble_recovery_tds: nflverse separates
+// fumble-return scores while the live D/ST box combines them.
 // dstShutout derives from the schedule's points-allowed, gated on the same
 // finality rule as leagueScheduleSource (openStatsGameFinal) so an
 // unplayed or in-progress game never reads as a shutout.
@@ -571,11 +572,11 @@ func dstWeekStatLines(stats *openstats.Service, eastern *time.Location, week int
 	allowed := pointsAllowedByTeam(stats.Games(week), eastern, time.Now())
 	// offenseYards indexes each team's OWN total net yards so the loop
 	// below can read a defense's yards allowed off its opponent's row
-	// (2026-09-09). nflverse reports passing yards net of sack losses, so
-	// passing plus rushing is the conventional total.
+	// (2026-09-09). nflverse's passing_yards excludes sack losses and
+	// sack_yards_lost is signed negative, so add all three columns.
 	offenseYards := make(map[string]float64, len(rows))
 	for _, row := range rows {
-		offenseYards[strings.ToUpper(row.Team)] = row.PassingYards + row.RushingYards
+		offenseYards[strings.ToUpper(row.Team)] = row.PassingYards + row.RushingYards + row.SackYardsLost
 	}
 	out := make([]league.WeekStatLine, 0, len(rows))
 	for _, row := range rows {
@@ -591,7 +592,7 @@ func dstWeekStatLines(stats *openstats.Service, eastern *time.Location, week int
 			"dstInt":            row.DefInterceptions,
 			"dstFumbleRec":      row.FumbleRecoveryOpp,
 			"dstForcedFumble":   row.DefFumblesForced,
-			"dstTD":             row.DefTDs,
+			"dstTD":             row.DefTDs + row.FumbleRecoveryTDs,
 			"dstSafety":         row.DefSafeties,
 			"dstBlockedKick":    row.DefPuntBlocks + row.DefPATBlocks + row.DefFGBlocks,
 			"dstTwoPtReturn":    row.Def2ptMade,
@@ -743,13 +744,8 @@ func offenseStatLine(row openstats.PlayerWeekStat) map[string]float64 {
 		"recYards":   row.ReceivingYards,
 		"recTD":      row.ReceivingTDs,
 		"fumbleLost": row.FumblesLost,
-		// twoPt (GC-1 fix 3) sums every two-point conversion type from the
-		// mirrored nflverse ledger. This is the only source that ever
-		// feeds it: Tank01's live box score carries no per-player
-		// two-point field at all (see scoring.go's twoPt rule doc comment
-		// and internal/fantasy's preseasonPlayerStats), so twoPt scores at
-		// week close only, the same closed-week-only pattern several
-		// PUNTING keys already follow.
+		// The live box also reports player-level conversions (observed in
+		// Tank01's 2026 week 2 Rushing group), so both paths feed twoPt.
 		"twoPt": row.PassingTwoPt + row.RushingTwoPt + row.ReceivingTwoPt,
 		// returnTD from the mirrored ledger (2026-09-09). It used to score
 		// from the live box score only, so a return touchdown reached the
@@ -758,7 +754,9 @@ func offenseStatLine(row openstats.PlayerWeekStat) map[string]float64 {
 		// PlayerWeekStat.SpecialTeamsTDs.
 		"returnTD": row.SpecialTeamsTDs,
 		"fgMade":   row.FGMade,
-		"fgMissed": row.FGMissed,
+		// Tank01's fgMissed includes blocked attempts; nflverse separates
+		// them into fg_blocked. Count each unsuccessful attempt once.
+		"fgMissed": row.FGMissed + row.FGBlocked,
 		"xpMade":   row.XPMade,
 	}
 }

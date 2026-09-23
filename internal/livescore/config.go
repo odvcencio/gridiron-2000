@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gridiron-2000/internal/fantasy"
 )
 
 // scoreboardFloor is the minimum LIVE_SCOREBOARD_INTERVAL: GC-2 sets a 5s
@@ -109,6 +111,9 @@ type Config struct {
 	// false itself, round-2 review of commit cdeb7f2, finding 2). Empty
 	// means the plain "disabled" text.
 	DisabledReason string
+	// Finalize durably records a final box before the poller publishes it.
+	// A failed write leaves the game eligible for another fetch.
+	Finalize func(Game, fantasy.BoxScore) error
 }
 
 func ConfigFromEnv() Config {

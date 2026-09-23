@@ -152,9 +152,9 @@ func TestParsePlayByPlayAutoDetectsGzip(t *testing.T) {
 // fumble_recovery_opp (a takeaway) feeds FumbleRecoveryOpp;
 // fumble_recovery_own never counts as a defensive scoring event.
 func TestParseTeamStatsFeedsDefenseKeysExcludesOwnFumbles(t *testing.T) {
-	const csvBody = "season,week,team,season_type,game_id,opponent_team,def_sacks,def_interceptions,def_tds,def_safeties,fumble_recovery_opp,fumble_recovery_own\n" +
-		"2026,1,BAL,REG,2026_01_BAL_PIT,PIT,4,2,1,1,2,3\n" +
-		"2025,1,BAL,REG,2025_01_BAL_PIT,PIT,9,9,9,9,9,9\n"
+	const csvBody = "season,week,team,season_type,game_id,opponent_team,def_sacks,def_interceptions,def_tds,fumble_recovery_tds,def_safeties,fumble_recovery_opp,fumble_recovery_own,passing_yards,rushing_yards,sack_yards_lost\n" +
+		"2026,1,BAL,REG,2026_01_BAL_PIT,PIT,4,2,1,1,1,2,3,215,35,-20\n" +
+		"2025,1,BAL,REG,2025_01_BAL_PIT,PIT,9,9,9,9,9,9,9,9,9,9\n"
 	path := writeFixture(t, "team_stats.csv", csvBody)
 	stats, err := parseTeamStats(path, 2026)
 	if err != nil {
@@ -170,6 +170,9 @@ func TestParseTeamStatsFeedsDefenseKeysExcludesOwnFumbles(t *testing.T) {
 	if row.FumbleRecoveryOpp != 2 {
 		t.Fatalf("FumbleRecoveryOpp = %v, want 2 (must exclude fumble_recovery_own)", row.FumbleRecoveryOpp)
 	}
+	if row.FumbleRecoveryTDs != 1 || row.SackYardsLost != -20 {
+		t.Fatalf("fumble return TD or signed sack yards lost: %+v", row)
+	}
 }
 
 // TestParsePlayerStatsFeedsKickingAndPuntingBoxScoreColumns checks the
@@ -178,9 +181,9 @@ func TestParseTeamStatsFeedsDefenseKeysExcludesOwnFumbles(t *testing.T) {
 // backward-compatibility guarantee: a row from a CSV release that predates
 // these columns decodes to zero, never an error.
 func TestParsePlayerStatsFeedsKickingAndPuntingBoxScoreColumns(t *testing.T) {
-	const header = "player_id,player_display_name,position,season,week,season_type,game_id,team,opponent_team,fantasy_points,fantasy_points_ppr,fg_made,fg_missed,pat_made,pt_att,pt_yards,pt_long,pt_inside_20,pt_downed,pt_touchback,pt_blocked\n"
-	const kickerRow = "00-201,Example Kicker,K,2026,1,REG,2026_01_BUF_MIA,BUF,MIA,10.0,10.0,2,1,3,0,0,0,0,0,0,0\n"
-	const punterRow = "00-202,Example Punter,P,2026,1,REG,2026_01_BUF_MIA,BUF,MIA,0,0,0,0,0,5,220,52,2,1,1,0\n"
+	const header = "player_id,player_display_name,position,season,week,season_type,game_id,team,opponent_team,fantasy_points,fantasy_points_ppr,fg_made,fg_missed,fg_blocked,pat_made,pt_att,pt_yards,pt_long,pt_inside_20,pt_downed,pt_touchback,pt_blocked\n"
+	const kickerRow = "00-201,Example Kicker,K,2026,1,REG,2026_01_BUF_MIA,BUF,MIA,10.0,10.0,2,1,1,3,0,0,0,0,0,0,0\n"
+	const punterRow = "00-202,Example Punter,P,2026,1,REG,2026_01_BUF_MIA,BUF,MIA,0,0,0,0,0,0,5,220,52,2,1,1,0\n"
 	path := writeFixture(t, "stats.csv", header+kickerRow+punterRow)
 	stats, err := parsePlayerStats(path, 2026)
 	if err != nil {
@@ -190,7 +193,7 @@ func TestParsePlayerStatsFeedsKickingAndPuntingBoxScoreColumns(t *testing.T) {
 		t.Fatalf("stats = %d rows, want 2", len(stats))
 	}
 	kicker, punter := stats[0], stats[1]
-	if kicker.FGMade != 2 || kicker.FGMissed != 1 || kicker.XPMade != 3 {
+	if kicker.FGMade != 2 || kicker.FGMissed != 1 || kicker.FGBlocked != 1 || kicker.XPMade != 3 {
 		t.Fatalf("kicker columns wrong: %+v", kicker)
 	}
 	if punter.Punts != 5 || punter.PuntYardsGross != 220 || punter.PuntLong != 52 ||
@@ -210,7 +213,7 @@ func TestParsePlayerStatsFeedsKickingAndPuntingBoxScoreColumns(t *testing.T) {
 	if len(oldStats) != 1 {
 		t.Fatalf("old-release stats = %d rows, want 1", len(oldStats))
 	}
-	if oldStats[0].FGMade != 0 || oldStats[0].FGMissed != 0 || oldStats[0].XPMade != 0 {
+	if oldStats[0].FGMade != 0 || oldStats[0].FGMissed != 0 || oldStats[0].FGBlocked != 0 || oldStats[0].XPMade != 0 {
 		t.Fatalf("old-release row must decode kicking columns to zero: %+v", oldStats[0])
 	}
 }

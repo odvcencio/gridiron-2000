@@ -23,6 +23,9 @@ func TestNormalizePlayerKeyCollapsesStyleVariants(t *testing.T) {
 			nameA: "Michael Pittman Jr.", posA: "WR",
 			nameB: "michael pittman jr", posB: "WR",
 		},
+		{name: "Andrew and Drew Ogletree", nameA: "Andrew Ogletree", posA: "TE", nameB: "Drew Ogletree", posB: "TE"},
+		{name: "Marquise and Hollywood Brown", nameA: "Marquise Brown", posA: "WR", nameB: "Hollywood Brown", posB: "WR"},
+		{name: "Josh and Joshua Palmer", nameA: "Josh Palmer", posA: "WR", nameB: "Joshua Palmer", posB: "WR"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

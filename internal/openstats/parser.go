@@ -138,6 +138,7 @@ func parsePlayerStats(path string, season int) ([]PlayerWeekStat, error) {
 			SpecialTeamsTDs: floatValue(cell(row, index, "special_teams_tds")),
 			FGMade:          floatValue(cell(row, index, "fg_made")),
 			FGMissed:        floatValue(cell(row, index, "fg_missed")),
+			FGBlocked:       floatValue(cell(row, index, "fg_blocked")),
 			XPMade:          floatValue(cell(row, index, "pat_made")),
 			Punts:           floatValue(cell(row, index, "pt_att")),
 			PuntYardsGross:  floatValue(cell(row, index, "pt_yards")),
@@ -245,6 +246,7 @@ func parseTeamStats(path string, season int) ([]TeamWeekStat, error) {
 			DefSacks:          floatValue(cell(row, index, "def_sacks")),
 			DefInterceptions:  floatValue(cell(row, index, "def_interceptions")),
 			DefTDs:            floatValue(cell(row, index, "def_tds")),
+			FumbleRecoveryTDs: floatValue(cell(row, index, "fumble_recovery_tds")),
 			DefSafeties:       floatValue(cell(row, index, "def_safeties")),
 			FumbleRecoveryOpp: floatValue(cell(row, index, "fumble_recovery_opp")),
 			// Every column below is optional by construction: cell returns
@@ -259,6 +261,7 @@ func parseTeamStats(path string, season int) ([]TeamWeekStat, error) {
 			SpecialTeamsTDs:  floatValue(cell(row, index, "special_teams_tds")),
 			PassingYards:     floatValue(cell(row, index, "passing_yards")),
 			RushingYards:     floatValue(cell(row, index, "rushing_yards")),
+			SackYardsLost:    floatValue(cell(row, index, "sack_yards_lost")),
 		})
 	}
 	return stats, nil

@@ -415,7 +415,7 @@ func liveSourceLine(state string, status LiveStatus, now time.Time) string {
 	case LiveStateUnderway:
 		return "Live box scores · games still to come"
 	case LiveStateFinal:
-		return "Final box scores · weekly ledger pending"
+		return "Final box scores"
 	}
 	return "Weekly ledger (nflverse)"
 }

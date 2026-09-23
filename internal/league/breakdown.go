@@ -33,18 +33,8 @@ var breakdownRows = []breakdownRow{
 	{statKey: "recYds", label: "Rec yds", ruleKey: "recYards"},
 	{statKey: "recTD", label: "Rec TD", ruleKey: "recTD"},
 	{statKey: "fumblesLost", label: "Fum lost", ruleKey: "fumbleLost"},
-	// twoPt (GC-1 fix 3) scores at week close only: a projection stat line
-	// never emits it (internal/fantasy's projectionStats has no twoPt
-	// entry), and neither does a live Tank01 box score — Tank01 carries no
-	// per-player two-point field at all (internal/fantasy's
-	// preseasonPlayerStats doc comment). It populates only from the
-	// closed-week ledger (main.go's offenseStatLine, summed from the
-	// mirror's three typed nflverse columns), the same closed-week-only
-	// pattern several PUNTING keys already follow. This row still lets
-	// RuleStatsFromTank01 translate a "twoPt" key if one is ever present
-	// on a Tank01-shaped map, so a future Tank01 field would not need a
-	// second table entry — but nothing in this package populates one
-	// today.
+	// Player-level conversions feed this key from both the live box and
+	// weekly mirror. Projections may still omit it.
 	{statKey: "twoPt", label: "2-pt conversion", ruleKey: "twoPt"},
 	// The four rows below are additive for Preseason Blitz (WP-B1, design
 	// spec section 4.3). A projection stat line never emits these keys —
@@ -77,18 +67,18 @@ var breakdownRows = []breakdownRow{
 // separate table so scoreStatsWithValues (Blitz) never scores D/ST keys.
 // It carries no label: RuleStatsFromTank01, its only reader, never renders
 // one; Task 10 can add labels where it renders D/ST breakdown rows.
-// The live feed's DST block carries exactly these five event fields plus
-// ptsAllowed and ydsAllowed (verified against internal/fantasy's box-score
-// fixtures). It reports no blocked kick, forced fumble, defensive
-// two-point return, or special-teams TD, so those four DEFENSE rules
-// score at week close only — the same honest closed-week-only boundary
-// several PUNTING keys and the MISC twoPt rule already sit behind.
+// The live parser combines the DST unit, teamStats, and credited player
+// defense fields into the same scoring keys as the weekly team mirror.
 var tank01DSTRows = []breakdownRow{
 	{statKey: "sacks", ruleKey: "dstSack"},
 	{statKey: "defensiveInterceptions", ruleKey: "dstInt"},
 	{statKey: "fumblesRecovered", ruleKey: "dstFumbleRec"},
+	{statKey: "forcedFumbles", ruleKey: "dstForcedFumble"},
 	{statKey: "defTD", ruleKey: "dstTD"},
 	{statKey: "safeties", ruleKey: "dstSafety"},
+	{statKey: "blockedKicks", ruleKey: "dstBlockedKick"},
+	{statKey: "twoPointReturns", ruleKey: "dstTwoPtReturn"},
+	{statKey: "specialTeamsTD", ruleKey: "dstSpecialTeamsTD"},
 }
 
 // These keys carry live D/ST context through WeekStatLine without changing

@@ -83,19 +83,9 @@ func defaultScoringRules() []ScoringRule {
 		{Group: "RECEIVING", Key: "recYards", Label: "Receiving yards (per yard)", Points: 0.1},
 		{Group: "RECEIVING", Key: "recTD", Label: "Receiving TD", Points: 6},
 		{Group: "MISC", Key: "fumbleLost", Label: "Fumble lost", Points: -2},
-		// twoPt (GC-1 fix 3) replaces the old typed pass2pt/rush2pt/rec2pt
-		// rules, which never scored anything: no source ever mapped a stat
-		// to them. Tank01's live box score carries no per-player two-point
-		// field at all (verified against internal/fantasy's box-score
-		// fixtures — the only twoPointConversions field either carries is a
-		// team-level total, not attributable to a player), so this rule
-		// scores at week close only, from the mirrored nflverse ledger
-		// (main.go's offenseStatLine, summed from three typed columns) —
-		// the same closed-week-only pattern several PUNTING keys above
-		// already follow. One untyped rule, not three, because the ledger
-		// itself reports the three types separately but Tank01 never will,
-		// so a typed rule could never be verified consistent between the
-		// two sources anyway.
+		// Both Tank01's player groups and the nflverse weekly mirror can
+		// report player-level passing, rushing, and receiving two-point
+		// conversions. Sum the three types into this one scoring rule.
 		{Group: "MISC", Key: "twoPt", Label: "Two-point conversion", Points: 2},
 		{Group: "MISC", Key: "returnTD", Label: "Kick or punt return TD", Points: 6},
 		// KICKING (WP-R2). Fed from the openstats weekly player ledger's
@@ -175,12 +165,9 @@ func defaultScoringRules() []ScoringRule {
 		// Commissioner-tunable like every group above, same -25..25 clamp
 		// (Store.SetScoringValue).
 		//
-		// WP-R2 resolution: puntYards (the 40+-yard gate, applied at
-		// scoring time — see main.go's addPuntingStatsFromPBP), coffinCorner,
-		// puntDownedInside5, puntLong50 (each 50+-yard punt, not a single
-		// per-game flag), and puntBlocked (now attributed to the specific
-		// punter, superseding the old Tank01 team-level-only limitation)
-		// all feed from the openstats play-by-play mirror at week close.
+		// Individual Tank01 punt plays feed live scoring. The nflverse
+		// play-by-play mirror also feeds these rules for games without a
+		// saved complete final box.
 		// puntIn20 and puntTouchback feed from either source. When the
 		// play-by-play mirror has no data for a given week (not yet synced,
 		// or the season predates it), every punter that week degrades to
@@ -550,22 +537,17 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 	}
 }
 
-// scoringGroupNote renders one scoring group's header note. Only PUNTING
-// carries one today: its yardage rule only scores 40+-yard punts, and its
-// per-punt rules score from play-by-play data at week close, which can lag
-// a week's games by the mirror's sync interval — see defaultScoringRules'
-// PUNTING doc comment for the honest accounting this note summarizes for
-// managers.
+// scoringGroupNote renders the scoring group's manager-facing source note.
 func scoringGroupNote(group string) string {
 	switch group {
 	case "PUNTING":
-		return "Punting yards score only on punts of 40 or more yards. Live punt aggregates are provisional; a missing punter stat row means pending, not a confirmed zero. Full per-punt distance, coffin-corner, inside-the-5, and blocked-punt bonuses settle from play-by-play data at week close."
+		return "Punting yards score only on punts of 40 or more yards. Live play-by-play supplies each punt and its landing bonuses. The first complete final box locks the game's points; games without one use the weekly mirror."
 	case "DEFENSE":
-		return "Sacks, interceptions, fumble recoveries, defensive touchdowns, and safeties score live. Forced fumbles, blocked kicks, defensive two-point returns, and special-teams touchdowns score at week close: the live box score does not report them."
+		return "Defensive events score from the live player, team, and D/ST box fields. A complete final box locks those points; games without one use the weekly mirror."
 	case "POINTS ALLOWED":
 		return "A defense scores exactly one of these bands per game, and only once that game is final. Points allowed are the points its own opponent scored."
 	case "YARDS ALLOWED":
-		return "A defense scores exactly one of these bands per game, and only once that game is final. Yards allowed are its opponent's passing plus rushing yards, with sack losses already deducted."
+		return "A defense scores exactly one of these bands per game, and only once that game is final. Yards allowed are its opponent's passing plus rushing yards after sack losses."
 	}
 	return ""
 }

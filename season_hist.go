@@ -191,7 +191,7 @@ func buildSeasonHouseHistIndex(stats *openstats.Service, values map[string]float
 		acc.recYds += row.ReceivingYards
 		acc.recTD += row.ReceivingTDs
 		acc.fgMade += row.FGMade
-		acc.fgMissed += row.FGMissed
+		acc.fgMissed += row.FGMissed + row.FGBlocked
 		acc.xpMade += row.XPMade
 		acc.totalPts += league.ScoreRuleStats(offenseStatLine(row), values)
 	}
@@ -220,14 +220,8 @@ func houseHistLine(acc *seasonHouseAccumulator) string {
 		return fmt.Sprintf("%d · %d G · %s rush yds · %d TD · %d rec · %.1f FPts",
 			acc.season, games, thousands(roundToInt(acc.rushYds)), roundToInt(acc.rushTD+acc.recTD), roundToInt(acc.receptions), acc.totalPts)
 	case "K":
-		// The denominator is fgMade+fgMissed, not a true fg-attempts count:
-		// nflverse's stats_player_week dictionary tracks a blocked field
-		// goal in its own fg_blocked column, separate from fg_missed, and
-		// parsePlayerStats (internal/openstats/parser.go) does not read
-		// fg_blocked at all — so a week with a blocked kick undercounts
-		// this line's attempts by exactly that block (confirmed against
-		// the nflverse player-stats data dictionary, 2026-08-31; not an
-		// assumption).
+		// fgMissed includes both ordinary misses and blocked attempts,
+		// matching the live box and the weekly scoring rule.
 		return fmt.Sprintf("%d · %d G · %d/%d FG · %d XP · %.1f FPts",
 			acc.season, games, roundToInt(acc.fgMade), roundToInt(acc.fgMade+acc.fgMissed), roundToInt(acc.xpMade), acc.totalPts)
 	default: // WR, TE

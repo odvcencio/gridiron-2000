@@ -164,6 +164,11 @@ type BoxScore struct {
 	InProgress bool                          // code "1", or any non-final code with a non-empty period
 	Players    map[string]PlayerLine         // Tank01 playerID -> line
 	DST        map[string]map[string]float64 // Tank01 team abbreviation -> dstStatKeys plus ptsAllowed
+	// A complete play list reconciles every punter's event count and gross
+	// yardage with the final player box. The poller requires this before
+	// accepting a real provider box as final.
+	PuntPlayByPlayComplete bool
+	ScoringComplete        bool // final box has every live rule source, including team stats and punt plays
 	// Raw is the decoded top-level getNFLBoxScore body, kept only for a
 	// tolerant downstream seam this package does not itself model:
 	// internal/livescore's GC-2b possession extraction (ExtractPossession)
@@ -194,8 +199,8 @@ type PlayerLine struct {
 // carried it (verified against testdata/box-20250904_DAL-PHI.json, where
 // both units report it), and the yards-allowed ladder the DEFENSE group
 // gained that day scores from it. Nothing else in the live DST block is
-// left unread — the live feed reports no blocked kick, forced fumble, or
-// defensive two-point return at all, so those rules are week-close only.
+// left unread. Additional D/ST rules draw on the same box's teamStats and
+// playerStats blocks below.
 var dstStatKeys = []string{"sacks", "defensiveInterceptions", "fumblesRecovered", "defTD", "safeties", "ydsAllowed"}
 
 // ParseBoxScore unwraps the Tank01 envelope and parses the body. The
@@ -207,9 +212,11 @@ func ParseBoxScore(raw []byte) BoxScore { return parseBoxScore(unwrapEnvelope(ra
 // It reuses passingStatKeys/rushingStatKeys/receivingStatKeys (F5)
 // verbatim, adds kickingStatKeys for the P5 fields, synthesizes returnTD
 // from the overloaded Kicking/Punting groups (P6, keyed by field name,
-// never by group identity), and parses fumblesLost from both candidate
-// locations (P9, unverified — see R2). Defense-only rows carry no scored
-// offense/kicking stats and are dropped from Players. Explicit zero-valued
+// never by group identity), player-level two-point conversions, and fumblesLost from the top level,
+// Fumbles, or Defense. Tank01 reported Kyren Williams's lost fumble in
+// Defense during the 2026 week 2 Monday game. Defense-only rows without a
+// lost fumble carry no scored offense/kicking stats and are dropped from
+// Players. Explicit zero-valued
 // offense/kicking fields retain a scoreless player's row, so a final box
 // score can account for the player without an invented missing-stat gap.
 // Punter rows instead retain validated per-player punting aggregates,
@@ -249,7 +256,11 @@ func parseBoxScore(raw json.RawMessage) BoxScore {
 			Stats: stats,
 		}
 	}
-	if dst, ok := body["DST"].(map[string]any); ok {
+	addPuntPlayByPlay(&box, body, playerStats)
+	forcedFumbles := boxForcedFumbles(body, playerStats, box.Away, box.Home)
+	teamStats, _ := body["teamStats"].(map[string]any)
+	dst, _ := body["DST"].(map[string]any)
+	if dst != nil {
 		// A slice, not a map literal, so "away" is always visited before
 		// "home" — deterministic order for anyone stepping through this
 		// in a debugger or diffing test output.
@@ -283,9 +294,18 @@ func parseBoxScore(raw json.RawMessage) BoxScore {
 			if value, ok := flexFloatOK(unit["ptsAllowed"]); ok {
 				line["ptsAllowed"] = value
 			}
+			line["forcedFumbles"] = forcedFumbles[team]
+			if rawTeam, ok := teamStats[pair.side].(map[string]any); ok {
+				line["blockedKicks"] = flexFloat(rawTeam["blockedPunt"]) + flexFloat(rawTeam["blockedFG"]) + flexFloat(rawTeam["blockedXP"])
+				line["twoPointReturns"] = flexFloat(rawTeam["defensiveTwoPointConversionReturns"])
+				// This team field combines defense and return touchdowns;
+				// the separate D/ST defTD total accounts for the former.
+				line["specialTeamsTD"] = math.Max(0, flexFloat(rawTeam["defensiveOrSpecialTeamsTds"])-line["defTD"])
+			}
 			box.DST[team] = line
 		}
 	}
+	box.ScoringComplete = playerStats != nil && box.PuntPlayByPlayComplete && len(box.DST) == 2 && completeDSTBox(dst, box.Away, box.Home) && completeDSTTeamStats(teamStats)
 	return box
 }
 
@@ -339,15 +359,10 @@ func livePlayerStats(entry map[string]any) map[string]float64 {
 // live parser retains explicit offense/kicking zeroes through livePlayerStats
 // and separately adds validated punting aggregates, including zero-punt rows.
 //
-// Two-point conversions (GC-1 fix 3) score at week close only: Tank01's
-// box score carries no per-player two-point field at all (verified
-// against testdata/preseason-boxscore-sample.json and
-// testdata/box-20250904_DAL-PHI.json — the only twoPointConversions field
-// either fixture carries is a team-level total under teamStats, not
-// attributable to a player), so this function has no source to read it
-// from. The league's "twoPt" rule scores from the closed-week nflverse
-// ledger instead (main.go's offenseStatLine), the same closed-week-only
-// pattern several PUNTING keys already follow.
+// Tank01's 2026 week 2 box puts Travis Etienne's two-point conversion in
+// Rushing.rushingTwoPointConversion. Read player-level conversions from
+// all three offense groups; teamStats.twoPointConversions is a team total
+// and cannot be attributed to a player.
 func preseasonPlayerStats(entry map[string]any) map[string]float64 {
 	stats := map[string]float64{}
 	addGroup := func(groupKey string, keyMap map[string]string) {
@@ -365,6 +380,25 @@ func preseasonPlayerStats(entry map[string]any) map[string]float64 {
 	addGroup("Rushing", rushingStatKeys)
 	addGroup("Receiving", receivingStatKeys)
 	addGroup("Kicking", kickingStatKeys)
+	for _, group := range []struct {
+		name string
+		keys []string
+	}{
+		{"Passing", []string{"passingTwoPointConversion", "passingTwoPointConversions"}},
+		{"Rushing", []string{"rushingTwoPointConversion", "rushingTwoPointConversions"}},
+		{"Receiving", []string{"receivingTwoPointConversion", "receivingTwoPointConversions"}},
+	} {
+		values := groupStats(entry, group.name)
+		for _, key := range group.keys {
+			if count, ok := flexFloatOK(values[key]); ok {
+				stats["twoPt"] += count
+				break // singular/plural aliases describe the same conversions
+			}
+		}
+	}
+	if stats["twoPt"] == 0 {
+		delete(stats, "twoPt")
+	}
 
 	returnTD := 0.0
 	if group, ok := entry["Kicking"].(map[string]any); ok {
@@ -377,13 +411,17 @@ func preseasonPlayerStats(entry map[string]any) map[string]float64 {
 		stats["returnTD"] = returnTD
 	}
 
-	if value := flexFloat(entry["fumblesLost"]); value != 0 {
-		stats["fumblesLost"] = value
-	} else if group, ok := entry["Fumbles"].(map[string]any); ok {
-		if value := flexFloat(group["fumblesLost"]); value != 0 {
+	for _, source := range []map[string]any{entry, groupStats(entry, "Fumbles"), groupStats(entry, "Defense")} {
+		if value, ok := flexFloatOK(source["fumblesLost"]); ok && value != 0 {
 			stats["fumblesLost"] = value
+			break
 		}
 	}
+	return stats
+}
+
+func groupStats(entry map[string]any, group string) map[string]any {
+	stats, _ := entry[group].(map[string]any)
 	return stats
 }
 
@@ -420,8 +458,9 @@ func (s *Service) FetchPreseasonBoxScore(ctx context.Context, gameID string) (ma
 // holds one; it shares the pool's client so the request counter stays
 // whole, or (replay mode) points at a fake relay of its own.
 type BoxScoreClient struct {
-	client *tank01Client
-	season int
+	client          *tank01Client
+	season          int
+	requireFinalPBP bool
 }
 
 // defaultBoxScoreMaxBody is NewBoxScoreClient's maxBodyBytes fallback: it
@@ -453,20 +492,24 @@ func NewBoxScoreClient(baseURL string, season int, httpClient *http.Client, maxB
 }
 
 func (s *Service) BoxScoreClient() *BoxScoreClient {
-	return &BoxScoreClient{client: s.client, season: s.config.Season}
+	return &BoxScoreClient{client: s.client, season: s.config.Season, requireFinalPBP: true}
 }
 
 func (c *BoxScoreClient) FetchBoxScore(ctx context.Context, gameID string) (BoxScore, error) {
-	raw, err := c.client.get(ctx, "getNFLBoxScore", map[string]string{"gameID": gameID})
+	raw, err := c.client.getFresh(ctx, "getNFLBoxScore", map[string]string{"gameID": gameID, "playByPlay": "true"})
 	if err != nil {
 		return BoxScore{}, err
 	}
-	return parseBoxScore(raw), nil
+	box := parseBoxScore(raw)
+	if c.requireFinalPBP && box.Final && !box.ScoringComplete {
+		return BoxScore{}, fmt.Errorf("final box for %s has missing or inconsistent scoring details", gameID)
+	}
+	return box, nil
 }
 
 // FetchGamesForWeek lists one week. seasonType is "reg" or "pre".
 func (c *BoxScoreClient) FetchGamesForWeek(ctx context.Context, seasonType, week string) ([]GameListing, error) {
-	raw, err := c.client.get(ctx, "getNFLGamesForWeek", map[string]string{"week": week, "seasonType": seasonType, "season": strconv.Itoa(c.season)})
+	raw, err := c.client.getFresh(ctx, "getNFLGamesForWeek", map[string]string{"week": week, "seasonType": seasonType, "season": strconv.Itoa(c.season)})
 	if err != nil {
 		return nil, err
 	}

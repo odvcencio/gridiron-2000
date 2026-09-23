@@ -92,7 +92,7 @@ func TestMatchupLiveStatePrecedence(t *testing.T) {
 		// production. The real disabled-kill-switch case carries an empty
 		// Games map and resolves to LEDGER, not PAUSED.
 		{"disabled kill switch reports no games in flight", LiveStatus{Enabled: false, Degraded: true, Reason: "disabled"}, nil, "LEDGER", "Weekly ledger (nflverse)"},
-		{"final before the ledger", LiveStatus{Enabled: true, Games: final}, map[string]string{allen: StatSourceLiveFinal}, "FINAL", "Final box scores · weekly ledger pending"},
+		{"final before the ledger", LiveStatus{Enabled: true, Games: final}, map[string]string{allen: StatSourceLiveFinal}, "FINAL", "Final box scores"},
 		{"ledger", LiveStatus{Enabled: true, Games: final}, map[string]string{allen: StatSourceLedger}, "LEDGER", "Weekly ledger (nflverse)"},
 	}
 	for _, tc := range cases {

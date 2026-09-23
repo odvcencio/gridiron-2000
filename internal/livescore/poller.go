@@ -433,7 +433,11 @@ func (p *Poller) Tick(ctx context.Context) {
 			// (round-2 note 2): a relay outage must not burn the day's
 			// budget on failed attempts and mask the real fault behind a
 			// false "daily budget exhausted" reason.
-			recordChanged := p.record(game, box, now)
+			recordChanged, err := p.record(game, box, now)
+			if err != nil {
+				p.recordFailure(err, now)
+				return
+			}
 			p.updateFastStreak(game.ID, tier, recordChanged) // GC-2b's unchanged-payload backoff
 			p.chargeBudget(now)
 			if recordChanged {
@@ -482,6 +486,7 @@ func (p *Poller) isFinalDone(id string) bool {
 func (p *Poller) boxFetchDue(game Game, now time.Time) bool {
 	p.mu.Lock()
 	rec, seen := p.games[game.ID]
+	scoreboard, hasScoreboard := p.scoreboard[game.ID]
 	p.mu.Unlock()
 	// The very first sighting always fetches, at any tier, including
 	// idle: gameRelevance's hasStarter check is a roster fact, entirely
@@ -496,6 +501,16 @@ func (p *Poller) boxFetchDue(game Game, now time.Time) bool {
 	// enters the poll window, is worth the bounded one-time cost.
 	if !seen {
 		return true
+	}
+	// A final scoreboard is only a game-status signal. Until a final box
+	// supplies the scoring lines, retry on each scoreboard tick for two
+	// minutes, then at baseline cadence. This also applies to idle games:
+	// their one pre-game box cannot be mistaken for final scoring truth.
+	if hasScoreboard && scoreboard.row.Final && !rec.box.Final {
+		if now.Sub(scoreboard.changedAt) < 2*time.Minute {
+			return now.After(rec.at)
+		}
+		return now.Sub(rec.at) >= p.cfg.BoxBaseline
 	}
 	tier := p.boxFetchTier(game)
 	if tier == boxFetchIdle {
@@ -585,7 +600,11 @@ func (p *Poller) TriggerBoxFetch(ctx context.Context, gameID string) {
 		p.recordFailure(err, now)
 		return
 	}
-	changed := p.record(game, box, now)
+	changed, err := p.record(game, box, now)
+	if err != nil {
+		p.recordFailure(err, now)
+		return
+	}
 	// A real change here always resets the backoff streak (updateFastStreak
 	// only ever increments for tier==boxFetchFast, so the boxFetchBaseline
 	// argument below is a no-op on the unchanged path and exists only to
@@ -707,7 +726,18 @@ func (p *Poller) openCircuitOnRateLimit(err error, now time.Time) {
 // box.InProgress exactly as addBoxToSnapshot gates it for Snapshot's own
 // GameState — the two must never disagree about when possession is
 // meaningful to read at all.
-func (p *Poller) record(game Game, box fantasy.BoxScore, now time.Time) bool {
+func (p *Poller) record(game Game, box fantasy.BoxScore, now time.Time) (bool, error) {
+	p.mu.Lock()
+	finalDone := p.finalDone[game.ID]
+	p.mu.Unlock()
+	if finalDone {
+		return false, nil
+	}
+	if box.Final && p.cfg.Finalize != nil {
+		if err := p.cfg.Finalize(game, box); err != nil {
+			return false, fmt.Errorf("persist final box for %s: %w", game.ID, err)
+		}
+	}
 	encoded, _ := json.Marshal(box)
 	hash := sha256.Sum256(encoded)
 	possession, possessionKnown := "", false
@@ -716,6 +746,11 @@ func (p *Poller) record(game Game, box fantasy.BoxScore, now time.Time) bool {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// A wire-triggered fetch can complete after Tick accepted the final box.
+	// Its older in-progress payload must never replace that final record.
+	if p.finalDone[game.ID] {
+		return false, nil
+	}
 	p.failures, p.lastError, p.lastSuccess = 0, "", now
 	previous, seen := p.games[game.ID]
 	changed := !seen || previous.hash != hash
@@ -725,7 +760,7 @@ func (p *Poller) record(game Game, box fantasy.BoxScore, now time.Time) bool {
 	if box.Final {
 		p.finalDone[game.ID] = true
 	}
-	return changed
+	return changed, nil
 }
 
 // Snapshot copies the current state under p.mu only; it reads no schedule.
@@ -769,7 +804,7 @@ func (p *Poller) Snapshot() Snapshot {
 		// fetched first with the same tick timestamp and may still show
 		// overtime, so it must never reopen the game or restore its old
 		// score and possession after the final box has arrived.
-		if game.Final && !row.Final {
+		if game.BoxFinal {
 			continue
 		}
 		if !row.InProgress && !row.Final {

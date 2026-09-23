@@ -26,7 +26,7 @@ var (
 
 	DefaultDraftAt       = placeholderDraftAt
 	DefaultDraftTZ       = defaultConfigTimezone
-	DefaultRefreshPeriod = 60 * time.Second
+	DefaultRefreshPeriod = 10 * time.Second
 	DefaultSeasonStartAt = placeholderSeasonStartAt
 )
 
@@ -224,15 +224,19 @@ type PersistedState struct {
 	// nil-map-guard pattern below, and the version is stamped current on
 	// load. A file whose version exceeds currentSchemaVersion refuses to
 	// load rather than silently drop data; see Store.load.
-	SchemaVersion int                 `json:"schemaVersion"`
-	Ready         map[string]bool     `json:"ready"`
-	Picks         []DraftPick         `json:"picks"`
-	Members       map[string]Member   `json:"members"`
-	Invites       []string            `json:"invites"`
-	Boards        map[string][]string `json:"boards"`
-	TeamNames     map[string]string   `json:"teamNames"`
-	DraftOrder    []string            `json:"draftOrder"`
-	Scoring       map[string]float64  `json:"scoring"`
+	SchemaVersion int `json:"schemaVersion"`
+	// FinalGameStats holds the first accepted final box for each NFL game.
+	// Its stat lines remain authoritative through later ledger imports and
+	// process restarts until the already immutable fantasy week is posted.
+	FinalGameStats map[string]FinalGameStats `json:"finalGameStats,omitempty"`
+	Ready          map[string]bool           `json:"ready"`
+	Picks          []DraftPick               `json:"picks"`
+	Members        map[string]Member         `json:"members"`
+	Invites        []string                  `json:"invites"`
+	Boards         map[string][]string       `json:"boards"`
+	TeamNames      map[string]string         `json:"teamNames"`
+	DraftOrder     []string                  `json:"draftOrder"`
+	Scoring        map[string]float64        `json:"scoring"`
 	// DraftStarted is the authoritative lifecycle gate. DraftAt is only the
 	// announced window; no pick or clock transition is legal until the
 	// commissioner explicitly opens the room.

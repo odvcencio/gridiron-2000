@@ -27,6 +27,16 @@ type tank01Client struct {
 }
 
 func (t *tank01Client) get(ctx context.Context, endpoint string, params map[string]string) (json.RawMessage, error) {
+	return t.getWithFreshness(ctx, endpoint, params, false)
+}
+
+// getFresh rejects the relay's expired fallback response for live scoring.
+// Treating it as a successful fetch could freeze a stale final box forever.
+func (t *tank01Client) getFresh(ctx context.Context, endpoint string, params map[string]string) (json.RawMessage, error) {
+	return t.getWithFreshness(ctx, endpoint, params, true)
+}
+
+func (t *tank01Client) getWithFreshness(ctx context.Context, endpoint string, params map[string]string, requireFresh bool) (json.RawMessage, error) {
 	query := url.Values{}
 	for key, value := range params {
 		if value != "" {
@@ -77,6 +87,9 @@ func (t *tank01Client) get(ctx context.Context, endpoint string, params map[stri
 	}
 	if response.StatusCode != http.StatusOK {
 		return nil, &HTTPStatusError{Endpoint: endpoint, Status: response.StatusCode}
+	}
+	if requireFresh && strings.EqualFold(response.Header.Get("X-Statrelay-Stale"), "true") {
+		return nil, fmt.Errorf("%s: relay served an expired cached response", endpoint)
 	}
 	return unwrapEnvelope(raw), nil
 }

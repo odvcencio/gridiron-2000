@@ -223,7 +223,7 @@ A player's `Hist` line shows their previous season, scored under this league's o
 - DST carries no `Hist` line. The open-data mirror keeps no previous-season team-defense file to rescore from.
 - Punters keep their own embedded 2025 line (see "Punter rankings" above). That line was already rescored under the league's punting rules before this feature existed.
 - A rookie or a player absent from the previous season's mirror shows no `Hist` line at all, never a fabricated one.
-- The weekly mirror carries no return-touchdown column, so the `Hist` line can never credit the `returnTD` rule, even though the league's own rulebook prices it: that rule scores only from a live Tank01 box score, which historical rescoring has no access to. This is the same gap live weekly scoring has once a week closes (see `internal/livescore/overlay.go`'s close-week merge, which keeps a live-scored return touchdown from vanishing during the current season — a past season's `Hist` line has no such live row to draw from). The weekly mirror's two-point conversion columns are credited under the single `twoPt` rule, the same as current-season weekly scoring.
+- The weekly mirror carries return touchdowns and two-point conversions. `Hist` rescoring uses the same player-level mapping as current-season weekly scoring.
 
 ### House rank
 
@@ -260,14 +260,14 @@ Market ADP ranks players for a generic fantasy market, not the league's own rost
 
 ## Game day
 
-Regular-season live scoring (`internal/livescore`) is gated by `LIVE_SCORING_ENABLED`, defaulting to `false`. It overlays live data onto the mirrored nflverse ledger; the overlay never changes which source is *authoritative for a closed week* — only how an *open* week's provisional total is computed while games are in progress.
+Regular-season live scoring (`internal/livescore`) is gated by `LIVE_SCORING_ENABLED`, defaulting to `false`. It overlays live data onto the mirrored nflverse ledger. Live boxes now include player two-point conversions, individual punt plays, and D/ST events from the team and player blocks. A real provider box is accepted as final only when its punt plays reconcile with its aggregate and both D/ST team blocks are present. The first complete final box is saved durably and locks every scoring category for that NFL game through later ledger imports, week close, and process restarts. Games without an accepted complete final box use the weekly mirror and remain provisional. A closed fantasy week's posted total remains immutable.
 
 ### Polling architecture
 
 Live scoring fetches Tank01 in three layers instead of blanket-polling every in-progress game's box score on one cadence:
 
 1. **Scoreboard tick.** Every `LIVE_SCOREBOARD_INTERVAL` (default `10s`, floor `5s`) the poller fetches the live scoreboard — one `getNFLScoresOnly` call per in-window game date, carrying every game's score, period, clock, status, and possession in one small payload (verified against a real capture on 2026-08-31; a full 13-game Sunday is under 8 KB) — plus one games-list call per in-window week, reused for 60 seconds, whose only job is Tank01 ID resolution. Both run only while at least one schedule game is inside its own poll window (kickoff minus 5 minutes through kickoff plus 5 hours); an idle day, with no game anywhere near that window, costs zero calls. A scoreboard **delta** — a score, possession, period, or status change; deliberately never the running clock — marks that game's box fetch due immediately, inside its tier interval below. A failing scoreboard endpoint degrades to exactly the tiered cadence alone and shows in the poller's health.
-2. **Adaptive box fetch (GC-2b).** Each in-progress game's box score is fetched on one of three cadences, decided fresh every scoreboard tick from the freshest known possession — the scoreboard row's when it is at least as new as the last box fetch, which it usually is — and a relevance callback over the league's current effective starters:
+2. **Adaptive box fetch (GC-2b).** Each in-progress game's box score is fetched with `playByPlay=true` on one of three cadences, decided fresh every scoreboard tick from the freshest known possession — the scoreboard row's when it is at least as new as the last box fetch, which it usually is — and a relevance callback over the league's current effective starters. Once the scoreboard reports final, the poller retries the box every tick for up to two minutes, then at baseline cadence, until a complete final box is durably saved:
    - **Fast (`LIVE_BOX_FAST`, default `20s`, floor `10s`).** The game's currently known possession is itself relevant — the possessing team fields a league offensive starter, or the defending team's DST is started.
    - **Baseline (`LIVE_BOX_BASELINE`, default `30s`).** The flat fallback: possession is unknown (the lineScore shape is verified on final captures; the Thursday capture confirms it populates live), or a fast-tier game has been backed off by a break-state guard (a halftime/clock-stopped intermission, which runs about 13 minutes — there is nothing to catch while the clock is not running) or an unchanged-payload guard (two consecutive fast-tier fetches returned identical content — likely a TV timeout; the next fetch whose content actually differs snaps the game back to the fast tier).
    - **Idle (at most once).** Neither team fields a single league starter this week at all: the poller fetches its box exactly once, on the game's first sighting (so the snapshot itself, and a later relevance re-check, both have something to build on), and never again after — the shared scoreboard call keeps its score/period/final state current enough for free from then on, and repeated box polling would add nothing any league team could ever see. On a bye-heavy week this is where most of the savings comes from — an irrelevant game costs one bounded fetch plus its own share of the shared scoreboard call, never the repeated baseline/fast cadence.
@@ -285,23 +285,25 @@ Live scoring fetches Tank01 in three layers instead of blanket-polling every in-
 
 The arithmetic: a 12-hour Sunday window at a 30-minute scoreboard tick is 24 scoreboard calls, plus at most 20 box fetches under `LIVE_DAILY_BUDGET`, for about 44 requests that day. Four game days a week (Thursday, Sunday early, Sunday late, Monday) is about 180 requests a week, about 780 a month — under the 1,000/month hard limit. This holds per shared relay, not per league instance: it assumes `STATRELAY_PROFILE=free`'s own TTL dedupes every league instance behind one relay onto one upstream call per TTL window, so several free-tier leagues sharing one relay do not each spend 780/month independently against the one Tank01 key.
 
-Nothing about the status line changes under this profile: it still reports the true elapsed time since the last successful fetch — "checked 27 minutes ago" is an honest, correctly-labeled `LIVE` state at this cadence, never disguised as the 10-second experience. If a deployment exceeds the free tier's hard limit anyway, Tank01 returns `429`, and the existing circuit breaker opens for 60 seconds exactly as it does today; the poller degrades to `PAUSED` and recovers on its own once the breaker closes. Whatever the cadence or the state, the nflverse weekly ledger stays the sole authority once a week is closed — the live feed only ever affects how fresh an *open* week's provisional total looks.
+Nothing about the status line changes under this profile: it still reports the true elapsed time since the last successful fetch — "checked 27 minutes ago" is an honest, correctly-labeled `LIVE` state at this cadence, never disguised as the 10-second experience. If a deployment exceeds the free tier's hard limit anyway, Tank01 returns `429`, and the existing circuit breaker opens for 60 seconds exactly as it does today; the poller degrades to `PAUSED` and recovers on its own once the breaker closes. Whatever the cadence or the state, saved final boxes remain authoritative for the categories they report, and the posted fantasy week total remains immutable after close.
 
 ### The four states
 
 | State | Meaning | Matchups status line |
 | --- | --- | --- |
 | `LIVE` | The poller has a healthy, in-progress signal for at least one starter's game. | `Live box scores · checked N s ago` |
-| `FINAL` | The poller marked a starter's game final, but the mirrored weekly ledger has not posted that player's corrected stats yet. | `Final box scores · weekly ledger pending` |
+| `FINAL` | The poller saved the starter's complete final box; its score is locked. | `Final box scores` |
 | `LEDGER` | No live signal is authoritative right now — pre-kickoff, the week is closed, or every relevant stat already sits in the mirrored nflverse file. | `Weekly ledger (nflverse)` |
 | `PAUSED` | The live poller itself is degraded (the relay returned 429, the daily budget is exhausted, or repeated relay/listing failures) while a starter's game the poller has already recorded as in progress. The kill switch alone cannot produce this state: flipping it restarts the process, and the restarted poller has no game history to pause on — see [Kill-switch procedure](#kill-switch-procedure). | `Live box scores paused · <reason>` |
 
 ### Precedence
 
 1. A live row wins while that player's game is in progress and the poller itself is healthy (not degraded).
-2. A ledger row wins once the game is final.
+2. The first accepted complete final box is saved before the game is published as final. Every scoring category wins thereafter, including confirmed zeroes for absent players. The weekly ledger supplies games for which no complete final box was saved. Older saved boxes without complete scoring details retain their supported categories and continue to use the mirror for the rest.
 3. A ledger row wins whenever live has no data for that player (Tank01 omits a player from the box score until their first recorded stat; a starter with no live row yet and no ledger row either still renders an honest `0.0` once the game is known to have started, or a dash before kickoff or during a known poller outage — never an implicit, unlabeled zero).
-4. Once the commissioner closes a week, the posted final score is always authoritative and never changes, regardless of any later live or ledger correction; the mismatch (if any) is called out beside the posted total, not silently absorbed.
+4. Once the commissioner closes a week, the posted final score is always authoritative and never changes. A later source correction cannot replace saved final-game lines; a correction for a game without a saved final box can appear in the explanatory ledger as a labeled delta from the posted total.
+
+The Home and Matchups pages receive score changes through the scores live hub. Their fallback poll runs every 10 seconds while the current week is active. An expired response served by `statrelay` during an upstream outage is rejected by the live client rather than treated as a fresh final box.
 
 ### Tank01 game-status code rule
 

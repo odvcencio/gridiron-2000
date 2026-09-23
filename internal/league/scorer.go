@@ -259,9 +259,16 @@ func normalizePlayerKey(name, position string) string {
 	for _, part := range parts {
 		b.WriteString(part)
 	}
-	b.WriteByte('|')
-	b.WriteString(strings.ToUpper(strings.TrimSpace(position)))
-	return b.String()
+	nameKey := b.String()
+	switch nameKey {
+	case "andrewogletree":
+		nameKey = "drewogletree"
+	case "marquisebrown":
+		nameKey = "hollywoodbrown"
+	case "joshpalmer":
+		nameKey = "joshuapalmer"
+	}
+	return nameKey + "|" + strings.ToUpper(strings.TrimSpace(position))
 }
 
 // rosterTotalScorer is the v1 MatchupScorer (section 2.4): score the whole

@@ -87,7 +87,7 @@ func ParseScoresOnly(raw []byte) []ScoreboardGame {
 // with live score, clock, period, and possession-bearing lineScore — the
 // live poller's layer-1 scoreboard call.
 func (c *BoxScoreClient) FetchScoresOnly(ctx context.Context, gameDate string) ([]ScoreboardGame, error) {
-	raw, err := c.client.get(ctx, "getNFLScoresOnly", map[string]string{"gameDate": gameDate})
+	raw, err := c.client.getFresh(ctx, "getNFLScoresOnly", map[string]string{"gameDate": gameDate})
 	if err != nil {
 		return nil, err
 	}
