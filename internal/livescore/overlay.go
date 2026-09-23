@@ -113,14 +113,18 @@ func MergeLines(base []league.WeekStatLine, week int, snapshot Snapshot, resolve
 			// nothing rather than invent a unit.
 			continue
 		}
-		// league.DSTStatKey, not a name-derived key: a D/ST joins on its
+		// league.StatLineKey, not a name-derived key: a D/ST joins on its
 		// team, because the pool and this feed spell the same unit
-		// differently and always have (see DSTStatKey's own doc comment).
+		// differently and always have (see StatLineKey's own doc
+		// comment). Every D/ST-line producer — main.go's dstWeekStatLines
+		// and leagueWeekStatsSource, and this MergeLines branch — call
+		// this same function, so a key can never again drift between
+		// producers (the 2026-09-09 regression).
 		//
 		// A D/ST unit's team comes from the box score's own map key, so
 		// it is never empty; the gameID fallback above never triggers,
 		// hence the empty literal here.
-		apply(league.DSTStatKey(team), team, "", unit.Stats, unit.Final)
+		apply(league.StatLineKey("", "DST", team), team, "", unit.Stats, unit.Final)
 	}
 	return out
 }

@@ -36,6 +36,30 @@ func finiteScoringPoints(points float64) bool {
 	return !math.IsNaN(points) && !math.IsInf(points, 0)
 }
 
+// roundPoints is the league's single canonical fantasy-point rounding
+// rule: nearest hundredth. Every fantasy point total that a comparison
+// (>, ==) or a persisted result depends on passes through this exact
+// function — scorePlayerStats and scorePlayers (the two places a fantasy
+// point total is computed), and again at every comparison site
+// (standings.go, recap.go) that reads a score a non-scorer writer (a
+// commissioner correction, a playoff result) could have set directly.
+//
+// Two totals that are mathematically equal to the hundredth always
+// collapse to the identical float64 after this call: math.Round produces
+// an exact integer float, and float64 division by the constant 100 is
+// IEEE 754 correctly rounded, so the same integer in always yields the
+// same double out, regardless of how the un-rounded value was summed.
+// That is what makes a subsequent == or > safe — see
+// scoring_rounding_test.go, which reproduces the pre-fix bug (raw
+// unrounded sums disagree with themselves purely from summation order:
+// 0.1+0.2 != 0.3 in float64) and proves this rounding closes it.
+func roundPoints(points float64) float64 {
+	if !finiteScoringPoints(points) {
+		return points
+	}
+	return math.Round(points*100) / 100
+}
+
 // normalizeScoringValues is the read boundary for legacy/corrupt state.
 // Unknown finite keys remain intact for legacy round-trip compatibility, but
 // non-finite values are dropped so they can never become live scoring input.

@@ -614,11 +614,14 @@ func dstWeekStatLines(stats *openstats.Service, eastern *time.Location, week int
 			}
 		}
 		out = append(out, league.WeekStatLine{
-			// league.DSTStatKey, not a name-derived key: the pool, this
-			// mirror, and the live overlay each spell a D/ST's display name
-			// differently, so the join must go through the one thing all
-			// three agree on — the team (see DSTStatKey's doc comment).
-			Key:    league.DSTStatKey(team),
+			// league.StatLineKey, not a name-derived key: the pool, this
+			// mirror, and the live overlay each spell a D/ST's display
+			// name differently, so the join must go through the one thing
+			// all three agree on — the team (see StatLineKey's doc
+			// comment). Every D/ST-line producer in this file and
+			// internal/livescore's MergeLines call this same function, so
+			// a key can never again drift between producers.
+			Key:    league.StatLineKey("", "DST", team),
 			Stats:  statLine,
 			Source: league.StatSourceLedger,
 		})
@@ -647,16 +650,19 @@ func puntEventsByPunter(stats *openstats.Service, week int) map[string][]opensta
 
 // addPuntingStatsFromPBP fills every PUNTING scoring key from this week's
 // play-by-play punt events (WP-R2): the exact-events source. The puntYards
-// 40+-yard gate is applied here, at scoring time, not in openstats'
-// ingestion layer (openstats.PuntEvent carries gross per-punt distance
-// only). puntLong50 counts every 50+-yard punt ("(each)", scoring.go), not
-// a single per-game flag. A blocked punt cannot also count toward
-// puntYards/puntLong50 (its recorded distance is 0 in the source anyway)
-// and is excluded from those two by the !Blocked guard for clarity.
+// 40+-yard gate and the puntLong50 50+-yard gate are the same
+// fantasy.PuntQualifiesForYardsBonus/PuntQualifiesForLong50 thresholds
+// every other punting-stat producer calls (audit item 6: these two
+// thresholds used to be hardcoded independently here and in
+// internal/fantasy/punting.go). puntLong50 counts every 50+-yard punt
+// ("(each)", scoring.go), not a single per-game flag. A blocked punt
+// cannot also count toward puntYards/puntLong50 (its recorded distance is
+// 0 in the source anyway) and is excluded from those two because the
+// shared threshold functions themselves reject a blocked punt.
 func addPuntingStatsFromPBP(statLine map[string]float64, events []openstats.PuntEvent) {
 	var yards40Plus, in20, coffin, inside5, long50, touchback, blocked float64
 	for _, event := range events {
-		if !event.Blocked && event.Distance >= 40 {
+		if fantasy.PuntQualifiesForYardsBonus(event.Distance, event.Blocked) {
 			yards40Plus += event.Distance
 		}
 		if event.InsideTwenty {
@@ -668,7 +674,7 @@ func addPuntingStatsFromPBP(statLine map[string]float64, events []openstats.Punt
 		if event.Inside5 {
 			inside5++
 		}
-		if !event.Blocked && event.Distance >= 50 {
+		if fantasy.PuntQualifiesForLong50(event.Distance, event.Blocked) {
 			long50++
 		}
 		if event.Touchback {
@@ -702,7 +708,10 @@ func addPuntingStatsFromBoxScore(statLine map[string]float64, row openstats.Play
 	statLine["coffinCorner"] = 0
 	statLine["puntDownedInside5"] = 0
 	statLine["puntLong50"] = 0
-	if row.PuntLong >= 50 {
+	// The aggregate carries no per-punt blocked flag for the longest punt
+	// specifically, so blocked=false — the same shared threshold
+	// (fantasy.PuntQualifiesForLong50) every other producer calls.
+	if fantasy.PuntQualifiesForLong50(row.PuntLong, false) {
 		statLine["puntLong50"] = 1
 	}
 	statLine["puntTouchback"] = row.PuntTouchback
@@ -785,16 +794,19 @@ func leagueWeekStatsSource(stats *openstats.Service) league.WeekStatsSource {
 			}
 			out = append(out, league.WeekStatLine{
 				// A D/ST row in the player ledger is keyed by its TEAM,
-				// like every other D/ST line (league.DSTStatKey), not by
+				// like every other D/ST line (league.StatLineKey), not by
 				// its display name. Production's nflverse player release
 				// carries no D/ST rows, so this branch is normally dead —
 				// but the replay harness's ledger does carry them, and
 				// keying those by name reintroduced exactly the join
-				// failure DSTStatKey exists to end: eight defenses missed
+				// failure StatLineKey exists to end: eight defenses missed
 				// their own stat lines at week close (2026-09-09). A
 				// producer that can emit a D/ST line must agree with every
-				// other one, dead path in production or not.
-				Key:    leagueStatLineKey(row.PlayerName, row.Position, row.Team),
+				// other one, dead path in production or not — so this
+				// calls the same league.StatLineKey every other producer
+				// in this file and internal/livescore's MergeLines call,
+				// never a second, locally reimplemented branch.
+				Key:    league.StatLineKey(row.PlayerName, row.Position, row.Team),
 				Stats:  statLine,
 				Source: league.StatSourceLedger,
 			})
@@ -802,18 +814,6 @@ func leagueWeekStatsSource(stats *openstats.Service) league.WeekStatsSource {
 		out = append(out, dstWeekStatLines(stats, eastern, week)...)
 		return out
 	}
-}
-
-// leagueStatLineKey is the one key rule every stat-line producer in this
-// file follows: a D/ST joins on its NFL team, everyone else on name and
-// position. It mirrors internal/league's own playerStatKey on the roster
-// side — the two must never disagree, or the join silently misses and a
-// player scores an honest-looking zero.
-func leagueStatLineKey(name, position, team string) string {
-	if strings.EqualFold(strings.TrimSpace(position), "DST") {
-		return league.DSTStatKey(team)
-	}
-	return openstats.NormalizePlayerKey(name, position)
 }
 
 // leagueInjuryDesignationSource adapts the mirrored nflverse weekly injury
