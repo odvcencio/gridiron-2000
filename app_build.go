@@ -1647,6 +1647,12 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 			// "file:<path>" once a league.json loads (productization spec
 			// section 4.3).
 			"leagueConfig": league.Default().Config().Source,
+			// backups is a loud, non-blocking readout of the nightly
+			// scheduler's last local snapshot and every configured
+			// off-host sink (backup_sink.go): a failed off-host copy must
+			// never flip readiness or fail this request, but it must be
+			// visible to an operator or an external monitor.
+			"backups": backupHealthState.payload(),
 			// state names the boot state truthfully, matching the SETUP
 			// and fail-closed apps' own health payloads (setup_app.go,
 			// fail_closed_app.go) so a monitor reads one consistent field

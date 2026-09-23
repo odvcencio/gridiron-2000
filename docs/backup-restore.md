@@ -1,8 +1,9 @@
 # Backup and restore
 
-This page describes Gridiron's local backup and restore tools. It does not
-promise off-host, cloud, or multi-region storage. Copy an archive off this
-host yourself. Gridiron never uploads one for you.
+This page describes Gridiron's backup and restore tools, including the
+optional built-in off-host copy (`BACKUP_OFFHOST_DIR`, below). It does not
+promise cloud or multi-region storage on its own. Point the off-host copy
+at real off-host storage, or copy an archive off this host yourself.
 
 Use these sources of truth in this order:
 
@@ -60,9 +61,54 @@ Taking a snapshot briefly shares the database's single connection with the
 live app. This is the same sharing every other write already causes. It
 never blocks the app for longer than the `VACUUM INTO` step itself takes.
 
-Off-host copying stays your job. Gridiron does not upload a snapshot
-anywhere. Copy `data/backups/`, or a downloaded archive, to storage outside
-this host. Set your own schedule for that copy.
+## Off-host copies
+
+A snapshot that only ever lives on the same volume as the live database is
+not a real disaster-recovery copy: a lost PVC, a bad node, or a corrupted
+volume takes the backups with it. After each successful local snapshot,
+Gridiron can copy that same archive to a second, off-host location.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `BACKUP_OFFHOST_DIR` | empty | A second directory each snapshot is also copied into. Empty means no off-host copy runs. |
+| `BACKUP_OFFHOST_KEEP` | `7` | How many rotated snapshots `BACKUP_OFFHOST_DIR` keeps, independent of `BACKUP_KEEP`. |
+
+`BACKUP_OFFHOST_DIR` is any directory Gridiron's process can write to. It
+is meant for a mounted network volume — for example:
+
+- A **Hetzner Storage Box**, mounted into the container over SMB or SSHFS
+  (an `sshfs` or CIFS volume mount in your Kubernetes manifest or Compose
+  file), with `BACKUP_OFFHOST_DIR` pointed at the mount path.
+- Any other NFS/SMB mount, or a second PVC backed by different physical
+  storage than the primary data volume.
+
+The copy is atomic (written to a temp file on the destination, then
+renamed) and bounded by its own retention, so a slow or interrupted
+network copy never leaves a half-written archive at the kept filename, and
+the off-host directory never grows without bound. A copy failure is
+logged (`scheduled backup: off-host sink ... failed: ...`) and reported at
+`/api/health` under `backups.sinks`; it never blocks the app or the local
+snapshot, and the next scheduled run tries again.
+
+### S3-compatible storage (Backblaze B2, Cloudflare R2, ...)
+
+Gridiron does not ship a built-in S3-compatible uploader: doing that
+safely needs either a new SDK dependency or a hand-rolled SigV4 signer,
+and most deployments do not need one yet. Point `BACKUP_OFFHOST_DIR` at a
+local directory, then run [`rclone`](https://rclone.org/) as a sidecar
+container to mirror that directory to your bucket:
+
+```sh
+# Example sidecar command, run on a schedule (cron or a Kubernetes
+# CronJob) against the same volume BACKUP_OFFHOST_DIR names:
+rclone sync /mnt/gridiron-offhost b2:your-bucket/gridiron-backups \
+  --min-age 5m
+```
+
+`--min-age 5m` skips a file still mid-copy from the directory sink above.
+`rclone` supports Backblaze B2, Cloudflare R2, and most other
+S3-compatible providers with the same `rclone sync` command; only the
+remote name in its config file changes.
 
 ## Restore a backup
 

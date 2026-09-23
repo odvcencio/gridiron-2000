@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -93,6 +94,46 @@ func buildArchiveFile(t *testing.T, dir string, mutate func(persistedVersion, db
 	return archivePath
 }
 
+// buildRealisticBackupArchive seeds a real Store with a realistic mix of
+// league state (a claimed seat, a ready flag, a pending invite), then
+// writes its backup archive through league.WriteBackupArchive — the exact
+// function the /admin download and the nightly scheduler call — rather
+// than hand-rolling tar entries. It returns the archive path and the
+// source store's snapshot, so a caller can restore the archive through
+// the real leaguerestore path and boot an independent Store from the
+// result to prove state survived the round trip byte-for-byte.
+func buildRealisticBackupArchive(t *testing.T, dir string) (archivePath string, source league.PersistedState) {
+	t.Helper()
+	sourceDir := filepath.Join(dir, "source")
+	store := league.NewStore(filepath.Join(sourceDir, "league-state.json"))
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.StartupError(); err != nil {
+		t.Fatalf("fixture store: %v", err)
+	}
+	if _, _, err := store.AssignMember("commissioner@example.com", "Commissioner Manager"); err != nil {
+		t.Fatalf("seed AssignMember: %v", err)
+	}
+	if _, err := store.ToggleReady("team-1"); err != nil {
+		t.Fatalf("seed ToggleReady: %v", err)
+	}
+	if err := store.AddInvite("waiting@example.com"); err != nil {
+		t.Fatalf("seed AddInvite: %v", err)
+	}
+	source = store.Snapshot()
+
+	archivePath = filepath.Join(dir, "archive.tar.gz")
+	archiveFile, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archiveFile.Close()
+	if _, err := league.WriteStoreBackupArchive(context.Background(), store, archiveFile,
+		time.Date(2026, 8, 31, 3, 0, 0, 0, time.UTC), "test-cli", ""); err != nil {
+		t.Fatalf("WriteStoreBackupArchive: %v", err)
+	}
+	return archivePath, source
+}
+
 func TestRunRestoresIntoEmptyTargetDirectory(t *testing.T) {
 	dir := t.TempDir()
 	archive := buildArchiveFile(t, dir, nil)
@@ -132,6 +173,55 @@ func TestRunRestoresIntoEmptyTargetDirectory(t *testing.T) {
 	}
 	if readyCount != 1 {
 		t.Errorf("restored ready row count = %d, want 1 (the seeded ToggleReady row)", readyCount)
+	}
+}
+
+// TestRunRestoresRealArchiveAndBootsAnIndependentStore is the end-to-end
+// restore proof the audit asked for: a real WriteBackupArchive output
+// (not a hand-built tar), restored through the real leaguerestore --force
+// path, then reopened as an independent league.Store — the same
+// constructor a restarted Gridiron process uses — and compared against
+// the source store's snapshot field for field. A byte-identical
+// league.db is not enough on its own: this proves the restored file is
+// also a store Gridiron can actually boot from and use.
+func TestRunRestoresRealArchiveAndBootsAnIndependentStore(t *testing.T) {
+	dir := t.TempDir()
+	archive, source := buildRealisticBackupArchive(t, dir)
+	target := filepath.Join(dir, "target")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--archive", archive, "--target", target}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run code = %d; stderr: %s", code, stderr.String())
+	}
+
+	restored := league.NewStore(filepath.Join(target, "league-state.json"))
+	defer restored.Close()
+	if err := restored.StartupError(); err != nil {
+		t.Fatalf("boot restored store: %v", err)
+	}
+	got := restored.Snapshot()
+	if !reflect.DeepEqual(got, source) {
+		t.Fatalf("restored store state does not match the source store\nsource: %#v\nrestored: %#v", source, got)
+	}
+	// Spot-check the seeded facts directly too, so a future PersistedState
+	// field that reflect.DeepEqual would silently treat as "equal because
+	// both sides are absent" still has an explicit assertion behind it.
+	member, ok := got.Members["commissioner@example.com"]
+	if !ok || member.TeamID != "team-1" {
+		t.Fatalf("restored member = %+v, ok=%v; want commissioner@example.com seated on team-1", member, ok)
+	}
+	if !got.Ready["team-1"] {
+		t.Fatal("restored ready flag for team-1 is false, want true")
+	}
+	found := false
+	for _, invite := range got.Invites {
+		if invite == "waiting@example.com" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("restored invites = %v, want waiting@example.com present", got.Invites)
 	}
 }
 

@@ -324,9 +324,14 @@ Files are created with owner-only permissions. The Signal Wire honors Bluesky de
 
 A commissioner can also download a complete, restorable backup archive
 on demand from `/admin` (League configuration), and Gridiron saves the same
-archive locally every night. Off-host copying remains the operator's job. See
+archive locally every night. Set `BACKUP_OFFHOST_DIR` to also copy each
+nightly snapshot to a second, off-host directory (a mounted network
+volume, such as a Hetzner Storage Box over SMB/SSHFS); a copy failure
+there is logged and shown at `/api/health`, and never blocks the app. See
 [Backup and restore](docs/backup-restore.md) for exactly what an archive
-contains and how to restore one with `cmd/leaguerestore`.
+contains, off-host mount options, an S3-compatible (Backblaze B2,
+Cloudflare R2, ...) recipe via an `rclone` sidecar, and how to restore one
+with `cmd/leaguerestore`.
 
 League-session endpoints:
 
