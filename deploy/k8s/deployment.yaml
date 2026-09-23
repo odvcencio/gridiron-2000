@@ -34,9 +34,25 @@ spec:
           # Logical and physical state schemas remain at 12. The previous
           # release digest supports both persisted versions for rollback.
           # Flagship only; statrelay and inactive SK remain unchanged.
+          #
+          # Image digest independently reconciled to the live running pod,
+          # 2026-09-23 (ops-drift hardening): the tracked digest had fallen
+          # behind an image-only roll that was applied straight with a
+          # patch, not through this manifest. Always deploy a pinned
+          # digest, never :latest or a mutable tag — see deploy/README.md's
+          # release image policy.
           image: harbor.draco.quest/orchard/gridiron-2000@sha256:3ce81c0b295ac73bff8927ce6a00e49ab76ad5d31f56c2a6d5f34052e906e8e3
           imagePullPolicy: IfNotPresent
           ports:
+            # hq-v1 (8091) is the Commissioner HQ v1 provider's own private
+            # listener (internal/commissionerhq/v1provider), bound inside
+            # this same process on COMMISSIONER_HQ_PROVIDER_ADDR — see the
+            # env block below. It is reachable only from another
+            # gridiron-2000 pod in this namespace: hq-v1-network-policy.yaml
+            # is the enforcing NetworkPolicy, not this port declaration.
+            - name: hq-v1
+              containerPort: 8091
+              protocol: TCP
             - name: http
               containerPort: 8080
               protocol: TCP
@@ -44,6 +60,28 @@ spec:
             - secretRef:
                 name: gridiron-2000-secrets
           env:
+            # APP_IMAGE_DIGEST self-reports the running image to the
+            # Commissioner HQ v1 release snapshot (commissioner_hq_v1.go's
+            # commissionerHQV1ReleaseSnapshot) so a peer can see what a
+            # league instance is actually running. Keep it identical to the
+            # image: field above on every change — a mismatch here is a
+            # silent lie to every federated peer, not just a stale label.
+            - name: APP_IMAGE_DIGEST
+              value: "sha256:3ce81c0b295ac73bff8927ce6a00e49ab76ad5d31f56c2a6d5f34052e906e8e3"
+            # Commissioner HQ v1: this instance's own read-only federation
+            # provider (deploy/README.md's "Existing-instance release
+            # controls" section documents the rollout). COMMISSIONER_HQ_PROVIDER_SECRET
+            # (or _FILE) is deliberately absent here — it arrives only
+            # through gridiron-2000-secrets (envFrom above), never as an
+            # inline manifest value; see internal/commissionerhq/v1provider/config.go.
+            - name: COMMISSIONER_HQ_LEAGUE_ID
+              value: "g2k"
+            - name: COMMISSIONER_HQ_PROVIDER_KEY_ID
+              value: "g2k-hq-v1"
+            - name: COMMISSIONER_HQ_PROVIDER_ADDR
+              value: ":8091"
+            - name: COMMISSIONER_HQ_V1_REGISTRY_FILE
+              value: "/etc/gridiron-hq/registry.json"
             - name: APP_ENV
               value: "production"
             # Keep Go's working heap below the pod's hard limit, leaving room
@@ -103,6 +141,22 @@ spec:
               value: "g2k"
             - name: COMMISSIONER_HQ_PEERS
               value: "skl=http://gridiron-2000-sk.stablekernel.svc.cluster.local|https://sk.gridiron.draco.quest"
+            # Off-host backup copy (disabled): the app already supports
+            # BACKUP_OFFHOST_DIR/BACKUP_OFFHOST_KEEP (backup_sink.go) —
+            # see docs/backup-restore.md's "Off-host copies" section for
+            # the three storage-target options and what each needs. This
+            # deployment stays local-only (the owner has not chosen a
+            # target) until an operator picks one, uncomments the matching
+            # block below, and provisions its credentials/mount out of
+            # band — the same "never a silent default" discipline
+            # league-config's own ConfigMap follows. Uncomment together
+            # with the offhost-backup volume and volumeMount below, and
+            # the rclone-offhost-sync sidecar container further down if
+            # the chosen target is S3-compatible (R2/B2).
+            # - name: BACKUP_OFFHOST_DIR
+            #   value: "/mnt/gridiron-offhost"
+            # - name: BACKUP_OFFHOST_KEEP
+            #   value: "7"
             # DRAFT_AT/DRAFT_TZ/SEASON_START_AT/SCORING_FORMAT are
             # deliberately NOT set here. Env wins over league.json (spec
             # section 3.3), so duplicating them made a ConfigMap-only date
@@ -112,11 +166,24 @@ spec:
             # replaced before it was removed. Changing the draft date is one
             # ConfigMap edit plus a rollout restart.
           volumeMounts:
+            # hq-registry projects one key (registry.json) from the
+            # gridiron-2000-hq-v1-registry ConfigMap straight to the file
+            # COMMISSIONER_HQ_V1_REGISTRY_FILE names above — see
+            # deploy/k8s/hq-registry.yaml for the connections this registers.
+            - name: hq-registry
+              mountPath: /etc/gridiron-hq/registry.json
+              subPath: registry.json
+              readOnly: true
             - name: data
               mountPath: /app/data
             - name: league-config
               mountPath: /etc/gridiron
               readOnly: true
+            # Uncomment together with the BACKUP_OFFHOST_DIR env var above,
+            # the offhost-backup volume below, and a real storage target —
+            # see docs/backup-restore.md's "Off-host copies" section.
+            # - name: offhost-backup
+            #   mountPath: /mnt/gridiron-offhost
           readinessProbe:
             httpGet:
               path: /api/health
@@ -144,7 +211,54 @@ spec:
             capabilities:
               drop:
                 - ALL
+        # rclone-offhost-sync (disabled): only needed when the chosen
+        # off-host target is S3-compatible (Backblaze B2, Cloudflare R2)
+        # rather than a mounted filesystem (Storage Box/NFS/SMB, which
+        # need no sidecar at all — see docs/backup-restore.md). Mirrors
+        # the same offhost-backup volume BACKUP_OFFHOST_DIR writes into,
+        # on a schedule, to the bucket. Uncomment together with the env
+        # block above, the offhost-backup volume below, and a real
+        # rclone.conf/bucket-credential Secret (provisioned out of band,
+        # never committed — the same discipline every other Secret in
+        # this file follows).
+        # - name: rclone-offhost-sync
+        #   image: rclone/rclone:latest
+        #   imagePullPolicy: IfNotPresent
+        #   command:
+        #     - /bin/sh
+        #     - -c
+        #     - |
+        #       while true; do
+        #         rclone sync /mnt/gridiron-offhost "$RCLONE_REMOTE" --min-age 5m
+        #         sleep 3600
+        #       done
+        #   env:
+        #     - name: RCLONE_REMOTE
+        #       value: "b2:your-bucket/gridiron-backups"
+        #   envFrom:
+        #     - secretRef:
+        #         name: gridiron-2000-rclone-secrets
+        #   volumeMounts:
+        #     - name: offhost-backup
+        #       mountPath: /mnt/gridiron-offhost
+        #     - name: rclone-config
+        #       mountPath: /config/rclone
+        #       readOnly: true
+        #   securityContext:
+        #     allowPrivilegeEscalation: false
+        #     readOnlyRootFilesystem: true
+        #     capabilities:
+        #       drop:
+        #         - ALL
       volumes:
+        # hq-registry: gridiron-2000-hq-v1-registry ConfigMap, this
+        # instance's own registered federation peers (deploy/k8s/hq-registry.yaml).
+        - name: hq-registry
+          configMap:
+            name: gridiron-2000-hq-v1-registry
+            items:
+              - key: registry.json
+                path: registry.json
         - name: data
           persistentVolumeClaim:
             claimName: gridiron-2000-data
@@ -157,3 +271,22 @@ spec:
         - name: league-config
           configMap:
             name: gridiron-2000-league-config
+        # offhost-backup (disabled): the volume BACKUP_OFFHOST_DIR writes
+        # into and the rclone-offhost-sync sidecar (if used) reads from —
+        # see docs/backup-restore.md's "Off-host copies" section for the
+        # three target options. A Storage Box/NFS/SMB target mounts
+        # straight into this volume (no sidecar needed, no separate PVC):
+        # replace the persistentVolumeClaim below with the matching CSI
+        # volume type. An S3-compatible target (R2/B2) instead uses an
+        # ordinary PVC here, synced out by rclone-offhost-sync above.
+        # - name: offhost-backup
+        #   persistentVolumeClaim:
+        #     claimName: gridiron-2000-offhost-backup
+        # rclone-config (disabled): only needed alongside
+        # rclone-offhost-sync above — a Secret holding rclone.conf with
+        # the bucket's endpoint/access key/secret key, provisioned out of
+        # band and never committed (see deploy/k8s/secret.example.yaml's
+        # own pattern).
+        # - name: rclone-config
+        #   secret:
+        #     secretName: gridiron-2000-rclone-secrets

@@ -110,6 +110,26 @@ rclone sync /mnt/gridiron-offhost b2:your-bucket/gridiron-backups \
 S3-compatible providers with the same `rclone sync` command; only the
 remote name in its config file changes.
 
+### Choosing a target
+
+None of the three options below is wired up by default: the owner picks
+one. `deploy/k8s/deployment.yaml` carries a commented-out
+`BACKUP_OFFHOST_DIR` block, a commented-out `offhost-backup` volume, and
+a commented-out `rclone-offhost-sync` sidecar, ready to uncomment once a
+target is chosen and provisioned (ops-drift hardening, 2026-09-23).
+
+| Option | Needs | Sidecar? |
+| --- | --- | --- |
+| Hetzner Storage Box (or any SMB/SSHFS mount) | An SMB/SSHFS-capable CSI driver or `hostPath`-style mount in the cluster, and the Box's own credentials (stored as a Secret, never committed). | No — `BACKUP_OFFHOST_DIR` writes straight to the mount. |
+| A second PVC / NFS mount | A second StorageClass or NFS server backed by different physical storage than the primary `gridiron-2000-data` PVC — the whole point is surviving the loss of that volume. | No. |
+| S3-compatible bucket (Backblaze B2, Cloudflare R2, ...) | A bucket, an access key/secret key pair (a `rclone.conf`, stored as a Secret, never committed), and an ordinary PVC for `BACKUP_OFFHOST_DIR` to write into before rclone syncs it out. | Yes — `rclone-offhost-sync`. |
+
+A second host (the Hetzner Storage Box row) needs no in-cluster compute
+of its own — only network reachability from the pod and its own
+credentials. The PVC/NFS row needs a second storage backend already
+provisioned in (or reachable from) the cluster. The bucket row needs no
+second host but does need the sidecar and its own Secret.
+
 ## Restore a backup
 
 Restoring is a separate, deliberately offline step. Gridiron offers no

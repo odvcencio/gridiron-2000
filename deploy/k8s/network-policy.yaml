@@ -1,0 +1,37 @@
+# gridiron-2000-hq-v1-network-policy: the only NetworkPolicy this
+# instance carries. It leaves the public http/8080 port open to any
+# source (Ingress traffic already terminates elsewhere and is the only
+# expected caller in practice) but restricts the Commissioner HQ v1
+# provider port (hq-v1/8091, deployment.yaml) to gridiron-2000 pods in
+# this same namespace only — a Stable Kernel peer, or any other workload,
+# can never reach it directly. Reconciled into deploy/k8s/, 2026-09-23
+# (ops-drift hardening): this NetworkPolicy was already live (created
+# 2026-08-26 per deploy/README.md's Commissioner HQ v1 rollout) but had
+# never landed in the tracked manifest set.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gridiron-2000-hq-v1-network-policy
+  namespace: gridiron
+  labels:
+    app: gridiron-2000
+spec:
+  podSelector:
+    matchLabels:
+      app: gridiron-2000
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gridiron
+          podSelector:
+            matchLabels:
+              app: gridiron-2000
+      ports:
+        - protocol: TCP
+          port: 8091
