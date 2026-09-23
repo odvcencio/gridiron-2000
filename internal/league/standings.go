@@ -116,6 +116,22 @@ func ComputeStandings(sch SeasonSchedule, teamIDs []string, tb TiebreakInputs) [
 			if !homeOK || !awayOK {
 				continue
 			}
+			// Deliberately the raw, un-rounded m.HomeScore/m.AwayScore,
+			// not roundPoints(...): the season is live, and standings are
+			// derived fresh on every read (never stored), so rounding
+			// here would silently re-decide an already-final matchup's
+			// W/L/T every time the standings page loads — see
+			// season_close_safety_test.go's
+			// TestAlreadyFinalWeeksCompareByteIdenticallyBeforeAndAfter,
+			// which requires this function to be byte-for-byte unchanged
+			// for any already-final schedule. The canonical hundredth
+			// rounding (audit item 7) lives once, upstream, at the single
+			// place a fantasy point total is computed (scorePlayerStats /
+			// scorePlayers) — every HomeScore/AwayScore this function
+			// reads that was produced by this codebase's own scorer, from
+			// now on, already arrives here as a clean, comparable
+			// hundredth, so no rounding is needed (or wanted) at this
+			// comparison site itself.
 			home.PointsFor += m.HomeScore
 			home.PointsAgainst += m.AwayScore
 			away.PointsFor += m.AwayScore
@@ -261,6 +277,9 @@ func headToHeadPct(sch SeasonSchedule, a, b string) (pctA, pctB float64, played 
 				continue
 			}
 			games++
+			// Raw, un-rounded — see ComputeStandings' identical guard
+			// above: an already-final matchup's stored scores must
+			// compare exactly as they always have.
 			if m.HomeScore == m.AwayScore {
 				ties++
 				continue

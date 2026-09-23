@@ -99,7 +99,14 @@ func scorePlayerStats(stats map[string]float64, values map[string]float64) float
 		}
 		points += statValue * scoringPoints(values, ruleKey)
 	}
-	return points
+	// The single canonical rounding: every fantasy point total starts
+	// here, at hundredths (roundPoints's doc comment; audit item 7). A
+	// rendered row's points and the team's aggregate score both trace
+	// back to this one rounded value, so they can never show a penny of
+	// drift from each other, and a later ==/> on two totals built from
+	// different stat lines cannot disagree purely from float summation
+	// order.
+	return roundPoints(points)
 }
 
 // ScoreRuleStats sums a rule-keyed stat line — the same shape
@@ -146,7 +153,12 @@ func scorePlayers(players []Player, lines []WeekStatLine, values map[string]floa
 		}
 		total += points
 	}
-	return total
+	// Summing several already-rounded per-player totals can still land on
+	// a double that is a few ULPs off the intended hundredth (float64
+	// addition is not associative), so round the team total again before
+	// it becomes a matchup's HomeScore/AwayScore — the value standings.go
+	// and recap.go compare with == and >.
+	return roundPoints(total)
 }
 
 // SetWeekStatsSource attaches the weekly stats feed. Call it once during
@@ -228,6 +240,25 @@ type JoinMiss struct {
 // normalized first through the same map every other team join here uses.
 func DSTStatKey(team string) string {
 	return normalizePlayerKey("DST "+normalizeNFLAbbreviation(team), "DST")
+}
+
+// StatLineKey is the single join-key rule every stat-line producer must
+// use to build a WeekStatLine.Key: a D/ST joins on its NFL team
+// (DSTStatKey), everyone else on name and position (normalizePlayerKey) —
+// the stat-line-producer mirror of playerStatKey, above, which is the
+// same rule applied on the roster side. Every stat-line producer in this
+// codebase (main.go's dstWeekStatLines and leagueWeekStatsSource,
+// internal/livescore's MergeLines) must build its WeekStatLine.Key by
+// calling this one function, never by branching on position itself, so a
+// producer can never again key a D/ST by its display name — the root
+// cause of the 2026-09-09 regression (dst_producer_agreement_test.go):
+// eight defenses scored nothing at week close because one of three
+// independent key-branches used a name instead of a team.
+func StatLineKey(name, position, team string) string {
+	if strings.EqualFold(strings.TrimSpace(position), "DST") {
+		return DSTStatKey(team)
+	}
+	return normalizePlayerKey(name, position)
 }
 
 // playerStatKey is the join key for one pool player against a weekly stat

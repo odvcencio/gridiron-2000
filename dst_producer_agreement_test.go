@@ -8,14 +8,18 @@ import (
 )
 
 // TestEveryStatLineProducerAgreesOnTheDSTKey is the guard for the
-// 2026-09-09 regression. Three separate producers can emit a D/ST stat
-// line — the mirrored team-stats adapter (dstWeekStatLines), the
+// 2026-09-09 regression, made structural (audit item 6): every D/ST-line
+// producer — the mirrored team-stats adapter (dstWeekStatLines), the
 // player-ledger adapter (leagueWeekStatsSource, whose rows carry D/ST in
-// the replay harness), and the live overlay (internal/livescore) — and
-// the roster side joins them all through one key. Fixing two of the three
-// left the player-ledger producer keying by display name, which silently
-// missed every defense at week close: eight D/STs scored nothing and the
-// close notice reported eight stat joins missed.
+// the replay harness), and the live overlay (internal/livescore's
+// MergeLines) — now builds its WeekStatLine.Key by calling the same
+// exported league.StatLineKey, rather than each independently branching
+// on position. Fixing two of the three independent branches used to still
+// leave a third that keyed by display name, which silently missed every
+// defense at week close: eight D/STs scored nothing and the close notice
+// reported eight stat joins missed. A single shared function cannot drift
+// that way — there is nothing left for a second implementation to
+// disagree with.
 //
 // A D/ST key must never be derived from a display name by anyone.
 func TestEveryStatLineProducerAgreesOnTheDSTKey(t *testing.T) {
@@ -31,9 +35,10 @@ func TestEveryStatLineProducerAgreesOnTheDSTKey(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			want := league.DSTStatKey(tc.team)
-			// The player-ledger producer (this file's own rule).
-			if got := leagueStatLineKey(tc.name, "DST", tc.team); got != want {
-				t.Errorf("player-ledger producer key = %q, want %q", got, want)
+			// The player-ledger producer's own call, structurally: the
+			// exact function main.go's leagueWeekStatsSource calls.
+			if got := league.StatLineKey(tc.name, "DST", tc.team); got != want {
+				t.Errorf("league.StatLineKey(%q, DST, %q) = %q, want %q", tc.name, tc.team, got, want)
 			}
 			// A name-derived key must not be what any producer emits.
 			if openstats.NormalizePlayerKey(tc.name, "DST") == want {
@@ -42,7 +47,30 @@ func TestEveryStatLineProducerAgreesOnTheDSTKey(t *testing.T) {
 		})
 	}
 	// A non-D/ST row keeps the name-and-position key it always had.
-	if got, want := leagueStatLineKey("Josh Allen", "QB", "BUF"), openstats.NormalizePlayerKey("Josh Allen", "QB"); got != want {
+	if got, want := league.StatLineKey("Josh Allen", "QB", "BUF"), openstats.NormalizePlayerKey("Josh Allen", "QB"); got != want {
 		t.Fatalf("non-D/ST key = %q, want %q", got, want)
 	}
+}
+
+// TestDSTWeekStatLinesUsesTheSharedKey structurally proves the mirrored
+// team-stats producer (dstWeekStatLines) builds its Key by calling
+// league.StatLineKey, not a local copy: it runs the real producer against
+// a real fixture (the same one openstats_adapter_wpr2_test.go's DEFENSE
+// integration test uses) and requires the emitted key to equal
+// league.StatLineKey("", "DST", team) exactly.
+func TestDSTWeekStatLinesUsesTheSharedKey(t *testing.T) {
+	service := wpr2Fixture(t, pbpFixtureCSVForWeek1)
+	eastern := openStatsEastern()
+	lines := dstWeekStatLines(service, eastern, 1)
+	want := league.StatLineKey("", "DST", "BUF")
+	for _, line := range lines {
+		if line.Key == want {
+			return
+		}
+	}
+	got := make([]string, 0, len(lines))
+	for _, line := range lines {
+		got = append(got, line.Key)
+	}
+	t.Fatalf("dstWeekStatLines emitted no line keyed %q (shared league.StatLineKey); got keys %v", want, got)
 }

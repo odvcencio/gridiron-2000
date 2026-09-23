@@ -39,11 +39,13 @@ func TestMergeLinesLiveWinsWhileTheGameIsInProgress(t *testing.T) {
 	if allen := byKey["joshallen|QB"]; allen.Source != league.StatSourceLive || allen.Stats["passYards"] != 55 || allen.Stats["passTD"] != 1 {
 		t.Fatalf("a stale zero ledger row beat the live row: %+v", allen)
 	}
-	// league.DSTStatKey, not "billsdst|DST": this assertion used to pin
+	// league.StatLineKey, not "billsdst|DST": this assertion used to pin
 	// the display-name key that made D/ST scoring impossible — the pool
 	// spells the same unit "Buffalo Bills DST", so the two sides never
-	// met (owner report, 2026-09-09). The key is derived from the team now.
-	dst := byKey[league.DSTStatKey("BUF")]
+	// met (owner report, 2026-09-09). MergeLines' D/ST branch now calls
+	// the same league.StatLineKey every other stat-line producer calls
+	// (dst_producer_agreement_test.go), so the key can never drift again.
+	dst := byKey[league.StatLineKey("", "DST", "BUF")]
 	if dst.Source != league.StatSourceLive || dst.Stats["dstSack"] != 2 {
 		t.Fatalf("D/ST = %+v", dst)
 	}

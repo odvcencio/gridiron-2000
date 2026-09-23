@@ -36,6 +36,12 @@ func (s *Service) lockerWeekRecapBody(state PersistedState, week ScheduleWeek) s
 	b.WriteString(lockerRecapHeadline(week.Week))
 	for _, m := range week.Matchups {
 		home, away := name(m.HomeTeamID), name(m.AwayTeamID)
+		// Deliberately raw, not roundPoints(...) — see standings.go's
+		// identical guard. postLockerWeekRecap only ever calls this for
+		// the week that just closed, whose HomeScore/AwayScore already
+		// came from the (now-canonically-rounded) scorer, so rounding
+		// again here would be a no-op at best; leaving it out keeps this
+		// function's behavior identical for any already-final week too.
 		fmt.Fprintf(&b, "\n%s %.1f @ %s %.1f — ", away, m.AwayScore, home, m.HomeScore)
 		switch {
 		case m.HomeScore > m.AwayScore:

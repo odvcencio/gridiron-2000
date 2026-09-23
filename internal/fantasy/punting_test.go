@@ -49,3 +49,45 @@ func TestLivePuntingRetainsConfirmedZeroButNotReturnerOrInvalidRows(t *testing.T
 		}
 	}
 }
+
+// TestPuntQualifiesForYardsBonus pins the single shared 40+-yard-bonus
+// threshold (audit item 6: punting had two independently maintained
+// thresholds, main.go and this package). A blocked punt never qualifies
+// regardless of its recorded distance.
+func TestPuntQualifiesForYardsBonus(t *testing.T) {
+	cases := []struct {
+		distance float64
+		blocked  bool
+		want     bool
+	}{
+		{distance: 39, blocked: false, want: false},
+		{distance: 40, blocked: false, want: true},
+		{distance: 65, blocked: false, want: true},
+		{distance: 65, blocked: true, want: false},
+	}
+	for _, c := range cases {
+		if got := PuntQualifiesForYardsBonus(c.distance, c.blocked); got != c.want {
+			t.Errorf("PuntQualifiesForYardsBonus(%v, %v) = %v, want %v", c.distance, c.blocked, got, c.want)
+		}
+	}
+}
+
+// TestPuntQualifiesForLong50 pins the single shared 50+-yard "long punt"
+// threshold, the other constant this audit item found duplicated.
+func TestPuntQualifiesForLong50(t *testing.T) {
+	cases := []struct {
+		distance float64
+		blocked  bool
+		want     bool
+	}{
+		{distance: 49, blocked: false, want: false},
+		{distance: 50, blocked: false, want: true},
+		{distance: 70, blocked: false, want: true},
+		{distance: 70, blocked: true, want: false},
+	}
+	for _, c := range cases {
+		if got := PuntQualifiesForLong50(c.distance, c.blocked); got != c.want {
+			t.Errorf("PuntQualifiesForLong50(%v, %v) = %v, want %v", c.distance, c.blocked, got, c.want)
+		}
+	}
+}
