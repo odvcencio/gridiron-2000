@@ -178,7 +178,22 @@ func requireLeagueAccessWithPolicy(next http.Handler, demoMode func() bool, sign
 // still reaches the handler and reads the current view.
 func liveWeekAPIHandler(protect func(http.Handler) http.Handler) http.Handler {
 	return protect(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		body, err := json.Marshal(league.Default().LiveScoresView(request.Context()))
+		var view map[string]any
+		if rawWeek := strings.TrimSpace(request.URL.Query().Get("week")); rawWeek != "" {
+			week, err := strconv.Atoi(rawWeek)
+			if err != nil || week <= 0 {
+				http.Error(writer, "invalid week", http.StatusBadRequest)
+				return
+			}
+			view, err = league.Default().LiveScoresViewForWeek(request.Context(), week)
+			if err != nil {
+				http.Error(writer, "week is not on the published schedule", http.StatusBadRequest)
+				return
+			}
+		} else {
+			view = league.Default().LiveScoresView(request.Context())
+		}
+		body, err := json.Marshal(view)
 		if err != nil {
 			http.Error(writer, "live view unavailable", http.StatusInternalServerError)
 			return

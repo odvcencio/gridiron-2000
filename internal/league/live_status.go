@@ -5,6 +5,7 @@ import "time"
 // LiveGameState is one NFL game's clock as the live poller last saw it.
 type LiveGameState struct {
 	GameID     string
+	Week       int
 	Away, Home string
 	Period     string
 	Clock      string
@@ -38,11 +39,12 @@ type LiveGameState struct {
 // and Reason feed the PAUSED matchup state; Games feed the per-starter
 // game-state labels. The version lives behind SetLiveVersionSource.
 type LiveStatus struct {
-	Enabled   bool
-	Degraded  bool
-	Reason    string
-	CheckedAt time.Time
-	Games     map[string]LiveGameState // keyed by nflverse team abbreviation
+	Enabled     bool
+	Degraded    bool
+	Reason      string
+	CheckedAt   time.Time
+	Games       map[string]LiveGameState         // legacy team-keyed view; use liveStatusForWeek for scoring
+	GamesByWeek map[int]map[string]LiveGameState // week, then nflverse team abbreviation
 }
 
 // LiveStatusSource returns the current LiveStatus from memory; it must not
@@ -101,6 +103,29 @@ func (s *Service) liveStatus() (LiveStatus, bool) {
 		return LiveStatus{}, false
 	}
 	return fn(), true
+}
+
+// liveStatusForWeek prevents a prior game's final state from being assigned
+// to the same NFL team in the week currently being rendered. The production
+// poller supplies GamesByWeek. The fallback keeps older test/status sources
+// working while honoring any explicit week on their game states.
+func (s *Service) liveStatusForWeek(week int) (LiveStatus, bool) {
+	status, ok := s.liveStatus()
+	if !ok {
+		return status, false
+	}
+	if status.GamesByWeek != nil {
+		status.Games = status.GamesByWeek[week]
+		return status, true
+	}
+	games := make(map[string]LiveGameState)
+	for team, game := range status.Games {
+		if game.Week == 0 || game.Week == week {
+			games[team] = game
+		}
+	}
+	status.Games = games
+	return status, true
 }
 
 // livePollerEnabled reports whether the live-scoring poller is actually

@@ -1652,7 +1652,7 @@ func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games 
 	// live/hasLive back GC-2b's possession chip only — read once for the
 	// whole slot list, the same one-read-per-render discipline
 	// matchupStatsSnapshot's own live/hasLive pair follows.
-	live, hasLive := s.liveStatus()
+	live, hasLive := s.liveStatusForWeek(lineup.Week)
 	out := make([]map[string]any, 0, len(lineup.Slots))
 	transferEligibility := lineupTransferEligibilityByTarget(lineup, games, now)
 	for _, a := range lineup.Slots {

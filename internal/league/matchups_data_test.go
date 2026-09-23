@@ -136,6 +136,9 @@ func TestMatchupsDataCurrentWeekKeepsLiveStateAndNavigation(t *testing.T) {
 	if data["has_previous_week"] != false || data["has_next_week"] != true || data["next_week_href"] != "/matchups?week=2" {
 		t.Fatalf("current navigation = prev:%v next:%v href:%v", data["has_previous_week"], data["has_next_week"], data["next_week_href"])
 	}
+	if data["live_src"] != "/api/live/week?week=1" {
+		t.Fatalf("current live source = %v", data["live_src"])
+	}
 	next := matchupNextState(t, data)
 	if next["has_matchup"] != true || next["week"] != "1" || next["href"] != "/matchups?week=1" {
 		t.Fatalf("current-week matchup = %+v", next)
@@ -155,6 +158,16 @@ func TestMatchupsDataFutureWeekIsScheduledAndStopsLivePolling(t *testing.T) {
 	}
 	if data["live_interval"] != "" || data["previous_week_href"] != "/matchups?week=1" || data["next_week_href"] != "/matchups?week=3" {
 		t.Fatalf("future polling/navigation = interval:%q prev:%v next:%v", data["live_interval"], data["previous_week_href"], data["next_week_href"])
+	}
+	if data["live_src"] != "/api/live/week?week=2" {
+		t.Fatalf("selected live source = %v", data["live_src"])
+	}
+	view, err := service.LiveScoresViewForWeek(context.Background(), 2)
+	if err != nil || view["week"] != 2 || view["state"] != MatchupStateScheduled || view["ok"] != true || view["refreshLabel"] != "Future week" {
+		t.Fatalf("selected week API view = week:%v state:%v ok:%v refresh:%v err:%v", view["week"], view["state"], view["ok"], view["refreshLabel"], err)
+	}
+	if _, err := service.LiveScoresViewForWeek(context.Background(), 99); err == nil {
+		t.Fatal("unpublished week should not return a live view")
 	}
 	if data["current_week_href"] != "/matchups" {
 		t.Fatalf("future current href = %v", data["current_week_href"])

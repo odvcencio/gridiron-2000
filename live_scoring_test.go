@@ -36,6 +36,25 @@ func TestLiveStatusSourceMapsGamesToBothTeams(t *testing.T) {
 	}
 }
 
+func TestLiveStatusSourceKeepsRepeatedTeamsInTheirOwnWeeks(t *testing.T) {
+	now := time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC)
+	snapshot := livescore.Snapshot{Games: map[string]livescore.GameState{
+		"week-2": {ID: "week-2", Week: 2, Away: "BUF", Home: "MIA", Final: true, Kickoff: now.Add(-24 * time.Hour)},
+		"week-3": {ID: "week-3", Week: 3, Away: "BUF", Home: "NE", Kickoff: now.Add(48 * time.Hour)},
+	}}
+	status := liveStatusFromPoller(func() livescore.Snapshot { return snapshot },
+		func() livescore.Health { return livescore.Health{Enabled: true} }, func() time.Time { return now })()
+	if got := status.GamesByWeek[2]["BUF"]; got.GameID != "week-2" || !got.Final || got.Week != 2 {
+		t.Fatalf("week 2 BUF = %+v", got)
+	}
+	if got := status.GamesByWeek[3]["BUF"]; got.GameID != "week-3" || got.Final || got.Week != 3 {
+		t.Fatalf("week 3 BUF = %+v", got)
+	}
+	if _, ok := status.GamesByWeek[3]["MIA"]; ok {
+		t.Fatal("week 2 opponent leaked into week 3")
+	}
+}
+
 // TestLiveStatusSourceClearsInProgressAfterWindowClosesEvenFromAStaleSnapshot
 // covers item 3's real failure mode: buildLiveScoring's versionedSnapshot
 // memoizes per Poller.Version, and a game whose window has closed gets no

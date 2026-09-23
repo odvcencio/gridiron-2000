@@ -155,13 +155,18 @@ func liveStatusFromPoller(snapshot func() livescore.Snapshot, health func() live
 	return func() league.LiveStatus {
 		h, s := health(), freshenSnapshot(snapshot(), now())
 		games := make(map[string]league.LiveGameState, len(s.Games)*2)
+		gamesByWeek := make(map[int]map[string]league.LiveGameState)
 		for _, game := range s.Games {
-			state := league.LiveGameState{GameID: game.ID, Away: game.Away, Home: game.Home, Period: game.Period, Clock: game.Clock,
+			state := league.LiveGameState{GameID: game.ID, Week: game.Week, Away: game.Away, Home: game.Home, Period: game.Period, Clock: game.Clock,
 				AwayPoints: game.AwayPoints, HomePoints: game.HomePoints, Final: game.Final, BoxFinal: game.BoxFinal, InProgress: game.InProgress, Kickoff: game.Kickoff,
 				Possession: game.Possession, PossessionKnown: game.PossessionKnown}
 			games[game.Away], games[game.Home] = state, state
+			if gamesByWeek[game.Week] == nil {
+				gamesByWeek[game.Week] = make(map[string]league.LiveGameState)
+			}
+			gamesByWeek[game.Week][game.Away], gamesByWeek[game.Week][game.Home] = state, state
 		}
-		return league.LiveStatus{Enabled: h.Enabled, Degraded: h.Degraded, Reason: h.Reason, CheckedAt: h.LastSuccess, Games: games}
+		return league.LiveStatus{Enabled: h.Enabled, Degraded: h.Degraded, Reason: h.Reason, CheckedAt: h.LastSuccess, Games: games, GamesByWeek: gamesByWeek}
 	}
 }
 

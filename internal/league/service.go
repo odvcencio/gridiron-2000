@@ -2267,6 +2267,10 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 	}
 	isCurrentWeek := selectedWeek == currentWeek
 	livePoll := isCurrentWeek && livePollingActive(live)
+	liveSrc := "/api/live/week"
+	if hasSchedule {
+		liveSrc = fmt.Sprintf("/api/live/week?week=%d", selectedWeek)
+	}
 	matchups := s.matchupMaps(state, live.Matchups)
 	teamID, _ := viewer["team_id"].(string)
 	// focusID ("?m=") is the owner's 2026-09-09 request: any matchup, not
@@ -2323,6 +2327,7 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 		"leaders":            s.leaderMaps(),
 		"league":             s.leagueMapForViewer(r),
 		"week":               selectedWeek,
+		"live_src":           liveSrc,
 		"current_week":       currentWeek,
 		"has_weeks":          hasSchedule,
 		"week_options":       weekOptions,
@@ -4097,7 +4102,44 @@ func (s *Service) LiveScores(ctx context.Context) LiveSnapshot {
 // cannot be conflated by the browser.
 func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	live := s.LiveScores(ctx)
+	return s.liveScoresView(live, true, live.Week)
+}
+
+// LiveScoresViewForWeek serves the same week the matchup page selected, even
+// when the league's current week changes while that page remains open.
+func (s *Service) LiveScoresViewForWeek(ctx context.Context, week int) (map[string]any, error) {
+	state := s.store.Snapshot()
+	if state.Schedule == nil || week <= 0 {
+		return nil, fmt.Errorf("week %d is not on the published schedule", week)
+	}
+	if _, ok := scheduleWeekByNumber(*state.Schedule, week); !ok {
+		return nil, fmt.Errorf("week %d is not on the published schedule", week)
+	}
+	currentWeek := currentScheduleWeek(*state.Schedule)
+	var live LiveSnapshot
+	if week == currentWeek {
+		live = s.LiveScores(ctx)
+	}
+	if live.Week != week {
+		var err error
+		live, err = (scheduleProvider{svc: s}).SnapshotWeek(ctx, s.clock(), week)
+		if err != nil {
+			return nil, err
+		}
+		live.OK = true
+	}
+	return s.liveScoresView(live, week == currentWeek, currentWeek), nil
+}
+
+func (s *Service) liveScoresView(live LiveSnapshot, isCurrentWeek bool, currentWeek int) map[string]any {
 	presentation := matchupPresentation(live.State, s.livePollerEnabled())
+	if !isCurrentWeek && live.State != MatchupStateFinal && live.State != MatchupStatePreseason {
+		presentation = matchupStaticPresentation(live.State)
+		if live.Week > currentWeek {
+			presentation["refresh_label"] = "Future week"
+			presentation["note_body"] = "This is a static future-week schedule view; current-week scoring updates are shown on the current week."
+		}
+	}
 	scores := make(map[string]string, len(live.Matchups)*2)
 	starterPoints := make(map[string]string)
 	starterPlayerName := make(map[string]string)
@@ -4194,7 +4236,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	starterProgressComplete := make(map[string]string, len(live.Matchups)*2)
 	starterProgressLabel := make(map[string]string)
 	starterProgressPlayers := make(map[string]string)
-	liveStatusValue, hasLive := s.liveStatus()
+	liveStatusValue, hasLive := s.liveStatusForWeek(live.Week)
 	pool := s.pool()
 	projectionByID, projectionAvailable, projectionNote := s.projectionPoolForWeek(pool, live.Week)
 	addStarterRow := func(row StarterLedgerRow) {
@@ -4244,7 +4286,9 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		}
 		matchupStatus[matchup.ID] = status
 		matchupClock[matchup.ID] = matchupClockLabel(matchup.Clock)
-		matchupIndicator[matchup.ID] = liveIndicatorToken(matchup.State)
+		if isCurrentWeek {
+			matchupIndicator[matchup.ID] = liveIndicatorToken(matchup.State)
+		}
 		// Raw token under the established key; the readable label under its
 		// own. The chips bind the label, everything else keeps the token.
 		matchupLiveStateBind[matchup.ID] = matchup.LiveState
@@ -4310,6 +4354,10 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	checked := s.formatMatchupUpdateOrUnavailable(checkedAt)
 	statsUpdated := s.formatMatchupUpdateOrUnavailable(live.StatsUpdatedAt)
 	liveStatus := s.liveStatusText(live, presentation)
+	liveIndicator := ""
+	if isCurrentWeek {
+		liveIndicator = liveIndicatorToken(live.State)
+	}
 	return map[string]any{
 		"ok":          live.OK,
 		"source":      live.Source,
@@ -4379,7 +4427,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"checkedAt":                  checked,
 		"statsUpdatedAt":             statsUpdated,
 		"liveStatsUpdated":           statsUpdated,
-		"liveIndicator":              liveIndicatorToken(live.State),
+		"liveIndicator":              liveIndicator,
 		"headlineTop":                presentation["headline_top"],
 		"headlineBottom":             presentation["headline_bottom"],
 		"refreshLabel":               presentation["refresh_label"],
@@ -6084,7 +6132,7 @@ func otherMatchupsCountLabel(count int) string {
 // featuredMatchupMap make, rather than each call taking the pool itself
 // (round-2 review of commit 133d1d7, finding 3).
 func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, matchups []map[string]any, teamID, focusID string, viewedWeek, lockWeek int, projectionByID map[string]Player, projectionAvailable bool) (map[string]any, []map[string]any) {
-	status, hasLive := s.liveStatus()
+	status, hasLive := s.liveStatusForWeek(viewedWeek)
 	index, isViewer := featuredMatchupIndex(live.Matchups, teamID, focusID)
 	other := make([]map[string]any, 0, len(matchups))
 	for i, entry := range matchups {

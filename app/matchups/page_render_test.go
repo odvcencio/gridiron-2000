@@ -146,6 +146,7 @@ func TestMatchupsPageWeekBrowserRoute(t *testing.T) {
 	body := string(output)
 	for _, want := range []string{
 		`data-gosx-live-bind="weekLabel">Week 2`,
+		`data-gosx-live-src="/api/live/week?week=2"`,
 		`data-gosx-live-bind="headlineTop">SCHEDULE`,
 		`data-gosx-live-bind="headlineBottom">STATUS.`,
 		"Back to current week",

@@ -33,7 +33,7 @@ func (s *Service) matchupStatsSnapshot(week int) matchupStatsSnapshot {
 			games = append(games, game)
 		}
 	}
-	live, hasLive := s.liveStatus()
+	live, hasLive := s.liveStatusForWeek(week)
 	return matchupStatsSnapshot{
 		lines: lines, final: final, known: known, sourceState: sourceState, sourceErr: sourceErr,
 		games: games, live: live, hasLive: hasLive,
