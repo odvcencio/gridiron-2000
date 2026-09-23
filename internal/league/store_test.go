@@ -31,6 +31,61 @@ func startTestDraft(t *testing.T, store *Store) {
 	}
 }
 
+// TestBestEffortPickBackupDoesNotBlockConcurrentSnapshot is the direct
+// regression test for the VACUUM-INTO-under-the-write-lock finding: the
+// old inline s.backupSnapshotLocked() call ran the pick's whole rolling
+// backup — a full logical copy of the database — inside s.mu.Lock(),
+// stalling every Store.Snapshot()/ReadableSnapshot() reader (every page
+// render in a live draft room) for the copy's entire duration on every
+// single pick.
+//
+// backupVacuumHook lets this test hold MakePick's backup call open
+// indefinitely, deterministically, without needing a database large
+// enough to make VACUUM INTO itself slow. While the backup is stuck, a
+// concurrent Store.Snapshot() call must still return promptly: it proves
+// bestEffortPickBackup (store.go) runs before s.mu.Lock() is acquired,
+// not while it is held.
+func TestBestEffortPickBackupDoesNotBlockConcurrentSnapshot(t *testing.T) {
+	store := newTestStore(t)
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	backupVacuumHook = func() {
+		close(started)
+		<-release
+	}
+	defer func() { backupVacuumHook = nil }()
+
+	pickDone := make(chan error, 1)
+	go func() {
+		_, err := store.MakePick(teamOnClock(nil, 1), "p-01", "manager", time.Now(), time.Time{})
+		pickDone <- err
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("MakePick never reached the backup's VACUUM INTO")
+	}
+
+	snapshotDone := make(chan struct{})
+	go func() {
+		_ = store.Snapshot()
+		close(snapshotDone)
+	}()
+	select {
+	case <-snapshotDone:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Store.Snapshot() blocked behind the in-progress pick backup; " +
+			"the backup must run before MakePick acquires s.mu, never while holding it")
+	}
+
+	close(release)
+	if err := <-pickDone; err != nil {
+		t.Fatalf("MakePick: %v", err)
+	}
+}
+
 func TestInvites(t *testing.T) {
 	store := newTestStore(t)
 	if err := store.AddInvite(" Buddy@Example.com "); err != nil {
