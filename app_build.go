@@ -73,11 +73,25 @@ type AppConfig struct {
 // value keeps the real fantasy pool.
 var harnessTestPools = map[string]bool{"": true, "offline-live": true}
 
-// validate refuses a configuration that arms a harness switch outside a
-// local environment. The rule is an allow-list, not a "production" match:
-// APP_ENV=prod, APP_ENV=staging, and every unknown label are deployments,
-// so a leaked flag cannot open a live league. BuildApp calls this too, so a
-// hand-built AppConfig obeys the same rule as an environment-read one.
+// defaultSessionSecret is the development-only SESSION_SECRET fallback. It
+// signs and encrypts every session cookie, so it must never sign a real
+// deployment's cookies: validate refuses to boot in production with this
+// exact value, an empty value (getenv folds a missing SESSION_SECRET into
+// this same default), or anything shorter than minSessionSecretBytes.
+const defaultSessionSecret = "gridiron-2000-local-session-secret-change-me"
+
+// minSessionSecretBytes is the shortest SESSION_SECRET validate accepts in
+// production, matching the guidance in .env.example ("at least 32 random
+// characters").
+const minSessionSecretBytes = 32
+
+// validate refuses a configuration that arms a harness switch, or that
+// boots with an unsafe session secret, outside a local environment. The
+// rule is an allow-list, not a "production" match: an unset APP_ENV,
+// APP_ENV=prod, APP_ENV=staging, and every unknown label are all
+// deployments, so a leaked flag or a forgotten secret cannot open a live
+// league. BuildApp calls this too, so a hand-built AppConfig obeys the same
+// rule as an environment-read one.
 func (cfg AppConfig) validate() error {
 	if !harnessTestPools[cfg.TestPool] {
 		return errors.New("GRIDIRON_TEST_POOL must be empty or offline-live")
@@ -88,19 +102,27 @@ func (cfg AppConfig) validate() error {
 	if !cfg.TestClock.IsZero() && !cfg.TestAuth {
 		return errors.New("GRIDIRON_TEST_CLOCK requires GRIDIRON_TEST_AUTH=1")
 	}
+	if !isLocalAppEnv(cfg.AppEnv) {
+		if cfg.SessionKey == defaultSessionSecret {
+			return errors.New("SESSION_SECRET is missing or still the default development value; refusing to boot outside a local APP_ENV. Set SESSION_SECRET to a random value of at least 32 bytes, for example: openssl rand -base64 48")
+		}
+		if len(cfg.SessionKey) < minSessionSecretBytes {
+			return errors.New("SESSION_SECRET is shorter than 32 bytes; refusing to boot outside a local APP_ENV. Set SESSION_SECRET to a random value of at least 32 bytes, for example: openssl rand -base64 48")
+		}
+	}
 	return nil
 }
 
 // AppConfigFromEnv reads the process environment. It refuses the harness
-// switches outside a local environment so a leaked flag cannot open a live
-// league.
+// switches, and an unsafe SESSION_SECRET, outside a local environment so a
+// leaked flag or a forgotten secret cannot open a live league.
 func AppConfigFromEnv() (AppConfig, error) {
 	_, thisFile, _, _ := runtime.Caller(0)
 	cfg := AppConfig{
 		Root:       server.ResolveAppRoot(thisFile),
 		AppEnv:     strings.TrimSpace(os.Getenv("APP_ENV")),
 		Port:       getenv("PORT", "8080"),
-		SessionKey: getenv("SESSION_SECRET", "gridiron-2000-local-session-secret-change-me"),
+		SessionKey: getenv("SESSION_SECRET", defaultSessionSecret),
 		TestPool:   strings.TrimSpace(os.Getenv("GRIDIRON_TEST_POOL")),
 		TestAuth:   os.Getenv("GRIDIRON_TEST_AUTH") == "1",
 	}

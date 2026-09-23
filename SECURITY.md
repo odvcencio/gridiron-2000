@@ -28,6 +28,13 @@ yourself:
   "session expired" page instead of a bare `403`.
 - **Encrypted, HTTP-only sessions.** Session state lives in an encrypted,
   HTTP-only cookie, keyed by `SESSION_SECRET`.
+- **Fail closed on environment.** An unset or empty `APP_ENV` is treated
+  as production, not as local: local/dev behavior (plain-HTTP cookies,
+  `DEMO_MODE`, the test harness) needs an explicit
+  `APP_ENV=development`/`local`/`test`. Outside a local `APP_ENV`, the
+  process refuses to boot if `SESSION_SECRET` is missing, still the
+  built-in development default, or shorter than 32 bytes (see
+  `AppConfig.validate` in [`app_build.go`](app_build.go)).
 - **Google OAuth with PKCE.** Sign-in is Google OAuth with PKCE
   (proof key for code exchange); there is no local-password path.
 - **Secrets stay in configuration, not code.** Credentials come from

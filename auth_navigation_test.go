@@ -254,7 +254,7 @@ func TestGridironSessionOptionsRespectEnvironmentPolicy(t *testing.T) {
 		wantSecure   bool
 		wantInsecure bool
 	}{
-		{name: "empty local HTTP", appEnv: "", wantSecure: false, wantInsecure: true},
+		{name: "empty APP_ENV is production HTTPS", appEnv: "", wantSecure: true, wantInsecure: false},
 		{name: "local with whitespace", appEnv: " local ", wantSecure: false, wantInsecure: true},
 		{name: "development case insensitive", appEnv: "DEVELOPMENT", wantSecure: false, wantInsecure: true},
 		{name: "test case insensitive", appEnv: "Test", wantSecure: false, wantInsecure: true},

@@ -158,7 +158,8 @@ COPY --from=builder --chown=65532:65532 /src/dist /app/dist
 COPY --from=builder --chown=65532:65532 --chmod=700 /out/data /app/data
 
 ENV GOSX_APP_ROOT=/app \
-    PORT=8080
+    PORT=8080 \
+    APP_ENV=production
 
 USER 65532:65532
 EXPOSE 8080

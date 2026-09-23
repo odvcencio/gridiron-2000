@@ -825,7 +825,7 @@ func TestHomepageCommissionerSeatlessOverlayRenders(t *testing.T) {
 // completes quickly.
 func TestHomepagePostDraftCardShowsTheViewerOwnOpeningPick(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHomepagePostDraftCardFixtureProcess$")
-	cmd.Env = append(os.Environ(), "HOME_POST_DRAFT_FIXTURE=1", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=")
+	cmd.Env = append(os.Environ(), "HOME_POST_DRAFT_FIXTURE=1", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("post-draft home fixture process: %v\n%s", err, output)

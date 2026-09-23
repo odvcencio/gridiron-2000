@@ -32,8 +32,8 @@ func TestNonLocalAppEnvDisablesDemoModeUnconditionally(t *testing.T) {
 		{"local with DEMO_MODE=true is on", "local", "true", "", true},
 		{"development with DEMO_MODE=true is on", "development", "true", "", true},
 		{"test with DEMO_MODE=true is on", "test", "true", "", true},
-		{"empty APP_ENV with DEMO_MODE=true is on", "", "true", "", true},
-		{"empty APP_ENV with DEMO_MODE=true and oauth configured is still on", "", "true", "client-id", true},
+		{"empty APP_ENV with DEMO_MODE=true stays off (unset APP_ENV is production)", "", "true", "", false},
+		{"empty APP_ENV with DEMO_MODE=true and oauth configured still stays off", "", "true", "client-id", false},
 		{"local with no DEMO_MODE stays off (no more empty-oauth default)", "local", "", "", false},
 		{"empty APP_ENV with no DEMO_MODE stays off (no more empty-oauth default)", "", "", "", false},
 		{"local with DEMO_MODE=false stays off", "local", "false", "", false},
@@ -51,12 +51,14 @@ func TestNonLocalAppEnvDisablesDemoModeUnconditionally(t *testing.T) {
 }
 
 // TestIsLocalAppEnvAllowList locks the exact allow-list every boundary
-// decision (session cookie policy, demo mode, setup-wizard fail-closed
-// rule) shares, so a future edit cannot silently widen or narrow it in one
-// place without this test catching the drift.
+// decision (session cookie policy, SESSION_SECRET fail-closed check, demo
+// mode, setup-wizard fail-closed rule) shares, so a future edit cannot
+// silently widen or narrow it in one place without this test catching the
+// drift. An unset APP_ENV is deployed (production), not local: local
+// behavior needs an explicit opt-in.
 func TestIsLocalAppEnvAllowList(t *testing.T) {
-	local := []string{"", "local", "development", "test", "LOCAL", "  test  "}
-	deployed := []string{"prod", "production", "staging", "canary", "PRODUCTION", "unknown-label"}
+	local := []string{"local", "development", "test", "LOCAL", "  test  "}
+	deployed := []string{"", "  ", "prod", "production", "staging", "canary", "PRODUCTION", "unknown-label"}
 	for _, appEnv := range local {
 		if !IsLocalAppEnv(appEnv) {
 			t.Errorf("IsLocalAppEnv(%q) = false, want true", appEnv)

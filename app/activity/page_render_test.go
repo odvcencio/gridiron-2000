@@ -124,7 +124,7 @@ func TestActivityPageRendersRosterCorrectionInPlainWords(t *testing.T) {
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
 		"DEMO_MODE=true",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()

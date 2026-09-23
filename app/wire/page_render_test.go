@@ -34,7 +34,7 @@ func TestWirePageRendersSignalCardsWithRealData(t *testing.T) {
 		"WIRE_ROOT="+t.TempDir(),
 		"DEMO_MODE=true",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()
@@ -457,7 +457,7 @@ func TestWireFilterChipsNameEmptyCategoriesAndOfferAnAlternative(t *testing.T) {
 		"WIRE_ROOT="+t.TempDir(),
 		"DEMO_MODE=true",
 		"GOOGLE_CLIENT_ID=",
-		"APP_ENV=",
+		"APP_ENV=test",
 		"LEAGUE_FILE=",
 	)
 	output, err := cmd.CombinedOutput()

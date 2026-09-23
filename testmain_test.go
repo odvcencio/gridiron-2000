@@ -22,10 +22,25 @@ import (
 // buys nothing but a slower suite.
 func TestMain(m *testing.M) {
 	league.SetSQLiteSyncModeForTest("OFF")
+	// Fail-closed boot (app_build.go's AppConfig.validate, internal/league's
+	// IsLocalAppEnv) now treats an unset APP_ENV as production, not as
+	// local. Every sim/fixture child this package spawns already pins its
+	// own APP_ENV (sim_child_test.go's simChildEnv), so this is a no-op for
+	// them; it only covers this binary's own in-process tests and any
+	// fixture spawn that still inherits os.Environ() unmodified.
+	setAppEnv := false
+	if os.Getenv("APP_ENV") == "" {
+		os.Setenv("APP_ENV", "test")
+		setAppEnv = true
+	}
 	if os.Getenv("GRIDIRON_SIM_CHILD") == "1" {
 		// The sim parent owns this child's DATA_FILE so restart scenarios
 		// can reopen the same league; never replace it here.
-		os.Exit(m.Run())
+		status := m.Run()
+		if setAppEnv {
+			os.Unsetenv("APP_ENV")
+		}
+		os.Exit(status)
 	}
 	stateDir, err := os.MkdirTemp("", "gridiron-root-test-state-")
 	if err != nil {
@@ -44,6 +59,9 @@ func TestMain(m *testing.M) {
 		_ = os.Setenv("DATA_FILE", previous)
 	} else {
 		_ = os.Unsetenv("DATA_FILE")
+	}
+	if setAppEnv {
+		os.Unsetenv("APP_ENV")
 	}
 	os.Exit(status)
 }

@@ -27,7 +27,7 @@ func TestDraftPoolSearchIsReal(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"DRAFT_POOL_SEARCH_FIXTURE=1",
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
-		"DEMO_MODE=false", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=",
+		"DEMO_MODE=false", "GOOGLE_CLIENT_ID=", "APP_ENV=test", "LEAGUE_FILE=",
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("draft pool search fixture process: %v\n%s", err, output)
