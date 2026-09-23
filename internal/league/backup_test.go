@@ -10,9 +10,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -425,6 +427,74 @@ func TestWriteBackupSnapshotFileWritesUnderDir(t *testing.T) {
 	}
 	if manifest.DBSHA256 == "" {
 		t.Error("manifest.DBSHA256 is empty")
+	}
+}
+
+// TestWriteDatabaseSnapshotGZWritesGzippedDBUnderDataDir covers the GCS
+// off-host sink's own snapshot path (main's gcsBackupSink, ops-drift
+// hardening 2026-09-23): a fresh VACUUM INTO snapshot, gzip-compressed,
+// staged under the data directory (never a shared system temp
+// directory), with a cleanup func that removes both the staged file and
+// its parent temp directory.
+func TestWriteDatabaseSnapshotGZWritesGzippedDBUnderDataDir(t *testing.T) {
+	svc, dir := backupTestService(t)
+	path, cleanup, err := svc.WriteDatabaseSnapshotGZ(context.Background())
+	if err != nil {
+		t.Fatalf("WriteDatabaseSnapshotGZ: %v", err)
+	}
+	if cleanup == nil {
+		t.Fatal("cleanup is nil")
+	}
+	defer cleanup()
+
+	if !strings.HasSuffix(path, ".gz") {
+		t.Errorf("path = %s, want a .gz suffix", path)
+	}
+	rel, err := filepath.Rel(dir, path)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		t.Errorf("path %s is not staged under the data directory %s (never the shared system temp dir)", path, dir)
+	}
+
+	gzFile, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open snapshot: %v", err)
+	}
+	defer gzFile.Close()
+	reader, err := gzip.NewReader(gzFile)
+	if err != nil {
+		t.Fatalf("snapshot is not valid gzip: %v", err)
+	}
+	defer reader.Close()
+	raw, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("decompress snapshot: %v", err)
+	}
+	// A real SQLite file starts with this exact 16-byte magic header —
+	// proves the gzip payload is the raw VACUUM INTO database, not the
+	// tar-wrapped archive WriteBackupSnapshotFile produces.
+	const sqliteMagic = "SQLite format 3\x00"
+	if len(raw) < len(sqliteMagic) || string(raw[:len(sqliteMagic)]) != sqliteMagic {
+		t.Errorf("decompressed snapshot does not start with the SQLite file header")
+	}
+
+	cleanup()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("cleanup() left %s behind, want it removed", path)
+	}
+}
+
+// TestWriteDatabaseSnapshotGZRequiresPersistentStore covers the guard
+// clause: a Service with no store (or a store with no data directory)
+// must fail loudly rather than silently writing to an unintended
+// location.
+func TestWriteDatabaseSnapshotGZRequiresPersistentStore(t *testing.T) {
+	var svc *Service
+	if _, _, err := svc.WriteDatabaseSnapshotGZ(context.Background()); err == nil {
+		t.Error("nil Service: want an error, got nil")
+	}
+	empty := &Service{}
+	if _, _, err := empty.WriteDatabaseSnapshotGZ(context.Background()); err == nil {
+		t.Error("Service with no store: want an error, got nil")
 	}
 }
 

@@ -7,17 +7,46 @@ name: CI
 # most exposed to concurrent access and a build of the server the
 # Dockerfile ships. It does not deploy anything and does not touch an
 # image pin.
+#
+# ops-drift hardening, 2026-09-23:
+#   - push is now branches: [main] only (was "**"): a feature-branch push
+#     with an open PR against main used to fire both a push run and a
+#     pull_request run for the identical commit — the concurrency group
+#     below never deduped them, because github.ref differs between the
+#     two event types (refs/heads/<branch> vs refs/pull/<n>/merge). main
+#     still gets push coverage (a direct push or a merge); every other
+#     branch is covered by its PR's pull_request run instead. Measured
+#     before this change: two full runs per PR update, roughly 2x the
+#     runner-minutes this workflow actually needed.
+#   - GOFLAGS is -mod=readonly, not -mod=mod: a check run must fail loudly
+#     on an out-of-sync go.mod/go.sum instead of silently rewriting them
+#     mid-CI.
+#   - a new nightly schedule job runs the non-short sim suite
+#     (sim_*_test.go's TestSim* scenarios at the repository root), which
+#     every push/pull_request run skips under -short (real subprocess
+#     children, tens of seconds each — see scripts/go-check.sh's own
+#     comment on -short). Measured locally: 68s non-short vs <1s
+#     short-skipped for the same eleven scenarios (go test . -run
+#     '^TestSim' -count=1, 2026-09-23) — cheap enough to run nightly, too
+#     slow to add to the required per-push gate above.
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # 09:00 UTC daily: off-peak for every timezone this fleet operates
+    # from, well outside any NFL game window this repo's own live-scoring
+    # code cares about.
+    - cron: "0 9 * * *"
 
 # A later push on the same branch/PR supersedes an in-flight run instead
 # of queuing behind it — useful given how often this repo pushes to main.
+# event_name is part of the group so a nightly schedule run and a same-ref
+# push/pull_request run never cancel each other.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -29,13 +58,14 @@ env:
   # go.sum already pins every checksum, so GOPRIVATE only needs to skip
   # the module proxy/sumdb for them — no sumdb network call happens.
   GOPRIVATE: github.com/odvcencio/*,github.com/M31-Labs/*,m31labs.dev/*
-  GOFLAGS: -mod=mod
+  GOFLAGS: -mod=readonly
   CGO_ENABLED: "0"
 
 jobs:
   vet-and-test:
     name: vet, gofmt, short tests
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -58,6 +88,7 @@ jobs:
   race-league:
     name: race detector (short) — internal/league
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     # internal/league alone timed out at Go's default 10m package timeout
     # under -race on a GitHub-hosted runner (run 35836239666): -short
     # there measures 159s without -race on a 16-core buildbox host. Also
@@ -89,6 +120,7 @@ jobs:
   race-other:
     name: race detector (short) — livescore, wire
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     timeout-minutes: 10
     env:
       CGO_ENABLED: "1"
@@ -104,6 +136,7 @@ jobs:
   build:
     name: server build (Docker image context)
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -116,6 +149,7 @@ jobs:
   e2e:
     name: browser suite (non-required)
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     # Evidence, not a gate: a flaky headed-Chrome run must never block a
     # merge the way vet-and-test/race/build do. GitHub Actions' Ubuntu
     # runners ship Google Chrome preinstalled, so this needs no extra
@@ -133,3 +167,20 @@ jobs:
         run: GOSX_SKIP_VERSION_CHECK=1 gosx build --dev .
       - name: browser suite (scripts/go-check.sh, e2e tag)
         run: scripts/go-check.sh test -tags e2e -short -count=1
+
+  nightly-sim:
+    name: non-short sim suite (nightly)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    # Measured locally at 68s for all eleven scenarios (2026-09-23); a
+    # generous multiple covers a slower/shared runner without papering
+    # over a genuine hang the way a much larger timeout would.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: non-short sim suite (root package, TestSim*)
+        run: go test . -run '^TestSim' -count=1 -timeout 15m -v

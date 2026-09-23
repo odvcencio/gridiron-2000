@@ -202,7 +202,12 @@ func TestAvatarAndMotifHrefsCarryContentHashAndImmutableCache(t *testing.T) {
 // TestBuildAppHealthReportsConfiguredState covers the design's slice-2
 // acceptance criterion "health reports the state truthfully": the
 // CONFIGURED app's own /api/health now names its state explicitly,
-// matching the SETUP and fail-closed apps' own health payloads.
+// matching the SETUP and fail-closed apps' own health payloads. It also
+// covers the ops-drift hardening rule (2026-09-23): http.Get against an
+// httptest.NewServer always dials 127.0.0.1, so this exercises the
+// loopback branch of the detailed-fields gate — the same trust boundary
+// isLoopbackRemote already draws for the /test/* harness routes — and
+// must keep seeing the full payload.
 func TestBuildAppHealthReportsConfiguredState(t *testing.T) {
 	hermeticEnv(t)
 	cfg, err := AppConfigFromEnv()
@@ -232,6 +237,44 @@ func TestBuildAppHealthReportsConfiguredState(t *testing.T) {
 	}
 	if !strings.Contains(string(body), `"state":"configured"`) {
 		t.Fatalf("health payload did not report state=configured:\n%s", body)
+	}
+}
+
+// TestAPIHealthAnonymousNonLoopbackGetsMinimalPayload is the ops-drift
+// hardening rule (2026-09-23): an anonymous caller reaching /api/health
+// over anything but a loopback connection (httptest.NewRequest defaults
+// RemoteAddr to the non-loopback 192.0.2.1, matching a real request
+// proxied in through the Service/Ingress) must see only {ok, appVersion}
+// — never the rich operational payload TestBuildAppHealthReportsConfiguredState
+// covers. The HTTP status code must still reflect persistence readiness,
+// so a Deployment readinessProbe (status-only) keeps working unchanged.
+func TestAPIHealthAnonymousNonLoopbackGetsMinimalPayload(t *testing.T) {
+	handler := buildHarnessApp(t, false)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET /api/health = %d, want 200", recorder.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode /api/health body: %v\n%s", err, recorder.Body.String())
+	}
+	if len(payload) != 2 {
+		t.Fatalf("GET /api/health body = %v, want exactly {ok, appVersion}", payload)
+	}
+	if _, ok := payload["ok"]; !ok {
+		t.Fatalf("GET /api/health body %v missing \"ok\"", payload)
+	}
+	if _, ok := payload["appVersion"]; !ok {
+		t.Fatalf("GET /api/health body %v missing \"appVersion\"", payload)
+	}
+	for _, leaked := range []string{"state", "frameworkVersion", "gitSHA", "commissionerHQV1Configured", "backups", "leagueConfig"} {
+		if _, present := payload[leaked]; present {
+			t.Fatalf("GET /api/health body %v leaked internal field %q to an anonymous, non-loopback caller", payload, leaked)
+		}
 	}
 }
 

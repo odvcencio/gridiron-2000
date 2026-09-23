@@ -45,7 +45,7 @@ func liveScoringInputs(pool *fantasy.Service, lg *league.Service, rt *AppRuntime
 	}
 	allowProduction := strings.EqualFold(strings.TrimSpace(os.Getenv("LIVE_REPLAY_ALLOW_PRODUCTION")), "true")
 	if !isLocalAppEnv(appEnv) && !allowProduction {
-		log.Printf("livescore: LIVE_REPLAY_FIXTURE=%s refused: APP_ENV=%q is not a local environment (\"\", local, development, test) and LIVE_REPLAY_ALLOW_PRODUCTION is not \"true\"; the live poller uses the normal relay", dir, appEnv)
+		log.Printf("livescore: LIVE_REPLAY_FIXTURE=%s refused: APP_ENV=%q is not a local environment (local, development, test) and LIVE_REPLAY_ALLOW_PRODUCTION is not \"true\"; the live poller uses the normal relay", dir, appEnv)
 		return liveCfg, pool.BoxScoreClient(), nil
 	}
 	game, err := replay.LoadDir(dir)

@@ -1,0 +1,43 @@
+# statrelay-network-policy: restricts the shared Tank01 relay's port
+# (http/8090, statrelay.yaml) to the two league instances that actually
+# call it — every other pod, in this namespace or any other, is refused
+# at the network layer, not just by the allow-list statrelay's own code
+# now enforces (cmd/statrelay/relay.go's allowedUpstreamPaths). Ops-drift
+# hardening, 2026-09-23: this policy did not exist before; statrelay held
+# the fleet's only real Tank01 credential with no NetworkPolicy backing
+# its allow-list at all.
+#
+# Two ingress sources, matching deploy/README.md's "Shared Tank01 relay"
+# topology: the flagship (app=gridiron-2000) in this same gridiron
+# namespace, and Stable Kernel (app=gridiron-2000-sk) in the stablekernel
+# namespace — both point TANK01_BASE_URL at this Service across that
+# namespace boundary. Add a third `from` entry here (mirroring the
+# stablekernel one) the day a real second SK instance, or any future
+# fleet member, is provisioned in its own namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: statrelay-network-policy
+  namespace: gridiron
+  labels:
+    app: statrelay
+spec:
+  podSelector:
+    matchLabels:
+      app: statrelay
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gridiron-2000
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: stablekernel
+          podSelector:
+            matchLabels:
+              app: gridiron-2000-sk
+      ports:
+        - protocol: TCP
+          port: 8090
