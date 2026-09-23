@@ -55,9 +55,18 @@ jobs:
       - name: short unit tests (scripts/go-check.sh)
         run: scripts/go-check.sh test -short -count=1
 
-  race:
-    name: race detector (short)
+  race-league:
+    name: race detector (short) — internal/league
     runs-on: ubuntu-latest
+    # internal/league alone timed out at Go's default 10m package timeout
+    # under -race on a GitHub-hosted runner (run 35836239666): -short
+    # there measures 159s without -race on a 16-core buildbox host, but
+    # the race detector's own instrumentation plus a much smaller/shared
+    # runner stretched it past 10 minutes. Sharded into its own job (the
+    # other two packages finished in seconds in that same run) with an
+    # explicit, generous -timeout so a genuinely slow run fails on its
+    # own terms instead of a bare "panic: test timed out".
+    timeout-minutes: 25
     env:
       # The race detector's runtime needs cgo regardless of whether the
       # packages under test use it; gridiron-2000's own SQLite driver
@@ -70,7 +79,22 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: race-enabled short tests
-        run: go test -race -short -count=1 ./internal/livescore/ ./internal/league/ ./internal/wire/
+        run: go test -race -short -timeout 20m -count=1 ./internal/league/
+
+  race-other:
+    name: race detector (short) — livescore, wire
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: race-enabled short tests
+        run: go test -race -short -timeout 8m -count=1 ./internal/livescore/ ./internal/wire/
 
   build:
     name: server build (Docker image context)
