@@ -159,7 +159,7 @@ func TestDraftResultsRendersBeforeAndAfterCompletionFixtureProcess(t *testing.T)
 		`href="/draft/ledger.csv"`, `class="results-team-card"`, `data-mine="true"`,
 		// J1 F20 (2026-09-04 audit): a manager who finishes the draft on
 		// this page must see what to do next, not a dead end.
-		`class="results-next-steps`, `href="/team"`, "Set your Week 1 lineup", `href="/players"`, "Browse free agents",
+		`class="results-next-steps`, `href="/team"`, "Set your current lineup", `href="/players"`, "Browse free agents",
 		// J1 F22: the value column (results-pick__value) needs a header
 		// and a plain-language key, not a bare signed number.
 		"results-pick__value-label", "results-value-legend", "market rank",

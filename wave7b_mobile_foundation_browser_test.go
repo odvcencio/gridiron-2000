@@ -224,6 +224,16 @@ func TestBrowserChipAnchorClearsMobileBarAtDecisiveOffset(t *testing.T) {
 	if rect.Top < 60 {
 		t.Errorf("#home-action-center-heading top = %.1fpx after the hash jump at 390px, want >= 60px (clear of the fixed mobile bar)", rect.Top)
 	}
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`location.hash = '#home-action-center-tasks'`, nil)); err != nil {
+		t.Fatalf("jump to the Action Center tasks: %v", err)
+	}
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`new Promise(function(resolve){requestAnimationFrame(function(){requestAnimationFrame(resolve);});})`, nil)); err != nil {
+		t.Fatalf("wait a frame after the task jump: %v", err)
+	}
+	tasks := elementBoundingRect(t, ctx, "#home-action-center-tasks")
+	if tasks.Top < 60 || tasks.Top >= 844 {
+		t.Errorf("#home-action-center-tasks top = %.1fpx after the hash jump, want visible below the mobile bar", tasks.Top)
+	}
 }
 
 // TestBrowserScanlineDisabledUnderCoarsePointer is the decisive browser

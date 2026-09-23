@@ -98,7 +98,7 @@ func TestBrowserPlayersDesktopFilterChipsVisibleAndClickable(t *testing.T) {
 // TestBrowserPlayersPhoneFilterRailStillCollapsesAfterDesktopFix is the
 // regression guard alongside F5: the desktop-only fix (width >=
 // 56.1875rem) must never re-open the phone rail's own collapsed <details>
-// — fern's own TestBrowserPlayersFilterRailCollapsesUnder64px already
+// — fern's own TestBrowserPlayersFilterRailKeepsSearchUsableAtPhoneWidth already
 // pins this in detail; this repeats the single decisive assertion here,
 // beside the desktop fix it must not regress.
 func TestBrowserPlayersPhoneFilterRailStillCollapsesAfterDesktopFix(t *testing.T) {
@@ -109,8 +109,8 @@ func TestBrowserPlayersPhoneFilterRailStillCollapsesAfterDesktopFix(t *testing.T
 	_ = root
 
 	rail := elementBoundingRect(t, ctx, ".pool-filter-rail")
-	if rail.Height > 64 {
-		t.Errorf(".pool-filter-rail height = %.1fpx at 390px, want <= 64px (still collapsed)", rail.Height)
+	if rail.Height > 128 {
+		t.Errorf(".pool-filter-rail height = %.1fpx at 390px, want <= 128px (still collapsed)", rail.Height)
 	}
 }
 

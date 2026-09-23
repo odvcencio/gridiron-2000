@@ -301,6 +301,21 @@ func TestTeamDataHasTeamPointsFalseBeforeAnyWeekCloses(t *testing.T) {
 	if after["has_team_points"] != true {
 		t.Fatalf("has_team_points = %v, want true once a week has closed", after["has_team_points"])
 	}
+	team, ok := after["team"].(map[string]any)
+	if !ok || team["points_for"] != "88.4" {
+		t.Fatalf("team points_for = %v, want finalized 88.4", after["team"])
+	}
+	sch.Weeks = append(sch.Weeks, ScheduleWeek{
+		Week: 2, Matchups: []LeagueMatchup{{HomeTeamID: "team-1", AwayTeamID: "team-2", Final: true, HomeScore: 90.6}},
+	})
+	if err := svc.store.SetSchedule(*sch); err != nil {
+		t.Fatal(err)
+	}
+	after = svc.TeamData(request)
+	team, ok = after["team"].(map[string]any)
+	if !ok || team["points_for"] != "179.0" {
+		t.Fatalf("team points_for = %v, want both finalized weeks totaled to 179.0", after["team"])
+	}
 }
 
 func TestTeamDataCarriesPrimaryActionMatchingRosterCompleteGate(t *testing.T) {

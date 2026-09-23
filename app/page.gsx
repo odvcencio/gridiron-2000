@@ -227,7 +227,7 @@ component ActionCenterPanel(props: ActionCenterPanelProps) {
 			<span class="home-action-center__status mono">ACTION CENTER</span>
 			<If cond={props.HasUrgent}>
 				<a
-					href="/#home-action-center-heading"
+					href="/#home-action-center-tasks"
 					data-gosx-link
 					class="rail-attention-chip home-action-center__urgent-chip"
 					aria-label={props.UrgentChipLabel}
@@ -236,39 +236,9 @@ component ActionCenterPanel(props: ActionCenterPanelProps) {
 				</a>
 			</If>
 		</header>
-		{/* J5 F37: an arrival strip for a manager's first session — one
-		    dismissible strip for a member whose team has no saved lineup
-		    for the current week, with the three next actions. Sits right
-		    after the masthead header and ahead of the task list, so it is
-		    the first thing a brand-new manager reads once they know where
-		    they are. Dismiss is a plain link (GET /arrival-strip/dismiss,
-		    arrival_strip_handler.go), not a managed form: this page's own
-		    template must stay link-only, no form element at all
-		    (TestHomepageActionCenterTypedAdapterRendersLinkOnly), and that
-		    handler's own doc comment explains why a GET is the deliberate,
-		    narrow exception here. Dismissal (DismissArrivalStrip, "ui."
-		    key inside the existing per-member NotifyPrefs map — no schema
-		    migration) persists per member, so it never returns once
-		    dismissed. */}
-		<If cond={props.ArrivalStripShown}>
-			<section class="score-command arrival-strip" aria-labelledby="home-arrival-heading">
-				<header class="section-heading section-heading--split">
-					<div>
-						<span class="section-index">FIRST SESSION</span>
-						<h2 id="home-arrival-heading">Three things before kickoff</h2>
-					</div>
-					<a href="/arrival-strip/dismiss" data-gosx-link class="access-link" aria-label="Dismiss this strip">Dismiss</a>
-				</header>
-				<ul class="arrival-strip__list">
-					<li><a href="/team" data-gosx-link>Set your lineup →</a></li>
-					<li><a href="/players#waivers" data-gosx-link>Check waivers →</a></li>
-					<li><a href="/guide" data-gosx-link>Read the rules →</a></li>
-				</ul>
-			</section>
-		</If>
 		<div class="home-action-center__body">
 		<If cond={props.HasActions}>
-			<div class="home-action-center__tasks" data-action-center-tasks>
+			<div class="home-action-center__tasks" id="home-action-center-tasks" data-action-center-tasks>
 				<Each of={props.Actions} as="task">
 					<If cond={task.NativeNavigation == false}>
 					<ActionCenterTask
@@ -350,6 +320,24 @@ component ActionCenterPanel(props: ActionCenterPanelProps) {
 			</aside>
 		</If>
 		</div>
+		{/* First-session guidance follows the current actions, so a live
+		    deadline stays visible immediately below the masthead. */}
+		<If cond={props.ArrivalStripShown}>
+			<section class="score-command arrival-strip" aria-labelledby="home-arrival-heading">
+				<header class="section-heading section-heading--split">
+					<div>
+						<span class="section-index">FIRST SESSION</span>
+						<h2 id="home-arrival-heading">Three things before kickoff</h2>
+					</div>
+					<a href="/arrival-strip/dismiss" data-gosx-link class="access-link" aria-label="Dismiss this strip">Dismiss</a>
+				</header>
+				<ul class="arrival-strip__list">
+					<li><a href="/team" data-gosx-link>Set your lineup →</a></li>
+					<li><a href="/players#waivers" data-gosx-link>Check waivers →</a></li>
+					<li><a href="/guide" data-gosx-link>Read the rules →</a></li>
+				</ul>
+			</section>
+		</If>
 	</section>
 }
 

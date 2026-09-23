@@ -3024,7 +3024,7 @@ func DraftHistoryBoardTeamsLedger(props DraftHistoryBoardTeamsLedgerProps) Node 
 				<p>Every pick is locked. Here is where to go from here.</p>
 				<div class="hero-actions">
 					<a href="/draft/results" data-gosx-link class="button button--primary">See the draft results →</a>
-					<a href="/team" data-gosx-link class="button button--ghost">Set your Week 1 lineup →</a>
+					<a href="/team" data-gosx-link class="button button--ghost">Set your current lineup →</a>
 					<a href="/players" data-gosx-link class="button button--ghost">Browse free agents →</a>
 				</div>
 			</div>
@@ -3428,4 +3428,3 @@ func Page() Node {
 		<If cond={data.viewer.is_commissioner}><DraftCommissionerDrawer {...data.command}></DraftCommissionerDrawer></If>
 	</main>
 }
-

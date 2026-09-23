@@ -27,15 +27,9 @@ func readStylesCSSForFern(t *testing.T) string {
 // sim_browser_test.go/ui_pass_browser_test.go; this file adds no new
 // shared helper, only the checks below.
 
-// TestBrowserPlayersFilterRailCollapsesUnder64px is item 1's own rail
-// contract: at 390px the pre-fix .pool-filter-rail (position-filter
-// chips wrapped inline with the search form) measured 254.59px tall —
-// combined with the fixed top bar (60px) and one row, that clipped every
-// pool row to under two full screens (the audit's own "two rows per
-// screen" finding). The chips now live behind a collapsed <details>
-// "Filters" toggle (.pool-filter-disclosure, public/styles.css's own
-// comb — fern block); the rail itself becomes one ~56px row.
-func TestBrowserPlayersFilterRailCollapsesUnder64px(t *testing.T) {
+// The narrow rail gives search its own row while keeping position chips
+// collapsed. The input needs enough width to type a player name.
+func TestBrowserPlayersFilterRailKeepsSearchUsableAtPhoneWidth(t *testing.T) {
 	root := browserAppRoot(t)
 	child, league, ctx := startSeatedBrowserChild(t)
 	bot := league.bots[0]
@@ -54,8 +48,12 @@ func TestBrowserPlayersFilterRailCollapsesUnder64px(t *testing.T) {
 	}
 
 	rail := elementBoundingRect(t, ctx, ".pool-filter-rail")
-	if rail.Height > 64 {
-		t.Errorf(".pool-filter-rail height = %.1fpx at 390px, want <= 64px (collapsed)", rail.Height)
+	if rail.Height > 128 {
+		t.Errorf(".pool-filter-rail height = %.1fpx at 390px, want <= 128px (two compact rows)", rail.Height)
+	}
+	input := elementBoundingRect(t, ctx, "#players-search")
+	if input.Width < 120 {
+		t.Errorf("player search input width = %.1fpx at 390px, want >= 120px", input.Width)
 	}
 	if rail.Top < 59 || rail.Top > 61 {
 		t.Errorf(".pool-filter-rail top = %.1fpx once scrolled, want ~60px (stuck under the fixed mobile bar)", rail.Top)
@@ -64,6 +62,11 @@ func TestBrowserPlayersFilterRailCollapsesUnder64px(t *testing.T) {
 	scrollW, innerW := documentOverflowPx(t, ctx)
 	if scrollW > innerW {
 		t.Errorf("document.scrollWidth = %d > window.innerWidth = %d — horizontal overflow at 390px", scrollW, innerW)
+	}
+	navigateSignedInTo(t, ctx, child, bot, "/board", 390, 844)
+	boardInput := elementBoundingRect(t, ctx, "#board-search")
+	if boardInput.Width < 120 {
+		t.Errorf("board search input width = %.1fpx at 390px, want >= 120px", boardInput.Width)
 	}
 }
 
@@ -110,14 +113,17 @@ func TestBrowserPlayersFilterDisclosureShowsActiveChipAndOpens(t *testing.T) {
 	}
 
 	railStillCompact := elementBoundingRect(t, ctx, ".pool-filter-rail")
-	if railStillCompact.Height > 64 {
-		t.Errorf(".pool-filter-rail height = %.1fpx with the panel open, want <= 64px (the panel floats, it does not push the row)", railStillCompact.Height)
+	if railStillCompact.Height > 128 {
+		t.Errorf(".pool-filter-rail height = %.1fpx with the panel open, want <= 128px (the panel floats, it does not push the row)", railStillCompact.Height)
 	}
 }
 
-// TestBrowserPlayersFiveRowsVisibleAtPhoneWidth is item 1's decisive
-// "clipped to under two rows" check, at the audit's own 390x844 viewport,
-// once the draft has completed (draft-complete players carry the
+// TestBrowserPlayersFourRowsVisibleWithFullSearchAtPhoneWidth checks
+// that the full-width search row still leaves several pool rows visible
+// at the audit's 390x844 viewport. The old one-row rail showed five
+// rows but squeezed the search field to 26px; the usable two-row rail
+// leaves four. This fixture starts after the draft has completed
+// (draft-complete players carry the
 // shortest, most representative row shape — no locked "roster moves
 // open after the draft" reason text crowding the action column).
 // "?avail=all" (J1 F23, 2026-09-07 UX pass): PlayersData now defaults an
@@ -130,7 +136,7 @@ func TestBrowserPlayersFilterDisclosureShowsActiveChipAndOpens(t *testing.T) {
 // drop "avail" from the pool region's own refetch URL, silently
 // overwriting an explicit "?avail=all" moments after first paint with
 // the server's own smart default).
-func TestBrowserPlayersFiveRowsVisibleAtPhoneWidth(t *testing.T) {
+func TestBrowserPlayersFourRowsVisibleWithFullSearchAtPhoneWidth(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
 	}
@@ -160,8 +166,8 @@ func TestBrowserPlayersFiveRowsVisibleAtPhoneWidth(t *testing.T) {
 	})()`, &visibleRows)); err != nil {
 		t.Fatalf("count fully visible .pool-row elements: %v", err)
 	}
-	if visibleRows < 5 {
-		t.Errorf("fully visible .pool-row count = %d at 390x844, want >= 5", visibleRows)
+	if visibleRows < 4 {
+		t.Errorf("fully visible .pool-row count = %d at 390x844, want >= 4 with usable search", visibleRows)
 	}
 }
 
