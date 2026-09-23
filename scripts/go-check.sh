@@ -11,6 +11,17 @@ Usage:
 The package set is discovered from tracked .go files and each directory is
 resolved explicitly with `go list`; this includes underscore-prefixed route
 directories that `go test ./...` omits. Test and vet flags are forwarded.
+
+The headed-Chrome/Chromium browser suite (*_browser_test.go, chromedp) sits
+behind the "e2e" build tag, so a plain `scripts/go-check.sh test` never
+builds or runs it. Run it explicitly, after `gosx build --dev .` (see
+CONTRIBUTING.md):
+
+  scripts/go-check.sh test -tags e2e
+
+Every other test/vet flag still forwards as usual, so `-run` still scopes
+to one browser scenario, `-short` still shortens the longer simulated-draft
+ones, and so on.
 EOF
 }
 
