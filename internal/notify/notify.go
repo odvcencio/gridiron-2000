@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"gridiron-2000/internal/loopguard"
 )
 
 // queueCapacity bounds the FIFO. 256 covers a full league-wide send burst
@@ -251,8 +253,18 @@ func (q *Queue) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case m := <-q.queue:
-			q.deliver(ctx, m)
-			q.outstanding.Add(-1)
+			// loopguard.Tick: this goroutine (go q.run(ctx), Start above)
+			// has no caller to recover a panic for it, so one malformed
+			// message or provider response in deliver would otherwise
+			// crash the whole process, not just drop this one send (audit
+			// item 12). The outstanding decrement stays inside fn's own
+			// defer so it still runs on a recovered panic — a leaked
+			// outstanding count would otherwise make Drain wait out its
+			// full timeout for a message that will never complete.
+			loopguard.Tick(ctx, "notify.Queue", 0, func() {
+				defer q.outstanding.Add(-1)
+				q.deliver(ctx, m)
+			})
 			select {
 			case <-ctx.Done():
 				return

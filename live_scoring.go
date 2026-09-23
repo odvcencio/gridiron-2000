@@ -280,7 +280,7 @@ func wireBoxFetchTrigger(poller *livescore.Poller) wire.SignalCallback {
 // guard that exists only to keep an unauthenticated client off the real
 // one.
 func buildLiveScoring(liveCfg livescore.Config, fetcher livescore.Fetcher, fantasyEnabled bool, stats *openstats.Service, lg *league.Service, signalFeed *wire.Service, rt *AppRuntime) *liveScoringRuntime {
-	liveCfg.Now = lg.ClockForTest // wall time unless the harness overrides it
+	liveCfg.Now = lg.Now // wall time unless the harness overrides it
 	liveCfg.Finalize = func(game livescore.Game, box fantasy.BoxScore) error {
 		// The first final box is committed before Poller.record publishes
 		// final. MergeLines resolves Tank01 IDs and D/ST keys through the
@@ -331,11 +331,11 @@ func buildLiveScoring(liveCfg livescore.Config, fetcher livescore.Fetcher, fanta
 		// see freshenSnapshot's own doc comment. Without it, MergeLines
 		// would keep letting that stale InProgress=true beat the ledger
 		// long after the poller's own last real fetch.
-		merged := livescore.MergeLines(base(week), week, freshenSnapshot(current(), lg.ClockForTest()), lg.ResolveLivePlayer)
+		merged := livescore.MergeLines(base(week), week, freshenSnapshot(current(), lg.Now()), lg.ResolveLivePlayer)
 		return lg.ApplyFinalGameStats(week, merged)
 	})
 	lg.SetLiveVersionSource(poller.Version)
-	lg.SetLiveStatusSource(liveStatusFromPoller(current, poller.Health, lg.ClockForTest))
+	lg.SetLiveStatusSource(liveStatusFromPoller(current, poller.Health, lg.Now))
 	rt.starters = append(rt.starters, func(ctx context.Context) {
 		rt.wg.Add(1)
 		go func() {

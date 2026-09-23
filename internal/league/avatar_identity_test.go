@@ -125,7 +125,7 @@ func expectedStorePersistMutators() map[persistCallerID]struct{} {
 		"ToggleReady", "SetReady", "MakePick",
 		"ArmClock", "StartDraft", "PauseClock", "ResumeClock", "extendClock",
 		"SetClockDuration", "ClearClock", "SetAutopick", "SetAutopickIfClaimed",
-		"AssignMember", "EnsureMember", "AddInvite", "RemoveInvite",
+		"AssignMember", "EnsureMember", "ClaimFantasySeatTransaction", "AddInvite", "RemoveInvite",
 		"releaseSeat", "InviteCoManager", "BindCoManager", "DetachCoManager",
 		"ResetDraft", "ResetLeague", "SetDraftAtOverride", "SetTeamName", "ResetTeamName", "SetDraftOrder", "DrawDraftOrder",
 		"TrimUnclaimedSeatsConfirmed", "SetScoringValue", "ResetScoring", "InitReceptionFromScoringFormat",

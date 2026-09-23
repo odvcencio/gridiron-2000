@@ -52,7 +52,7 @@ type leaguePresenceRecorder interface {
 // clock claim managers who are not in the room.
 //
 // now stamps every recorded heartbeat. It must be the league service's own
-// clock (league.Default().ClockForTest, which is time.Now() unless a
+// clock (league.Default().Now, which is time.Now() unless a
 // harness build has overridden it) rather than a bare time.Now(): the draft
 // clock's NOT-SEEN/AWAY/IDLE classification in internal/league/draftclock.go
 // reads presence against that same clock, so a harness run that advances

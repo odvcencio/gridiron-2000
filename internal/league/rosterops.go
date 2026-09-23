@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"gridiron-2000/internal/loopguard"
 )
 
 // rosterOpsTickPeriod is StartRosterOps's evaluation interval — the exact
@@ -35,7 +37,10 @@ func (s *Service) StartRosterOps(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				s.rosterOpsTick(s.clock())
+				// loopguard.Tick: a panic in waiver/trade/IR evaluation
+				// must not end roster-ops for the rest of the process's
+				// life (audit item 12); the next tick still runs.
+				loopguard.Tick(ctx, "rosterOps", 0, func() { s.rosterOpsTick(s.clock()) })
 			}
 		}
 	}()

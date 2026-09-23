@@ -1054,6 +1054,33 @@ func TestClearsAtHonorsClearDays(t *testing.T) {
 	}
 }
 
+// TestClearsAtSpansDSTFallBackWithoutClearingADayEarly is the audit's
+// named repro (2026-09-23, "## Correctness" item 14): clearsAt used to add
+// a fixed ClearDays*24h duration to droppedAt, instead of ClearDays
+// CALENDAR days in league time. That is invisible except across a DST
+// transition. America/New_York falls back an hour at 2:00 AM on Sunday,
+// November 1, 2026 (EDT UTC-4 -> EST UTC-5): a drop at 09:30 EDT on
+// Saturday, October 31 plus a fixed 48h duration lands at 08:30 EST on
+// Monday, November 2 — 30 minutes before that day's 09:00 run — so the
+// claim clears at Monday 09:00 instead of the correct Tuesday 09:00, a
+// full day early.
+func TestClearsAtSpansDSTFallBackWithoutClearingADayEarly(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Timezone = "America/New_York"
+	cfg.Waivers.ProcessTime = "09:00"
+	cfg.Waivers.ClearDays = 2
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("America/New_York: %v", err)
+	}
+	droppedAt := time.Date(2026, 10, 31, 9, 30, 0, 0, loc) // Saturday, between the 09:00 run and 10:00
+	got := clearsAt(cfg, droppedAt)
+	want := time.Date(2026, 11, 3, 9, 0, 0, 0, loc) // Tuesday 09:00 EST — 2 calendar days later, then the next run strictly after 09:30
+	if !got.Equal(want) {
+		t.Fatalf("clearsAt across the fall-back transition = %v, want %v (a fixed-duration add clears a day early)", got, want)
+	}
+}
+
 // TestWaiverProcessingClockAcrossDSTSpringForward covers the roster-ops
 // audit's missing DST test: a run spanning a DST transition in the
 // league timezone must keep landing on the configured local process_time

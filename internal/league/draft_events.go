@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"gridiron-2000/internal/loopguard"
 )
 
 // DraftEvent is one typed message for the draft-live hub. Payload is a JSON
@@ -93,11 +95,14 @@ func draftEventDrain(ctx context.Context, queue, repairQueue chan DraftEvent, fn
 			return
 		case event := <-repairQueue:
 			if fn != nil {
-				fn(event)
+				// loopguard.Tick: a panic in the sink must not end draft
+				// event delivery for the rest of the process's life
+				// (audit item 12); the next event still drains.
+				loopguard.Tick(ctx, "draftEventDrain", 0, func() { fn(event) })
 			}
 		case event := <-queue:
 			if fn != nil {
-				fn(event)
+				loopguard.Tick(ctx, "draftEventDrain", 0, func() { fn(event) })
 			}
 		}
 	}
@@ -120,7 +125,10 @@ func (s *Service) draftRepairLoop(ctx context.Context, signal chan struct{}) {
 		case <-ctx.Done():
 			return
 		case <-signal:
-			s.sendDraftRepair(ctx)
+			// loopguard.Tick: a panic building one repair must not end
+			// draft repair for the rest of the process's life (audit item
+			// 12); the next drop signal still triggers a repair.
+			loopguard.Tick(ctx, "draftRepairLoop", 0, func() { s.sendDraftRepair(ctx) })
 		}
 	}
 }

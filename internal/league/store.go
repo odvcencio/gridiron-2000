@@ -122,6 +122,15 @@ type Store struct {
 	// authority read and before the final Store lock, allowing seat churn to
 	// be exercised deterministically. It is nil in production.
 	identityPreflightHook func()
+	// clockForTest overrides now(), the fallback instant
+	// SetScoringValue/ResetScoring use when their optional editedAt is
+	// omitted (their "deterministic clock seam" doc comment) — audit item
+	// 13 (2026-09-23), replacing a bare time.Now() with an injectable
+	// accessor. Nil in production, where both mutators' one real caller
+	// (admin.go) always supplies s.clock() explicitly, so now()'s
+	// time.Now() fallback is exercised only by a test that omits editedAt
+	// on purpose.
+	clockForTest func() time.Time
 	// identityReconcileReadHook is a test-only seam for the read that follows
 	// an unknown/committed persist outcome. Production always reads the
 	// authoritative database through loadStateFromDB; tests can make that
@@ -1181,6 +1190,132 @@ func (s *Store) AssignMember(email, name string) (member Member, created bool, e
 	return Member{}, false, ErrLeagueFull
 }
 
+// ClaimFantasySeatTransaction atomically assigns email its first open team
+// seat, names that team displayName, and claims motif as its badge — the
+// full signup as one store transaction under one lock/clone/persist cycle,
+// with no partial write and so no rollback to attempt: either every field
+// lands together or s.state is left exactly as it was (audit item 11,
+// 2026-09-23: the previous three-call version's best-effort rollback,
+// `_ = ReleaseSeat` / `_ = SetTeamName`, could itself fail and leave a
+// half-claimed seat — a claimed seat with a placeholder name, or a name
+// with no badge — for the next visitor to trip over).
+//
+// email must already be an admitted member with no team seat; the caller
+// (Service.claimFantasySeat) already enforces that against its own
+// snapshot, and this method rechecks it again under the write lock, the
+// same optimistic-then-locked-recheck shape every other seat mutation in
+// this file uses. Seat selection, and the escrowed-board-promotion on
+// reclaim, are AssignMember's own logic, copied here rather than called,
+// because AssignMember owns and persists its write independently — this
+// method needs that same selection folded into its own single candidate
+// before persisting once.
+func (s *Store) ClaimFantasySeatTransaction(email, name, displayName, motif string) (Member, error) {
+	email = s.canonicalEmail(email)
+	name = strings.TrimSpace(name)
+	if email == "" {
+		return Member{}, fmt.Errorf("email is required")
+	}
+	displayName, err := validateTeamName(displayName)
+	if err != nil {
+		return Member{}, err
+	}
+	if displayName == "" {
+		return Member{}, errBlankTeamName
+	}
+	motif = strings.TrimSpace(motif)
+	if !knownMotif(motif) {
+		return Member{}, ErrBadgeUnknownMotif
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return Member{}, err
+	}
+	if existing, ok := s.state.Members[email]; ok && existing.TeamID != "" {
+		return Member{}, fmt.Errorf("member already holds a team seat")
+	}
+
+	before := cloneState(s.state)
+	beforeDirty := s.dirty
+	candidate := cloneState(before)
+
+	used := map[string]bool{}
+	for _, member := range candidate.Members {
+		used[member.TeamID] = true
+	}
+	trimmed := map[string]bool{}
+	for _, teamID := range candidate.TrimmedTeamIDs {
+		trimmed[teamID] = true
+	}
+	var teamID string
+	for _, team := range activeTeams {
+		if used[team.ID] || trimmed[team.ID] {
+			continue
+		}
+		teamID = team.ID
+		break
+	}
+	if teamID == "" {
+		return Member{}, ErrLeagueFull
+	}
+
+	memberName := name
+	if memberName == "" {
+		for _, team := range activeTeams {
+			if team.ID == teamID {
+				memberName = team.Manager
+				break
+			}
+		}
+	}
+
+	// AssignMember's own escrow-promotion: a released seat's shared board
+	// order moves to escrow, and the next claim on that team promotes it
+	// back into the claimant's own canonical key.
+	escrowKey := seatBoardEscrowKey(teamID)
+	if escrow, hasEscrow := candidate.Boards[escrowKey]; hasEscrow {
+		promotedBoard, mergeErr := mergeUniqueBoardOrders(escrow, candidate.Boards[email])
+		if mergeErr != nil {
+			return Member{}, mergeErr
+		}
+		candidate.Boards[email] = promotedBoard
+		delete(candidate.Boards, escrowKey)
+	}
+
+	newMember := Member{TeamID: teamID, Name: memberName, Email: email}
+	candidate.Members[email] = newMember
+	candidate.SeatRevisions[teamID] = before.SeatRevisions[teamID] + 1
+
+	if candidate.TeamNames == nil {
+		candidate.TeamNames = map[string]string{}
+	}
+	candidate.TeamNames[teamID] = displayName
+
+	for holder, claimed := range candidate.BadgeClaims {
+		if claimed == motif && holder != teamID {
+			return Member{}, &badgeClaimedError{teamID: holder}
+		}
+	}
+	if candidate.BadgeClaims == nil {
+		candidate.BadgeClaims = map[string]string{}
+	}
+	if candidate.AvatarRefs == nil {
+		candidate.AvatarRefs = map[string]string{}
+	}
+	candidate.BadgeClaims[teamID] = motif
+	delete(candidate.AvatarRefs, teamID) // a fresh seat starts with no avatar override
+	normalizeIdentityCollections(&candidate)
+
+	s.state = candidate
+	if err := s.persistLocked(colMembers, colScalars, colBoards, colTeamNames, colBadgeClaims, colAvatarRefs); err != nil {
+		s.state = before
+		s.dirty = beforeDirty
+		return Member{}, err
+	}
+	return newMember, nil
+}
+
 // EnsureMember records email as a league member without claiming a team
 // seat, or returns the existing member unchanged. It is the
 // membership-only counterpart to AssignMember (the deliberate seat-claim
@@ -2157,6 +2292,15 @@ func (s *Store) TrimUnclaimedSeatsConfirmed(confirmation, token string) (kept []
 	return kept, removedIDs, nil
 }
 
+// now is SetScoringValue/ResetScoring's fallback clock when their optional
+// editedAt is omitted — see clockForTest's doc comment.
+func (s *Store) now() time.Time {
+	if s.clockForTest != nil {
+		return s.clockForTest()
+	}
+	return time.Now()
+}
+
 // SetScoringValue overrides one scoring rule's point value. Setting the
 // default value clears the override so future default changes apply. The
 // optional instant is a clock seam for the notifier and tests; callers that
@@ -2188,7 +2332,7 @@ func (s *Store) SetScoringValue(key string, points float64, editedAt ...time.Tim
 		s.state.Scoring[key] = points
 	}
 	if changed {
-		editAt := time.Now().UTC()
+		editAt := s.now().UTC()
 		if len(editedAt) > 0 && !editedAt[0].IsZero() {
 			editAt = editedAt[0].UTC()
 		}
@@ -2256,7 +2400,7 @@ func (s *Store) ResetScoring(editedAt ...time.Time) error {
 	changed := len(s.state.Scoring) > 0
 	s.state.Scoring = map[string]float64{}
 	if changed {
-		editInstant := time.Now().UTC()
+		editInstant := s.now().UTC()
 		if len(editedAt) > 0 && !editedAt[0].IsZero() {
 			editInstant = editedAt[0].UTC()
 		}
@@ -4526,19 +4670,30 @@ func (s *Store) PostLocker(parentID, body, authorEmail, authorName, authorTeamID
 		PostedAt:         now.UTC(),
 		CommissionerNote: commissionerNote,
 	}
-	s.state.LockerPosts = append(s.state.LockerPosts, post)
+	// Copy-on-write (audit item 9): mutate a clone, persist it, and only
+	// then swap s.state — the same shape the avatar-identity path
+	// (mutateAvatarIdentity) already uses. A failed persistLocked below
+	// leaves s.state exactly as it was; nothing lands in memory that
+	// never landed on disk.
+	before := cloneState(s.state)
+	beforeDirty := s.dirty
+	candidate := cloneState(before)
+	candidate.LockerPosts = append(candidate.LockerPosts, post)
 	// CommissionerNote persists through LockerCommissionerNotes
 	// (colScalars), not a locker_posts column (J6 F19, 2026-09-04 audit
 	// rework) — see PersistedState.LockerCommissionerNotes' doc comment.
 	cols := []collectionID{colLockerPosts}
 	if commissionerNote {
-		if s.state.LockerCommissionerNotes == nil {
-			s.state.LockerCommissionerNotes = map[string]bool{}
+		if candidate.LockerCommissionerNotes == nil {
+			candidate.LockerCommissionerNotes = map[string]bool{}
 		}
-		s.state.LockerCommissionerNotes[post.ID] = true
+		candidate.LockerCommissionerNotes[post.ID] = true
 		cols = append(cols, colScalars)
 	}
+	s.state = candidate
 	if err := s.persistLocked(cols...); err != nil {
+		s.state = before
+		s.dirty = beforeDirty
 		return LockerPost{}, err
 	}
 	s.recordLockerPostLocked(authorEmail, now)
@@ -4573,10 +4728,17 @@ func (s *Store) RemoveLockerPost(id, removedByRole string, now time.Time) error 
 	if index == -1 || !s.state.LockerPosts[index].RemovedAt.IsZero() {
 		return nil
 	}
-	s.state.LockerPosts[index].Body = ""
-	s.state.LockerPosts[index].RemovedAt = now.UTC()
-	s.state.LockerPosts[index].RemovedByRole = removedByRole
+	// Copy-on-write (audit item 9): see PostLocker's identical comment.
+	before := cloneState(s.state)
+	beforeDirty := s.dirty
+	candidate := cloneState(before)
+	candidate.LockerPosts[index].Body = ""
+	candidate.LockerPosts[index].RemovedAt = now.UTC()
+	candidate.LockerPosts[index].RemovedByRole = removedByRole
+	s.state = candidate
 	if err := s.persistLocked(colLockerPosts); err != nil {
+		s.state = before
+		s.dirty = beforeDirty
 		return err
 	}
 	s.lockerGeneration++

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"gridiron-2000/internal/league"
+	"gridiron-2000/internal/loopguard"
 	"gridiron-2000/internal/matchup"
 	"gridiron-2000/internal/openstats"
 )
@@ -99,8 +100,20 @@ func startMatchupRanks(ctx context.Context, stats *openstats.Service, lg *league
 		log.Printf("matchup: rank source live (%s), %d teams ranked", snap.SourceLabel, len(snap.Offense))
 		return true
 	}
+	// guardedRefresh: this goroutine (go startMatchupRanks(...), main.go)
+	// has no caller to recover a panic for it, so one malformed
+	// scoring-values read or provider response inside refresh would
+	// otherwise crash the whole process, not just silently stop rank
+	// refreshes (audit item 12). A recovered panic counts as this tick's
+	// failure, same as refresh() returning false, so the loop below still
+	// retries after matchupRetryAfterFailure rather than spinning.
+	guardedRefresh := func() bool {
+		ok := false
+		loopguard.Tick(ctx, "matchupRanks", 0, func() { ok = refresh() })
+		return ok
+	}
 	wait := matchupRefreshInterval
-	if !refresh() {
+	if !guardedRefresh() {
 		wait = matchupRetryAfterFailure
 	}
 	timer := time.NewTimer(wait)
@@ -110,7 +123,7 @@ func startMatchupRanks(ctx context.Context, stats *openstats.Service, lg *league
 		case <-ctx.Done():
 			return
 		case <-timer.C:
-			if refresh() {
+			if guardedRefresh() {
 				timer.Reset(matchupRefreshInterval)
 			} else {
 				timer.Reset(matchupRetryAfterFailure)

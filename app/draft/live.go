@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gridiron-2000/internal/league"
+	"gridiron-2000/internal/loopguard"
 
 	"m31labs.dev/gosx/hub"
 )
@@ -86,7 +87,11 @@ func (updates *LiveUpdates) Start(ctx context.Context) {
 					return
 				case <-ticker.C:
 					if updates.hub.ClientCount() > 0 {
-						updates.observe(true)
+						// loopguard.Tick: a panic in one observation must
+						// not end draft-room live detection for the rest
+						// of the process's life (audit item 12); the
+						// next tick still runs.
+						loopguard.Tick(ctx, "draft.LiveUpdates", 0, func() { updates.observe(true) })
 					}
 				}
 			}

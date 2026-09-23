@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"gridiron-2000/internal/emailkit"
+	"gridiron-2000/internal/loopguard"
 	"gridiron-2000/internal/notify"
 )
 
@@ -2165,7 +2166,10 @@ func (s *Service) StartNotifier(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				s.notifierTick(s.clock())
+				// loopguard.Tick: a panic in one tick's trigger evaluation
+				// must not end notifications for the rest of the
+				// process's life (audit item 12); the next tick still runs.
+				loopguard.Tick(ctx, "notifier", 0, func() { s.notifierTick(s.clock()) })
 			}
 		}
 	}()

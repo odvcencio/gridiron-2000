@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"gridiron-2000/internal/fantasy"
+	"gridiron-2000/internal/loopguard"
 )
 
 // Fetcher is the relay surface the poller needs. *fantasy.BoxScoreClient
@@ -203,13 +204,17 @@ func (p *Poller) Run(ctx context.Context) {
 		p.cfg.ScoreboardInterval, p.cfg.BoxBaseline, p.cfg.BoxFast, p.cfg.MaxInflight, p.cfg.DailyBudget, p.cfg.Season)
 	ticker := time.NewTicker(p.cfg.ScoreboardInterval)
 	defer ticker.Stop()
-	p.Tick(ctx)
+	// loopguard.Tick: a panic on one malformed box score must not end
+	// live scoring for the rest of the process's life — with one replica,
+	// that is a crash loop on game day, not a graceful degrade (audit
+	// item 12).
+	loopguard.Tick(ctx, "livescore.Poller", 0, func() { p.Tick(ctx) })
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			p.Tick(ctx)
+			loopguard.Tick(ctx, "livescore.Poller", 0, func() { p.Tick(ctx) })
 		}
 	}
 }
@@ -424,27 +429,34 @@ func (p *Poller) Tick(ctx context.Context) {
 		go func(game Game, tank01ID string, tier boxFetchTier) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			box, err := p.fetcher.FetchBoxScore(ctx, tank01ID)
-			if err != nil {
-				p.recordFailure(err, now)
-				return
-			}
-			// Charge the budget only once the fetch is actually recorded
-			// (round-2 note 2): a relay outage must not burn the day's
-			// budget on failed attempts and mask the real fault behind a
-			// false "daily budget exhausted" reason.
-			recordChanged, err := p.record(game, box, now)
-			if err != nil {
-				p.recordFailure(err, now)
-				return
-			}
-			p.updateFastStreak(game.ID, tier, recordChanged) // GC-2b's unchanged-payload backoff
-			p.chargeBudget(now)
-			if recordChanged {
-				changedMu.Lock()
-				changed = true
-				changedMu.Unlock()
-			}
+			// loopguard.Tick: recover() only protects its own goroutine's
+			// call stack, so Run's wrapping of Tick cannot catch a panic
+			// spawned in here — this per-game fetch needs its own guard,
+			// or one malformed box score kills the whole process, not
+			// just this poll (audit item 12).
+			loopguard.Tick(ctx, "livescore.Poller.fetchBox", 0, func() {
+				box, err := p.fetcher.FetchBoxScore(ctx, tank01ID)
+				if err != nil {
+					p.recordFailure(err, now)
+					return
+				}
+				// Charge the budget only once the fetch is actually recorded
+				// (round-2 note 2): a relay outage must not burn the day's
+				// budget on failed attempts and mask the real fault behind a
+				// false "daily budget exhausted" reason.
+				recordChanged, err := p.record(game, box, now)
+				if err != nil {
+					p.recordFailure(err, now)
+					return
+				}
+				p.updateFastStreak(game.ID, tier, recordChanged) // GC-2b's unchanged-payload backoff
+				p.chargeBudget(now)
+				if recordChanged {
+					changedMu.Lock()
+					changed = true
+					changedMu.Unlock()
+				}
+			})
 		}(game, tank01ID, tier)
 	}
 	wg.Wait()

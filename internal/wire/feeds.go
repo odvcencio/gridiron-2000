@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gridiron-2000/internal/loopguard"
 )
 
 //go:embed default_sources.json
@@ -113,7 +115,10 @@ func (service *Service) runFeeds(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			service.syncFeeds(ctx)
+			// loopguard.Tick: a panic in one sync pass must not end feed
+			// syncing for the rest of the process's life (audit item 12);
+			// the next tick still runs.
+			loopguard.Tick(ctx, "wireFeeds", 0, func() { service.syncFeeds(ctx) })
 		}
 	}
 }
@@ -125,7 +130,11 @@ func (service *Service) syncFeeds(ctx context.Context) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			service.syncFeed(ctx, source)
+			// loopguard.Tick: an unrecovered panic in any goroutine
+			// terminates the whole process, not just this one feed's
+			// sync — one malformed feed payload must not take the
+			// server down (audit item 12).
+			loopguard.Tick(ctx, "wireFeeds.syncFeed."+source.Name, 0, func() { service.syncFeed(ctx, source) })
 		}()
 	}
 	group.Wait()

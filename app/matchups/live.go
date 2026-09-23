@@ -10,6 +10,7 @@ import (
 
 	"gridiron-2000/app/liveaccess"
 	"gridiron-2000/internal/league"
+	"gridiron-2000/internal/loopguard"
 	"m31labs.dev/gosx/hub"
 )
 
@@ -89,7 +90,11 @@ func (updates *ScoresLive) Start(ctx context.Context) {
 					return
 				case <-ticker.C:
 					if updates.hub.ClientCount() > 0 {
-						updates.observe(true)
+						// loopguard.Tick: a panic in one observation must
+						// not end live-score change detection for the
+						// rest of the process's life (audit item 12); the
+						// next tick still runs.
+						loopguard.Tick(ctx, "matchups.ScoresLive", 0, func() { updates.observe(true) })
 					}
 				}
 			}
