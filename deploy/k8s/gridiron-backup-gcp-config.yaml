@@ -1,0 +1,40 @@
+# gridiron-backup-gcp-config: the external_account credential config
+# GOOGLE_APPLICATION_CREDENTIALS (deployment.yaml) points at — Workload
+# Identity Federation (WIF), owner decision 2026-09-23 (ops-drift
+# hardening; org policy on project bookt-cc blocks both a
+# service-account JSON key and an HMAC key). This file carries no
+# secret: every value is a public URL or a local file path; the actual
+# short-lived credential is the projected Kubernetes ServiceAccount token
+# deployment.yaml's gcp-wif volume mounts beside it, at the exact path
+# "credential_source.file" names.
+#
+# PROJECT_NUMBER, POOL_ID, PROVIDER_ID, and IMPERSONATED_SA_EMAIL below
+# are placeholders the coordinator fills in after provisioning the WIF
+# pool and OIDC provider (trusting this cluster's own k3s ServiceAccount
+# issuer, JWKS uploaded) — see docs/backup-restore.md's "Google Cloud
+# Storage" section for the exact provisioning commands, the real values,
+# and the audience string the pool/provider must agree with
+# deployment.yaml's gcp-wif volume on. Applying this file with the
+# placeholders still literal fails closed (Google rejects an audience
+# that does not resolve to a real provider, or an impersonation target
+# that is not a real service account) rather than succeeding silently
+# against the wrong pool or principal.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gridiron-backup-gcp-config
+  namespace: gridiron
+  labels:
+    app: gridiron-2000
+data:
+  config.json: |
+    {
+      "type": "external_account",
+      "audience": "//iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL_ID/providers/PROVIDER_ID",
+      "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+      "token_url": "https://sts.googleapis.com/v1/token",
+      "credential_source": {
+        "file": "/var/run/secrets/gcp/token"
+      },
+      "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/IMPERSONATED_SA_EMAIL:generateAccessToken"
+    }

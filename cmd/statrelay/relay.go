@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,6 +33,50 @@ import (
 // 32MB); 32MB here matches that ceiling so the relay never truncates a
 // response the app itself would have accepted directly.
 const maxUpstreamBody = 32 << 20
+
+// defaultMaxCacheEntries and defaultMaxCacheDiskBytes are the bounded
+// cache's defaults (main.go's STATRELAY_MAX_CACHE_ENTRIES/
+// STATRELAY_MAX_CACHE_DISK_MB override them). The relay's own realistic
+// key cardinality across a full season is a few hundred: getNFLBoxScore
+// keys by gameID (under 300 games including preseason),
+// getNFLGamesForWeek by week/season/type (dozens), getNFLScoresOnly by
+// gameDate (about 200), and the five whole-pool endpoints
+// (getNFLPlayerList/ADP/Projections/News/Teams) carry a handful of
+// distinct query combinations each. 2000 entries gives generous headroom
+// above that real cardinality while still bounding a pathological caller
+// hammering an allow-listed endpoint (allowedUpstreamPaths) with
+// thousands of distinct query values. 512MB matches: even at
+// maxUpstreamBody's 32MB ceiling per entry, most real responses are far
+// smaller, and this still bounds worst-case disk usage well under a
+// typical statrelay-data PVC's size (deploy/k8s/statrelay.yaml).
+const (
+	defaultMaxCacheEntries   = 2000
+	defaultMaxCacheDiskBytes = 512 << 20
+)
+
+// allowedUpstreamPaths is the closed set of Tank01 endpoints this relay
+// will proxy: every getNFL* call any fetcher in this module actually
+// makes (internal/fantasy/service.go's SyncNow: getNFLPlayerList,
+// getNFLADP, getNFLProjections, getNFLNews, getNFLTeams;
+// internal/fantasy/preseason.go's FetchPreseasonWeek/FetchPreseasonBoxScore
+// and the live poller's own refresh path: getNFLGamesForWeek,
+// getNFLBoxScore; internal/fantasy/scoreboard.go's live layer-1 tick:
+// getNFLScoresOnly). ops-drift hardening, 2026-09-23: the relay holds the
+// fleet's only real Tank01 credential, so an unbounded proxy path here
+// was an unbounded credential-spending surface for anything on the
+// gridiron-2000-only NetworkPolicy's allowed side, not just this app's
+// own known callers. A path outside this set is refused before any cache
+// lookup, singleflight collapse, or budget charge — see ServeHTTP.
+var allowedUpstreamPaths = map[string]bool{
+	"/getNFLPlayerList":   true,
+	"/getNFLADP":          true,
+	"/getNFLProjections":  true,
+	"/getNFLNews":         true,
+	"/getNFLTeams":        true,
+	"/getNFLGamesForWeek": true,
+	"/getNFLBoxScore":     true,
+	"/getNFLScoresOnly":   true,
+}
 
 // ttlRule is one entry in the ordered TTL table below.
 type ttlRule struct {
@@ -248,6 +293,16 @@ type Relay struct {
 	// (no header, no charge, no limit) — main.go sets it after NewRelay;
 	// tests set it directly (relay.dailyBudget = N).
 	dailyBudget int
+	// maxEntries and maxDiskBytes bound the cache (ops-drift hardening,
+	// 2026-09-23): 0 means unlimited, the same idiom dailyBudget already
+	// uses. maxEntries caps the in-memory map (evictOverCapLocked drops
+	// the oldest-fetched entries once exceeded); maxDiskBytes caps the
+	// on-disk mirror under dataDir (enforceDiskBudget deletes the
+	// oldest-written files once exceeded). main.go sets both from
+	// STATRELAY_MAX_CACHE_ENTRIES/STATRELAY_MAX_CACHE_DISK_MB after
+	// NewRelay; tests set them directly.
+	maxEntries   int
+	maxDiskBytes int64
 
 	mu    sync.RWMutex
 	cache map[string]cacheEntry
@@ -286,6 +341,11 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	if req.Method != http.MethodGet {
 		http.Error(w, "statrelay: only GET is relayed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !allowedUpstreamPaths[req.URL.Path] {
+		log.Printf("statrelay: refused path=%s reason=not_allowlisted", req.URL.Path)
+		http.Error(w, "statrelay: path is not a relayed Tank01 endpoint", http.StatusNotFound)
 		return
 	}
 
@@ -359,6 +419,7 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	r.mu.Lock()
 	r.cache[key] = entry
+	r.evictOverCapLocked()
 	r.mu.Unlock()
 	// A short-lived entry (today, only the 4 s in-progress box-score TTL)
 	// would already be expired well before any restart could read it
@@ -368,9 +429,92 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if entry.TTL >= time.Minute {
 		if err := r.persist(entry); err != nil {
 			log.Printf("statrelay: disk persist failed path=%s err=%q", key, err)
+		} else {
+			r.enforceDiskBudget()
 		}
 	}
 	writeEntry(w, entry, false)
+}
+
+// evictOverCapLocked drops the oldest-fetched entries (by cacheEntry.FetchedAt)
+// once the in-memory cache exceeds maxEntries. Callers hold r.mu
+// (write-locked) already — the same discipline rolloverBudgetLocked
+// documents. maxEntries <= 0 means unlimited: a no-op, matching
+// dailyBudget's own "0 = unlimited" idiom.
+func (r *Relay) evictOverCapLocked() {
+	if r.maxEntries <= 0 || len(r.cache) <= r.maxEntries {
+		return
+	}
+	type agedKey struct {
+		key       string
+		fetchedAt time.Time
+	}
+	aged := make([]agedKey, 0, len(r.cache))
+	for key, entry := range r.cache {
+		aged = append(aged, agedKey{key: key, fetchedAt: entry.FetchedAt})
+	}
+	sort.Slice(aged, func(i, j int) bool { return aged[i].fetchedAt.Before(aged[j].fetchedAt) })
+	over := len(r.cache) - r.maxEntries
+	for i := 0; i < over; i++ {
+		delete(r.cache, aged[i].key)
+	}
+	log.Printf("statrelay: cache=evicted count=%d reason=max_entries limit=%d", over, r.maxEntries)
+}
+
+// enforceDiskBudget deletes the oldest-written persisted cache files
+// (by filesystem modification time, set at persist's own atomic rename)
+// until dataDir's total size is at or under maxDiskBytes. Called after a
+// successful persist; maxDiskBytes <= 0 means unlimited (a no-op). Uses
+// its own directory listing rather than r.cache/r.mu: the on-disk mirror
+// and the in-memory map are bounded independently (evictOverCapLocked can
+// drop an in-memory entry whose disk file legitimately outlives it for a
+// restart to reload, and vice versa a low disk cap must not require
+// holding r.mu while doing filesystem I/O).
+func (r *Relay) enforceDiskBudget() {
+	if r.maxDiskBytes <= 0 {
+		return
+	}
+	entries, err := os.ReadDir(r.dataDir)
+	if err != nil {
+		return
+	}
+	type agedFile struct {
+		name    string
+		size    int64
+		modTime time.Time
+	}
+	files := make([]agedFile, 0, len(entries))
+	var total int64
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, agedFile{name: entry.Name(), size: info.Size(), modTime: info.ModTime()})
+		total += info.Size()
+	}
+	if total <= r.maxDiskBytes {
+		return
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].modTime.Before(files[j].modTime) })
+	removed := 0
+	for _, f := range files {
+		if total <= r.maxDiskBytes {
+			break
+		}
+		if err := os.Remove(filepath.Join(r.dataDir, f.name)); err != nil {
+			log.Printf("statrelay: disk budget eviction failed to remove %s: %v", f.name, err)
+			continue
+		}
+		total -= f.size
+		removed++
+	}
+	if removed > 0 {
+		log.Printf("statrelay: cache=evicted count=%d reason=max_disk_bytes limit=%d", removed, r.maxDiskBytes)
+	}
 }
 
 // chargeBudget spends one unit of today's fetch budget, rolling the
@@ -587,5 +731,9 @@ func (r *Relay) LoadDisk() {
 		r.cache[entry.Key] = entry
 		loaded++
 	}
+	// A data dir populated before maxEntries existed, or before it was
+	// lowered, can load more than the current cap holds — trim it back
+	// down at boot rather than only on the next write.
+	r.evictOverCapLocked()
 	log.Printf("statrelay: loaded %d cache entries from %s", loaded, r.dataDir)
 }

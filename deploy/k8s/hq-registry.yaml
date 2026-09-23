@@ -1,0 +1,27 @@
+# gridiron-2000-hq-v1-registry: registers this instance's own federated
+# Commissioner HQ v1 connections (internal/commissionerhq's read-only
+# summary consumers), mounted read-only at
+# COMMISSIONER_HQ_V1_REGISTRY_FILE (deployment.yaml's
+# /etc/gridiron-hq/registry.json). Each connection's "credential.secret_env"
+# names the environment variable that carries its HMAC secret — never a
+# value, always a pointer into gridiron-2000-secrets. Committing this file
+# discloses no credential.
+#
+# Reconciled into deploy/k8s/, 2026-09-23 (ops-drift hardening): this
+# ConfigMap was already live (created 2026-08-26 per deploy/README.md's
+# Commissioner HQ v1 rollout) but had never landed in the tracked manifest
+# set. Unlike gridiron-2000-league-config (deploy/README.md's "Why a
+# ConfigMap, not a file in this repo"), registry.json carries no
+# operator-private league identity — only public origins and capability
+# names already visible in the federated /commissioner UI — so it is safe
+# to track directly, the same way deployment.yaml's own env values are.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gridiron-2000-hq-v1-registry
+  namespace: gridiron
+  labels:
+    app: gridiron-2000
+    app.kubernetes.io/component: commissioner-hq-v1-registry
+data:
+  registry.json: "{\"version\":1,\"enabled\":true,\"connections\":[{\"key\":\"g2k\",\"order\":0,\"enabled\":true,\"league_id\":\"g2k\",\"display_name\":\"GRIDIRON 2000\",\"short_code\":\"G2K\",\"accent\":\"cyan\",\"provider_origin\":\"http://gridiron-2000-hq-v1.gridiron.svc.cluster.local:8091\",\"public_origin\":\"https://gridiron.draco.quest\",\"capabilities\":[\"draft.v1\",\"readiness.v1\",\"data-health.v1\"],\"links\":{\"activity\":\"/activity\",\"blitz\":\"/blitz\",\"board\":\"/board\",\"commissioner\":\"/admin\",\"draft\":\"/draft\",\"join\":\"/join\",\"league\":\"/\",\"overview\":\"/\",\"pickem\":\"/pickem\",\"players\":\"/players\",\"team\":\"/team\",\"trades\":\"/trades\"},\"credential\":{\"key_id\":\"g2k-hq-v1\",\"secret_env\":\"COMMISSIONER_HQ_V1_SECRET_G2K\"}},{\"key\":\"skl\",\"order\":1,\"enabled\":true,\"league_id\":\"skl\",\"display_name\":\"STABLE KERNEL LEAGUE\",\"short_code\":\"SKL\",\"accent\":\"violet\",\"provider_origin\":\"http://gridiron-2000-sk-hq-v1.stablekernel.svc.cluster.local:8091\",\"public_origin\":\"https://sk.gridiron.draco.quest\",\"capabilities\":[\"draft.v1\",\"readiness.v1\",\"data-health.v1\"],\"links\":{\"activity\":\"/activity\",\"blitz\":\"/blitz\",\"board\":\"/board\",\"commissioner\":\"/admin\",\"draft\":\"/draft\",\"join\":\"/join\",\"league\":\"/\",\"overview\":\"/\",\"pickem\":\"/pickem\",\"players\":\"/players\",\"team\":\"/team\",\"trades\":\"/trades\"},\"credential\":{\"key_id\":\"skl-hq-v1\",\"secret_env\":\"COMMISSIONER_HQ_V1_SECRET_SKL\"}}]}"

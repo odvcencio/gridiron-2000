@@ -21,6 +21,15 @@ spec:
       labels:
         app: gridiron-2000
     spec:
+      # gridiron-backup: the Workload Identity Federation principal the
+      # off-host GCS backup impersonates through — see
+      # deploy/k8s/gridiron-backup-serviceaccount.yaml and
+      # docs/backup-restore.md's "Google Cloud Storage" section. Carries
+      # no annotation of its own (unlike GKE's own Workload Identity):
+      # federation trust here is anchored to this cluster's own OIDC
+      # issuer via the WIF provider's attribute mapping, not a
+      # GCP-side annotation on this object.
+      serviceAccountName: gridiron-backup
       imagePullSecrets:
         - name: regcred
       securityContext:
@@ -34,9 +43,25 @@ spec:
           # Logical and physical state schemas remain at 12. The previous
           # release digest supports both persisted versions for rollback.
           # Flagship only; statrelay and inactive SK remain unchanged.
+          #
+          # Image digest independently reconciled to the live running pod,
+          # 2026-09-23 (ops-drift hardening): the tracked digest had fallen
+          # behind an image-only roll that was applied straight with a
+          # patch, not through this manifest. Always deploy a pinned
+          # digest, never :latest or a mutable tag — see deploy/README.md's
+          # release image policy.
           image: harbor.draco.quest/orchard/gridiron-2000@sha256:3ce81c0b295ac73bff8927ce6a00e49ab76ad5d31f56c2a6d5f34052e906e8e3
           imagePullPolicy: IfNotPresent
           ports:
+            # hq-v1 (8091) is the Commissioner HQ v1 provider's own private
+            # listener (internal/commissionerhq/v1provider), bound inside
+            # this same process on COMMISSIONER_HQ_PROVIDER_ADDR — see the
+            # env block below. It is reachable only from another
+            # gridiron-2000 pod in this namespace: hq-v1-network-policy.yaml
+            # is the enforcing NetworkPolicy, not this port declaration.
+            - name: hq-v1
+              containerPort: 8091
+              protocol: TCP
             - name: http
               containerPort: 8080
               protocol: TCP
@@ -44,6 +69,28 @@ spec:
             - secretRef:
                 name: gridiron-2000-secrets
           env:
+            # APP_IMAGE_DIGEST self-reports the running image to the
+            # Commissioner HQ v1 release snapshot (commissioner_hq_v1.go's
+            # commissionerHQV1ReleaseSnapshot) so a peer can see what a
+            # league instance is actually running. Keep it identical to the
+            # image: field above on every change — a mismatch here is a
+            # silent lie to every federated peer, not just a stale label.
+            - name: APP_IMAGE_DIGEST
+              value: "sha256:3ce81c0b295ac73bff8927ce6a00e49ab76ad5d31f56c2a6d5f34052e906e8e3"
+            # Commissioner HQ v1: this instance's own read-only federation
+            # provider (deploy/README.md's "Existing-instance release
+            # controls" section documents the rollout). COMMISSIONER_HQ_PROVIDER_SECRET
+            # (or _FILE) is deliberately absent here — it arrives only
+            # through gridiron-2000-secrets (envFrom above), never as an
+            # inline manifest value; see internal/commissionerhq/v1provider/config.go.
+            - name: COMMISSIONER_HQ_LEAGUE_ID
+              value: "g2k"
+            - name: COMMISSIONER_HQ_PROVIDER_KEY_ID
+              value: "g2k-hq-v1"
+            - name: COMMISSIONER_HQ_PROVIDER_ADDR
+              value: ":8091"
+            - name: COMMISSIONER_HQ_V1_REGISTRY_FILE
+              value: "/etc/gridiron-hq/registry.json"
             - name: APP_ENV
               value: "production"
             # Keep Go's working heap below the pod's hard limit, leaving room
@@ -103,6 +150,33 @@ spec:
               value: "g2k"
             - name: COMMISSIONER_HQ_PEERS
               value: "skl=http://gridiron-2000-sk.stablekernel.svc.cluster.local|https://sk.gridiron.draco.quest"
+            # Off-host backup copy: owner decision 2026-09-23 (ops-drift
+            # hardening) — Google Cloud Storage, project bookt-cc,
+            # authenticated by keyless Workload Identity Federation (WIF):
+            # org policy (constraints/iam.disableServiceAccountKeyCreation)
+            # blocks both a service-account JSON key and an HMAC key, so
+            # no long-lived credential lives in a Secret or ConfigMap
+            # here. The database is tiny (league.db is under 1MB), so the
+            # off-host copy is deliberately minimal: one fresh
+            # gzip-compressed VACUUM INTO snapshot per nightly tick
+            # (backup_gcs_sink.go's gcsBackupSink, wired in by
+            # backupSinksFromEnv), uploaded straight to the bucket over
+            # the GCS JSON API with no sidecar container — see
+            # docs/backup-restore.md's "Google Cloud Storage" section for
+            # the full recipe (WIF pool/provider/impersonation setup and
+            # the bucket's own 14-day lifecycle rule, the sole retention
+            # mechanism) and why this is a real, un-applied change until
+            # the coordinator provisions the pool/provider and fills in
+            # the gridiron-backup-gcp-config ConfigMap's placeholders this
+            # Deployment now references.
+            - name: BACKUP_GCS_BUCKET
+              value: "m31labs-gridiron-backups"
+            # GOOGLE_APPLICATION_CREDENTIALS is Google's own standard
+            # variable (golang.org/x/oauth2/google's default discovery),
+            # not an app-specific one — it points at the mounted
+            # external_account config, never a secret value itself.
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "/var/run/secrets/gcp/config.json"
             # DRAFT_AT/DRAFT_TZ/SEASON_START_AT/SCORING_FORMAT are
             # deliberately NOT set here. Env wins over league.json (spec
             # section 3.3), so duplicating them made a ConfigMap-only date
@@ -112,10 +186,31 @@ spec:
             # replaced before it was removed. Changing the draft date is one
             # ConfigMap edit plus a rollout restart.
           volumeMounts:
+            # hq-registry projects one key (registry.json) from the
+            # gridiron-2000-hq-v1-registry ConfigMap straight to the file
+            # COMMISSIONER_HQ_V1_REGISTRY_FILE names above — see
+            # deploy/k8s/hq-registry.yaml for the connections this registers.
+            - name: hq-registry
+              mountPath: /etc/gridiron-hq/registry.json
+              subPath: registry.json
+              readOnly: true
             - name: data
               mountPath: /app/data
             - name: league-config
               mountPath: /etc/gridiron
+              readOnly: true
+            # gcp-wif projects both pieces Workload Identity Federation
+            # needs, read-only: the external_account config
+            # (gridiron-backup-gcp-config ConfigMap, GOOGLE_APPLICATION_CREDENTIALS
+            # above names its exact mounted path) and this pod's own
+            # short-lived, audience-scoped ServiceAccount token (the
+            # projected volume below) — credential_source.file in that
+            # config points at the same token path. Neither file carries
+            # a secret: the config is placeholders and public URLs: the
+            # token is scoped to one audience and expires in an hour. See
+            # docs/backup-restore.md's "Google Cloud Storage" section.
+            - name: gcp-wif
+              mountPath: /var/run/secrets/gcp
               readOnly: true
           readinessProbe:
             httpGet:
@@ -145,6 +240,14 @@ spec:
               drop:
                 - ALL
       volumes:
+        # hq-registry: gridiron-2000-hq-v1-registry ConfigMap, this
+        # instance's own registered federation peers (deploy/k8s/hq-registry.yaml).
+        - name: hq-registry
+          configMap:
+            name: gridiron-2000-hq-v1-registry
+            items:
+              - key: registry.json
+                path: registry.json
         - name: data
           persistentVolumeClaim:
             claimName: gridiron-2000-data
@@ -157,3 +260,27 @@ spec:
         - name: league-config
           configMap:
             name: gridiron-2000-league-config
+        # gcp-wif combines the two files Workload Identity Federation
+        # needs into one projected volume (mounted at /var/run/secrets/gcp
+        # above): the external_account config (no secret in it — see
+        # deploy/k8s/gridiron-backup-gcp-config.yaml) and this pod's own
+        # short-lived, single-audience Kubernetes ServiceAccount token
+        # (expirationSeconds: 3600 — the kubelet auto-rotates it well
+        # before that; a token this narrowly scoped and this short-lived
+        # is not a secret to protect the way a long-lived key would be).
+        # The audience below must exactly match the WIF provider's own
+        # resource name — see docs/backup-restore.md's "Google Cloud
+        # Storage" section for the exact string and why the ConfigMap's
+        # own "audience" field uses a different (scheme-less) form of it.
+        - name: gcp-wif
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: "https://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL_ID/providers/PROVIDER_ID"
+                  expirationSeconds: 3600
+              - configMap:
+                  name: gridiron-backup-gcp-config
+                  items:
+                    - key: config.json
+                      path: config.json
