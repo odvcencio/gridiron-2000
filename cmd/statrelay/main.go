@@ -39,6 +39,20 @@ func main() {
 		dailyBudget = 0
 	}
 	relay.dailyBudget = dailyBudget // 0 = unlimited
+	// Bounded cache (ops-drift hardening, 2026-09-23): a non-positive
+	// override reads as unlimited, the same idiom dailyBudget's own
+	// negative-clamp above uses — an operator who explicitly sets 0 (or a
+	// negative value) is choosing "no cap," not hitting a bug.
+	maxEntries := envInt("STATRELAY_MAX_CACHE_ENTRIES", defaultMaxCacheEntries)
+	if maxEntries < 0 {
+		maxEntries = 0
+	}
+	relay.maxEntries = maxEntries
+	maxDiskMB := envInt("STATRELAY_MAX_CACHE_DISK_MB", defaultMaxCacheDiskBytes/(1<<20))
+	if maxDiskMB < 0 {
+		maxDiskMB = 0
+	}
+	relay.maxDiskBytes = int64(maxDiskMB) * (1 << 20)
 	// boxLiveTTL/scoreboardTTL (relay.go): read once, at boot, before the
 	// server starts serving — see their own doc comment. A non-positive
 	// override is ignored, keeping the active profile's own default, the
@@ -54,6 +68,10 @@ func main() {
 		scoreboardTTL = v
 	}
 	relay.LoadDisk()
+	// Trim an existing data dir that predates the disk cap, or that grew
+	// under a looser one, down to the active budget at boot — not only on
+	// the next write.
+	relay.enforceDiskBudget()
 
 	server := &http.Server{
 		Addr:    addr,

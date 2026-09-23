@@ -61,18 +61,29 @@ docker push "${IMAGE}"
 ```
 
 Build and push the relay image from the same commit with its own Dockerfile
-(the relay deployment pulls `:latest` with `imagePullPolicy: Always`, so a
-`kubectl rollout restart deployment/statrelay` picks the new image up):
+(ops-drift hardening, 2026-09-23: statrelay.yaml now pins this image by
+digest, like the main app, not `:latest`/`imagePullPolicy: Always` — a
+digest change requires editing deploy/k8s/statrelay.yaml and applying it,
+the same release-pin step deploy/README.md's release image policy
+documents for the main app):
 
 ```bash
-docker build -f cmd/statrelay/Dockerfile \
-  -t "harbor.draco.quest/orchard/gridiron-2000-statrelay:${RELEASE}" \
-  -t harbor.draco.quest/orchard/gridiron-2000-statrelay:latest .
+docker build -f deploy/statrelay.Dockerfile \
+  -t "harbor.draco.quest/orchard/gridiron-2000-statrelay:${RELEASE}" .
 docker push "harbor.draco.quest/orchard/gridiron-2000-statrelay:${RELEASE}"
-docker push harbor.draco.quest/orchard/gridiron-2000-statrelay:latest
+docker image inspect --format='{{index .RepoDigests 0}}' \
+  "harbor.draco.quest/orchard/gridiron-2000-statrelay:${RELEASE}"
 ```
 
-Record the pushed digest before changing either Deployment:
+Update `deploy/k8s/statrelay.yaml`'s `image:` field to the printed digest,
+apply it, and roll:
+
+```bash
+kubectl apply -f deploy/k8s/statrelay.yaml
+kubectl -n gridiron rollout status deployment/statrelay --timeout=5m
+```
+
+Record the pushed app image digest before changing either app Deployment:
 
 ```bash
 docker image inspect --format='{{index .RepoDigests 0}}' "${IMAGE}"
