@@ -64,20 +64,28 @@ The harness derives its sorted package set from tracked `.go` files and calls
 that Go's recursive wildcard pattern omits. Test and vet flags after the
 subcommand are forwarded to the corresponding Go tool.
 
-Most tests need no browser and no built client runtime. A smaller set of
-browser tests drives headed Chrome or Chromium through `chromedp` (see
-`chromePath` in
-[`sim_browser_test.go`](sim_browser_test.go)). They:
+Most tests need no browser and no built client runtime, and `scripts/go-check.sh
+test -count=1` above already covers all of them. A separate set of browser
+tests drives headed Chrome or Chromium through `chromedp` (see `chromePath`
+in [`sim_browser_test.go`](sim_browser_test.go)). They sit behind the `e2e`
+build tag (`//go:build e2e`, every `*_browser_test.go` file plus its
+chromedp-only helpers), so the command above never builds or runs them —
+run them explicitly instead:
 
-- Skip automatically when no `google-chrome`, `google-chrome-stable`,
+```bash
+scripts/go-check.sh test -tags e2e -count=1
+```
+
+With that tag set, the browser suite still:
+
+- Skips automatically when no `google-chrome`, `google-chrome-stable`,
   `chromium`, or `chromium-browser` binary is on `PATH`.
-- Skip automatically when `dist/build.json` is missing, unless
+- Skips automatically when `dist/build.json` is missing, unless
   `GOSX_APP_ROOT` is set in your own shell environment — in that case a
   missing build fails loudly instead of skipping, since that combination
   means a release gate ran without building the client first.
-- Skip under `scripts/go-check.sh test -short`, along with the longer simulated-draft
-  scenarios (see `wave6_browser_helpers_test.go` and the other
-  `*_browser_test.go` files).
+- Shortens the longer simulated-draft scenarios under `-short` (see
+  `wave6_browser_helpers_test.go` and the other `*_browser_test.go` files).
 
 Run `gosx build --dev .` first (see above) if you want the browser suite
 to run rather than skip.

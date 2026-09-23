@@ -29,6 +29,27 @@ func (s *Service) SetClockForTest(now func() time.Time) {
 // environment.
 func (s *Service) ClockForTest() time.Time { return s.clock() }
 
+// SetSQLiteSyncModeForTest overrides the synchronous pragma every later
+// openDB call uses (sqlstore.go), package-wide — not per Store, since a
+// Store carries no handle back to the DSN it opened with. mode is a raw
+// SQLite synchronous pragma value ("OFF" or "NORMAL" for a suite that never
+// crashes the process); pass "" to restore the FULL production default.
+// Harness only: ignored when APP_ENV=production, matching every other seam
+// in this file, so a leaked override can never weaken a live league's
+// durability guarantee. A caller that runs Store-creating tests in
+// parallel with a real crash test (SIGKILL mid-transaction, sqlstore_test.go
+// and avatar_identity_test.go) must not call this from the parallel group:
+// the mode is one process-wide value, not scoped to a single Store.
+func SetSQLiteSyncModeForTest(mode string) {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
+		return
+	}
+	if mode == "" {
+		mode = "FULL"
+	}
+	sqliteSyncMode = mode
+}
+
 // EvaluateNotificationsForTest runs one notifier evaluation at the harness
 // clock's current instant. Harness only: production callers must use the
 // real StartNotifier loop, so a leaked test endpoint can never manufacture

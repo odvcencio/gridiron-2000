@@ -82,14 +82,28 @@ var dbMigrations = []func(*sql.Tx) error{
 // where it proves that every mutator declares every collection it touched.
 var sqlitePersistVerify bool
 
+// sqliteSyncMode is the value openDB's synchronous pragma uses. FULL is the
+// production default: every commit fsyncs before it reports success (see
+// openDB's doc comment). A test binary that does not exercise crash
+// durability may lower it through SetSQLiteSyncModeForTest (harnessclock.go)
+// to skip paying each commit's real fsync — across a suite with hundreds of
+// short-lived Store instances, that fsync is the single largest fixed cost,
+// and it buys nothing for a test that never crashes the process. Production
+// never calls that setter, so this line never carries anything but FULL
+// outside a test binary.
+var sqliteSyncMode = "FULL"
+
 // openDB opens (creating when absent) the league database at path and
 // applies the pragmas the durability bar requires.
 //
 //	journal_mode=WAL   readers never block the writer; a commit appends.
-//	synchronous=FULL   every commit fsyncs before it reports success.
-//	                   NORMAL would leave a committed transaction in the
-//	                   OS page cache; that is the exact durability hole
-//	                   this migration closes, so the cost is accepted.
+//	synchronous=FULL   every commit fsyncs before it reports success, in
+//	                   production and by default. NORMAL would leave a
+//	                   committed transaction in the OS page cache; that is
+//	                   the exact durability hole this migration closes, so
+//	                   the cost is accepted. A test binary that never
+//	                   crashes the process may lower sqliteSyncMode through
+//	                   SetSQLiteSyncModeForTest instead of paying it.
 //	foreign_keys=ON    referential integrity is enforced, not advisory.
 //	busy_timeout=5000  a second writer waits instead of failing at once.
 //	_txlock=immediate  a write transaction takes its lock up front, so two
@@ -101,7 +115,7 @@ var sqlitePersistVerify bool
 func openDB(path string) (*sql.DB, error) {
 	dsn := "file:" + path + "?" + strings.Join([]string{
 		"_pragma=journal_mode(WAL)",
-		"_pragma=synchronous(FULL)",
+		"_pragma=synchronous(" + sqliteSyncMode + ")",
 		"_pragma=foreign_keys(1)",
 		"_pragma=busy_timeout(5000)",
 		"_txlock=immediate",

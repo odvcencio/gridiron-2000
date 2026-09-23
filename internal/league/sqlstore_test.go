@@ -26,10 +26,44 @@ import (
 //
 // The check roughly doubles the suite's runtime, so "go test -short"
 // leaves it off for a fast edit loop. Every full run has it on.
+//
+// TestMain also lowers the SQLite synchronous pragma (sqliteSyncMode) to
+// OFF for the whole binary. Every test in this package but the three real
+// SIGKILL crash helpers (sqlstore_test.go's own
+// TestCrashHelperProcess, and avatar_identity_test.go's
+// TestAvatarCrashHelperProcess / TestAvatarPostCommitCrashHelperProcess)
+// verifies in-process correctness, never survival of an actual kill -9, so
+// none of them need the fsync FULL buys — and across hundreds of
+// short-lived Store instances, that fsync was this package's single
+// largest fixed wall-clock cost (2026-09-23 profiling on a 16-core
+// buildbox: ~230s of the ~260s -short run went to individually small,
+// evenly spread per-test costs, not a few outlier sleeps). Each crash
+// helper is a re-exec of this same test binary (exec.Command(os.Args[0],
+// ...)) with its own "*_HELPER=1" environment variable, so it gets its own
+// fresh TestMain call; inCrashHelperProcess detects that one case by name
+// pattern, not an exhaustive list, so a future crash helper only has to
+// keep the existing "_HELPER" naming convention to be covered here too.
 func TestMain(m *testing.M) {
 	flag.Parse()
 	sqlitePersistVerify = !testing.Short()
+	if !inCrashHelperProcess() {
+		sqliteSyncMode = "OFF"
+	}
 	os.Exit(m.Run())
+}
+
+// inCrashHelperProcess reports whether this process is one of the real
+// SIGKILL crash helpers TestMain must exempt from the OFF override above —
+// detected by environment variable name, not an exhaustive list of the
+// helpers that exist today (see TestMain's doc comment).
+func inCrashHelperProcess() bool {
+	for _, kv := range os.Environ() {
+		key, _, _ := strings.Cut(kv, "=")
+		if strings.Contains(key, "CRASH_HELPER") {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------

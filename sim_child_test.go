@@ -152,6 +152,51 @@ func simChildEnv(dataFile string, extraEnv []string) []string {
 	return append(env, extraEnv...)
 }
 
+// browserAppRoot returns the app root whose dist/ holds the built client
+// runtime, or skips (or fails — see the GOSX_APP_ROOT guard below). It
+// lives here, outside the "e2e" build tag, because a plain HTTP test that
+// never touches chromedp (commissioner_drawer_open_query_test.go) still
+// needs the built client runtime, through the same GOSX_APP_ROOT-pinned
+// child process every browser scenario in this package starts.
+//
+// This precondition is the difference between evidence and a vacuous pass.
+// GoSX serves a no-op bootstrap stub when it finds no build manifest
+// (server/runtime_assets.go). The stub carries the lean countdown runtime
+// but no region runtime, so the draft region never swaps, the countdown is
+// never re-registered, and a clock test would report a tick it never had to
+// earn. Build the assets first:
+//
+//	go install m31labs.dev/gosx/cmd/gosx@v0.56.3
+//	GOSX_SKIP_VERSION_CHECK=1 gosx build --dev .
+//
+// The gate (2026-08-30 review): a plain local `go test .` (no GOSX_APP_ROOT
+// in the runner's own environment) still skips silently when dist/ is
+// missing — a developer running the package's other, non-browser tests
+// must not be forced to build the client runtime first. But the CI/release
+// gate always sets GOSX_APP_ROOT (the same var startBrowserDraft/
+// startBrowserDraftWith, sim_browser_test.go, pass to the CHILD process) to
+// pin the child to a specific worktree's dist/ — when that same var is
+// ALSO present in THIS process's own environment, a missing manifest is
+// never an acceptable silent skip: it means the gate ran without building
+// the client first, which the coordinator's own instructions forbid ("0
+// browser skips"). That case fails loudly instead, naming the exact
+// command that fixes it.
+func browserAppRoot(t *testing.T) string {
+	t.Helper()
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("read the working directory: %v", err)
+	}
+	manifest := filepath.Join(root, "dist", "build.json")
+	if _, err := os.Stat(manifest); err != nil {
+		if os.Getenv("GOSX_APP_ROOT") != "" {
+			t.Fatalf("no built client runtime at %s (GOSX_APP_ROOT is set, so a skip here is not allowed): run `gosx build --dev .` with the pinned CLI before this suite", manifest)
+		}
+		t.Skipf("no built client runtime at %s; run `gosx build --dev .` with the pinned CLI to collect browser evidence", manifest)
+	}
+	return root
+}
+
 // startSimChild re-executes this test binary as a server process and waits
 // for the address it prints. dataFile may be empty, which gives the child a
 // fresh state file under the test's own temporary directory; a restart
