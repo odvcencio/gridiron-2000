@@ -14,14 +14,18 @@ cp .env.example .env
 go run .
 ```
 
-Open [http://localhost:8080](http://localhost:8080). With no Google OAuth
-credentials configured, the app runs in demo mode: every visitor gets an
-open session with commissioner powers.
+Open [http://localhost:8080](http://localhost:8080). `.env.example` ships
+`DEMO_MODE=false`, so this first run lands on the tokenized `/setup`
+wizard, not an open session.
 
 Two environment variables matter most for local work:
 
-- `DEMO_MODE` — set to `false` to require real sign-in, or leave unset for
-  the open demo session. See the root
+- `DEMO_MODE` — an explicit, local-only opt-in for an open session with
+  commissioner powers against a configured reference league. Set it to
+  `true` together with a local `APP_ENV` (`development`, `local`, or
+  `test`; `.env.example`'s default) and `LEAGUE_FILE=config/league.json.example`.
+  `DEMO_MODE=true` alone does not bypass first-boot `/setup`, and it is
+  refused outside a local `APP_ENV`. See the root
   [`README.md`](README.md#run-locally) for the full local `.env` example.
 - `LEAGUE_FILE` — points the strict config loader at a `league.json` other
   than the default lookup path. See

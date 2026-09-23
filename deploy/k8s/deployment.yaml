@@ -9,8 +9,10 @@ metadata:
 spec:
   replicas: 1
   # Recreate, not RollingUpdate: the PVC is ReadWriteOnce (local-path) and
-  # the app keeps its state in single-process JSON files, so two pods must
-  # never run at once. Recreate stops the old pod before the new one starts.
+  # the app keeps its state in a single-process SQLite database file (one
+  # file per league, data/league.db; internal/league/store.go), so two
+  # pods must never run at once. Recreate stops the old pod before the new
+  # one starts.
   strategy:
     type: Recreate
   selector:
