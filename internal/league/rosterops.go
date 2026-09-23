@@ -40,7 +40,7 @@ func (s *Service) StartRosterOps(ctx context.Context) {
 				// loopguard.Tick: a panic in waiver/trade/IR evaluation
 				// must not end roster-ops for the rest of the process's
 				// life (audit item 12); the next tick still runs.
-				loopguard.Tick("rosterOps", 0, func() { s.rosterOpsTick(s.clock()) })
+				loopguard.Tick(ctx, "rosterOps", 0, func() { s.rosterOpsTick(s.clock()) })
 			}
 		}
 	}()

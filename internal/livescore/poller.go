@@ -208,13 +208,13 @@ func (p *Poller) Run(ctx context.Context) {
 	// live scoring for the rest of the process's life — with one replica,
 	// that is a crash loop on game day, not a graceful degrade (audit
 	// item 12).
-	loopguard.Tick("livescore.Poller", 0, func() { p.Tick(ctx) })
+	loopguard.Tick(ctx, "livescore.Poller", 0, func() { p.Tick(ctx) })
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			loopguard.Tick("livescore.Poller", 0, func() { p.Tick(ctx) })
+			loopguard.Tick(ctx, "livescore.Poller", 0, func() { p.Tick(ctx) })
 		}
 	}
 }
@@ -434,7 +434,7 @@ func (p *Poller) Tick(ctx context.Context) {
 			// spawned in here — this per-game fetch needs its own guard,
 			// or one malformed box score kills the whole process, not
 			// just this poll (audit item 12).
-			loopguard.Tick("livescore.Poller.fetchBox", 0, func() {
+			loopguard.Tick(ctx, "livescore.Poller.fetchBox", 0, func() {
 				box, err := p.fetcher.FetchBoxScore(ctx, tank01ID)
 				if err != nil {
 					p.recordFailure(err, now)

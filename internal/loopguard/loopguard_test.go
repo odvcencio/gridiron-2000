@@ -2,6 +2,7 @@ package loopguard
 
 import (
 	"bytes"
+	"context"
 	"log"
 	"os"
 	"strings"
@@ -37,7 +38,7 @@ func TestTickRecoversAndTheLoopKeepsRunning(t *testing.T) {
 					t.Fatalf("iteration %d: panic escaped Tick instead of being recovered: %v", i, r)
 				}
 			}()
-			Tick("test-loop", time.Microsecond, func() { runIteration(i) })
+			Tick(context.Background(), "test-loop", time.Microsecond, func() { runIteration(i) })
 		}(i)
 	}
 
@@ -58,13 +59,13 @@ func TestTickSleepsTheBackoffOnlyAfterAPanic(t *testing.T) {
 	defer log.SetOutput(os.Stderr)
 
 	start := time.Now()
-	Tick("no-panic", time.Hour, func() {})
+	Tick(context.Background(), "no-panic", time.Hour, func() {})
 	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
 		t.Fatalf("Tick slept %v with no panic; it must only back off after recovering one", elapsed)
 	}
 
 	start = time.Now()
-	Tick("panics", 30*time.Millisecond, func() { panic("boom") })
+	Tick(context.Background(), "panics", 30*time.Millisecond, func() { panic("boom") })
 	if elapsed := time.Since(start); elapsed < 30*time.Millisecond {
 		t.Fatalf("Tick returned after %v, want at least the 30ms backoff following a recovered panic", elapsed)
 	}
@@ -78,9 +79,33 @@ func TestTickDefaultsBackoffWhenNonPositive(t *testing.T) {
 	defer log.SetOutput(os.Stderr)
 
 	start := time.Now()
-	Tick("zero-backoff", 0, func() { panic("boom") })
+	Tick(context.Background(), "zero-backoff", 0, func() { panic("boom") })
 	if elapsed := time.Since(start); elapsed <= 0 {
 		t.Fatalf("Tick with backoff<=0 returned immediately after a panic; want DefaultBackoff applied")
+	}
+}
+
+// TestTickBackoffEndsEarlyWhenContextIsCanceled is buckbot review PR #68
+// finding 001's own regression proof: a panic recovered during shutdown
+// must not hold the process up for the full backoff. Canceling ctx
+// partway through a long backoff must return Tick well before that
+// backoff elapses.
+func TestTickBackoffEndsEarlyWhenContextIsCanceled(t *testing.T) {
+	log.SetOutput(discardWriter{})
+	defer log.SetOutput(os.Stderr)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	const cancelAfter = 20 * time.Millisecond
+	time.AfterFunc(cancelAfter, cancel)
+
+	start := time.Now()
+	Tick(ctx, "shutting-down", time.Hour, func() { panic("boom") })
+	elapsed := time.Since(start)
+	if elapsed < cancelAfter {
+		t.Fatalf("Tick returned after %v, want at least the %v it takes ctx to cancel", elapsed, cancelAfter)
+	}
+	if elapsed > cancelAfter+500*time.Millisecond {
+		t.Fatalf("Tick returned after %v, want well under the requested 1h backoff once ctx is canceled at %v", elapsed, cancelAfter)
 	}
 }
 

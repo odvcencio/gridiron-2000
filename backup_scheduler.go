@@ -80,7 +80,7 @@ func startBackupScheduler(ctx context.Context, service *league.Service, cfg back
 		// error path, a sink implementation bug) must not silently end
 		// nightly backups for the rest of the process's life (audit item
 		// 12) — the next scheduled tick still runs.
-		loopguard.Tick("backupScheduler", 0, func() { runBackupSnapshotOnce(ctx, service, cfg, appVersion) })
+		loopguard.Tick(ctx, "backupScheduler", 0, func() { runBackupSnapshotOnce(ctx, service, cfg, appVersion) })
 		ticker := time.NewTicker(backupSchedulerInterval)
 		defer ticker.Stop()
 		for {
@@ -88,7 +88,7 @@ func startBackupScheduler(ctx context.Context, service *league.Service, cfg back
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				loopguard.Tick("backupScheduler", 0, func() { runBackupSnapshotOnce(ctx, service, cfg, appVersion) })
+				loopguard.Tick(ctx, "backupScheduler", 0, func() { runBackupSnapshotOnce(ctx, service, cfg, appVersion) })
 			}
 		}
 	}()

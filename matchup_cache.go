@@ -109,7 +109,7 @@ func startMatchupRanks(ctx context.Context, stats *openstats.Service, lg *league
 	// retries after matchupRetryAfterFailure rather than spinning.
 	guardedRefresh := func() bool {
 		ok := false
-		loopguard.Tick("matchupRanks", 0, func() { ok = refresh() })
+		loopguard.Tick(ctx, "matchupRanks", 0, func() { ok = refresh() })
 		return ok
 	}
 	wait := matchupRefreshInterval

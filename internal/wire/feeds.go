@@ -118,7 +118,7 @@ func (service *Service) runFeeds(ctx context.Context) {
 			// loopguard.Tick: a panic in one sync pass must not end feed
 			// syncing for the rest of the process's life (audit item 12);
 			// the next tick still runs.
-			loopguard.Tick("wireFeeds", 0, func() { service.syncFeeds(ctx) })
+			loopguard.Tick(ctx, "wireFeeds", 0, func() { service.syncFeeds(ctx) })
 		}
 	}
 }
@@ -134,7 +134,7 @@ func (service *Service) syncFeeds(ctx context.Context) {
 			// terminates the whole process, not just this one feed's
 			// sync — one malformed feed payload must not take the
 			// server down (audit item 12).
-			loopguard.Tick("wireFeeds.syncFeed."+source.Name, 0, func() { service.syncFeed(ctx, source) })
+			loopguard.Tick(ctx, "wireFeeds.syncFeed."+source.Name, 0, func() { service.syncFeed(ctx, source) })
 		}()
 	}
 	group.Wait()

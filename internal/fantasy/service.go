@@ -277,14 +277,14 @@ func (s *Service) syncLoop(ctx context.Context) {
 		}
 	}
 	var syncErr error
-	loopguard.Tick("fantasy.syncLoop", 0, func() { syncErr = s.SyncNow(ctx) })
+	loopguard.Tick(ctx, "fantasy.syncLoop", 0, func() { syncErr = s.SyncNow(ctx) })
 	if syncErr != nil {
 		// The retry below covers startup races; the last good cache keeps serving.
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(2 * time.Minute):
-			loopguard.Tick("fantasy.syncLoop", 0, func() { _ = s.SyncNow(ctx) })
+			loopguard.Tick(ctx, "fantasy.syncLoop", 0, func() { _ = s.SyncNow(ctx) })
 		}
 	}
 	ticker := time.NewTicker(s.config.SyncInterval)
@@ -297,7 +297,7 @@ func (s *Service) syncLoop(ctx context.Context) {
 			// loopguard.Tick: a panic in one sync pass must not end pool
 			// syncing for the rest of the process's life (audit item 12);
 			// the next tick still runs.
-			loopguard.Tick("fantasy.syncLoop", 0, func() { _ = s.SyncNow(ctx) })
+			loopguard.Tick(ctx, "fantasy.syncLoop", 0, func() { _ = s.SyncNow(ctx) })
 		}
 	}
 }

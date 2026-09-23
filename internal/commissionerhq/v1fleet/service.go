@@ -199,7 +199,7 @@ func (service *Service) Collect(ctx context.Context) Portfolio {
 				// already guards). A recovered panic here simply leaves
 				// this job's result unsent; Collect's own aggregateContext
 				// timeout below still expires it like any other slow job.
-				loopguard.Tick("v1fleet.Collect", 0, func() {
+				loopguard.Tick(aggregateContext, "v1fleet.Collect", 0, func() {
 					summary, err := service.fetchBounded(aggregateContext, job.connection)
 					results <- attemptResult{job: job, summary: summary, err: err}
 				})

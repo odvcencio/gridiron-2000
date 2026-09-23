@@ -84,7 +84,7 @@ func (s *Service) StartDraftClock(ctx context.Context) {
 				// loopguard.Tick: a panic in one tick's clock decision must
 				// not end draft-clock enforcement for the rest of the
 				// process's life (audit item 12); the next tick still runs.
-				loopguard.Tick("draftClock", 0, func() { s.clockTick(s.clock()) })
+				loopguard.Tick(ctx, "draftClock", 0, func() { s.clockTick(s.clock()) })
 			}
 		}
 	}()

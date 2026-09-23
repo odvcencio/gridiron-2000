@@ -12,6 +12,7 @@
 package loopguard
 
 import (
+	"context"
 	"log"
 	"runtime/debug"
 	"time"
@@ -29,14 +30,28 @@ const DefaultBackoff = time.Second
 // per-iteration work in Tick so one bad iteration cannot end the loop —
 // the next scheduled tick still fires normally. Tick does not sleep at
 // all when fn returns without panicking.
-func Tick(name string, backoff time.Duration, fn func()) {
+//
+// ctx makes the post-panic backoff cancellation-aware: the sleep ends
+// early the moment ctx is done, so a panic during shutdown cannot hold
+// the process up for the full backoff (buckbot review, PR #68, finding
+// 001 — the caller's own ctx.Done() case, one select branch up, would
+// otherwise not run again until the backoff elapses). Pass
+// context.Background() when the caller has no context of its own to
+// offer; the sleep then always runs its full course, exactly as before
+// this parameter existed.
+func Tick(ctx context.Context, name string, backoff time.Duration, fn func()) {
 	defer func() {
 		if r := recover(); r != nil {
 			if backoff <= 0 {
 				backoff = DefaultBackoff
 			}
 			log.Printf("%s: recovered from panic: %v\n%s", name, r, debug.Stack())
-			time.Sleep(backoff)
+			timer := time.NewTimer(backoff)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+			}
 		}
 	}()
 	fn()

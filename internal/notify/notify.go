@@ -261,7 +261,7 @@ func (q *Queue) run(ctx context.Context) {
 			// defer so it still runs on a recovered panic — a leaked
 			// outstanding count would otherwise make Drain wait out its
 			// full timeout for a message that will never complete.
-			loopguard.Tick("notify.Queue", 0, func() {
+			loopguard.Tick(ctx, "notify.Queue", 0, func() {
 				defer q.outstanding.Add(-1)
 				q.deliver(ctx, m)
 			})

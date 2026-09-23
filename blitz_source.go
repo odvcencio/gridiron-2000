@@ -170,7 +170,7 @@ func (p *blitzPoller) run(ctx context.Context) {
 	// caller to recover a panic for it, so a malformed provider response
 	// during boot probing or any later tick would otherwise crash the
 	// whole process, not just this feature (audit item 12).
-	loopguard.Tick("blitzPoller.boot", 0, func() {
+	loopguard.Tick(ctx, "blitzPoller.boot", 0, func() {
 		p.loadCachedFinals()
 		p.probeSlates(ctx)
 	})
@@ -185,7 +185,7 @@ func (p *blitzPoller) run(ctx context.Context) {
 				log.Printf("blitz: sunset reached (48h past the last pre3 kickoff); the poller is stopping")
 				return
 			}
-			loopguard.Tick("blitzPoller", 0, func() { p.tick(ctx) })
+			loopguard.Tick(ctx, "blitzPoller", 0, func() { p.tick(ctx) })
 		}
 	}
 }

@@ -468,7 +468,7 @@ func (service *Service) ExportCSV(writer io.Writer, dataset string) error {
 }
 
 func (service *Service) syncLoop(ctx context.Context, dataset string, interval time.Duration) {
-	loopguard.Tick("openstats.syncLoop."+dataset, 0, func() { _ = service.syncDataset(ctx, dataset) })
+	loopguard.Tick(ctx, "openstats.syncLoop."+dataset, 0, func() { _ = service.syncDataset(ctx, dataset) })
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -479,7 +479,7 @@ func (service *Service) syncLoop(ctx context.Context, dataset string, interval t
 			// loopguard.Tick: a panic in one dataset sync (a malformed
 			// upstream CSV row) must not end syncing for the rest of the
 			// process's life (audit item 12); the next tick still runs.
-			loopguard.Tick("openstats.syncLoop."+dataset, 0, func() { _ = service.syncDataset(ctx, dataset) })
+			loopguard.Tick(ctx, "openstats.syncLoop."+dataset, 0, func() { _ = service.syncDataset(ctx, dataset) })
 		}
 	}
 }

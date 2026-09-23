@@ -178,7 +178,7 @@ func (s *Service) StartPickemMarketSync(ctx context.Context) {
 				// loopguard.Tick: a panic in one pass must not end pickem
 				// market sync for the rest of the process's life (audit
 				// item 12); the next tick still runs.
-				loopguard.Tick("pickemMarketSync", 0, func() {
+				loopguard.Tick(ctx, "pickemMarketSync", 0, func() {
 					if err := s.pickemMarketTick(s.clock()); err != nil {
 						log.Printf("pickem market sync: %v", err)
 					}

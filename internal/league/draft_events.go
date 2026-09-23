@@ -98,11 +98,11 @@ func draftEventDrain(ctx context.Context, queue, repairQueue chan DraftEvent, fn
 				// loopguard.Tick: a panic in the sink must not end draft
 				// event delivery for the rest of the process's life
 				// (audit item 12); the next event still drains.
-				loopguard.Tick("draftEventDrain", 0, func() { fn(event) })
+				loopguard.Tick(ctx, "draftEventDrain", 0, func() { fn(event) })
 			}
 		case event := <-queue:
 			if fn != nil {
-				loopguard.Tick("draftEventDrain", 0, func() { fn(event) })
+				loopguard.Tick(ctx, "draftEventDrain", 0, func() { fn(event) })
 			}
 		}
 	}
@@ -128,7 +128,7 @@ func (s *Service) draftRepairLoop(ctx context.Context, signal chan struct{}) {
 			// loopguard.Tick: a panic building one repair must not end
 			// draft repair for the rest of the process's life (audit item
 			// 12); the next drop signal still triggers a repair.
-			loopguard.Tick("draftRepairLoop", 0, func() { s.sendDraftRepair(ctx) })
+			loopguard.Tick(ctx, "draftRepairLoop", 0, func() { s.sendDraftRepair(ctx) })
 		}
 	}
 }

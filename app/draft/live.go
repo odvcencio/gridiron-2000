@@ -91,7 +91,7 @@ func (updates *LiveUpdates) Start(ctx context.Context) {
 						// not end draft-room live detection for the rest
 						// of the process's life (audit item 12); the
 						// next tick still runs.
-						loopguard.Tick("draft.LiveUpdates", 0, func() { updates.observe(true) })
+						loopguard.Tick(ctx, "draft.LiveUpdates", 0, func() { updates.observe(true) })
 					}
 				}
 			}

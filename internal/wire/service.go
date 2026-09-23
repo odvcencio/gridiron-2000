@@ -330,7 +330,7 @@ func (service *Service) run(ctx context.Context) {
 		// this adds the same panic recovery every other loop gets (audit
 		// item 12).
 		var err error
-		loopguard.Tick("wireSignalStream", 0, func() { err = service.consume(ctx) })
+		loopguard.Tick(ctx, "wireSignalStream", 0, func() { err = service.consume(ctx) })
 		if ctx.Err() != nil {
 			return
 		}

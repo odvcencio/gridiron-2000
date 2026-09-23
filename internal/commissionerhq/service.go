@@ -182,7 +182,7 @@ func (s *Service) Fleet(ctx context.Context) []FleetEntry {
 				// (a malformed response) must not kill the whole
 				// process — every other worker and the caller's own
 				// request goroutine included (audit item 12).
-				loopguard.Tick("commissionerhq.fleetFetch", 0, func() {
+				loopguard.Tick(ctx, "commissionerhq.fleetFetch", 0, func() {
 					summary, err := s.fetch(ctx, job.peer)
 					publicURL := ""
 					if job.peer.PublicURL != nil {

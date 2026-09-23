@@ -94,7 +94,7 @@ func (updates *ScoresLive) Start(ctx context.Context) {
 						// not end live-score change detection for the
 						// rest of the process's life (audit item 12); the
 						// next tick still runs.
-						loopguard.Tick("matchups.ScoresLive", 0, func() { updates.observe(true) })
+						loopguard.Tick(ctx, "matchups.ScoresLive", 0, func() { updates.observe(true) })
 					}
 				}
 			}
