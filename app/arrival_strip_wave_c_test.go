@@ -24,10 +24,9 @@ import (
 // ahead of <ActionCenterPanel>, pushing home's masthead h1 217px below
 // #main-content while every other route's masthead sits ~170px below —
 // TestBrowserMastheadLeadContract's own <= 16px spread contract. It now
-// renders inside ActionCenterPanel itself, between the masthead
-// <header> (which still carries the h1 first) and the task list, so the
-// masthead's own position never moves; this test also pins that order
-// directly.
+// renders inside ActionCenterPanel itself, after the current task list,
+// so urgent actions stay above first-session guidance. The masthead's
+// own position stays aligned with the other routes.
 func TestArrivalStripMarkupGatesOnServerFlagAndOffersThreeActions(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {
@@ -60,8 +59,8 @@ func TestArrivalStripMarkupGatesOnServerFlagAndOffersThreeActions(t *testing.T) 
 	if headingAt < 0 || stripAt < 0 || bodyAt < 0 {
 		t.Fatal("could not locate the masthead h1, the arrival strip gate, and the task-list body to check their order")
 	}
-	if !(headingAt < stripAt && stripAt < bodyAt) {
-		t.Fatalf("ActionCenterPanel order = heading:%d strip:%d body:%d, want the masthead h1 first, then the arrival strip, then the task-list body", headingAt, stripAt, bodyAt)
+	if !(headingAt < bodyAt && bodyAt < stripAt) {
+		t.Fatalf("ActionCenterPanel order = heading:%d body:%d strip:%d, want current tasks before first-session guidance", headingAt, bodyAt, stripAt)
 	}
 }
 

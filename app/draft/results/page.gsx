@@ -60,7 +60,7 @@ func Page() Node {
 			    finishes the draft on used to end in dead space — no link
 			    to the lineup or the player pool the very next job needs. */}
 			<div class="results-next-steps hero-actions" aria-label="What to do next">
-				<a href="/team" data-gosx-link class="button button--primary">Set your Week 1 lineup →</a>
+				<a href="/team" data-gosx-link class="button button--primary">Set your current lineup →</a>
 				<a href="/players" data-gosx-link class="button button--ghost">Browse free agents →</a>
 			</div>
 			<If cond={data.team_not_found}>

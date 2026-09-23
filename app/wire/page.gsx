@@ -376,7 +376,7 @@ func Page() Node {
 							<If cond={data.has_submit_error}>
 								<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" role="alert" text={data.submit_error} />
 							</If>
-							<button class="button button--primary" type="submit">Send a tip</button>
+						<button class="button button--primary wire-sighting-form__submit" type="submit">Send a tip</button>
 						</form>
 						<p class="wire-submit-note">Market sightings are human-entered. The league never reads your accounts elsewhere.</p>
 					</If>

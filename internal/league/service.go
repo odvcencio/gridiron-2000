@@ -2516,14 +2516,17 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	radar := s.teamTerminalRadar(state, lifecycle.Phase, now, 3)
 	radarCopy := teamTerminalRadarCopy(lifecycle.Phase)
 	teamMap := s.teamMap(team)
-	// record (F27, J4 console gap-audit): teamMap's own "record" key reads
-	// team.Record, the static "0–0" seed placeholder (model.go) every
-	// caller shares by default — the team masthead's own "Season 0–0"
-	// used to freeze at that placeholder regardless of real results, the
-	// third page (with the standings table and the matchups page) this
-	// gap-audit finding named. currentTeamRecord reads the same standings
-	// the standings table itself computes.
-	teamMap["record"] = s.currentTeamRecord(state, teamID)
+	// The team masthead reads season record and points from the same
+	// finalized matchups as the standings table. teamMap alone carries
+	// seed values for both fields.
+	standings := s.dashboardStandingState(state)
+	teamMap["record"] = "0–0"
+	hasTeamPoints := false
+	if standing, ok := standings.ByTeam[teamID]; ok {
+		teamMap["record"] = standingRecord(standing)
+		teamMap["points_for"] = fmt.Sprintf("%.1f", standing.PointsFor)
+		hasTeamPoints = standing.Wins+standing.Losses+standing.Ties > 0
+	}
 	// has_custom_name (wave-6 glue item 5) gates the /team page's own
 	// "Reset to configured name" control (page.gsx): the control has
 	// nothing useful to do, and nothing to reset, for a team still
@@ -2765,16 +2768,8 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		// shared teamMap (every other teamMap caller — standings, matchup
 		// cards — has no equivalent "· {streak}" segment to guard).
 		"has_team_streak": strings.TrimSpace(team.Streak) != "" && team.Streak != "—",
-		// has_team_points (coordinator follow-up on the wave-C manager
-		// residue) guards the same hero line's own points-scored figure:
-		// team.PointsFor (teamView's raw Team.PointsFor) is the season
-		// zero value before any matchup has closed, and printing "0.0
-		// points scored" read as a real, scored zero — the same false
-		// claim J3 F12 already rejected for a starter's own PTS cell.
-		// dashboardStandingState's HasResults is the same "has a week
-		// actually closed" signal the standings panel's own "No matchup
-		// has been finalized yet" copy already uses.
-		"has_team_points": s.dashboardStandingState(state).HasResults,
+		// Show a zero-point season only after this team's matchup is final.
+		"has_team_points": hasTeamPoints,
 		// drafted is retained as a compatibility alias for the old template contract; lifecycle truth lives in team_terminal_phase and its explicit booleans below.
 		"drafted":              lifecycle.DraftComplete,
 		"predraft_visible":     !lineupTarget.Intervention && !state.DraftStarted && (strings.TrimSpace(team.Manager) != "" || s.demoMode),

@@ -8,13 +8,12 @@ func Page() Node {
 				<p class="page-kicker">{data.runtime.league_name} · {data.runtime.mode} · {data.runtime.phase}</p>
 				<h1>Help center</h1>
 				<p class="guide-lede"><strong>Ask a question.</strong> Every answer says who can do it, what changes, and how to undo it.</p>
-				<form class="help-search" method="get" action="/help">
+				<form class="help-search" method="get" action="/help#search-results">
 					<label for="help-query">Search help</label>
 					<div class="help-search__row">
 						<input id="help-query" name="q" type="search" value={data.query} placeholder="Try: waiver budget, draft queue" autocomplete="off"></input>
 						<button class="button button--primary" type="submit">Search</button>
 					</div>
-					<small>Results are sorted by match quality, always in the same order for the same words.</small>
 				</form>
 			</div>
 			<aside class="masthead-console guide-console" aria-label="Help center runtime context">
@@ -39,7 +38,6 @@ func Page() Node {
 				<span class="section-index">01 // SEARCH</span>
 				<h2 id="search-results-heading">{data.query}</h2>
 				<If cond={data.has_query == false}><p>Search by a question, a word from the app, or a word from another fantasy app.</p></If>
-				<If cond={data.has_query}><p>Top answers are ranked by explicit match quality, then stable category/title/topic order.</p></If>
 			</header>
 			<If cond={data.has_query && data.has_results}>
 				<div class="help-result-list">

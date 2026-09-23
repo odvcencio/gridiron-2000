@@ -44,3 +44,28 @@ func TestBrowserPageActionBarHidesDuplicateTeamLineupSubmit(t *testing.T) {
 		t.Errorf(".lineup-auto-form display = %q at 390px, want \"none\" — the fixed .page-action-bar already submits this exact form, so the in-page copy must not also render", inPageDisplay)
 	}
 }
+
+func TestBrowserPageActionBarIsTheOnlyVisibleWireSubmitOnPhone(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	child, league, ctx := startSeatedBrowserChild(t)
+	navigateSignedInTo(t, ctx, child, league.bots[0], "/wire", 390, 844)
+	var controls struct {
+		InlineDisplay string `json:"inlineDisplay"`
+		BarDisplay    string `json:"barDisplay"`
+		Form          string `json:"form"`
+	}
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`(function(){
+		var inline = document.querySelector('.wire-sighting-form__submit');
+		var bar = document.querySelector('.page-action-bar__link');
+		return {inlineDisplay: inline && getComputedStyle(inline).display,
+			barDisplay: bar && getComputedStyle(bar).display,
+			form: bar && bar.getAttribute('form')};
+	})()`, &controls)); err != nil {
+		t.Fatalf("read Wire submit controls: %v", err)
+	}
+	if controls.InlineDisplay != "none" || controls.BarDisplay == "none" || controls.Form != "wire-sighting-form" {
+		t.Errorf("Wire phone submit controls = %+v, want one visible bar button bound to the form", controls)
+	}
+}

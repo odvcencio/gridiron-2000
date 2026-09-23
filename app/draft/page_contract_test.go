@@ -289,7 +289,7 @@ func TestDraftHistoryLedgerNamesNextSteps(t *testing.T) {
 	for _, truth := range []string{
 		"props.Complete",
 		`href="/draft/results"`, "See the draft results",
-		`href="/team"`, "Set your Week 1 lineup",
+		`href="/team"`, "Set your current lineup",
 		`href="/players"`, "Browse free agents",
 	} {
 		if !strings.Contains(ledgerBody, truth) {

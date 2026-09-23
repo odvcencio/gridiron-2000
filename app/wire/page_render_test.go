@@ -703,7 +703,7 @@ func TestWireVocabularyIsConsolidatedToSourcesAndSignals(t *testing.T) {
 		"<strong>Social sources</strong>",
 		`<span class="section-index">LEAGUE EYES</span>`,
 		"<b>Send a tip</b>",
-		`type="submit">Send a tip</button>`,
+		`class="button button--primary wire-sighting-form__submit" type="submit">Send a tip</button>`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("page.gsx missing consolidated vocabulary %q", want)

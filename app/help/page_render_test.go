@@ -47,7 +47,7 @@ func TestHelpIndexRendersSearchAndProjectionMarkers(t *testing.T) {
 	body := renderHelpRoute(t, "/?q=draft+queue")
 	for _, want := range []string{
 		"HELP CENTER",
-		"Results are sorted by match quality",
+		`action="/help#search-results"`,
 		"big-board-and-autopick",
 		"One corpus. Stable routes.",
 		"The checklist follows the person.",

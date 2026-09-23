@@ -254,6 +254,19 @@ func runHelpSearchAndTopicJourney(t *testing.T, ctx context.Context, child *simC
 	); err != nil {
 		t.Fatalf("submit real Help search at %dpx: %v", width, err)
 	}
+	var searchLocation string
+	if err := chromedp.Run(ctx, chromedp.Location(&searchLocation)); err != nil {
+		t.Fatalf("read Help search location: %v", err)
+	}
+	if !strings.HasSuffix(searchLocation, "#search-results") {
+		t.Errorf("Help search location = %q, want the results anchor", searchLocation)
+	}
+	if width <= 608 {
+		results := elementBoundingRect(t, ctx, "#search-results")
+		if results.Top < 60 || results.Top >= float64(height) {
+			t.Errorf("Help results top = %.1fpx at %dpx, want visible below the mobile bar", results.Top, width)
+		}
+	}
 	var href string
 	if err := chromedp.Run(ctx, chromedp.AttributeValue(`.help-result`, "href", &href, nil, chromedp.ByQuery)); err != nil {
 		t.Fatalf("read Help search result href: %v", err)

@@ -22242,3 +22242,36 @@ body.is-on-clock .draft-command__pill-sentence {
 .stat-tip__rank {
   color: var(--color-text-muted);
 }
+
+/* Keep the search field usable when the position filter has its own row. */
+@media (width <= 38rem) {
+  #pool-search,
+  #board-search-rail {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #pool-search .pool-search-bar,
+  #board-search-rail .pool-search-bar,
+  #pool-search .pool-filter-disclosure,
+  #board-search-rail .pool-filter-disclosure {
+    width: 100%;
+  }
+}
+
+#home-action-center-tasks,
+#search-results {
+  scroll-margin-top: var(--space-lg);
+}
+
+@media (max-width: 56.1875rem) {
+  html #home-action-center-tasks,
+  html #search-results {
+    scroll-margin-top: 4.5rem;
+  }
+
+  /* The fixed action bar submits this form on phones and tablets. */
+  .wire-sighting-form__submit {
+    display: none;
+  }
+}

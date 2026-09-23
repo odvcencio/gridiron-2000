@@ -413,12 +413,7 @@ func PageActionBar(props PageActionBarProps) Node {
 // has_seat alone). data.league.attention is internal/league/
 // service.go's leagueMap() addition — see that function's own doc
 // comment for why it is league-wide, not per-viewer. Both chips link to
-// "/#home-action-center-heading" (the Action Center's existing heading
-// id, app/page.gsx) rather than a new "#action-center" id: this wave's
-// app/page.gsx scope is the playoff-card block only, so the chip targets
-// the id already in the DOM instead of adding one there. That heading's
-// own scroll-margin-top (public/styles.css) is what keeps the deep link
-// from landing behind the masthead.
+// the Action Center task list so the urgent work is visible after the jump.
 func Layout() Node {
 	return <div class="app-shell">
 		<a class="skip-link" href="#main-content">Skip to league content</a>
@@ -449,7 +444,7 @@ func Layout() Node {
 					    viewport. */}
 					<If cond={data.viewer.has_seat && data.league.attention.has_items && data.viewer.demo == false}>
 						<a
-							href="/#home-action-center-heading"
+							href="/#home-action-center-tasks"
 							data-gosx-link
 							class="rail-attention-chip"
 							aria-label={data.league.attention.chip_label}
@@ -492,7 +487,7 @@ func Layout() Node {
 				</a>
 				<If cond={data.viewer.has_seat && data.league.attention.has_items && data.viewer.demo == false}>
 					<a
-						href="/#home-action-center-heading"
+						href="/#home-action-center-tasks"
 						data-gosx-link
 						class="rail-attention-chip rail-attention-chip--mobile"
 						aria-label={data.league.attention.chip_label}
