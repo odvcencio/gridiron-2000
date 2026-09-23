@@ -30,11 +30,11 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # Concise league page release, source f476605 (main).
+          # Security and operations hardening release, source 92c5575 (main).
           # Logical and physical state schemas remain at 12. The previous
           # release digest supports both persisted versions for rollback.
           # Flagship only; statrelay and inactive SK remain unchanged.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:e61299abf8af418e4d4107f82fedd3b79273bcd64687ef69618061c316953b98
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:3ce81c0b295ac73bff8927ce6a00e49ab76ad5d31f56c2a6d5f34052e906e8e3
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
