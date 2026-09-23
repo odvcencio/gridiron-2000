@@ -30,12 +30,11 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # Live/final scoring parity release, source 4bee908 (main).
-          # Logical state schema advances 11 -> 12; physical schema stays 12.
-          # Use the tested fallback digest or a verified pre-roll restore,
-          # never an image-only rollback to the former schema-11 binary.
+          # Week-scoped live matchup release, source 790d288 (main).
+          # Logical and physical state schemas remain at 12. The previous
+          # release digest supports both persisted versions for rollback.
           # Flagship only; statrelay and inactive SK remain unchanged.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:a51656fdd33263b4d7500df760c5b0e11960082a62416e99a543f6fee4c5a6d1
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:066706ab083d5af1d6b330f94baffbab7328f0ca5f47e71ddb513d324ef7a7ef
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
