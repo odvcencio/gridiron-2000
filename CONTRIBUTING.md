@@ -6,7 +6,7 @@ production, see [`docs/quickstart.md`](docs/quickstart.md).
 
 ## Run it locally
 
-Requirements: Go 1.26 and GoSX v0.57.0
+Requirements: Go 1.26 and GoSX v0.57.1
 (see [`go.mod`](go.mod)).
 
 ```bash
@@ -43,7 +43,7 @@ CLI, not `go build` alone. Install the pinned version and build a dev
 bundle before running browser tests:
 
 ```bash
-go install m31labs.dev/gosx/cmd/gosx@v0.57.0
+go install m31labs.dev/gosx/cmd/gosx@v0.57.1
 gosx build --dev .
 ```
 

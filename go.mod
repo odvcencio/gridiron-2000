@@ -12,7 +12,7 @@ require (
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sys v0.47.0
 	m31labs.dev/arbiter v1.9.0
-	m31labs.dev/gosx v0.57.0
+	m31labs.dev/gosx v0.57.1
 	modernc.org/sqlite v1.56.0
 )
 

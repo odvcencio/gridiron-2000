@@ -50,7 +50,7 @@ Every page in Gridiron follows the same product contract:
 
 ## Run locally
 
-Requirements: Go 1.26 and GoSX v0.57.0.
+Requirements: Go 1.26 and GoSX v0.57.1.
 
 For a real first install, copy the environment example, keep `LEAGUE_FILE` empty,
 set `DEMO_MODE=false`, and start the server:
