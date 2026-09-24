@@ -52,7 +52,7 @@ spec:
           # patch, not through this manifest. Always deploy a pinned
           # digest, never :latest or a mutable tag — see deploy/README.md's
           # release image policy.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:3ce81c0b295ac73bff8927ce6a00e49ab76ad5d31f56c2a6d5f34052e906e8e3
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:1765fc55c69ed0b785d63a214ad008cdf9d2e626903469cdb1612962df286af1
           imagePullPolicy: IfNotPresent
           ports:
             # hq-v1 (8091) is the Commissioner HQ v1 provider's own private
@@ -78,7 +78,7 @@ spec:
             # image: field above on every change — a mismatch here is a
             # silent lie to every federated peer, not just a stale label.
             - name: APP_IMAGE_DIGEST
-              value: "sha256:3ce81c0b295ac73bff8927ce6a00e49ab76ad5d31f56c2a6d5f34052e906e8e3"
+              value: "sha256:1765fc55c69ed0b785d63a214ad008cdf9d2e626903469cdb1612962df286af1"
             # Commissioner HQ v1: this instance's own read-only federation
             # provider (deploy/README.md's "Existing-instance release
             # controls" section documents the rollout). COMMISSIONER_HQ_PROVIDER_SECRET
