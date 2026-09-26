@@ -448,6 +448,7 @@ Every file under `docs/`, indexed at [`docs/README.md`](docs/README.md):
 
 | Document | Covers |
 | --- | --- |
+| [`docs/project-state-2026-09-26.md`](docs/project-state-2026-09-26.md) | Current source, CI, open-gate, and next-work snapshot (no deployment assertion) |
 | [`docs/quickstart.md`](docs/quickstart.md) | Ten-minute Docker Compose deployment walkthrough |
 | [`docs/configuration.md`](docs/configuration.md) | Every `league.json` field, boot states, and environment override |
 | [`docs/season-operations.md`](docs/season-operations.md) | Draft night through week close, live scoring, and degraded-data operations |

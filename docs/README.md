@@ -10,6 +10,7 @@ league), **operator** (deploys and maintains the service), **contributor**
 
 | Document | Audience | Covers |
 | --- | --- | --- |
+| [`project-state-2026-09-26.md`](project-state-2026-09-26.md) | contributor | Current source, CI, open-gate, and next-work snapshot (no deployment assertion) |
 | [`quickstart.md`](quickstart.md) | operator | Ten-minute Docker Compose deployment walkthrough |
 | [`configuration.md`](configuration.md) | operator | Every `league.json` field, boot states, and environment override |
 | [`season-operations.md`](season-operations.md) | commissioner | Draft night through week close, live scoring, and degraded-data operations |

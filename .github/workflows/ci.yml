@@ -162,9 +162,12 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: install pinned GoSX CLI
-        run: go install m31labs.dev/gosx/cmd/gosx@v0.56.3
+        run: |
+          gosx_version="$(awk '$1 == "m31labs.dev/gosx" { print $2; exit } $1 == "require" && $2 == "m31labs.dev/gosx" { print $3; exit }' go.mod)"
+          test -n "$gosx_version"
+          go install "m31labs.dev/gosx/cmd/gosx@$gosx_version"
       - name: build dev client runtime
-        run: GOSX_SKIP_VERSION_CHECK=1 gosx build --dev .
+        run: gosx build --dev .
       - name: browser suite (scripts/go-check.sh, e2e tag)
         run: scripts/go-check.sh test -tags e2e -short -count=1
 
