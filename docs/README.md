@@ -10,7 +10,6 @@ league), **operator** (deploys and maintains the service), **contributor**
 
 | Document | Audience | Covers |
 | --- | --- | --- |
-| [`project-state-2026-09-26.md`](project-state-2026-09-26.md) | contributor | Current source, CI, open-gate, and next-work snapshot (no deployment assertion) |
 | [`quickstart.md`](quickstart.md) | operator | Ten-minute Docker Compose deployment walkthrough |
 | [`configuration.md`](configuration.md) | operator | Every `league.json` field, boot states, and environment override |
 | [`season-operations.md`](season-operations.md) | commissioner | Draft night through week close, live scoring, and degraded-data operations |
@@ -27,15 +26,11 @@ league), **operator** (deploys and maintains the service), **contributor**
 | [`px1_help_corpus.md`](px1_help_corpus.md) | contributor | The `/help` corpus contract: topics, search, and recovery guidance |
 | [`px1_glossary.md`](px1_glossary.md) | manager | A projection of the in-app glossary |
 | [`px1_concept-transition.md`](px1_concept-transition.md) | manager | A vocabulary map for managers migrating from another platform |
-| [`px1_comprehension-gate.md`](px1_comprehension-gate.md) | contributor | Scripted PX-1 participant comprehension worksheet; remains open until human review |
-| [`px1_evidence-packet.md`](px1_evidence-packet.md) | contributor | PX-1 evidence inventory, source reconciliation, and unresolved acceptance receipts |
-| [`decisions/0001-seat-scoped-big-board.md`](decisions/0001-seat-scoped-big-board.md) | contributor | Seat-scoped Big Board ownership decision record |
 
 ## Decisions
 
-`decisions/` holds one dated record per binding product or architecture
-decision. A decision stays in place after a later change supersedes part of
-it; the record itself explains the follow-up, it does not disappear.
+Durable product and architecture decisions are recorded in Hyphae. This index
+keeps the repository's user-facing and contributor documentation discoverable.
 
 ## In-app help
 
