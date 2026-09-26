@@ -23,44 +23,46 @@ func (s *Service) playoffTruthMap(state PersistedState, now time.Time, commissio
 		phase = s.SeasonPhase(now)
 	}
 	base := map[string]any{
-		"status":                    "waiting",
-		"canonical_status":          "",
-		"status_label":              "WAITING",
-		"season_phase":              phase,
-		"season_phase_label":        playoffPhaseLabel(phase),
-		"has_bracket":               false,
-		"published":                 false,
-		"preview":                   false,
-		"is_published":              false,
-		"is_preview":                false,
-		"waiting":                   true,
-		"headline":                  "PLAYOFF BRACKET WAITING",
-		"detail":                    "The persisted playoff bracket is not available yet.",
-		"recovery":                  "",
-		"source":                    "",
-		"source_state":              "",
-		"authoritative":             false,
-		"snapshot_id":               "",
-		"captured_at":               "",
-		"published_at":              "",
-		"preview_id":                "",
-		"revision":                  0,
-		"final_week":                0,
-		"regular_season_start_week": 0,
-		"tiebreak_order":            []string{},
-		"config":                    playoffConfigMap(PlayoffConfig{}),
-		"seeds":                     []map[string]any{},
-		"matchups":                  []map[string]any{},
-		"audit":                     []map[string]any{},
-		"has_matchups":              false,
-		"current_round":             0,
-		"next_matchup_count":        0,
-		"champion_team_id":          "",
-		"champion_name":             "",
-		"runner_up_team_id":         "",
-		"runner_up_name":            "",
-		"toilet_team_id":            "",
-		"toilet_name":               "",
+		"status":                     "waiting",
+		"canonical_status":           "",
+		"status_label":               "WAITING",
+		"season_phase":               phase,
+		"season_phase_label":         playoffPhaseLabel(phase),
+		"has_bracket":                false,
+		"published":                  false,
+		"preview":                    false,
+		"is_published":               false,
+		"is_preview":                 false,
+		"waiting":                    true,
+		"headline":                   "PLAYOFF BRACKET WAITING",
+		"detail":                     "The persisted playoff bracket is not available yet.",
+		"recovery":                   "",
+		"source":                     "",
+		"source_state":               "",
+		"authoritative":              false,
+		"snapshot_id":                "",
+		"captured_at":                "",
+		"published_at":               "",
+		"preview_id":                 "",
+		"revision":                   0,
+		"final_week":                 0,
+		"regular_season_start_week":  0,
+		"tiebreak_order":             []string{},
+		"config":                     playoffConfigMap(PlayoffConfig{}),
+		"seeds":                      []map[string]any{},
+		"matchups":                   []map[string]any{},
+		"audit":                      []map[string]any{},
+		"has_matchups":               false,
+		"current_round":              0,
+		"next_matchup_count":         0,
+		"champion_team_id":           "",
+		"champion_name":              "",
+		"runner_up_team_id":          "",
+		"runner_up_name":             "",
+		"consolation_winner_team_id": "",
+		"consolation_winner_name":    "",
+		"toilet_team_id":             "",
+		"toilet_name":                "",
 		// The Matchups page is about the active weekly slate during the
 		// regular season. Its bracket card becomes relevant only once the
 		// league enters a postseason phase or a bracket already exists.
@@ -159,7 +161,7 @@ func (s *Service) playoffTruthMap(state PersistedState, now time.Time, commissio
 		}
 		if !matchup.Final && matchup.HomeTeamID != "" && matchup.AwayTeamID != "" {
 			nextCount++
-			if currentRound == 0 || matchup.Round < currentRound {
+			if matchup.Bracket == "championship" && (currentRound == 0 || matchup.Round < currentRound) {
 				currentRound = matchup.Round
 			}
 		}
@@ -202,13 +204,18 @@ func (s *Service) playoffTruthMap(state PersistedState, now time.Time, commissio
 	base["champion_name"] = s.playoffTeamMap(state, copy.ChampionTeamID)["name"]
 	base["runner_up_team_id"] = copy.RunnerUpTeamID
 	base["runner_up_name"] = s.playoffTeamMap(state, copy.RunnerUpTeamID)["name"]
+	base["consolation_winner_team_id"] = copy.ConsolationWinnerTeamID
+	base["consolation_winner_name"] = s.playoffTeamMap(state, copy.ConsolationWinnerTeamID)["name"]
 	base["toilet_team_id"] = copy.ToiletTeamID
 	base["toilet_name"] = s.playoffTeamMap(state, copy.ToiletTeamID)["name"]
 	if status == PlayoffStatusPublished && nextCount == 0 && copy.ChampionTeamID == "" {
 		base["detail"] = "Published bracket is waiting for an active round result."
 	}
 	if copy.ChampionTeamID != "" {
-		base["detail"] = "Championship result is final and persisted as the season truth."
+		base["detail"] = fmt.Sprintf("Champion: %s. Runner-up: %s.", base["champion_name"], base["runner_up_name"])
+		if copy.ConsolationWinnerTeamID != "" {
+			base["detail"] = fmt.Sprintf("%s Losers-bracket winner: %s.", base["detail"], base["consolation_winner_name"])
+		}
 		base["recovery"] = "A terminal correction requires commissioner confirmation and an audit reason; earlier-round correction requires a fresh preview."
 	}
 	return base

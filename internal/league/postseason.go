@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -238,7 +239,7 @@ func BuildPlayoffPreview(standings []Standing, divisions map[string]string, cfg 
 			divisionCount++
 		}
 	}
-	if err := ValidatePlayoffConfig(cfg, len(standings), divisionCount, provenance.RegularSeasonStartWeek, provenance.FinalWeek); err != nil {
+	if err := ValidatePlayoffConfig(cfg, len(standings), divisionCount, provenance.RegularSeasonStartWeek, maxNFLWeek); err != nil {
 		return PlayoffState{}, err
 	}
 	if cfg.Qualification == "division-winners-wildcards" {
@@ -312,7 +313,7 @@ func effectivePlayoffStatus(state PlayoffState) string {
 	// A pre-PS-1 state with a non-empty bracket was already the deployed
 	// bracket truth. Keep it readable after migration, while requiring new
 	// mutations to use the explicit preview/published lifecycle.
-	if len(state.Seeds) > 0 || len(state.Matchups) > 0 || state.ChampionTeamID != "" || state.RunnerUpTeamID != "" || state.ToiletTeamID != "" {
+	if len(state.Seeds) > 0 || len(state.Matchups) > 0 || state.ChampionTeamID != "" || state.RunnerUpTeamID != "" || state.ConsolationWinnerTeamID != "" || state.ToiletTeamID != "" {
 		return PlayoffStatusPublished
 	}
 	return ""
@@ -565,7 +566,7 @@ func (s *Store) AdvancePublishedPlayoffRound(results []PlayoffRoundResult) (Play
 	if err != nil {
 		return PlayoffState{}, err
 	}
-	if reflect.DeepEqual(next.Matchups, s.state.Playoffs.Matchups) && next.ChampionTeamID == s.state.Playoffs.ChampionTeamID && next.RunnerUpTeamID == s.state.Playoffs.RunnerUpTeamID && next.ToiletTeamID == s.state.Playoffs.ToiletTeamID {
+	if reflect.DeepEqual(next.Matchups, s.state.Playoffs.Matchups) && next.ChampionTeamID == s.state.Playoffs.ChampionTeamID && next.RunnerUpTeamID == s.state.Playoffs.RunnerUpTeamID && next.ConsolationWinnerTeamID == s.state.Playoffs.ConsolationWinnerTeamID && next.ToiletTeamID == s.state.Playoffs.ToiletTeamID {
 		return *clonePlayoffState(s.state.Playoffs), nil
 	}
 	previous := cloneState(s.state)
@@ -638,7 +639,7 @@ func (s *Store) CorrectPublishedPlayoff(correction PlayoffCorrection) (PlayoffSt
 	if matchup.Round < bracketTotalRounds(s.state.Playoffs, matchup.Bracket) {
 		return PlayoffState{}, fmt.Errorf("earlier-round correction requires a new playoff preview")
 	}
-	if matchup.Bracket != "championship" && matchup.Bracket != "toilet" {
+	if matchup.Bracket != "championship" && matchup.Bracket != "consolation" && matchup.Bracket != "toilet" {
 		return PlayoffState{}, fmt.Errorf("playoff correction is not supported for bracket %q", matchup.Bracket)
 	}
 	if correction.ScoresProvided {
@@ -673,6 +674,8 @@ func (s *Store) CorrectPublishedPlayoff(correction PlayoffCorrection) (PlayoffSt
 		}
 		candidate.ChampionTeamID = target.WinnerTeamID
 		candidate.RunnerUpTeamID = loser
+	} else if matchup.Bracket == "consolation" {
+		candidate.ConsolationWinnerTeamID = target.WinnerTeamID
 	} else if matchup.Bracket == "toilet" {
 		loser := target.AwayTeamID
 		if target.WinnerTeamID == target.AwayTeamID {
@@ -731,8 +734,21 @@ func (s *Service) AdminPreviewPlayoffs(r *http.Request, at time.Time) (PlayoffSt
 			finalWeek = week.Week
 		}
 	}
+	if s.cfg.Postseason.StartWeek <= finalWeek {
+		return PlayoffState{}, fmt.Errorf("playoffs.startWeek must be after the final regular-season week")
+	}
 	order := append([]string(nil), s.cfg.Postseason.TiebreakOrder...)
-	standings := ComputeStandings(*state.Schedule, teamIDs, TiebreakInputs{Chain: order})
+	if len(order) == 0 {
+		order = append([]string(nil), DefaultTiebreakChain...)
+	}
+	pickemRecords := s.postseasonPickemRecords(state, finalWeek, at)
+	if len(state.Pickems) > 0 && slices.Contains(order, "pickem") && pickemRecords == nil {
+		return PlayoffState{}, fmt.Errorf("playoff preview requires final Pick'em scores for the regular season")
+	}
+	standings := ComputeStandings(*state.Schedule, teamIDs, TiebreakInputs{
+		Chain: order, SeasonSeed: state.Schedule.Seed,
+		Pickem: pickemRecords,
+	})
 	provenance, err := NewPlayoffProvenanceFromSource(standings, finalWeek, startWeek, playoffNow(at), "regular-season-final", "final", true, order)
 	if err != nil {
 		return PlayoffState{}, err

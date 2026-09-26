@@ -1684,7 +1684,7 @@ func (s *Service) buildPlayoffUpdate(state PersistedState, truth PlayoffState, a
 			awayName = s.teamView(state, matchup.AwayTeamID).Name
 		}
 		rows = append(rows, []string{
-			fmt.Sprintf("ROUND %d · WEEK %d", matchup.Round, matchup.Week),
+			fmt.Sprintf("%s · ROUND %d · WEEK %d", strings.ToUpper(matchup.Bracket), matchup.Round, matchup.Week),
 			fmt.Sprintf("%s %.1f — %s %.1f", homeName, matchup.HomeScore, awayName, matchup.AwayScore),
 			map[bool]string{true: "FINAL", false: "WAITING"}[matchup.Final],
 		})

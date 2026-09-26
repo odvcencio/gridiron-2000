@@ -1,7 +1,9 @@
 package help
 
 import (
+	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
@@ -75,8 +77,21 @@ func runtimeProjection() map[string]any {
 		"draft_label":    draftLabel,
 		"draft_at":       draftAtLabel,
 		"draft_complete": draftComplete,
-		"runtime_note":   "Rules, dates, deadlines, capabilities, and freshness remain owned by the current league runtime.",
+		"runtime_note":   "Rules, dates, deadlines, capabilities, and freshness remain owned by the current league runtime. " + postseasonHelpNote(cfg.Postseason),
 	}
+}
+
+func postseasonHelpNote(cfg league.PlayoffConfig) string {
+	if cfg.TeamCount == 8 && cfg.StartWeek == 15 && cfg.RoundLengthWeeks == 1 &&
+		cfg.Qualification == "top-record" && cfg.Byes == 0 && !cfg.DivisionWinnersFirst &&
+		cfg.Reseed && cfg.Consolation && !cfg.ToiletBowl &&
+		slices.Equal(cfg.TiebreakOrder, []string{"record", "head-to-head", "points-for", "pickem", "seeded-draw"}) {
+		return "All 8 teams qualify by record. Ties use head-to-head, points for, Pick'em, then seeded draw. Week 15 has quarterfinals, Week 16 has reseeded semifinals, and Week 17 has the championship and losers-bracket final. There are no byes or toilet bowl."
+	}
+	if cfg.TeamCount > 0 {
+		return fmt.Sprintf("This league's playoff rules start in Week %d with %d teams; Matchups shows the published bracket.", cfg.StartWeek, cfg.TeamCount)
+	}
+	return "No postseason format is configured."
 }
 
 func checklistView(items []ChecklistItem) []map[string]any {
