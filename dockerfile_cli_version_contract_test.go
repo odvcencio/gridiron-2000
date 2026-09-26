@@ -94,3 +94,29 @@ func TestDockerfileGoSXVersionExtractionFixtures(t *testing.T) {
 		})
 	}
 }
+
+// TestBrowserWorkflowDerivesGoSXCLIFromGoMod keeps the browser-test runtime
+// aligned with the GoSX server dependency. A stale CLI can pass its own build
+// while exercising a different client runtime from the one pinned by go.mod.
+func TestBrowserWorkflowDerivesGoSXCLIFromGoMod(t *testing.T) {
+	workflow, err := os.ReadFile(".github/workflows/ci.yml")
+	if err != nil {
+		t.Fatalf("read CI workflow: %v", err)
+	}
+	text := string(workflow)
+	for _, want := range []string{
+		"gosx_version=\"$(awk '" + goSXVersionAwk + "' go.mod)\"",
+		`go install "m31labs.dev/gosx/cmd/gosx@$gosx_version"`,
+		"run: gosx build --dev .",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("CI workflow omitted GoSX CLI pin contract %q", want)
+		}
+	}
+	if hardcodedGoSXCLI.MatchString(text) {
+		t.Fatal("CI workflow hardcodes a GoSX CLI version; derive it from go.mod instead")
+	}
+	if strings.Contains(text, "GOSX_SKIP_VERSION_CHECK=1 gosx build") {
+		t.Fatal("CI workflow bypasses the GoSX CLI/module version check")
+	}
+}
