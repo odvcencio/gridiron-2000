@@ -19,6 +19,7 @@ const (
 	ActionCenterRegularSeason      ActionCenterStage = "regular_season"
 	ActionCenterPlayoffs           ActionCenterStage = "playoffs"
 	ActionCenterSeasonComplete     ActionCenterStage = "season_complete"
+	ActionCenterUnknown            ActionCenterStage = "unknown"
 )
 
 type ActionCenterPriority string
@@ -282,8 +283,10 @@ func resolveActionCenterStage(f ActionCenterFacts) ActionCenterStage {
 			return ActionCenterPlayoffs
 		case PhaseSeasonComplete:
 			return ActionCenterSeasonComplete
-		default:
+		case "", "preseason":
 			return ActionCenterPostDraftPreseason
+		default:
+			return ActionCenterUnknown
 		}
 	}
 	return ActionCenterPreDraft
@@ -319,6 +322,8 @@ func actionCenterCopy(stage ActionCenterStage, f ActionCenterFacts) (string, str
 		return "DRAFT LIVE // FOLLOW THE ROOM", "THE ROOM IS LIVE.", "The commissioner opened the draft. Follow the room for your turn."
 	case ActionCenterPostDraftPreseason:
 		return "POST-DRAFT // PRESEASON", "TURN PICKS INTO A SEASON.", "Set the lineup, make open Pick'em calls, and get ready for kickoff."
+	case ActionCenterUnknown:
+		return "SEASON PHASE UNAVAILABLE", "CHECK LEAGUE STATUS.", "The season phase is not recognized. Ask your commissioner to confirm the league state."
 	case ActionCenterRegularSeason:
 		return "REGULAR SEASON // TODAY", "KEEP THE SEASON MOVING.", "Deadlines and manager decisions stay visible in the order they matter."
 	case ActionCenterPlayoffs:
