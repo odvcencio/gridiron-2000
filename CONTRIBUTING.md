@@ -145,11 +145,7 @@ render and contract tests throughout `app/`:
 
 ## Prose standard
 
-Write commit messages, this file, and any other documentation prose in
-[ASD-STE100](https://www.asd-ste100.org/) style: active voice, the
-imperative mood for instructions, and one meaning per word. Keep a
-procedural sentence at or under 20 words, and a descriptive sentence at
-or under 25.
+Write plainly: lead with the point, use common words and the active voice, keep each term consistent, back claims with evidence (numbers, links, test output), and say what you did not verify. M31 agents: see decision 0012 and the `writing-plainly` skill in hypha://m31labs/hyphae.
 
 ## Commit hygiene
 
