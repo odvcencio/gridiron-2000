@@ -112,6 +112,29 @@ func refreshPickemLockQAPage(t *testing.T, ctx context.Context, child *simChild)
 	waitPickemLockQASlate(t, ctx)
 }
 
+func waitPickemLockQAMarketFreeze(t *testing.T, ctx context.Context, child *simChild) {
+	t.Helper()
+	// Advancing the fixture clock does not advance the real ticker. The
+	// background market synchronizer has one minute to persist its freeze;
+	// GET remains read-only while that work is pending.
+	deadline := time.Now().Add(70 * time.Second)
+	for time.Now().Before(deadline) {
+		var row string
+		if err := chromedp.Run(ctx, chromedp.Text("#game-g-win", &row, chromedp.ByQuery)); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(row, "VOID") {
+			t.Fatalf("valid saved pick became void while waiting for the market freeze: %s", row)
+		}
+		if strings.Contains(row, "FROZEN LINE") {
+			return
+		}
+		time.Sleep(time.Second)
+		refreshPickemLockQAPage(t, ctx, child)
+	}
+	t.Fatal("background market freeze did not reach the browser within 70 seconds")
+}
+
 // clickPickemLockQATeam performs a real browser click on the managed form's
 // submit button.  The temporary attribute only gives chromedp a stable,
 // team-specific selector; the form remains the app's own action and CSRF
@@ -326,6 +349,7 @@ func TestBrowserPickemLockTransitionAndFinalOutcomes(t *testing.T) {
 			if !pickemLockQAHasActiveForm(t, ctx, "g-loss") {
 				t.Fatal("later Pick'em game lost its editable form before its own kickoff")
 			}
+			waitPickemLockQAMarketFreeze(t, ctx, child)
 			assertPickemLockQARowContains(t, ctx, "g-win", "FROZEN LINE", "LOCKED · IN PROGRESS")
 			openPickemLockQAMarketDetails(t, ctx, "g-loss")
 			assertPickemLockQARowContains(t, ctx, "g-loss", "FROZEN LINE", "KC +3.5", "DEN -3.5", "AS OF", "VEGAS MARKET VIA NFLVERSE")

@@ -94,8 +94,9 @@ const (
 )
 
 type pickemGrade struct {
-	Outcome PickemOutcome
-	Cover   string
+	Outcome        PickemOutcome
+	Cover          string
+	AwaitingMarket bool
 }
 
 type PickemATSRecord struct {
@@ -154,7 +155,16 @@ func gradePickemAt(game GameInfo, market PickemMarket, pick string, enteredAt, n
 	if game.Kickoff.IsZero() || now.Before(game.Kickoff) {
 		return pickemGrade{Outcome: pickemPending}
 	}
-	if market.Void || !market.Frozen || !market.LinePresent {
+	if market.Void {
+		return pickemGrade{Outcome: pickemVoid}
+	}
+	// The background synchronizer can run just after kickoff. Until it
+	// commits a frozen line or a void decision, the result is unresolved.
+	// A read must neither invent a terminal void nor freeze the line itself.
+	if !market.Frozen {
+		return pickemGrade{Outcome: pickemPending, AwaitingMarket: true}
+	}
+	if !market.LinePresent {
 		return pickemGrade{Outcome: pickemVoid}
 	}
 	if !validPick(game, pick) {
@@ -596,6 +606,9 @@ func pickemSpreadView(game GameInfo, market PickemMarket, location *time.Locatio
 }
 
 func pickemResultLabel(grade pickemGrade, locked, marketUnavailable, picked bool) string {
+	if grade.AwaitingMarket {
+		return "LOCKED · WAITING FOR LINE"
+	}
 	if marketUnavailable {
 		if !picked {
 			return "NO PICK · MARKET VOID"
