@@ -137,7 +137,7 @@ func chromedpFilteredErrorf(format string, args ...any) {
 // when a step fails.
 func newBrowserContext(t *testing.T, chrome string) context.Context {
 	t.Helper()
-	options := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.ExecPath(chrome), chromedp.NoSandbox)
+	options := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.ExecPath(chrome), chromedp.NoSandbox, chromedp.Flag("mute-audio", true))
 	allocator, closeAllocator := chromedp.NewExecAllocator(context.Background(), options...)
 	t.Cleanup(closeAllocator)
 	ctx, closeBrowser := chromedp.NewContext(allocator, chromedp.WithErrorf(chromedpFilteredErrorf))

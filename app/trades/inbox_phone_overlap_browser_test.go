@@ -159,7 +159,7 @@ func TestBrowserTradeInboxOfferBodyDoesNotOverlapAcceptButtonAtPhoneWidth(t *tes
 	defer server.Close()
 
 	chrome := chromeBinaryForTradesTest(t)
-	options := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.ExecPath(chrome), chromedp.NoSandbox)
+	options := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.ExecPath(chrome), chromedp.NoSandbox, chromedp.Flag("mute-audio", true))
 	allocator, closeAllocator := chromedp.NewExecAllocator(context.Background(), options...)
 	defer closeAllocator()
 	ctx, closeBrowser := chromedp.NewContext(allocator)
