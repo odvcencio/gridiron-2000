@@ -285,6 +285,54 @@ func tallyPicks(games []GameInfo, markets map[string]PickemMarket, picks map[str
 	return record
 }
 
+// postseasonPickemRecords uses the same frozen-market grading as the
+// leaderboard. Only final NFL games through the last regular-season week
+// count. A team's primary manager supplies its record; co-managers have
+// separate Pick'em entries and do not replace the primary manager's picks.
+func (s *Service) postseasonPickemRecords(state PersistedState, finalWeek int, now time.Time) map[string]PickemRecord {
+	now = playoffNow(now)
+	allGames := s.schedule()
+	if len(allGames) == 0 {
+		return nil
+	}
+	games := make([]GameInfo, 0, len(allGames))
+	for _, game := range allGames {
+		if game.Week < 1 || game.Week > finalWeek {
+			continue
+		}
+		if !game.Final || !game.ScoresPresent {
+			if state.PickemMarkets[game.ID].Void {
+				continue
+			}
+			return nil
+		}
+		games = append(games, game)
+	}
+	records := make(map[string]PickemRecord)
+	owners := make([]string, 0, len(state.Members))
+	for owner := range state.Members {
+		owners = append(owners, owner)
+	}
+	sort.Strings(owners)
+	for _, owner := range owners {
+		member := state.Members[owner]
+		if member.TeamID == "" || member.Role == "co" {
+			continue
+		}
+		if _, exists := records[member.TeamID]; exists {
+			continue
+		}
+		picks := state.Pickems[owner]
+		enteredAt := effectivePickemEnteredAt(state, owner, allGames)
+		if !pickemEntryAppliesToAnyGame(games, enteredAt) {
+			continue
+		}
+		entry := tallyPicks(games, state.PickemMarkets, picks, enteredAt, now)
+		records[member.TeamID] = PickemRecord{Correct: entry.Wins, Total: entry.Wins + entry.Losses}
+	}
+	return records
+}
+
 // pickemStreak computes the viewer's current streak of consecutive ATS
 // wins, walking from the most recent kickoff backward. Losses and missed
 // losses, including games tied against the spread, end the streak; voids

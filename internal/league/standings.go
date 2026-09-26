@@ -30,9 +30,8 @@ type Standing struct {
 // performance spec, WP-P0 amendment to competition-formats section 3.3).
 // Correct and Total both count only games that satisfy the amendment's
 // through-week and decided-winner rules; building that tally from stored
-// picks is a separate, later concern (pickem.go's BuildPickemRecords, not
-// part of this work package) — ComputeStandings only consumes an
-// already-built map.
+// picks is done by postseasonPickemRecords; ComputeStandings only consumes
+// an already-built map.
 type PickemRecord struct {
 	Correct int
 	Total   int

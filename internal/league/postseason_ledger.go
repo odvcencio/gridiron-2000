@@ -71,6 +71,14 @@ func (s *Service) playoffRoundResultsFromLedger(state PersistedState, truth Play
 				}
 			}
 			snapshot := snapshotForWeek(week)
+			if len(snapshot.games) == 0 {
+				return nil, fmt.Errorf("playoff matchup %q has an unavailable NFL score source for week %d", matchup.ID, week)
+			}
+			for _, game := range snapshot.games {
+				if !game.Final || !game.ScoresPresent {
+					return nil, fmt.Errorf("playoff matchup %q is waiting for final NFL scores in week %d", matchup.ID, week)
+				}
+			}
 			home := s.teamWeekLedgerFromSnapshot(state, matchup.HomeTeamID, week, snapshot)
 			away := s.teamWeekLedgerFromSnapshot(state, matchup.AwayTeamID, week, snapshot)
 			if err := validatePlayoffLedger(matchup.ID, week, home); err != nil {

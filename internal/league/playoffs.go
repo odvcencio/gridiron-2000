@@ -51,19 +51,20 @@ type PlayoffMatchup struct {
 // across every bracket and round, and the season's sealed outcomes
 // (section 3.4, 3.5).
 type PlayoffState struct {
-	Config         PlayoffConfig       `json:"config"`
-	Seeds          []PlayoffSeed       `json:"seeds"`
-	Matchups       []PlayoffMatchup    `json:"matchups"`
-	ChampionTeamID string              `json:"championTeamId"`
-	RunnerUpTeamID string              `json:"runnerUpTeamId"`
-	ToiletTeamID   string              `json:"toiletTeamId,omitempty"`
-	Status         string              `json:"status,omitempty"`
-	PreviewID      string              `json:"previewId,omitempty"`
-	Revision       int                 `json:"revision,omitempty"`
-	PreviewedAt    time.Time           `json:"previewedAt,omitempty"`
-	PublishedAt    time.Time           `json:"publishedAt,omitempty"`
-	Provenance     PlayoffProvenance   `json:"provenance,omitempty"`
-	Audit          []PlayoffAuditEntry `json:"audit,omitempty"`
+	Config                  PlayoffConfig       `json:"config"`
+	Seeds                   []PlayoffSeed       `json:"seeds"`
+	Matchups                []PlayoffMatchup    `json:"matchups"`
+	ChampionTeamID          string              `json:"championTeamId"`
+	RunnerUpTeamID          string              `json:"runnerUpTeamId"`
+	ConsolationWinnerTeamID string              `json:"consolationWinnerTeamId,omitempty"`
+	ToiletTeamID            string              `json:"toiletTeamId,omitempty"`
+	Status                  string              `json:"status,omitempty"`
+	PreviewID               string              `json:"previewId,omitempty"`
+	Revision                int                 `json:"revision,omitempty"`
+	PreviewedAt             time.Time           `json:"previewedAt,omitempty"`
+	PublishedAt             time.Time           `json:"publishedAt,omitempty"`
+	Provenance              PlayoffProvenance   `json:"provenance,omitempty"`
+	Audit                   []PlayoffAuditEntry `json:"audit,omitempty"`
 }
 
 // clonePlayoffState deep-copies state (nil-safe), matching the store's
@@ -435,7 +436,11 @@ func advanceBracket(state *PlayoffState, bracket string) {
 	if maxRound >= totalRounds {
 		finalizeBracket(state, bracket, current)
 	} else if len(matchupsForRound(state.Matchups, bracket, maxRound+1)) == 0 {
-		next := nextRoundMatchups(current, bracket, maxRound+1, roundWeek(state.Config, maxRound+1), state.Config.Reseed, bracket == "toilet")
+		week := roundWeek(state.Config, maxRound+1)
+		if bracket == "consolation" {
+			week = roundWeek(state.Config, maxRound+2)
+		}
+		next := nextRoundMatchups(current, bracket, maxRound+1, week, state.Config.Reseed, bracket == "toilet")
 		state.Matchups = append(state.Matchups, next...)
 	}
 	if bracket == "championship" && maxRound == 1 && state.Config.Consolation {
@@ -483,6 +488,8 @@ func finalizeBracket(state *PlayoffState, bracket string, finalRound []PlayoffMa
 	case "championship":
 		state.ChampionTeamID = m.WinnerTeamID
 		state.RunnerUpTeamID = loser
+	case "consolation":
+		state.ConsolationWinnerTeamID = m.WinnerTeamID
 	case "toilet":
 		// "Losers advance": the team that lost every round is the one
 		// that lost this final matchup too, not the one that won it.
