@@ -1,7 +1,9 @@
 package matchups
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -16,12 +18,32 @@ import (
 // per-test t.Setenv would be too late for either. Restoring the previous
 // value keeps this scoped to the test binary's lifetime.
 func TestMain(m *testing.M) {
+	// Render tests can reach league.Default through another page's loader.
+	// Keep its SQLite files outside app/, where GoSX bundles authored files.
+	// Explicit render subprocesses already receive their own fixture path.
+	var stateDir string
+	if os.Getenv("MATCHUPS_RENDER_FIXTURE") == "" {
+		var err error
+		stateDir, err = os.MkdirTemp("", "gridiron-matchups-test-*")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := os.Setenv("DATA_FILE", filepath.Join(stateDir, "league-state.json")); err != nil {
+			os.RemoveAll(stateDir)
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
 	setAppEnv := false
 	if os.Getenv("APP_ENV") == "" {
 		os.Setenv("APP_ENV", "test")
 		setAppEnv = true
 	}
 	status := m.Run()
+	if stateDir != "" {
+		os.RemoveAll(stateDir)
+	}
 	if setAppEnv {
 		os.Unsetenv("APP_ENV")
 	}
