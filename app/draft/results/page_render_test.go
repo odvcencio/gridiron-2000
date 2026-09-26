@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/net/html"
+
+	_ "gridiron-2000/app/draft"
 	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx"
@@ -54,6 +57,29 @@ func renderResultsForUserPath(t *testing.T, handler http.Handler, email, path st
 	req.Header.Set("X-Test-User", email)
 	handler.ServeHTTP(recorder, req)
 	return recorder.Code, recorder.Body.String()
+}
+
+func assertLedgerUsesBrowserDownload(t *testing.T, body string) {
+	t.Helper()
+	tokens := html.NewTokenizer(strings.NewReader(body))
+	for tokens.Next() != html.ErrorToken {
+		token := tokens.Token()
+		if token.Type != html.StartTagToken || token.Data != "a" {
+			continue
+		}
+		ledger, download := false, false
+		for _, attr := range token.Attr {
+			ledger = ledger || attr.Key == "href" && attr.Val == "/draft/ledger.csv"
+			download = download || attr.Key == "download"
+		}
+		if ledger {
+			if !download {
+				t.Error("ledger link needs download so managed navigation leaves the CSV to the browser")
+			}
+			return
+		}
+	}
+	t.Error("draft ledger link missing")
 }
 
 // The access gate itself (member session; demo mode admits everyone) is
@@ -154,6 +180,12 @@ func TestDraftResultsRendersBeforeAndAfterCompletionFixtureProcess(t *testing.T)
 	if code != http.StatusOK {
 		t.Fatalf("GET /draft/results post-draft = %d: %s", code, body)
 	}
+	assertLedgerUsesBrowserDownload(t, body)
+	draftCode, draftBody := renderResultsForUserPath(t, handler, viewerEmail, "/draft?view=board")
+	if draftCode != http.StatusOK {
+		t.Fatalf("GET /draft completed board = %d", draftCode)
+	}
+	assertLedgerUsesBrowserDownload(t, draftBody)
 	for _, want := range []string{
 		"<h1>Draft results</h1>", `class="segment results-segment"`, ">By team<", ">By round<", ">Draft grid<",
 		`href="/draft/ledger.csv"`, `class="results-team-card"`, `data-mine="true"`,

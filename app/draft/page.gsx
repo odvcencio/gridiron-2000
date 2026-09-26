@@ -3010,7 +3010,7 @@ func DraftHistoryBoardTeamsLedger(props DraftHistoryBoardTeamsLedgerProps) Node 
 		<If cond={props.Complete}>
 			<div class="draft-history__ledger">
 				<span class="idx">FINAL LEDGER</span>
-				<a class="btn btn-sm" href="/draft/ledger.csv">Export CSV</a>
+				<a class="btn btn-sm" href="/draft/ledger.csv" download>Export CSV</a>
 			</div>
 			{/* comb — linden (2026-09-07), J1 F20: the pane a manager who
 			    stayed in the room actually lands on used to end here —
