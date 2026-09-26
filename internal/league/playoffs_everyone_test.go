@@ -1,6 +1,7 @@
 package league
 
 import (
+	"fmt"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -141,6 +142,89 @@ func TestEveryonePreviewUsesPrimaryManagerPickemAndScheduleSeed(t *testing.T) {
 	}
 	if _, err := svc.AdminPreviewPlayoffs(httptest.NewRequest("POST", "/__actions/playoff-preview", nil), now); err == nil || !strings.Contains(err.Error(), "after the final regular-season week") {
 		t.Fatalf("overlapping Week 15 regular-season matchup was accepted: %v", err)
+	}
+}
+
+func TestEveryoneLedgerWaitsForFinalNFLGamesWithoutRegularSeasonWeek15(t *testing.T) {
+	now := time.Date(2026, 12, 22, 12, 0, 0, 0, time.UTC)
+	svc := newPostseasonLedgerService(t, filepath.Join(t.TempDir(), "state.json"))
+	cfg := everyonePostseasonConfig()
+	schedule, err := GenerateSchedule(ScheduleParams{Season: 2026, TeamIDs: defaultTeamIDs(), StartWeek: 1, Weeks: 14, Seed: 47})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range schedule.Weeks {
+		for j := range schedule.Weeks[i].Matchups {
+			schedule.Weeks[i].Matchups[j].Final = true
+		}
+	}
+	if err := svc.store.SetSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetPhase(PhasePlayoffs); err != nil {
+		t.Fatal(err)
+	}
+	standings := ps1Standings(8)
+	provenance, err := NewPlayoffProvenance(standings, 14, now, cfg.TiebreakOrder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := BuildPlayoffPreview(standings, nil, cfg, provenance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetPlayoffPreview(preview, "commissioner", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.store.PublishPlayoffPreview(preview.PreviewID, PlayoffPublishConfirmation, "commissioner", now); err != nil {
+		t.Fatal(err)
+	}
+	svc.players = make([]Player, 0, 8)
+	lines := make([]WeekStatLine, 0, 8)
+	for i, teamID := range defaultTeamIDs() {
+		name := fmt.Sprintf("QB %d", i+1)
+		id := fmt.Sprintf("qb-%d", i+1)
+		svc.players = append(svc.players, Player{ID: id, Name: name, Position: "QB", NFLTeam: "BUF"})
+		lines = append(lines, WeekStatLine{Key: normalizePlayerKey(name, "QB"), Stats: map[string]float64{"passTD": float64(8 - i)}})
+		if err := svc.store.SetLineupWeek(teamID, 15, map[string]string{"QB": id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine { return lines })
+	game := GameInfo{ID: "nfl-week15", Week: 15, Home: "BUF", Away: "KC", HomeScore: 24, AwayScore: 14}
+	svc.SetScheduleSource(func() []GameInfo { return []GameInfo{game} })
+	request := httptest.NewRequest("POST", "/__actions/playoff-advance", nil)
+	for _, test := range []struct {
+		name string
+		game GameInfo
+		want string
+	}{
+		{"in-progress", game, "final NFL scores"},
+		{"partial-score", func() GameInfo { changed := game; changed.Final = true; return changed }(), "final NFL scores"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			current := test.game
+			svc.SetScheduleSource(func() []GameInfo { return []GameInfo{current} })
+			if _, err := svc.AdminAdvancePlayoffsFromLedger(request, now); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("score source %q advanced: %v", test.name, err)
+			}
+			if got := svc.store.PlayoffTruth(); got == nil || got.Revision != 2 {
+				t.Fatalf("rejected advancement changed persisted revision: %+v", got)
+			}
+		})
+	}
+	svc.SetScheduleSource(nil)
+	if _, err := svc.AdminAdvancePlayoffsFromLedger(request, now); err == nil || !strings.Contains(err.Error(), "unavailable NFL score source") {
+		t.Fatalf("unavailable score source advanced: %v", err)
+	}
+	game.Final, game.ScoresPresent = true, true
+	svc.SetScheduleSource(func() []GameInfo { return []GameInfo{game} })
+	advanced, err := svc.AdminAdvancePlayoffsFromLedger(request, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matchupsForRound(advanced.Matchups, "consolation", 1)) != 2 {
+		t.Fatalf("final NFL scores did not create the losers bracket: %+v", advanced.Matchups)
 	}
 }
 

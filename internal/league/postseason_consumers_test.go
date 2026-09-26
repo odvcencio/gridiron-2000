@@ -81,6 +81,14 @@ func playoffLedgerFixture(t *testing.T, roundWeeks int) (*Service, PlayoffState,
 	if err := svc.store.SetPhase(PhasePlayoffs); err != nil {
 		t.Fatal(err)
 	}
+	nflGames := make([]GameInfo, 0, roundWeeks)
+	for offset := 0; offset < roundWeeks; offset++ {
+		nflGames = append(nflGames, GameInfo{
+			ID: "nfl-final-" + string(rune('a'+offset)), Week: cfg.StartWeek + offset,
+			Home: "BUF", Away: "KC", HomeScore: 24, AwayScore: 14, Final: true, ScoresPresent: true,
+		})
+	}
+	svc.SetScheduleSource(func() []GameInfo { return nflGames })
 	return svc, truth, now
 }
 
@@ -139,11 +147,14 @@ func TestPlayoffLedgerRejectsPartialOrUnavailableWithoutMutation(t *testing.T) {
 		want        string
 	}{
 		{name: "empty-source", stats: map[int][]WeekStatLine{}, want: "empty"},
-		{name: "partial-join", stats: map[int][]WeekStatLine{15: {{Key: normalizePlayerKey("Home QB", "QB"), Stats: map[string]float64{"passTD": 1}}}}, want: "partial"},
+		{name: "partial-week", stats: map[int][]WeekStatLine{15: {{Key: normalizePlayerKey("Home QB", "QB"), Stats: map[string]float64{"passTD": 1}}}}, want: "final NFL scores"},
 		{name: "unavailable-source", unavailable: true, want: "unavailable"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			svc, _, now := playoffLedgerFixture(t, 1)
+			if test.name == "partial-week" {
+				svc.SetScheduleSource(func() []GameInfo { return []GameInfo{{ID: "nfl-in-progress", Week: 15, Home: "BUF", Away: "KC"}} })
+			}
 			if !test.unavailable {
 				svc.SetWeekStatsSource(func(week int) []WeekStatLine { return test.stats[week] })
 			}
