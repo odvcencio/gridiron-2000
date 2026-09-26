@@ -2149,7 +2149,7 @@ func DraftAvailableHead(props DraftAvailableHeadProps) Node {
 	return <div class="draft-available-head">
 		<h2 id="draft-available-title" class="visually-hidden">Available players</h2>
 		<form method="get" action={props.RoomPath} class="draft-search-form">
-			<input id="draft-search" type="search" class="draft-search" name="q" value={props.Query} placeholder={props.SearchPlaceholder} inputmode="search" enterkeyhint="search" autocomplete="off" data-gosx-filter="draft-available-list" data-gosx-filter-announce="true" />
+			<input id="draft-search" type="search" class="draft-search" name="q" aria-label="Search available players" value={props.Query} placeholder={props.SearchPlaceholder} inputmode="search" enterkeyhint="search" autocomplete="off" data-gosx-filter="draft-available-list" data-gosx-filter-announce="true" />
 			<If cond={props.Position != ""}>
 				<input type="hidden" name="pos" value={props.Position}></input>
 			</If>
