@@ -1959,7 +1959,7 @@ func Page() Node {
 						Downloading changes nothing in the league — do it as often as you like.
 						The file holds no passwords or sign-in secrets.
 					</p>
-					<a class="button button--primary" href="/admin/backup.tar.gz">Download league backup</a>
+					<a class="button button--primary" href="/admin/backup.tar.gz" download>Download league backup</a>
 					<If cond={data.admin_backup.has_last_run}>
 						<p class="scoring-note">
 							Gridiron also keeps its own copy automatically, once a night. The last one saved

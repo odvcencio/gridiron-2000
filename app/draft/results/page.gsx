@@ -45,7 +45,7 @@ func Page() Node {
 						<span class="mono muted">Scheduled for {data.scheduled_long_date} · {data.scheduled_time}</span>
 					</If>
 					<span class="mono">{data.rounds} rounds · {data.team_count} teams</span>
-					<a href={data.ledger_href}>Download the ledger (CSV) →</a>
+					<a href={data.ledger_href} download>Download the ledger (CSV) →</a>
 				</div>
 			</div>
 		</header>
