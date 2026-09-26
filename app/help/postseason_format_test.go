@@ -14,7 +14,7 @@ func TestHelpNamesEveryoneInFormatWithoutByesOrToiletBowl(t *testing.T) {
 		Reseed:        true, Consolation: true,
 	}
 	note := postseasonHelpNote(cfg)
-	for _, want := range []string{"All 8 teams", "head-to-head", "Pick'em", "Week 15", "Week 16", "Week 17", "losers-bracket", "no byes or toilet bowl"} {
+	for _, want := range []string{"All 8 teams", "head-to-head", "Pick'em", "Week 15 has quarterfinals", "Week 16 has reseeded championship semifinals and losers-bracket semifinals", "Week 17 has the championship and losers-bracket final", "no byes or toilet bowl"} {
 		if !strings.Contains(note, want) {
 			t.Errorf("help note %q lacks %q", note, want)
 		}
