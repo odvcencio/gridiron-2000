@@ -26,6 +26,7 @@ func newCoarsePointerBrowserContext(t *testing.T, chrome string) context.Context
 	options := append(chromedp.DefaultExecAllocatorOptions[:], //nolint:gocritic // mirrors newBrowserContext's own append pattern (sim_browser_test.go)
 		chromedp.ExecPath(chrome),
 		chromedp.NoSandbox,
+		chromedp.Flag("mute-audio", true),
 		chromedp.Flag("touch-events", "enabled"),
 		chromedp.Flag("blink-settings", "primaryPointerType=2,availablePointerTypes=2,primaryHoverType=0,availableHoverTypes=0"),
 	)
