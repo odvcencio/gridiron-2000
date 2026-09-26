@@ -137,10 +137,12 @@
   --radius-sm: 0.45rem;
   --radius-md: 0.8rem;
   --radius-lg: 1.25rem;
+  --radius-xl: 1.75rem;
   --radius-pill: 999px;
   --shadow-panel: 0 2rem 5rem var(--color-shadow);
   --shadow-signal: 0 0 2rem var(--color-accent-haze);
   --content-width: 88rem;
+  --page-gutter: clamp(1rem, 4vw, 2.5rem);
   --rail-width: 15.5rem;
   --mobile-bar-height: 3.75rem;
 
@@ -1451,7 +1453,7 @@ button.access-link {
 }
 
 .site-frame {
-  width: min(var(--content-width), calc(100% - var(--space-xl)));
+  width: min(var(--content-width), calc(100% - var(--page-gutter) - var(--page-gutter)));
   margin: 0 auto;
 }
 
@@ -22335,4 +22337,113 @@ body.is-on-clock .draft-command__pill-sentence {
   margin-top: var(--space-xs);
   padding-top: var(--space-xs);
   border-top: 1px solid var(--color-border);
+}
+
+
+/* Shared mobile finish: the viewport gutter remains readable at 320px and
+   scales with the screen without making narrow pages feel cramped. These
+   rules stay additive to route-specific layouts above. */
+@media (width <= 56.1875rem) {
+  .page {
+    padding-block-start: clamp(1.25rem, 5vw, var(--space-xl));
+    padding-block-end: max(var(--space-2xl), env(safe-area-inset-bottom));
+  }
+}
+
+/* On touch screens, focusing a field must not trigger iOS's automatic zoom.
+   Scroll margin also leaves focused controls clear of the sticky mobile bar. */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: max(1rem, 1em);
+    scroll-margin-block: calc(var(--mobile-bar-height) + var(--space-md));
+  }
+}
+
+:where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  scroll-margin-block: var(--space-lg);
+}
+
+/* Matchup tiles can land in a narrow column even on a wide viewport. Let
+   their metadata wrap to its own line based on the tile, not the window. */
+.mini-matchup {
+  container: mini-matchup / inline-size;
+}
+
+@container mini-matchup (max-width: 22rem) {
+  .mini-matchup__meta {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    column-gap: var(--space-sm);
+    row-gap: 0.15rem;
+  }
+
+  .mini-team {
+    gap: var(--space-xs);
+  }
+}
+
+/* Native cross-document route transitions; unsupported browsers keep the
+   existing immediate navigation and all motion remains opt-out friendly. */
+@view-transition {
+  navigation: auto;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 160ms;
+  animation-timing-function: var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
+/* Responsive container layer: the desktop rail reduces the usable page width
+   well before the viewport reaches a phone breakpoint. Let page sections and
+   player pools respond to their own available space instead of waiting for a
+   global media query. */
+.page:not(.home-page) {
+  container: page-layout / inline-size;
+}
+
+.player-pool {
+  container: player-pool / inline-size;
+}
+
+@container page-layout (max-width: 60rem) {
+  .board-workspace,
+  .admin-grid,
+  .danger-grid,
+  .page-masthead,
+  .draft-masthead {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* On medium desktop layouts the rail leaves a player pool too narrow for the
+   full seven-column action grid. Keep columns aligned while trimming reserved
+   metadata widths. The phone layout keeps its existing card treatment. */
+@media (min-width: 56.25rem) {
+  @container player-pool (max-width: 50rem) {
+    .pool-labels--status,
+    .pool-row--status {
+      grid-template-columns: 2rem minmax(8rem, 1fr) 2.5rem 3rem 3rem 6rem minmax(5rem, auto);
+      gap: var(--space-xs);
+    }
+  }
 }
