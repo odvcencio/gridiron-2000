@@ -3,9 +3,9 @@
 # through Cloudflare, so the certificate can be ready before the public DNS
 # record exists), and a short "<app>-tls" TLS secret name.
 #
-# second.league.example.com is the live Stable Kernel hostname. Its public DNS,
-# certificate, and league.url are already configured; keep them aligned if
-# the league ever moves.
+# second.league.example.com is a placeholder. Configure your private hostname,
+# DNS, certificate, OAuth callback, and league.url together; verify them before
+# accepting a deployment.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

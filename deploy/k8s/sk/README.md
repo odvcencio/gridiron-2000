@@ -6,12 +6,9 @@ platform's isolation thesis: one codebase, two leagues, neither affects the
 other. See `deploy/README.md` for the shared conventions this set follows
 (ConfigMap-not-committed pattern, the statrelay topology).
 
-**2026 status:** the Stable Kernel league did not form for 2026. Flagship
-(`deploy/k8s/`) is the only live instance this season; this manifest set is
-not an active second league and every SK-first canary step is skipped for a
-2026 release (see `docs/launch-checklist.md` section 10). The manifests and
-first-install order below remain the documented path for a future season
-that provisions a live SK instance.
+This directory is a second-instance example, not a live deployment inventory.
+Record active instances and canary selection in private operator configuration.
+Before use, copy these examples outside the checkout and replace placeholders.
 
 ## What is here
 
@@ -26,17 +23,19 @@ that provisions a live SK instance.
 | `security-headers.yaml` | `../security-headers.yaml` | namespace, labels |
 | `secret.example.yaml` | `../secret.example.yaml` | namespace, no `TANK01_API_KEY` (points at the shared relay instead) |
 
-## Live hostname
+## Example hostname
 
-`second.league.example.com` is live with public DNS and its own certificate.
-The tracked `http-redirect.yaml` is also applied: plain HTTP is resolved to
-HTTPS in the live Stable Kernel namespace. Verify that redirect during every
-release canary; it is not an outstanding DNS or manifest task.
-If the hostname changes, update `ingress.yaml`,
-`http-redirect.yaml`, `secret.example.yaml`'s `GOOGLE_REDIRECT_URL`, and
-`league-sk.json`'s `league.url` together.
+`second.league.example.com` is a placeholder. Configure your hostname in the
+private copies of `ingress.yaml`, `http-redirect.yaml`, the Secret's
+`GOOGLE_REDIRECT_URL`, and the league configuration's `league.url` together.
+Provision DNS and TLS, apply the redirect, and verify HTTP redirects to HTTPS
+before accepting a release. These examples do not establish live DNS,
+certificate, or deployment status.
 
 ## Deploy order
+
+The paths below show the example layout. Run these commands against your
+prepared private copies, with your own registry and league configuration.
 
 ```bash
 kubectl apply -f deploy/k8s/sk/namespace.yaml
@@ -51,11 +50,10 @@ kubectl create secret docker-registry regcred \
 
 kubectl apply -f deploy/k8s/sk/pvc.yaml
 
-# league-sk.json is gitignored (deploy/local/) — copy config/league.json.example,
-# edit with SK's real values (see the worked example this branch ships at
-# deploy/local/league-sk.json in a local checkout), then:
+# Copy config/league.json.example into your private operator directory,
+# configure it for this instance, then use its path below:
 kubectl create configmap gridiron-2000-sk-league-config \
-  --from-file=league.json=deploy/local/league-sk.json \
+  --from-file=league.json=/path/to/private/league-sk.json \
   --namespace stablekernel \
   --dry-run=client -o yaml | kubectl apply -f -
 
@@ -80,7 +78,7 @@ Secrets before either roll using the launch checklist's no-display patch
 workflow; never print or read (including fetch, echo, or log) the token value.
 Only after both Secret patches succeed, apply the future digest-pinned
 `deploy/k8s/sk/deployment.yaml` and smoke SK; then apply
-`deploy/k8s/deployment.yaml` and smoke both instances. These manifests remain
+`deploy/k8s/deployment.yaml` and smoke both instances. Your private manifests are
 the source of truth for `COMMISSIONER_INSTANCE_ID` and
 `COMMISSIONER_HQ_PEERS`; do not use `kubectl set image`. Never roll the two
 Deployments concurrently.
@@ -112,9 +110,9 @@ leaving them set would mean a ConfigMap-only edit silently does nothing).
 For SK, moving the draft date is exactly:
 
 ```bash
-# edit deploy/local/league-sk.json's draft.at, then:
+# edit your private league-sk.json's draft.at, then:
 kubectl create configmap gridiron-2000-sk-league-config \
-  --from-file=league.json=deploy/local/league-sk.json \
+  --from-file=league.json=/path/to/private/league-sk.json \
   --namespace stablekernel \
   --dry-run=client -o yaml | kubectl apply -f -
 kubectl rollout restart deployment/gridiron-2000-sk --namespace stablekernel

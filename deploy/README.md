@@ -38,12 +38,10 @@ canary acceptance gates, then roll that identical digest through the flagship
 and remaining fleet instances. fleetgen check is a read-only bundle drift gate;
 it does not apply or mutate cluster resources.
 
-**2026 status:** the Stable Kernel league did not form for 2026, so flagship
-is the only live instance this season and every SK canary step below is
-skipped until a second instance is provisioned. Apply only the flagship
-Deployment and run its own authenticated acceptance gate. This document's
-SK-first order remains the release path for a future season with a live SK
-instance; see [the launch checklist's release gate](../docs/launch-checklist.md#10-existing-instance-release-gate).
+Select the canary topology from your private deployment inventory. If only
+one instance is active, use its authenticated acceptance gate and a bounded,
+watched rollout window; otherwise validate the second-instance canary before
+rolling the flagship. See [the launch checklist's release gate](../docs/launch-checklist.md#10-existing-instance-release-gate).
 
 The generated output directory is fleetgen-owned and is guarded by a fixed
 ownership marker. It may replace only an empty tree or a previous tree with
