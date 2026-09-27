@@ -290,14 +290,11 @@ tracked Secret workflow.
 
 ## 10. Existing-instance release gate
 
-**2026 status:** the Stable Kernel league did not form for 2026 (see
-[section 13](#13-regular-season-live-scoring-rollout)), so `gridiron-2000-sk`
-is not a live second instance this season and flagship is the only live
-instance. Steps 10.3 and 10.4's SK canary are skipped for a 2026 release;
-apply only `deploy/k8s/deployment.yaml` and run flagship's own authenticated
-acceptance (step 11.2, read against one instance). This section's full
-two-instance sequence remains the documented path for the season SK is
-provisioned again.
+Consult your private deployment inventory before choosing this sequence. If
+only one instance is active, skip the second-instance steps and run that
+instance's authenticated acceptance gate (step 11.2) during a bounded,
+watched rollout window. Apply private operator manifests, not the tracked
+examples. The full sequence below assumes two provisioned instances.
 
 Use this sequence for the already-provisioned `gridiron-2000` and
 `gridiron-2000-sk` Deployments. Never roll both at once. The order is
@@ -711,9 +708,8 @@ explicit action, never a batch.
    rule); an unmatched path silently falls back to `defaultTTL` (6 hours),
    which is stale for a live-scoring endpoint.
 3. **Deploy the app image to flagship** with `LIVE_SCORING_ENABLED=false`.
-   The Stable Kernel league did not form for 2026, so flagship is the only
-   live instance; its own canary is temporal, not a second instance — step 5
-   enables it for the Thursday Night Football window first, watched closely,
+   For a single-instance deployment, use a bounded canary window: step 5
+   enables live scoring for Thursday Night Football first, watched closely,
    before the full Sunday slate. Confirm `/api/health` and that the Matchups
    status line reads `LEDGER`.
 4. **Rehearse the replay locally first** (`LIVE_SCORING_ENABLED=true
@@ -729,9 +725,8 @@ explicit action, never a batch.
    live regular-season Thursday Night Football kickoff, flip
    `LIVE_SCORING_ENABLED=true` on flagship 30 minutes before kickoff. This
    Thursday window is flagship's own canary — a bounded, watched enablement
-   before the full Sunday slate — standing in for the Stable Kernel canary
-   the design originally assumed, since that second instance did not form
-   for 2026. Record the live `gameStatusCode` from one relay response to
+   before the full Sunday slate. If a second instance is provisioned, complete
+   its canary first. Record the live `gameStatusCode` from one relay response to
    confirm the status-code rule (`"2"` final, `"1"` in progress, `"0"`/`""`
    pre-game, any other code with a non-empty `currentPeriod` treated as in
    progress). One hour after kickoff, run the kill-switch drill on flagship:
