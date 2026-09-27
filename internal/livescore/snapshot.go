@@ -55,6 +55,21 @@ type GameState struct {
 	PossessionKnown bool
 }
 
+// PickemFinalScore is the small, independently validated full-game result
+// Pick'em can use as soon as either Tank01 feed proves the game is final and
+// both team scores are present. It is intentionally separate from GameState:
+// the scoreboard can settle a Pick'em outcome while an incomplete box still
+// remains provisional for fantasy player/DST scoring.
+type PickemFinalScore struct {
+	ID         string
+	Week       int
+	Kickoff    time.Time
+	Away, Home string
+	AwayScore  int
+	HomeScore  int
+	ObservedAt time.Time
+}
+
 // WeekLines groups one week's live rows.
 type WeekLines struct {
 	Lines []Line
@@ -67,6 +82,9 @@ type Snapshot struct {
 	CheckedAt time.Time
 	Weeks     map[int]WeekLines
 	Games     map[string]GameState
+	// PickemFinals are isolated from Weeks/Games' fantasy-stat finalization
+	// rules. A game may appear here before its complete scoring box is ready.
+	PickemFinals map[string]PickemFinalScore
 }
 
 // Health is the poller's provenance for the PAUSED decision.

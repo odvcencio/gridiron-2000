@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -71,6 +72,68 @@ type gameRecord struct {
 	unchangedFastFetches int
 }
 
+type pickemFinalRecord struct {
+	result   PickemFinalScore
+	boxFinal bool
+}
+
+func makePickemFinalScore(game Game, awayPoints, homePoints float64, observedAt time.Time) (PickemFinalScore, bool) {
+	validPoints := func(points float64) bool {
+		return !math.IsNaN(points) && !math.IsInf(points, 0) && points >= 0 && points <= math.MaxInt32 && points == math.Trunc(points)
+	}
+	if game.ID == "" || game.Week < 1 || game.Away == "" || game.Home == "" || !validPoints(awayPoints) || !validPoints(homePoints) {
+		return PickemFinalScore{}, false
+	}
+	return PickemFinalScore{ID: game.ID, Week: game.Week, Kickoff: game.Kickoff,
+		Away: game.Away, Home: game.Home, AwayScore: int(awayPoints), HomeScore: int(homePoints), ObservedAt: observedAt}, true
+}
+
+func providerGameMatches(game Game, expectedProviderID, providerID, away, home string) bool {
+	return expectedProviderID != "" && providerID == expectedProviderID && away != "" && home != "" &&
+		NormalizeTeam(away) == NormalizeTeam(game.Away) && NormalizeTeam(home) == NormalizeTeam(game.Home)
+}
+
+// rememberPickemFinal publishes a validated complete score without
+// changing fantasy box/stat acceptance. A final score may settle Pick'em
+// while scoring details remain incomplete; only a final box outranks a
+// scoreboard row within this live source.
+func (p *Poller) rememberPickemBoxFinal(game Game, expectedProviderID string, box fantasy.BoxScore, observedAt time.Time) bool {
+	if !box.Final || !box.ScoresPresent || !providerGameMatches(game, expectedProviderID, box.GameID, box.Away, box.Home) {
+		return false
+	}
+	result, valid := makePickemFinalScore(game, box.AwayPoints, box.HomePoints, observedAt)
+	if !valid {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.finalDone[game.ID] {
+		return false
+	}
+	return p.rememberPickemFinalLocked(result, true)
+}
+
+// rememberPickemFinalLocked requires p.mu. Duplicate snapshots retain their
+// first observation time and do not trigger unnecessary invalidations.
+func (p *Poller) rememberPickemFinalLocked(result PickemFinalScore, boxFinal bool) bool {
+	if p.pickemFinals == nil {
+		p.pickemFinals = map[string]pickemFinalRecord{}
+	}
+	previous, exists := p.pickemFinals[result.ID]
+	if exists && previous.boxFinal && !boxFinal {
+		return false
+	}
+	old := previous.result
+	if exists && previous.boxFinal && boxFinal && !result.ObservedAt.After(old.ObservedAt) {
+		return false
+	}
+	if exists && previous.boxFinal == boxFinal && old.Week == result.Week && old.Away == result.Away && old.Home == result.Home && old.AwayScore == result.AwayScore && old.HomeScore == result.HomeScore {
+		return false
+	}
+	p.pickemFinals[result.ID] = pickemFinalRecord{result: result, boxFinal: boxFinal}
+	return true
+}
+
 // Poller fetches every in-window game each tick and publishes a versioned
 // snapshot. It performs network work only inside Tick.
 //
@@ -104,7 +167,12 @@ type Poller struct {
 	// scoreboardRecord); scoreboardFailures/lastScoreboardError track the
 	// scoreboard endpoint apart from box and listing failures, same
 	// round-2-note-7 reasoning as listingFailures.
-	scoreboard          map[string]scoreboardRecord
+	scoreboard map[string]scoreboardRecord
+	// pickemFinals retains only validated whole-game scores for Pick'em.
+	// It survives a Tank01 outage for this process lifetime, but is never
+	// written to the fantasy stat ledger; after a restart, a missing live
+	// result remains pending until a source supplies a complete final.
+	pickemFinals        map[string]pickemFinalRecord
 	scoreboardFailures  int
 	lastScoreboardError string
 	circuitOpen         time.Time
@@ -185,7 +253,8 @@ func New(cfg Config, fetcher Fetcher, schedule ScheduleSource) *Poller {
 	}
 	return &Poller{cfg: cfg, fetcher: fetcher, schedule: schedule, eastern: eastern,
 		games: map[string]gameRecord{}, finalDone: map[string]bool{},
-		listings: map[int][]fantasy.GameListing{}, listingsAt: map[int]time.Time{},
+		pickemFinals: map[string]pickemFinalRecord{},
+		listings:     map[int][]fantasy.GameListing{}, listingsAt: map[int]time.Time{},
 		tank01ID: map[string]string{}, trackedGame: map[string]Game{}, lastTrigger: map[string]time.Time{}}
 }
 
@@ -444,14 +513,20 @@ func (p *Poller) Tick(ctx context.Context) {
 				// (round-2 note 2): a relay outage must not burn the day's
 				// budget on failed attempts and mask the real fault behind a
 				// false "daily budget exhausted" reason.
+				pickemChanged := p.rememberPickemBoxFinal(game, tank01ID, box, now)
 				recordChanged, err := p.record(game, box, now)
 				if err != nil {
+					if pickemChanged {
+						changedMu.Lock()
+						changed = true
+						changedMu.Unlock()
+					}
 					p.recordFailure(err, now)
 					return
 				}
 				p.updateFastStreak(game.ID, tier, recordChanged) // GC-2b's unchanged-payload backoff
 				p.chargeBudget(now)
-				if recordChanged {
+				if recordChanged || pickemChanged {
 					changedMu.Lock()
 					changed = true
 					changedMu.Unlock()
@@ -612,8 +687,14 @@ func (p *Poller) TriggerBoxFetch(ctx context.Context, gameID string) {
 		p.recordFailure(err, now)
 		return
 	}
+	pickemChanged := p.rememberPickemBoxFinal(game, tank01ID, box, now)
 	changed, err := p.record(game, box, now)
 	if err != nil {
+		if pickemChanged {
+			p.mu.Lock()
+			p.version++
+			p.mu.Unlock()
+		}
 		p.recordFailure(err, now)
 		return
 	}
@@ -623,7 +704,7 @@ func (p *Poller) TriggerBoxFetch(ctx context.Context, gameID string) {
 	// carry the "any real change resets, at any tier" case).
 	p.updateFastStreak(gameID, boxFetchBaseline, changed)
 	p.chargeBudget(now)
-	if changed {
+	if changed || pickemChanged {
 		p.mu.Lock()
 		p.version++
 		p.mu.Unlock()
@@ -793,7 +874,10 @@ func (p *Poller) Snapshot() Snapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	now := p.cfg.Now()
-	out := Snapshot{Version: p.version, CheckedAt: p.lastSuccess, Weeks: map[int]WeekLines{}, Games: map[string]GameState{}}
+	out := Snapshot{Version: p.version, CheckedAt: p.lastSuccess, Weeks: map[int]WeekLines{}, Games: map[string]GameState{}, PickemFinals: map[string]PickemFinalScore{}}
+	for id, record := range p.pickemFinals {
+		out.PickemFinals[id] = record.result
+	}
 	for _, rec := range p.games {
 		addBoxToSnapshot(&out, rec.game, rec.box, rec.at)
 	}

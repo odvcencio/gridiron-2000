@@ -280,6 +280,7 @@ func Page() Node {
 			data-gosx-region-url={data.pickem_fragment_url}
 			data-gosx-region-interval={data.pickem_fragment_interval}
 			data-gosx-region-signal="$pickem.state.refresh"
+			data-gosx-region-on="scores:changed"
 			aria-label="Authoritative Pick'em slate and scoring"
 		>
 			<PickemLiveRegion></PickemLiveRegion>

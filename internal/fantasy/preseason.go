@@ -152,18 +152,19 @@ var kickingStatKeys = map[string]string{
 // BoxScore is one parsed getNFLBoxScore body: game identity and clock,
 // per-player Tank01-keyed stat lines, and the two D/ST units.
 type BoxScore struct {
-	GameID     string
-	Away, Home string // Tank01 abbreviations, upper case (LAR, WSH)
-	AwayPoints float64
-	HomePoints float64
-	Status     string // gameStatus text
-	StatusCode string // gameStatusCode: "2" final, "1" in progress, "0"/"" pre-game
-	Period     string // normalized currentPeriod: "", "Q1".."Q4", "HALF", "OT", "Final"
-	Clock      string // gameClock: "8:12" or ""
-	Final      bool
-	InProgress bool                          // code "1", or any non-final code with a non-empty period
-	Players    map[string]PlayerLine         // Tank01 playerID -> line
-	DST        map[string]map[string]float64 // Tank01 team abbreviation -> dstStatKeys plus ptsAllowed
+	GameID        string
+	Away, Home    string // Tank01 abbreviations, upper case (LAR, WSH)
+	AwayPoints    float64
+	HomePoints    float64
+	ScoresPresent bool   // both team scores are numeric, finite, nonnegative whole points
+	Status        string // gameStatus text
+	StatusCode    string // gameStatusCode: "2" final, "1" in progress, "0"/"" pre-game
+	Period        string // normalized currentPeriod: "", "Q1".."Q4", "HALF", "OT", "Final"
+	Clock         string // gameClock: "8:12" or ""
+	Final         bool
+	InProgress    bool                          // code "1", or any non-final code with a non-empty period
+	Players       map[string]PlayerLine         // Tank01 playerID -> line
+	DST           map[string]map[string]float64 // Tank01 team abbreviation -> dstStatKeys plus ptsAllowed
 	// A complete play list reconciles every punter's event count and gross
 	// yardage with the final player box. The poller requires this before
 	// accepting a real provider box as final.
@@ -232,6 +233,7 @@ func parseBoxScore(raw json.RawMessage) BoxScore {
 	box.Home = strings.ToUpper(strings.TrimSpace(flexString(body["home"])))
 	box.AwayPoints = flexFloat(body["awayPts"])
 	box.HomePoints = flexFloat(body["homePts"])
+	_, _, box.ScoresPresent = completeScorePair(body["awayPts"], body["homePts"])
 	box.Status = flexString(body["gameStatus"])
 	box.StatusCode = strings.TrimSpace(flexString(body["gameStatusCode"]))
 	box.Period = gameclock.NormalizePeriod(flexString(body["currentPeriod"]))

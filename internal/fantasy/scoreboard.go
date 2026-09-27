@@ -3,6 +3,7 @@ package fantasy
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"sort"
 	"strings"
 
@@ -20,16 +21,17 @@ import (
 // come from testdata/scoresonly-inprogress-sample.json, synthetic until
 // the 2026-09-10 TNF capture pins them.
 type ScoreboardGame struct {
-	GameID     string
-	Away, Home string // Tank01 abbreviations, upper case
-	AwayPoints float64
-	HomePoints float64
-	Status     string // gameStatus text
-	StatusCode string // gameStatusCode: "2" final, "1" in progress, "0"/"" pre-game
-	Period     string // normalized lineScore.period: "", "Q1".."Q4", "HALF", "OT", "Final"
-	Clock      string // gameClock: "8:12" or ""
-	Final      bool
-	InProgress bool
+	GameID        string
+	Away, Home    string // Tank01 abbreviations, upper case
+	AwayPoints    float64
+	HomePoints    float64
+	ScoresPresent bool   // both team scores are numeric, finite, nonnegative whole points
+	Status        string // gameStatus text
+	StatusCode    string // gameStatusCode: "2" final, "1" in progress, "0"/"" pre-game
+	Period        string // normalized lineScore.period: "", "Q1".."Q4", "HALF", "OT", "Final"
+	Clock         string // gameClock: "8:12" or ""
+	Final         bool
+	InProgress    bool
 	// Raw is the decoded per-game entry, kept for the same tolerant
 	// downstream seam BoxScore.Raw feeds: internal/livescore's possession
 	// extraction reads its "lineScore.{away,home}.currentlyInPossession"
@@ -66,6 +68,7 @@ func ParseScoresOnly(raw []byte) []ScoreboardGame {
 			Clock:      strings.TrimSpace(flexString(entry["gameClock"])),
 			Raw:        entry,
 		}
+		_, _, game.ScoresPresent = completeScorePair(entry["awayPts"], entry["homePts"])
 		if game.GameID == "" {
 			game.GameID = key
 		}
@@ -81,6 +84,23 @@ func ParseScoresOnly(raw []byte) []ScoreboardGame {
 	}
 	sort.Slice(games, func(i, j int) bool { return games[i].GameID < games[j].GameID })
 	return games
+}
+
+// completeScorePair validates the score fields used to settle Pick'em.
+// flexFloat alone intentionally maps absent or malformed values to zero for
+// older display/stat seams; a final result must distinguish that fallback
+// from an actual 0-0 game. NFL team scores are whole, nonnegative points.
+func completeScorePair(away, home any) (float64, float64, bool) {
+	valid := func(value any) (float64, bool) {
+		points, ok := flexFloatOK(value)
+		if !ok || math.IsNaN(points) || math.IsInf(points, 0) || points < 0 || points != math.Trunc(points) || points > math.MaxInt32 {
+			return 0, false
+		}
+		return points, true
+	}
+	awayPoints, awayOK := valid(away)
+	homePoints, homeOK := valid(home)
+	return awayPoints, homePoints, awayOK && homeOK
 }
 
 // FetchScoresOnly lists every game on one gameDate (YYYYMMDD, Eastern)

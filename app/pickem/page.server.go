@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	matchupspage "gridiron-2000/app/matchups"
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/action"
 	"m31labs.dev/gosx/route"
@@ -213,6 +214,7 @@ func init() {
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
 			ctx.Runtime().EnableBootstrap()
+			ctx.Runtime().BindHub(matchupspage.ScoresLiveHubName, matchupspage.ScoresLiveBindingPath(), nil)
 			data := preparePickemData(league.Default().PickemData(ctx.Request), ctx.Request, ctx.ActionPath("pickem-set"))
 			if store := session.Current(ctx.Request); store != nil {
 				if flashes := store.Flashes("notice"); len(flashes) > 0 {

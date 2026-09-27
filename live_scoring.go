@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -325,6 +326,9 @@ func buildLiveScoring(liveCfg livescore.Config, fetcher livescore.Fetcher, fanta
 	// tick, shared across every caller of current() until the next tick —
 	// callers must treat them as read-only.
 	current := versionedSnapshot(poller.Version, poller.Snapshot)
+	lg.SetPickemFinalSource(func() []league.GameInfo {
+		return pickemFinalsFromSnapshot(current())
+	})
 	lg.SetWeekStatsSource(func(week int) []league.WeekStatLine {
 		// freshenSnapshot: current() can be several hours stale for a
 		// closed-window game once its Poller.Version stops advancing —
@@ -344,6 +348,28 @@ func buildLiveScoring(liveCfg livescore.Config, fetcher livescore.Fetcher, fanta
 		}()
 	})
 	return &liveScoringRuntime{Poller: poller}
+}
+
+// pickemFinalsFromSnapshot exposes the poller's narrowly scoped complete
+// whole-game results to Pick'em. It does not map GameState.Final, because a
+// scoreboard final must not finalize fantasy player or D/ST statistics
+// before the accepted complete box is ready.
+func pickemFinalsFromSnapshot(snapshot livescore.Snapshot) []league.GameInfo {
+	if len(snapshot.PickemFinals) == 0 {
+		return nil
+	}
+	out := make([]league.GameInfo, 0, len(snapshot.PickemFinals))
+	for _, final := range snapshot.PickemFinals {
+		out = append(out, league.GameInfo{
+			ID: final.ID, Week: final.Week, Kickoff: final.Kickoff,
+			Away: final.Away, Home: final.Home,
+			AwayScore: final.AwayScore, HomeScore: final.HomeScore,
+			Final: true, ScoresPresent: true,
+			SourceObservedAt: final.ObservedAt, SourceProvenance: "Tank01 live final score",
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
 }
 
 var _ livescore.Fetcher = (*fantasy.BoxScoreClient)(nil)

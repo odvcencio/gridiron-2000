@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -45,9 +46,9 @@ func TestParseScoresOnlyFinalDayCapture(t *testing.T) {
 	if game.AwayPoints != 10 || game.HomePoints != 26 {
 		t.Fatalf("points = %v-%v", game.AwayPoints, game.HomePoints)
 	}
-	if !game.Final || game.InProgress || game.StatusCode != "2" || game.Period != "Final" || game.Clock != "" {
-		t.Fatalf("status = final %v inProgress %v code %q period %q clock %q",
-			game.Final, game.InProgress, game.StatusCode, game.Period, game.Clock)
+	if !game.Final || game.InProgress || !game.ScoresPresent || game.StatusCode != "2" || game.Period != "Final" || game.Clock != "" {
+		t.Fatalf("status = final %v inProgress %v scoresPresent %v code %q period %q clock %q",
+			game.Final, game.InProgress, game.ScoresPresent, game.StatusCode, game.Period, game.Clock)
 	}
 	if game.Raw == nil {
 		t.Fatal("Raw must carry the decoded entry for the possession seam")
@@ -88,6 +89,48 @@ func TestParseScoresOnlyMalformed(t *testing.T) {
 	}
 	if games := ParseScoresOnly([]byte(`{"statusCode":200,"body":"nope"}`)); len(games) != 0 {
 		t.Fatalf("non-object body parsed to %d games", len(games))
+	}
+}
+
+func TestParseScoresOnlyTracksCompleteUsableScores(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		away string
+		home string
+		want bool
+	}{
+		{name: "explicit zero zero is a score", away: `"0"`, home: `"0"`, want: true},
+		{name: "missing home score", away: `"7"`, home: "missing", want: false},
+		{name: "blank score", away: `"7"`, home: `" "`, want: false},
+		{name: "non numeric score", away: `"seven"`, home: `"7"`, want: false},
+		{name: "fractional score", away: `"7.5"`, home: `"7"`, want: false},
+		{name: "negative score", away: `"-1"`, home: `"7"`, want: false},
+		{name: "non finite score", away: `"NaN"`, home: `"7"`, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			entry := `{"gameID":"g1","away":"BUF","home":"MIA","gameStatus":"Final","gameStatusCode":"2"}`
+			entry = strings.TrimSuffix(entry, "}")
+			entry += `,"awayPts":` + tc.away
+			if tc.home != "missing" {
+				entry += `,"homePts":` + tc.home
+			}
+			entry += `}`
+			games := ParseScoresOnly([]byte(`{"g1":` + entry + `}`))
+			if len(games) != 1 || games[0].ScoresPresent != tc.want {
+				t.Fatalf("parsed scores = %+v, want ScoresPresent=%v", games, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseBoxScoreTracksCompleteUsableScores(t *testing.T) {
+	zeroZero := ParseBoxScore([]byte(`{"gameID":"g1","away":"BUF","home":"MIA","awayPts":"0","homePts":"0","gameStatus":"Final","gameStatusCode":"2"}`))
+	if !zeroZero.ScoresPresent || zeroZero.AwayPoints != 0 || zeroZero.HomePoints != 0 {
+		t.Fatalf("explicit 0-0 box scores = %+v, want a present 0-0 result", zeroZero)
+	}
+	missing := ParseBoxScore([]byte(`{"gameID":"g1","away":"BUF","home":"MIA","awayPts":"0","homePts":""}`))
+	if missing.ScoresPresent {
+		t.Fatalf("incomplete box scores reported present: %+v", missing)
 	}
 }
 

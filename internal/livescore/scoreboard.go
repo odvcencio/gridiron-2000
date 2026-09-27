@@ -42,8 +42,8 @@ type scoreboardRecord struct {
 // extracted (team, known) pair, not the raw lineScore, so an unparseable
 // possession shape can never thrash the gate.
 func scoreboardDeltaKey(row fantasy.ScoreboardGame, possession string, possessionKnown bool) string {
-	return fmt.Sprintf("%v|%v|%v|%s|%s|%s|%v|%v",
-		row.AwayPoints, row.HomePoints, possessionKnown, possession,
+	return fmt.Sprintf("%v|%v|%v|%v|%s|%s|%s|%v|%v",
+		row.AwayPoints, row.HomePoints, row.ScoresPresent, possessionKnown, possession,
 		row.Period, row.StatusCode, row.Final, row.InProgress)
 }
 
@@ -106,6 +106,13 @@ func (p *Poller) refreshScoreboard(ctx context.Context, matched map[string]strin
 		row, ok := rowsByTank01[tank01ID]
 		if !ok {
 			continue
+		}
+		if row.Final && row.ScoresPresent {
+			if game, tracked := p.trackedGame[gameID]; tracked && providerGameMatches(game, tank01ID, row.GameID, row.Away, row.Home) {
+				if result, valid := makePickemFinalScore(game, row.AwayPoints, row.HomePoints, now); valid {
+					displayChanged = p.rememberPickemFinalLocked(result, false) || displayChanged
+				}
+			}
 		}
 		possession, possessionKnown := "", false
 		if row.InProgress {

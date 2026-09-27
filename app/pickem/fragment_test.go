@@ -55,6 +55,7 @@ func TestPickemFragmentContract(t *testing.T) {
 		`data-gosx-region-url={data.pickem_fragment_url}`,
 		`data-gosx-region-interval={data.pickem_fragment_interval}`,
 		`data-gosx-region-signal="$pickem.state.refresh"`,
+		`data-gosx-region-on="scores:changed"`,
 		`data-gosx-set="$pickem.state.refresh"`,
 		`<PickemLiveRegion></PickemLiveRegion>`,
 		`data-gosx-action-signal="$pickem.state.refresh"`,
@@ -70,6 +71,7 @@ func TestPickemFragmentContract(t *testing.T) {
 	}
 	for _, want := range []string{
 		"EnableBootstrap",
+		`BindHub(matchupspage.ScoresLiveHubName, matchupspage.ScoresLiveBindingPath(), nil)`,
 		"PickemDataReadOnly",
 		"pickemFragmentURL",
 		"pickemRegionFinalInterval",

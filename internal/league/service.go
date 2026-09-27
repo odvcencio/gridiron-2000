@@ -143,6 +143,10 @@ type Service struct {
 	liveNameIndex   map[string][]Player
 	poolStatusFn    PoolStatusSource
 	scheduleFn      ScheduleSource
+	// pickemFinalScheduleFn supplies validated whole-game results from the
+	// live-score poller. It is read only by Pick'em projections; the generic
+	// schedule remains the canonical market/stat source.
+	pickemFinalScheduleFn ScheduleSource
 	// statsUpdatedAtFn supplies the open-stats player-ledger freshness instant
 	// used by the commissioner week-close readiness view. It is optional so
 	// fixtures and deployments without the mirror fail closed rather than

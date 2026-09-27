@@ -33,6 +33,75 @@ func (s *Service) schedule() []GameInfo {
 	return source()
 }
 
+// SetPickemFinalSource attaches the live poller's independently validated
+// game-final results. Those results affect Pick'em grading only; frozen
+// markets and every fantasy-stat consumer continue to use schedule().
+func (s *Service) SetPickemFinalSource(source ScheduleSource) {
+	s.poolMu.Lock()
+	s.pickemFinalScheduleFn = source
+	s.poolMu.Unlock()
+}
+
+// pickemSchedule overlays a complete Tank01 final only while the canonical
+// schedule has not yet published a complete final score. Reads are
+// side-effect-free, and the overlay preserves the source schedule's market
+// fields so the live result can never reprice a frozen Pick'em market.
+func (s *Service) pickemSchedule() []GameInfo {
+	s.poolMu.Lock()
+	scheduleSource, finalSource := s.scheduleFn, s.pickemFinalScheduleFn
+	s.poolMu.Unlock()
+	if scheduleSource == nil {
+		return nil
+	}
+	base := scheduleSource()
+	if finalSource == nil {
+		return base
+	}
+	return overlayPickemLiveFinals(base, finalSource())
+}
+
+func overlayPickemLiveFinals(base, live []GameInfo) []GameInfo {
+	if len(base) == 0 || len(live) == 0 {
+		return base
+	}
+	indices := make(map[string]int, len(base))
+	for index, game := range base {
+		if game.ID != "" {
+			indices[game.ID] = index
+		}
+	}
+	var out []GameInfo
+	for _, final := range live {
+		if final.ID == "" || final.Week < 1 || final.Away == "" || final.Home == "" || !final.Final || !final.ScoresPresent || final.AwayScore < 0 || final.HomeScore < 0 {
+			continue
+		}
+		index, ok := indices[final.ID]
+		if !ok {
+			continue
+		}
+		game := base[index]
+		if game.Week != final.Week || !strings.EqualFold(strings.TrimSpace(game.Away), strings.TrimSpace(final.Away)) || !strings.EqualFold(strings.TrimSpace(game.Home), strings.TrimSpace(final.Home)) {
+			continue
+		}
+		// Once the canonical schedule has both a final marker and complete
+		// scores, it is authoritative. A later mirror correction therefore
+		// replaces the temporary live score on the next schedule refresh.
+		if game.Final && game.ScoresPresent {
+			continue
+		}
+		if out == nil {
+			out = append([]GameInfo(nil), base...)
+		}
+		game.Final, game.ScoresPresent = true, true
+		game.AwayScore, game.HomeScore = final.AwayScore, final.HomeScore
+		out[index] = game
+	}
+	if out == nil {
+		return base
+	}
+	return out
+}
+
 // ScheduleSourceForLive exposes the attached schedule to the live poller.
 // The returned slice is schedule()'s own, freshly read on every call, not
 // a shared mutable slice the poller could corrupt; the poller must still
@@ -291,7 +360,7 @@ func tallyPicks(games []GameInfo, markets map[string]PickemMarket, picks map[str
 // separate Pick'em entries and do not replace the primary manager's picks.
 func (s *Service) postseasonPickemRecords(state PersistedState, finalWeek int, now time.Time) map[string]PickemRecord {
 	now = playoffNow(now)
-	allGames := s.schedule()
+	allGames := s.pickemSchedule()
 	if len(allGames) == 0 {
 		return nil
 	}
@@ -739,7 +808,7 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 
 func (s *Service) pickemData(r *http.Request) map[string]any {
 	now := s.clock()
-	allGames := s.schedule()
+	allGames := s.pickemSchedule()
 	state := s.store.Snapshot()
 	viewerKey, _ := s.pickemViewerKeyForState(r, state)
 	currentWeek := s.pickemWeek(allGames, now)
@@ -1139,7 +1208,7 @@ func (s *Service) PickemSet(r *http.Request, gameID, team string) (GameInfo, err
 	now := s.clock()
 	gameID = strings.TrimSpace(gameID)
 	team = strings.TrimSpace(team)
-	allGames := s.schedule()
+	allGames := s.pickemSchedule()
 	var game GameInfo
 	found := false
 	for _, candidate := range allGames {
@@ -1194,7 +1263,7 @@ func (s *Service) pickemHomeSummary(r *http.Request, now time.Time) map[string]a
 
 func (s *Service) pickemHomeSummaryFromSnapshot(r *http.Request, state PersistedState, now time.Time) map[string]any {
 	viewerKey, _ := s.pickemViewerKeyForState(r, state)
-	allGames := s.schedule()
+	allGames := s.pickemSchedule()
 	week := s.pickemWeek(allGames, now)
 	weekGames := gamesInWeek(allGames, week)
 

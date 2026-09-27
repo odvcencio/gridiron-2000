@@ -77,7 +77,7 @@ func (s *Service) awardsForWeek(state PersistedState, week ScheduleWeek) []Weekl
 		record PickemATSRecord
 	}
 	var candidates []pickemCandidate
-	allGames := s.schedule()
+	allGames := s.pickemSchedule()
 	games := gamesInWeek(allGames, week.Week)
 	now := s.clock()
 	for email, picks := range state.Pickems {
