@@ -11235,6 +11235,20 @@ body.is-on-clock .draft-clock-panel {
   text-overflow: ellipsis;
 }
 
+.starter-cell__game-score {
+  display: block;
+  color: var(--color-text-primary);
+  font-size: var(--type-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+/* Keep the live binding mounted so kickoff can reveal the score. */
+.starter-cell__game-score:empty {
+  display: none;
+}
+
 .starter-cell__state {
   justify-self: center;
 }

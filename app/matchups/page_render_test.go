@@ -212,6 +212,9 @@ func TestMatchupsLiveFixtureIsSummaryFirstWithOneStatusLine(t *testing.T) {
 		t.Fatalf("fixture process: %v\n%s", err, output)
 	}
 	body := string(output)
+	if !regexp.MustCompile(`data-gosx-live-bind="starterGameScore\.[^"]+">BAL [0-9]+ · BUF [0-9]+</span>`).MatchString(body) {
+		t.Error("live starters must show the bound NFL score line alongside their game clock")
+	}
 	for _, want := range []string{
 		`class="matchup-status-line"`, // liveStateLabel, not liveState (2026-09-10): the chip shows the
 		// readable word ("SCHEDULED", "LIVE", "AWAITING FINAL"), while the
@@ -414,7 +417,7 @@ func TestMatchupsPageFixtureProcess(t *testing.T) {
 		svc.SetLiveStatusSource(func() league.LiveStatus {
 			games := map[string]league.LiveGameState{}
 			for _, g := range snapshot.Games {
-				state := league.LiveGameState{GameID: g.ID, Away: g.Away, Home: g.Home, Period: g.Period, Clock: g.Clock, Final: g.Final, InProgress: g.InProgress, Kickoff: g.Kickoff}
+				state := league.LiveGameState{AwayPoints: g.AwayPoints, HomePoints: g.HomePoints, ScoresPresent: g.ScoresPresent, GameID: g.ID, Away: g.Away, Home: g.Home, Period: g.Period, Clock: g.Clock, Final: g.Final, InProgress: g.InProgress, Kickoff: g.Kickoff}
 				games[g.Away], games[g.Home] = state, state
 			}
 			return league.LiveStatus{Enabled: true, CheckedAt: time.Now().Add(-4 * time.Second), Games: games}

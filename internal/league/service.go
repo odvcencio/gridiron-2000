@@ -4177,6 +4177,7 @@ func (s *Service) liveScoresView(live LiveSnapshot, isCurrentWeek bool, currentW
 	// word rides along in its own bound, visually hidden span instead.
 	starterInjuryLabelBind := make(map[string]string)
 	starterGameStateBind := make(map[string]string)
+	starterGameScoreBind := make(map[string]string)
 	starterPossessionBind := make(map[string]string)
 	// starterProjBind is the slot table's own per-starter PROJ live update
 	// (A2, matchup redesign 2026-09-07): pool is already read once below
@@ -4253,6 +4254,7 @@ func (s *Service) liveScoresView(live LiveSnapshot, isCurrentWeek bool, currentW
 		starterJoinStateText[row.LiveKey] = ledgerStatsText(row.JoinState)
 		starterSourceText[row.LiveKey] = ledgerSourceText(row.Source)
 		starterGameStateBind[row.LiveKey] = row.GameState
+		starterGameScoreBind[row.LiveKey] = row.GameScore
 		starterBreakdownBind[row.LiveKey] = row.Breakdown
 		starterBreakdownLabelBind[row.LiveKey] = row.BreakdownLabel
 		starterBreakdownTotalBind[row.LiveKey] = row.BreakdownTotal
@@ -4405,6 +4407,7 @@ func (s *Service) liveScoresView(live LiveSnapshot, isCurrentWeek bool, currentW
 		"starterJoinStateText":       starterJoinStateText,
 		"starterSourceText":          starterSourceText,
 		"starterGameState":           starterGameStateBind,
+		"starterGameScore":           starterGameScoreBind,
 		"starterBreakdown":           starterBreakdownBind,
 		"starterBreakdownLabel":      starterBreakdownLabelBind,
 		"starterBreakdownTotal":      starterBreakdownTotalBind,
@@ -6039,7 +6042,7 @@ func starterLedgerMaps(rows []StarterLedgerRow) []map[string]any {
 			"player_name": row.PlayerName, "position": row.Position, "nfl_team": row.NFLTeam,
 			"points": row.PointsText, "provenance": row.Provenance, "join_state": row.JoinState,
 			"provenance_text": ledgerLineupText(row.Provenance), "join_state_text": ledgerStatsText(row.JoinState),
-			"detail": row.Detail, "source": row.Source, "source_text": ledgerSourceText(row.Source), "game_state": row.GameState,
+			"detail": row.Detail, "source": row.Source, "source_text": ledgerSourceText(row.Source), "game_state": row.GameState, "game_score": row.GameScore,
 			"breakdown":            row.Breakdown,
 			"projection_breakdown": row.ProjectionBreakdown,
 			"injury":               row.Injury,

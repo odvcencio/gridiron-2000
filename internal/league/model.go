@@ -674,6 +674,7 @@ type StarterLedgerRow struct {
 	Provenance string  `json:"provenance"`
 	JoinState  string  `json:"joinState"`
 	Source     string  `json:"source,omitempty"`    // StatSource* of the matched line
+	GameScore  string  `json:"gameScore,omitempty"` // live NFL score line, separate from fantasy points
 	GameState  string  `json:"gameState,omitempty"` // "Q3 8:12", "W 27-20", "FINAL", "SUN 4:25 PM", "BYE", ""
 	// ZeroSoFarKnown carries the ledger's affirmative bye/pre-kickoff/healthy
 	// live-game fallback. It is not a matched stat row or a final actual.

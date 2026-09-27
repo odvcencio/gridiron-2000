@@ -913,6 +913,7 @@ func (p *Poller) Snapshot() Snapshot {
 			continue
 		}
 		game.AwayPoints, game.HomePoints = row.AwayPoints, row.HomePoints
+		game.ScoresPresent = row.ScoresPresent
 		game.Period, game.Clock = row.Period, row.Clock
 		game.Final, game.InProgress = row.Final, row.InProgress
 		if row.InProgress && scoreboardRec.possessionKnown {

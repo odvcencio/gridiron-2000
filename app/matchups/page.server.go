@@ -195,6 +195,7 @@ type StarterCellData struct {
 	JoinStateText  string
 	SourceText     string
 	GameState      string
+	GameScore      string
 	StateClass     string
 	// Possession is GC-2b's possession chip text ("ON OFFENSE", "DEFENSE
 	// ON FIELD", or "" — league.StarterLedgerRow.Possession's own doc
@@ -253,6 +254,7 @@ func starterCellData(raw any, right bool) StarterCellData {
 		JoinStateText:   stringField(row, "join_state_text"),
 		SourceText:      stringField(row, "source_text"),
 		GameState:       stringField(row, "game_state"),
+		GameScore:       stringField(row, "game_score"),
 		Breakdown:       stringField(row, "breakdown"),
 		BreakdownLabel:  stringField(row, "breakdownLabel"),
 		BreakdownTotal:  stringField(row, "breakdownTotal"),
