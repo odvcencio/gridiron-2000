@@ -57,12 +57,13 @@ spec:
           # with imagePullPolicy: Always — an unpinned tag on the fleet's
           # only real Tank01 credential holder, and a rollout restart was
           # the only way to notice a new push had landed). Built from
-          # deploy/statrelay.Dockerfile at commit d29ae79, carrying the
+          # deploy/statrelay.Dockerfile at commit e588bff
+          # (release-2026.09.27-e588bff, scripts/deploy.fw), carrying the
           # allow-list and bounded-cache hardening; see
           # docs/launch-checklist.md's relay release-pin step for the
           # build/push/record commands and CHANGELOG.md's [Unreleased]
           # entry.
-          image: harbor.draco.quest/orchard/gridiron-2000-statrelay@sha256:4ba3e70a8e93a427e365b07eaf750f1d7f43b32bff1e995a29cdd6073621f02e
+          image: harbor.draco.quest/orchard/gridiron-2000-statrelay@sha256:775839b1d13d9bb14e3650a64837541b53e361f70a724b84d9d357e5ad35fa9e
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
