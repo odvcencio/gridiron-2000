@@ -28,7 +28,7 @@ that provisions a live SK instance.
 
 ## Live hostname
 
-`sk.gridiron.draco.quest` is live with public DNS and its own certificate.
+`second.league.example.com` is live with public DNS and its own certificate.
 The tracked `http-redirect.yaml` is also applied: plain HTTP is resolved to
 HTTPS in the live Stable Kernel namespace. Verify that redirect during every
 release canary; it is not an outstanding DNS or manifest task.
@@ -45,7 +45,7 @@ kubectl apply -f deploy/k8s/sk/namespace.yaml
 # (docs/launch-checklist.md's "Create the pull secret" step, same command,
 # -n stablekernel):
 kubectl create secret docker-registry regcred \
-  --docker-server=harbor.draco.quest \
+  --docker-server=registry.example.com \
   --docker-username=<user> --docker-password=<password> \
   --namespace stablekernel
 

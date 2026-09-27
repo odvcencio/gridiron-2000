@@ -21,7 +21,7 @@ before the flagship as described in 10.3–10.4.
 Confirm you have:
 
 - Docker, `kubectl`, `curl`, `jq`, and `openssl` on your machine.
-- Push access to the `harbor.draco.quest/orchard` registry.
+- Push access to the `registry.example.com/gridiron` registry.
 - `kubectl` context pointed at the target cluster.
 - Access to the Google Cloud Console project for this app's OAuth client.
 - A RapidAPI account for the Tank01 NFL API.
@@ -49,14 +49,14 @@ test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
 RELEASE="release-$(date -u +%Y.%m.%d)-$(git rev-parse --short=7 HEAD)"
 GIT_SHA="$(git rev-parse HEAD)"
 BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-IMAGE="harbor.draco.quest/orchard/gridiron-2000:${RELEASE}"
+IMAGE="registry.example.com/gridiron/gridiron-2000:${RELEASE}"
 
 docker build \
   --build-arg APP_VERSION="${RELEASE}" \
   --build-arg GIT_SHA="${GIT_SHA}" \
   --build-arg BUILD_DATE="${BUILD_DATE}" \
   -t "${IMAGE}" .
-docker login harbor.draco.quest
+docker login registry.example.com
 docker push "${IMAGE}"
 ```
 
@@ -69,10 +69,10 @@ documents for the main app):
 
 ```bash
 docker build -f deploy/statrelay.Dockerfile \
-  -t "harbor.draco.quest/orchard/gridiron-2000-statrelay:${RELEASE}" .
-docker push "harbor.draco.quest/orchard/gridiron-2000-statrelay:${RELEASE}"
+  -t "registry.example.com/gridiron/gridiron-2000-statrelay:${RELEASE}" .
+docker push "registry.example.com/gridiron/gridiron-2000-statrelay:${RELEASE}"
 docker image inspect --format='{{index .RepoDigests 0}}' \
-  "harbor.draco.quest/orchard/gridiron-2000-statrelay:${RELEASE}"
+  "registry.example.com/gridiron/gridiron-2000-statrelay:${RELEASE}"
 ```
 
 Update `deploy/k8s/statrelay.yaml`'s `image:` field to the printed digest,
@@ -123,7 +123,7 @@ username and password with your own Harbor robot account credentials.
 ```
 kubectl create secret docker-registry regcred \
   --namespace gridiron \
-  --docker-server=harbor.draco.quest \
+  --docker-server=registry.example.com \
   --docker-username=<harbor-robot-account> \
   --docker-password=<harbor-robot-account-token>
 ```
@@ -191,7 +191,7 @@ kubectl get pods -n gridiron -w
 
 ## 6. First-install/bootstrap only: create the DNS record
 
-Add a DNS `A` or `CNAME` record for `gridiron.draco.quest` that points to
+Add a DNS `A` or `CNAME` record for `league.example.com` that points to
 the cluster's public ingress address. Check the current address with:
 
 ```
@@ -210,7 +210,7 @@ kubectl get certificate -n gridiron
 2. Add this exact production redirect URI to the client's authorized
    redirect URIs list:
    ```
-   https://gridiron.draco.quest/auth/google/callback
+   https://league.example.com/auth/google/callback
    ```
 3. Save the client. Do not remove the existing local development URI.
 
@@ -354,10 +354,10 @@ the logical persisted value is the live store's authoritative
 `PersistedState.SchemaVersion` or inferred from a Deployment revision:
 
 ```bash
-curl --fail-with-body -sS https://sk.gridiron.draco.quest/api/health \
+curl --fail-with-body -sS https://second.league.example.com/api/health \
   | jq '{appVersion,gitSHA,buildDate,frameworkVersion,stateSchema}' \
   > "${RECORD_DIR}/sk-before-health.txt"
-curl --fail-with-body -sS https://gridiron.draco.quest/api/health \
+curl --fail-with-body -sS https://league.example.com/api/health \
   | jq '{appVersion,gitSHA,buildDate,frameworkVersion,stateSchema}' \
   > "${RECORD_DIR}/flagship-before-health.txt"
 ```
@@ -416,7 +416,7 @@ without applying either one yet:
 - `deploy/k8s/deployment.yaml` — flagship, applied second.
 
 Change only each manifest's application image to the new
-`harbor.draco.quest/orchard/gridiron-2000@sha256:<new-release-digest>`.
+`registry.example.com/gridiron/gridiron-2000@sha256:<new-release-digest>`.
 Preserve the manifest as the source of truth, including
 `COMMISSIONER_INSTANCE_ID`, `COMMISSIONER_HQ_PEERS`, `TANK01_BASE_URL`,
 and the existing Secret/ConfigMap references. Do not use `kubectl set image`
@@ -599,11 +599,11 @@ those gates.
      printf '%s: health OK\n' "${label}"
    }
    # SK canary gate (11.1):
-   check_health stable-kernel https://sk.gridiron.draco.quest
+   check_health stable-kernel https://second.league.example.com
 
    # Bilateral final gate (11.2):
-   check_health flagship https://gridiron.draco.quest
-   check_health stable-kernel https://sk.gridiron.draco.quest
+   check_health flagship https://league.example.com
+   check_health stable-kernel https://second.league.example.com
    ```
    `set -euo pipefail` makes a failure on either host fail this block
    immediately; the second host cannot mask a first-host failure.
@@ -630,11 +630,11 @@ those gates.
      printf '%s: redirect OK\n' "${host}"
    }
    # SK canary gate (11.1):
-   check_redirect sk.gridiron.draco.quest
+   check_redirect second.league.example.com
 
    # Bilateral final gate (11.2):
-   check_redirect gridiron.draco.quest
-   check_redirect sk.gridiron.draco.quest
+   check_redirect league.example.com
+   check_redirect second.league.example.com
    ```
    The same `set -euo pipefail` fail-fast rule means either host's redirect
    failure makes this block nonzero; a later success cannot mask it.

@@ -422,7 +422,7 @@ func referenceDeploymentConfig() Config {
 	cfg.ShortCode = "G2K"
 	cfg.Tagline = "Dynasty Fantasy League"
 	cfg.ModeLabel = "DYNASTY"
-	cfg.URL = "https://gridiron.draco.quest"
+	cfg.URL = "https://league.example.com"
 	cfg.Teams = []TeamSeed{
 		{ID: "team-1", Name: "Aqua 1", Abbreviation: "AQ1", Division: "Aqua", Tone: "cyan"},
 		{ID: "team-2", Name: "Aqua 2", Abbreviation: "AQ2", Division: "Aqua", Tone: "blue"},

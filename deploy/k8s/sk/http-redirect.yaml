@@ -28,7 +28,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: sk.gridiron.draco.quest
+    - host: second.league.example.com
       http:
         paths:
           - path: /

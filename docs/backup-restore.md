@@ -81,17 +81,11 @@ both, or neither may be configured (`backupSinksFromEnv`,
 `/api/health` under `backups.sinks`; it never blocks the app or the local
 snapshot, and the next scheduled run tries again.
 
-### Google Cloud Storage (the owner's chosen target)
+### Google Cloud Storage
 
-Owner decision 2026-09-23 (ops-drift hardening): Google Cloud Storage,
-project `bookt-cc`, bucket `gs://m31labs-gridiron-backups` (region
-`us-central1`). The database is tiny (`league.db` was 508KB, the whole
-data PVC 37MB, at the time of this decision), so the off-host copy is
-deliberately minimal: one fresh, gzip-compressed `VACUUM INTO` snapshot
-per nightly tick — `internal/league/backup.go`'s
-`Service.WriteDatabaseSnapshotGZ`, wired in by `backup_gcs_sink.go`'s
-`gcsBackupSink` — uploaded straight to
-`gs://m31labs-gridiron-backups/gridiron/league-<UTC timestamp>.db.gz`
+Configure your own project and bucket outside this repository. The names
+below are examples. Each scheduled backup uploads a fresh, gzip-compressed
+SQLite snapshot produced by `Service.WriteDatabaseSnapshotGZ`
 over the GCS JSON API. No sidecar container, and no
 `cloud.google.com/go/storage` SDK: the upload itself is a plain
 `net/http` POST; `golang.org/x/oauth2/google` (already an indirect
@@ -99,26 +93,18 @@ dependency of this module before this change — the same trust tier as
 `golang.org/x/net`/`golang.org/x/crypto`, not the much heavier Cloud
 Storage SDK) supplies only the bearer token.
 
-**Auth is keyless Workload Identity Federation (WIF), not a key.** Org
-policy on project `bookt-cc`
-(`constraints/iam.disableServiceAccountKeyCreation`) blocks both a
-service-account JSON key and an HMAC key, so no long-lived credential of
-any kind lives in a Secret or a ConfigMap. The pod's own projected
-Kubernetes ServiceAccount token (short-lived, audience-scoped,
-auto-rotated by the kubelet — `deploy/k8s/deployment.yaml`'s `gcp-wif`
-volume) is exchanged for a federated GCP token via Google's STS
-endpoint, which then impersonates the `gridiron-backup` service account
-in project `bookt-cc` (its exact email is `gridiron-backup` at
-`bookt-cc.iam.gserviceaccount.com` — split here only so this document
-never carries a literal email-shaped value; already provisioned with
-`roles/storage.objectCreator` on this bucket only) for the actual upload
-token.
+Use keyless Workload Identity Federation (WIF). The projected Kubernetes
+ServiceAccount token is short-lived and audience-scoped. Google STS exchanges
+it for a federated token, which impersonates your uploader service account.
+Grant that account `roles/storage.objectCreator` on your backup bucket only.
+Keep the real project, account, bucket, pool, and provider identifiers in your
+private operator configuration.
 
-Already provisioned (by the owner, before this WIF switch):
+Example provisioning commands (replace all example values):
 
 ```bash
-PROJECT=bookt-cc
-BUCKET=m31labs-gridiron-backups
+PROJECT=example-project
+BUCKET=example-league-backups
 SA_EMAIL="gridiron-backup@${PROJECT}.iam.gserviceaccount.com"
 
 # The bucket, us-central1, uniform bucket-level access.
@@ -156,7 +142,7 @@ Remaining, coordinator-run after the owner re-authenticates `gcloud`
 (the WIF pool/provider need Owner- or IAM-Admin-level project access):
 
 ```bash
-PROJECT=bookt-cc
+PROJECT=example-project
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT}" --format='value(projectNumber)')"
 POOL_ID=gridiron-backup-pool
 PROVIDER_ID=k3s-gridiron

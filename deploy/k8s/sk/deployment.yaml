@@ -45,7 +45,7 @@ spec:
           # Time-aware wheel estimates and verified final results.
           # This instance remains intentionally scaled
           # to zero for 2026; the digest stays ready for a future reactivation.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:cbe5eb3f2e98de279de7780c909a7059390d69a74a27d3451ce85bfea07872dd
+          image: registry.example.com/gridiron/gridiron-2000@sha256:0000000000000000000000000000000000000000000000000000000000000000
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -118,7 +118,7 @@ spec:
             - name: COMMISSIONER_INSTANCE_ID
               value: "skl"
             - name: COMMISSIONER_HQ_PEERS
-              value: "g2k=http://gridiron-2000.gridiron.svc.cluster.local|https://gridiron.draco.quest"
+              value: "g2k=http://gridiron-2000.gridiron.svc.cluster.local|https://league.example.com"
           volumeMounts:
             - name: data
               mountPath: /app/data

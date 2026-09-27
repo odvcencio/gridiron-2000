@@ -24,33 +24,11 @@ import (
 // section — is the real access boundary. This scope does not widen it.
 const gcsUploadScope = "https://www.googleapis.com/auth/devstorage.read_write"
 
-// gcsBackupSink uploads a fresh, minimal gzip-compressed database
-// snapshot to Google Cloud Storage on every scheduled tick — owner
-// decision 2026-09-23 (ops-drift hardening), authenticated by keyless
-// Workload Identity Federation (WIF): org policy on project bookt-cc
-// (constraints/iam.disableServiceAccountKeyCreation) blocks both a
-// service-account JSON key and an HMAC key, so no long-lived credential
-// of any kind lives in a Secret or a ConfigMap here.
-//
-// Auth is golang.org/x/oauth2/google's own external_account credential
-// resolution (google.CredentialsFromJSON): it reads the mounted
-// gridiron-backup-gcp-config ConfigMap (an external_account JSON — see
-// docs/backup-restore.md — that carries no secret, only URLs and a file
-// path), exchanges the pod's own projected Kubernetes ServiceAccount
-// token for a federated GCP token via Google's STS endpoint, then
-// impersonates the "gridiron-backup" uploader service account in project
-// bookt-cc (the bucket's real objectCreator — see docs/backup-restore.md
-// for its exact email) for the actual upload token. Re-
-// implementing that STS-plus-impersonation exchange by hand in stdlib
-// would be substantial and risky to get right unverified against a real
-// provider; golang.org/x/oauth2 was already an indirect dependency of
-// this module before this change (the same trust tier as the already-
-// vendored golang.org/x/net and golang.org/x/crypto), so taking it on
-// directly adds no new module to the dependency graph — a materially
-// smaller addition than the full cloud.google.com/go/storage SDK. The
-// actual object upload stays a plain stdlib net/http POST against the
-// GCS JSON API's simple-upload endpoint; the library supplies only the
-// Authorization: Bearer token.
+// gcsBackupSink uploads a compressed SQLite snapshot to an operator-selected
+// Google Cloud Storage bucket. The mounted ADC configuration supplies workload
+// identity credentials; project, bucket, and account identities remain private
+// operator configuration. The OAuth library handles token exchange and the
+// upload uses the GCS JSON API.
 type gcsBackupSink struct {
 	bucket      string
 	service     *league.Service

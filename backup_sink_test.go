@@ -28,7 +28,7 @@ func TestBackupSinksFromEnvEmptyWhenUnconfigured(t *testing.T) {
 // misconfiguration, not a half-enabled sink.
 func TestBackupSinksFromEnvGCSRequiresBothVariables(t *testing.T) {
 	t.Setenv("BACKUP_OFFHOST_DIR", "")
-	t.Setenv("BACKUP_GCS_BUCKET", "m31labs-gridiron-backups")
+	t.Setenv("BACKUP_GCS_BUCKET", "example-league-backups")
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
 	if sinks := backupSinksFromEnv(); len(sinks) != 0 {
 		t.Fatalf("sinks = %v, want none when GOOGLE_APPLICATION_CREDENTIALS is unset", sinks)
@@ -51,7 +51,7 @@ func TestBackupSinksFromEnvGCSRequiresBothVariables(t *testing.T) {
 // golang.org/x/oauth2/google's own, separately tested, WIF resolution.
 func TestBackupSinksFromEnvGCSConstructsWhenConfigured(t *testing.T) {
 	t.Setenv("BACKUP_OFFHOST_DIR", "")
-	t.Setenv("BACKUP_GCS_BUCKET", "m31labs-gridiron-backups")
+	t.Setenv("BACKUP_GCS_BUCKET", "example-league-backups")
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", gcsTestServiceAccountCredentialFile(t))
 
 	sinks := backupSinksFromEnv()
@@ -62,8 +62,8 @@ func TestBackupSinksFromEnvGCSConstructsWhenConfigured(t *testing.T) {
 	if !ok {
 		t.Fatalf("sink = %T, want *gcsBackupSink", sinks[0])
 	}
-	if got := gcsSink.Name(); got != "gcs:m31labs-gridiron-backups" {
-		t.Errorf("Name() = %q, want %q", got, "gcs:m31labs-gridiron-backups")
+	if got := gcsSink.Name(); got != "gcs:example-league-backups" {
+		t.Errorf("Name() = %q, want %q", got, "gcs:example-league-backups")
 	}
 }
 
@@ -74,7 +74,7 @@ func TestBackupSinksFromEnvGCSConstructsWhenConfigured(t *testing.T) {
 // whole process.
 func TestBackupSinksFromEnvGCSUnresolvableCredentialSkipsSilently(t *testing.T) {
 	t.Setenv("BACKUP_OFFHOST_DIR", "")
-	t.Setenv("BACKUP_GCS_BUCKET", "m31labs-gridiron-backups")
+	t.Setenv("BACKUP_GCS_BUCKET", "example-league-backups")
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing.json"))
 
 	if sinks := backupSinksFromEnv(); len(sinks) != 0 {

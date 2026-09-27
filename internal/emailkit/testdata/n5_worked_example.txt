@@ -13,7 +13,7 @@ and stopped. Everything from here is your call — or your autopick's.
   YOUR BOARD    Jahmyr Gibbs · RB · DET still sits at #1. Two of your
                 top five are already gone.
 
-  -> TAKE YOUR PICK: https://gridiron.draco.quest/draft
+  -> TAKE YOUR PICK: https://league.example.com/draft
 
 If the cap hits zero, the server drafts the top of your Big Board for
 you. No board? Best available by ADP. Either way the tape reads AUTO
@@ -22,4 +22,4 @@ next to your name — forever. One tap fixes that.
 — The Commissioner
 GRIDIRON 2000 · Eight seats. One trophy. Permanent group-chat evidence.
 You hold a seat in GRIDIRON 2000. Draft-room alerts: on.
-Manage: https://gridiron.draco.quest/settings
+Manage: https://league.example.com/settings

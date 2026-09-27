@@ -29,7 +29,7 @@ func TestUnavailableCardRendersConfiguredPublicLeagueLink(t *testing.T) {
 		}
 	}
 
-	const publicURL = "https://sk.gridiron.draco.quest"
+	const publicURL = "https://second.league.example.com"
 	card := fleetCard(commissionerhq.FleetEntry{
 		PeerID: "skl", PublicURL: publicURL, Error: "League unavailable",
 	})

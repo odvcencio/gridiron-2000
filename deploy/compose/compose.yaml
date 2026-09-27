@@ -13,7 +13,7 @@
 # deploy/compose/.env.example for the settings each profile needs.
 #
 # Self-hosters who want to build the image from this checkout instead of
-# pulling the published one: set GRIDIRON_IMAGE in .env to a plain local
+# using an operator-provided image: set GRIDIRON_IMAGE in .env to a plain local
 # tag (Docker refuses to tag a build with someone else's digest), for
 # example GRIDIRON_IMAGE=gridiron-2000:local, then run
 # `docker compose build app` before `up`. The app service's build: block
@@ -26,7 +26,7 @@
 
 services:
   app:
-    image: ${GRIDIRON_IMAGE:-harbor.draco.quest/orchard/gridiron-2000@sha256:ab646811af28b5abaf2135dc13c51cdd4a06ae307017a7a3407019afc30a3ab2}
+    image: ${GRIDIRON_IMAGE:-gridiron-2000:local}
     build:
       context: ../..
       dockerfile: Dockerfile

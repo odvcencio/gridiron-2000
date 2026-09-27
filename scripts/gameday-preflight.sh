@@ -29,10 +29,10 @@
 # override with the environment variables below for another instance.
 set -eu
 
-HOST="${GAMEDAY_HOST:-gridiron.draco.quest}"
+HOST="${GAMEDAY_HOST:?Set GAMEDAY_HOST to your private deployment hostname}"
 NAMESPACE="${GAMEDAY_NAMESPACE:-gridiron}"
 DEPLOYMENT="${GAMEDAY_DEPLOYMENT:-gridiron-2000}"
-DEPLOYMENT_MANIFEST="${GAMEDAY_DEPLOYMENT_MANIFEST:-deploy/k8s/deployment.yaml}"
+DEPLOYMENT_MANIFEST="${GAMEDAY_DEPLOYMENT_MANIFEST:?Set GAMEDAY_DEPLOYMENT_MANIFEST to your private deployment manifest}"
 RELAY_NAMESPACE="${GAMEDAY_RELAY_NAMESPACE:-gridiron}"
 RELAY_SERVICE="${GAMEDAY_RELAY_SERVICE:-statrelay}"
 RELAY_LOCAL_PORT="${GAMEDAY_RELAY_LOCAL_PORT:-18090}"
