@@ -1,0 +1,1686 @@
+package main
+
+// deploy.fw releases GRIDIRON 2000 to the flagship "gridiron" namespace: the
+// gridiron-2000 app and the shared statrelay cache. It builds both images
+// from a clean origin/main, pins them by digest, prints a server dry-run
+// diff of every manifest, applies only what changes, verifies the result,
+// and rolls back every change it made when a gate fails.
+//
+//	GRIDIRON_DEPLOY_MODE=diff  ferrous-wheel run scripts/deploy.fw   # default; no cluster change
+//	GRIDIRON_DEPLOY_MODE=apply ferrous-wheel run scripts/deploy.fw   # change production
+//
+// deploy/README.md's "Deploying" section lists every gate and variable. This
+// script never reads a Secret, never touches the stablekernel namespace, and
+// never applies deploy/k8s/sk/ or an *.example.yaml file.
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+const (
+	namespace       = "gridiron"
+	appName         = "gridiron-2000"
+	relayName       = "statrelay"
+	appRepo         = "harbor.draco.quest/orchard/gridiron-2000"
+	relayRepo       = "harbor.draco.quest/orchard/gridiron-2000-statrelay"
+	publicOrigin    = "https://gridiron.draco.quest"
+	relayServiceURL = "http://statrelay.gridiron.svc.cluster.local"
+	appLocalPort    = "8105"
+	relayLocalPort  = "8106"
+	minFreeGiB      = 60
+	rolloutTimeout  = "5m"
+	// The probe runs busybox wget inside the new app pod's network namespace.
+	// This digest is the nginx:1.27-alpine image already cached on the node,
+	// so the probe needs no registry pull.
+	defaultProbeImage = "docker.io/library/nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"
+	// The committed manifests carry these placeholders. The live objects carry
+	// the real Workload Identity Federation (WIF) values, which the public
+	// repository never records (docs/backup-restore.md).
+	wifProviderPlaceholder = "projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL_ID/providers/PROVIDER_ID"
+	wifAccountPlaceholder  = "serviceAccounts/IMPERSONATED_SA_EMAIL:generateAccessToken"
+)
+
+var (
+	digestPattern       = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	appImagePattern     = regexp.MustCompile(`image: harbor\.draco\.quest/orchard/gridiron-2000@(sha256:[0-9a-f]{64})`)
+	relayImagePattern   = regexp.MustCompile(`image: harbor\.draco\.quest/orchard/gridiron-2000-statrelay@(sha256:[0-9a-f]{64})`)
+	appDigestEnvPattern = regexp.MustCompile(`name: APP_IMAGE_DIGEST\n\s+value: "(sha256:[0-9a-f]{64})"`)
+	imageLinePattern    = regexp.MustCompile(`(?m)^\s*image:\s*(\S+)\s*$`)
+	pinnedImagePattern  = regexp.MustCompile(`^harbor\.draco\.quest/orchard/[a-z0-9-]+@sha256:[0-9a-f]{64}$`)
+	wifAudiencePattern  = regexp.MustCompile(`^//iam\.googleapis\.com/(projects/[0-9]+/locations/global/workloadIdentityPools/[a-z0-9-]+/providers/[a-z0-9-]+)$`)
+	wifAccountPattern   = regexp.MustCompile(`^https://iamcredentials\.googleapis\.com/v1/projects/-/serviceAccounts/([A-Za-z0-9._@-]+):generateAccessToken$`)
+	placeholderTokens   = []string{"PROJECT_NUMBER", "POOL_ID", "PROVIDER_ID", "IMPERSONATED_SA_EMAIL", "REPLACE_ME", "replace-with"}
+)
+
+// manifestFiles is every tracked top-level manifest under deploy/k8s. A new
+// top-level YAML file stops the run until scopeTable names its objects.
+var manifestFiles = []string{
+	"hq-registry.yaml",
+	"gridiron-backup-gcp-config.yaml",
+	"gridiron-backup-serviceaccount.yaml",
+	"service.yaml",
+	"hq-provider-service.yaml",
+	"statrelay.yaml",
+	"deployment.yaml",
+	"ingress.yaml",
+	"network-policy.yaml",
+	"statrelay-network-policy.yaml",
+	"namespace.yaml",
+	"pvc.yaml",
+	"http-redirect.yaml",
+	"security-headers.yaml",
+}
+
+type scopeEntry struct {
+	Kind  string
+	Name  string
+	Stage int
+}
+
+// scopeTable is the complete release scope. Stages are the apply order:
+// config, identity, Services, the relay, the app, routing, and
+// NetworkPolicies last. Stage 0 objects are diffed read-only and never
+// applied: a change there stops the run for a separate, reviewed change.
+var scopeTable = []scopeEntry{
+	{"ConfigMap", "gridiron-2000-hq-v1-registry", 1},
+	{"ConfigMap", "gridiron-backup-gcp-config", 1},
+	{"ServiceAccount", "gridiron-backup", 2},
+	{"Service", "gridiron-2000", 3},
+	{"Service", "gridiron-2000-hq-v1", 3},
+	{"Service", "statrelay", 3},
+	{"Deployment", "statrelay", 4},
+	{"Deployment", "gridiron-2000", 5},
+	{"Ingress", "gridiron-2000", 6},
+	{"NetworkPolicy", "gridiron-2000-hq-v1-network-policy", 7},
+	{"NetworkPolicy", "statrelay-network-policy", 7},
+	{"Namespace", "gridiron", 0},
+	{"PersistentVolumeClaim", "gridiron-2000-data", 0},
+	{"PersistentVolumeClaim", "statrelay-data", 0},
+	{"Middleware", "redirect-https", 0},
+	{"Middleware", "security-headers", 0},
+	{"Ingress", "gridiron-2000-http", 0},
+}
+
+type object struct {
+	File        string
+	Kind        string
+	Name        string
+	Namespace   string
+	Stage       int
+	Doc         string
+	Path        string
+	Exists      bool
+	Changed     bool
+	Applied     bool
+	Created     bool
+	Revision    string
+	Image       string
+	RestorePath string
+}
+
+func (o *object) id() string {
+	return o.Kind + "/" + o.Name
+}
+
+type check struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
+}
+
+type release struct {
+	SHA         string
+	Short       string
+	Tag         string
+	BuildDate   string
+	AppRef      string
+	RelayRef    string
+	AppDigest   string
+	RelayDigest string
+}
+
+type wifValues struct {
+	ProviderPath string
+	Account      string
+}
+
+type schema struct {
+	Persisted   int
+	Supported   int
+	PersistedDB int
+	SupportedDB int
+	Compatible  bool
+	Known       bool
+}
+
+type result struct {
+	Out  string
+	Err  string
+	Code int
+}
+
+type deploy struct {
+	Mode         string
+	Root         string
+	RunDir       string
+	ProbeImage   string
+	Rel          release
+	Objects      []*object
+	Checks       []check
+	Notes        []string
+	OldApp       string
+	OldRelay     string
+	Baseline     map[string]any
+	Applying     bool
+	RolledBack   bool
+	RelayChecked bool
+	Started      time.Time
+	Tunnels      []*exec.Cmd
+}
+
+func main() {
+	started := time.Now()
+	prepareEnvironment()
+	let mode = envOr("GRIDIRON_DEPLOY_MODE", "diff")
+	guard mode == "diff" || mode == "apply" else {
+		fmt.Println("FAILED: GRIDIRON_DEPLOY_MODE must be diff or apply, not " + mode)
+		os.Exit(2)
+	}
+	d := &deploy{Mode: mode, Started: started, ProbeImage: envOr("GRIDIRON_DEPLOY_PROBE_IMAGE", defaultProbeImage)}
+	d.Root = d.repoRoot()
+	d.preflight()
+	d.makeRunDir()
+	d.diskGate("before the build")
+	d.releaseImages()
+	d.readLiveImages()
+	d.render()
+	d.diffAll()
+	d.planGates()
+	if d.Mode == "diff" {
+		d.summary("PLANNED (diff mode: no cluster change)")
+		return
+	}
+	d.baseline()
+	d.diskGate("before the apply")
+	d.saveLive()
+	d.applyAll()
+	d.verify()
+	d.summary("DEPLOYED")
+}
+
+// prepareEnvironment builds against published modules only, never a local
+// go.work checkout, and finds operator tools installed in the user's own
+// bin directories when a desktop launcher passes a short PATH.
+func prepareEnvironment() {
+	os.Setenv("GOWORK", "off")
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return
+	}
+	path := os.Getenv("PATH")
+	for _, dir := range []string{filepath.Join(home, ".local", "bin"), filepath.Join(home, "go", "bin")} {
+		if !strings.Contains(":"+path+":", ":"+dir+":") {
+			path = path + ":" + dir
+		}
+	}
+	os.Setenv("PATH", path)
+}
+
+func step(label string) {
+	fmt.Println(f"\n==> {label}")
+}
+
+func envOr(name string, fallback string) string {
+	let value = os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func indent(text string) string {
+	trimmed := strings.TrimRight(text, "\n")
+	if trimmed == "" {
+		return ""
+	}
+	return "    " + strings.ReplaceAll(trimmed, "\n", "\n    ") + "\n"
+}
+
+// capture runs one command to completion and returns its output. Code is -1
+// when the command cannot start or runs past its timeout.
+func capture(dir string, limit time.Duration, name string, args ...string) result {
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	var stdout strings.Builder
+	var stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	res := result{Out: stdout.String(), Err: strings.TrimSpace(stderr.String())}
+	if err == nil {
+		return res
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && ctx.Err() == nil {
+		res.Code = exitErr.ExitCode()
+		return res
+	}
+	res.Code = -1
+	res.Err = strings.TrimSpace(res.Err + " " + err.Error())
+	return res
+}
+
+// stream runs one command with its output on the terminal.
+func stream(dir string, limit time.Duration, name string, args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func writeFile(path string, content string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(content), 0600)
+}
+
+func (d *deploy) mustWrite(path string, content string) {
+	err := writeFile(path, content)
+	guard err == nil else {
+		d.fail("write " + path + ": " + err.Error())
+	}
+}
+
+func (d *deploy) mustStream(what string, dir string, limit time.Duration, name string, args ...string) {
+	err := stream(dir, limit, name, args...)
+	guard err == nil else {
+		d.fail(what + ": " + err.Error())
+	}
+}
+
+func (d *deploy) git(args ...string) string {
+	res := capture(d.Root, time.Minute, "git", args...)
+	guard res.Code == 0 else {
+		d.fail("git " + strings.Join(args, " ") + ": " + res.Err)
+	}
+	return strings.TrimSpace(res.Out)
+}
+
+// tryJSON runs kubectl with -o json output and decodes the object. It never
+// stops the run, so the rollback path can use it.
+func (d *deploy) tryJSON(args ...string) (map[string]any, error) {
+	res := capture(d.Root, time.Minute, "kubectl", args...)
+	if res.Code != 0 {
+		return nil, errors.New("kubectl " + strings.Join(args, " ") + ": " + res.Err)
+	}
+	var value map[string]any
+	if err := json.Unmarshal([]byte(res.Out), &value); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+func (d *deploy) kubectlJSON(args ...string) map[string]any {
+	value, err := d.tryJSON(args...)
+	guard err == nil else {
+		d.fail(err.Error())
+	}
+	return value
+}
+
+// dig walks decoded JSON by map key (string) or list index (int).
+func dig(value any, path ...any) any {
+	cur := value
+	for _, key := range path {
+		switch k := key.(type) {
+		case string:
+			m, ok := cur.(map[string]any)
+			if !ok {
+				return nil
+			}
+			cur = m[k]
+		case int:
+			list, ok := cur.([]any)
+			if !ok || k < 0 || k >= len(list) {
+				return nil
+			}
+			cur = list[k]
+		}
+	}
+	return cur
+}
+
+func digString(value any, path ...any) string {
+	s, _ := dig(value, path...).(string)
+	return s
+}
+
+func (d *deploy) record(name string, status string, detail string) {
+	d.Checks = append(d.Checks, check{Name: name, Status: status, Detail: detail})
+	fmt.Printf("  [%s] %s: %s\n", status, name, detail)
+}
+
+func (d *deploy) failOnCheckFailures(context string) {
+	var failed []string
+	for _, c := range d.Checks {
+		if c.Status == "FAIL" {
+			failed = append(failed, c.Name)
+		}
+	}
+	if len(failed) > 0 {
+		d.fail(context + " failed: " + strings.Join(failed, ", "))
+	}
+}
+
+// fail stops the run. After the first apply it first rolls back every
+// change this run made. os.Exit skips deferred calls, so fail closes every
+// open tunnel itself.
+func (d *deploy) fail(reason string) {
+	d.stopAllTunnels()
+	fmt.Println("\nFAILED: " + reason)
+	d.Notes = append(d.Notes, "failure: "+reason)
+	if d.Applying && !d.RolledBack {
+		d.rollback()
+	}
+	d.summary("FAILED")
+	os.Exit(1)
+}
+
+func (d *deploy) repoRoot() string {
+	cwd, err := os.Getwd()
+	guard err == nil else {
+		d.fail("working directory: " + err.Error())
+	}
+	res := capture(cwd, 30*time.Second, "git", "rev-parse", "--show-toplevel")
+	guard res.Code == 0 else {
+		d.fail("run this script from inside the gridiron-2000 checkout: " + res.Err)
+	}
+	root := strings.TrimSpace(res.Out)
+	_, statErr := os.Stat(filepath.Join(root, "deploy", "k8s", "deployment.yaml"))
+	guard statErr == nil else {
+		d.fail(root + " is not the gridiron-2000 repository: deploy/k8s/deployment.yaml is missing")
+	}
+	return root
+}
+
+// preflight refuses to release source that cannot be identified later: HEAD
+// must be exactly the fetched origin/main, with no tracked or untracked
+// change, and the module must build and vet. The Ferrous Wheel runner's own
+// staging directory is the one ignored path.
+func (d *deploy) preflight() {
+	step("Preflight: clean checkout of origin/main")
+	d.mustStream("git fetch origin main", d.Root, 2*time.Minute, "git", "fetch", "--quiet", "origin", "main")
+	head := d.git("rev-parse", "HEAD")
+	upstream := d.git("rev-parse", "origin/main")
+	guard head == upstream else {
+		d.fail("HEAD " + head + " is not origin/main " + upstream + "; check out origin/main before a release")
+	}
+	dirty := d.git("status", "--porcelain=v1", "--untracked-files=all", "--", ".", ":(exclude).ferrous-wheel-build")
+	guard dirty == "" else {
+		fmt.Println(indent(dirty))
+		d.fail("the checkout has uncommitted or untracked files")
+	}
+	fmt.Println("  HEAD is origin/main " + head + " and the tree is clean")
+	d.mustStream("go build ./...", d.Root, 20*time.Minute, "go", "build", "./...")
+	fmt.Println("  go build ./... passed (GOWORK=off)")
+	d.mustStream("go vet ./...", d.Root, 20*time.Minute, "go", "vet", "./...")
+	fmt.Println("  go vet ./... passed (GOWORK=off)")
+	now := time.Now().UTC()
+	short := d.git("rev-parse", "--short=7", "HEAD")
+	tag := "release-" + now.Format("2006.01.02") + "-" + short
+	d.Rel = release{SHA: head, Short: short, Tag: tag, BuildDate: now.Format(time.RFC3339), AppRef: appRepo + ":" + tag, RelayRef: relayRepo + ":" + tag}
+	fmt.Println("  release " + tag)
+}
+
+func (d *deploy) makeRunDir() {
+	home, _ := os.UserHomeDir()
+	base := envOr("GRIDIRON_DEPLOY_STATE_DIR", filepath.Join(home, ".local", "state", "gridiron-deploy"))
+	stamp := time.Now().UTC().Format("20060102T150405Z")
+	dir := filepath.Join(base, d.Rel.Tag+"-"+stamp+"-"+d.Mode)
+	for _, sub := range []string{"rendered", "diffs", "live-backup", "restore", "pin"} {
+		err := os.MkdirAll(filepath.Join(dir, sub), 0700)
+		guard err == nil else {
+			d.fail("create " + dir + ": " + err.Error())
+		}
+	}
+	d.RunDir = dir
+	fmt.Println("  run directory " + dir)
+}
+
+// diskGate protects the production host. buildbox runs the k3s node and
+// Harbor, so low disk there is a cluster outage (2026-09-24), not a build
+// failure.
+func (d *deploy) diskGate(when string) {
+	step("Buildbox disk gate " + when + " (at least 60G free on /)")
+	host := envOr("GRIDIRON_DEPLOY_BUILDBOX", "buildbox")
+	human := capture(d.Root, time.Minute, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, "df -h /")
+	guard human.Code == 0 else {
+		d.fail("ssh " + host + " df -h /: " + human.Err)
+	}
+	fmt.Print(indent(human.Out))
+	exact := capture(d.Root, time.Minute, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, "df -Pk /")
+	guard exact.Code == 0 else {
+		d.fail("ssh " + host + " df -Pk /: " + exact.Err)
+	}
+	lines := strings.Split(strings.TrimSpace(exact.Out), "\n")
+	fields := strings.Fields(lines[len(lines)-1])
+	guard len(lines) >= 2 && len(fields) >= 4 else {
+		d.fail("cannot read free space from: " + exact.Out)
+	}
+	availKiB, err := strconv.ParseInt(fields[3], 10, 64)
+	guard err == nil else {
+		d.fail("cannot read free space from: " + exact.Out)
+	}
+	freeGiB := availKiB / (1024 * 1024)
+	guard freeGiB >= minFreeGiB else {
+		d.fail(fmt.Sprintf("%s has %d GiB free on /; a release needs at least %d GiB", host, freeGiB, minFreeGiB))
+	}
+	fmt.Printf("  %d GiB free on %s:/ (gate: %d GiB)\n", freeGiB, host, minFreeGiB)
+}
+
+// registryDigest returns the digest Harbor serves for ref, and false when
+// the tag does not exist.
+func (d *deploy) registryDigest(ref string) (string, bool) {
+	res := capture(d.Root, 2*time.Minute, "docker", "buildx", "imagetools", "inspect", ref, "--format", "{{json .Manifest}}")
+	if res.Code != 0 {
+		if strings.Contains(res.Err, "not found") {
+			return "", false
+		}
+		d.fail("inspect " + ref + ": " + res.Err)
+	}
+	var manifest struct {
+		Digest string `json:"digest"`
+	}
+	err := json.Unmarshal([]byte(strings.TrimSpace(res.Out)), &manifest)
+	guard err == nil && digestPattern.MatchString(manifest.Digest) else {
+		d.fail("inspect " + ref + ": no sha256 digest in " + strings.TrimSpace(res.Out))
+	}
+	return manifest.Digest, true
+}
+
+// checkAppProvenance accepts an existing app tag only when its OCI labels
+// name this exact source commit and release.
+func (d *deploy) checkAppProvenance() {
+	res := capture(d.Root, 2*time.Minute, "docker", "buildx", "imagetools", "inspect", d.Rel.AppRef, "--format", "{{json .Image}}")
+	guard res.Code == 0 else {
+		d.fail("inspect " + d.Rel.AppRef + ": " + res.Err)
+	}
+	var image map[string]any
+	err := json.Unmarshal([]byte(res.Out), &image)
+	guard err == nil else {
+		d.fail("inspect " + d.Rel.AppRef + ": " + err.Error())
+	}
+	revision := digString(image, "config", "Labels", "org.opencontainers.image.revision")
+	version := digString(image, "config", "Labels", "org.opencontainers.image.version")
+	guard revision == d.Rel.SHA && version == d.Rel.Tag else {
+		d.fail(d.Rel.AppRef + " exists but its labels name revision " + revision + " and version " + version)
+	}
+}
+
+// exportSource writes the committed tree of the release commit to a new
+// directory, so no untracked or ignored local file can enter an image.
+func (d *deploy) exportSource() string {
+	src, err := os.MkdirTemp("", "gridiron-release-src-")
+	guard err == nil else {
+		d.fail("create source directory: " + err.Error())
+	}
+	archive := src + ".tar"
+	d.mustStream("git archive", d.Root, 5*time.Minute, "git", "archive", "--format=tar", "-o", archive, d.Rel.SHA)
+	d.mustStream("extract source", d.Root, 5*time.Minute, "tar", "-xf", archive, "-C", src)
+	os.Remove(archive)
+	fmt.Println("  exported the committed tree of " + d.Rel.Short + " to " + src)
+	return src
+}
+
+// releaseImages builds and pushes both images once per release tag. A rerun
+// with the same tag (diff mode, then apply mode) reuses the pushed digests,
+// so apply mode deploys exactly what diff mode showed.
+func (d *deploy) releaseImages() {
+	step("Release images " + d.Rel.Tag)
+	appDigest, appFound := d.registryDigest(d.Rel.AppRef)
+	relayDigest, relayFound := d.registryDigest(d.Rel.RelayRef)
+	if appFound {
+		d.checkAppProvenance()
+		fmt.Println("  " + d.Rel.AppRef + " already exists with matching labels; reusing it")
+	}
+	if relayFound {
+		fmt.Println("  " + d.Rel.RelayRef + " already exists; reusing it")
+	}
+	if !appFound || !relayFound {
+		src := d.exportSource()
+		if !appFound {
+			step("Build and push " + d.Rel.AppRef)
+			d.mustStream("docker build (app)", src, 45*time.Minute, "docker", "build", "--pull", "--build-arg", "APP_VERSION="+d.Rel.Tag, "--build-arg", "GIT_SHA="+d.Rel.SHA, "--build-arg", "BUILD_DATE="+d.Rel.BuildDate, "-t", d.Rel.AppRef, ".")
+			d.mustStream("docker push (app)", src, 20*time.Minute, "docker", "push", d.Rel.AppRef)
+			appDigest, appFound = d.registryDigest(d.Rel.AppRef)
+		}
+		if !relayFound {
+			step("Build and push " + d.Rel.RelayRef)
+			d.mustStream("docker build (statrelay)", src, 30*time.Minute, "docker", "build", "--pull", "-f", "deploy/statrelay.Dockerfile", "-t", d.Rel.RelayRef, ".")
+			d.mustStream("docker push (statrelay)", src, 20*time.Minute, "docker", "push", d.Rel.RelayRef)
+			relayDigest, relayFound = d.registryDigest(d.Rel.RelayRef)
+		}
+		os.RemoveAll(src)
+	}
+	guard appFound && relayFound else {
+		d.fail("a pushed image has no registry digest")
+	}
+	d.Rel.AppDigest = appDigest
+	d.Rel.RelayDigest = relayDigest
+	fmt.Println("  app   " + appRepo + "@" + appDigest)
+	fmt.Println("  relay " + relayRepo + "@" + relayDigest)
+}
+
+func (d *deploy) liveImage(name string) string {
+	dep := d.kubectlJSON("get", "deployment", name, "-n", namespace, "-o", "json")
+	image := digString(dep, "spec", "template", "spec", "containers", 0, "image")
+	guard image != "" else {
+		d.fail("deployment/" + name + " has no container image")
+	}
+	return image
+}
+
+func (d *deploy) readLiveImages() {
+	step("Live images")
+	d.OldApp = d.liveImage(appName)
+	d.OldRelay = d.liveImage(relayName)
+	fmt.Println("  gridiron-2000 " + d.OldApp)
+	fmt.Println("  statrelay     " + d.OldRelay)
+}
+
+// liveWIF reads the real WIF values from the live objects and checks that
+// the ConfigMap and the Deployment's token audience agree. It fails closed
+// when they are absent, so a placeholder can never replace a working value.
+func (d *deploy) liveWIF() wifValues {
+	cm := d.kubectlJSON("get", "configmap", "gridiron-backup-gcp-config", "-n", namespace, "-o", "json")
+	raw := digString(cm, "data", "config.json")
+	guard raw != "" else {
+		d.fail("live ConfigMap gridiron-backup-gcp-config has no config.json; provision WIF first (docs/backup-restore.md)")
+	}
+	var cfg struct {
+		Audience      string `json:"audience"`
+		Impersonation string `json:"service_account_impersonation_url"`
+	}
+	err := json.Unmarshal([]byte(raw), &cfg)
+	guard err == nil else {
+		d.fail("live WIF config is not JSON: " + err.Error())
+	}
+	audience := wifAudiencePattern.FindStringSubmatch(cfg.Audience)
+	account := wifAccountPattern.FindStringSubmatch(cfg.Impersonation)
+	guard audience != nil && account != nil else {
+		d.fail("live WIF config does not hold a real provider and service account; provision WIF first (docs/backup-restore.md)")
+	}
+	dep := d.kubectlJSON("get", "deployment", appName, "-n", namespace, "-o", "json")
+	tokenAudience := ""
+	volumes, _ := dig(dep, "spec", "template", "spec", "volumes").([]any)
+	for _, volume := range volumes {
+		if digString(volume, "name") != "gcp-wif" {
+			continue
+		}
+		sources, _ := dig(volume, "projected", "sources").([]any)
+		for _, source := range sources {
+			if value := digString(source, "serviceAccountToken", "audience"); value != "" {
+				tokenAudience = value
+			}
+		}
+	}
+	want := "https://iam.googleapis.com/" + audience[1]
+	guard tokenAudience == want else {
+		d.fail("the live token audience does not match the live WIF config; reconcile them before a release")
+	}
+	fmt.Println("  WIF values: read from the live ConfigMap and Deployment, which agree (never committed)")
+	return wifValues{ProviderPath: audience[1], Account: account[1]}
+}
+
+func (d *deploy) checkManifestSet() {
+	dir := filepath.Join(d.Root, "deploy", "k8s")
+	entries, err := os.ReadDir(dir)
+	guard err == nil else {
+		d.fail("read " + dir + ": " + err.Error())
+	}
+	known := map[string]bool{}
+	for _, manifest := range manifestFiles {
+		known[manifest] = true
+		_, statErr := os.Stat(filepath.Join(dir, manifest))
+		guard statErr == nil else {
+			d.fail("deploy/k8s/" + manifest + " is missing")
+		}
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || strings.HasSuffix(name, ".example.yaml") {
+			continue
+		}
+		if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
+			guard known[name] else {
+				d.fail("deploy/k8s/" + name + " is not in this script's scope; add its objects to scopeTable first")
+			}
+		}
+	}
+}
+
+func hasContent(doc string) bool {
+	for _, line := range strings.Split(doc, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			return true
+		}
+	}
+	return false
+}
+
+func splitDocs(body string) []string {
+	var docs []string
+	var current []string
+	for _, line := range strings.Split(body, "\n") {
+		if strings.TrimRight(line, " \t\r") == "---" {
+			docs = append(docs, strings.Join(current, "\n"))
+			current = nil
+			continue
+		}
+		current = append(current, line)
+	}
+	docs = append(docs, strings.Join(current, "\n"))
+	var kept []string
+	for _, doc := range docs {
+		if hasContent(doc) {
+			kept = append(kept, strings.Trim(doc, "\n")+"\n")
+		}
+	}
+	return kept
+}
+
+func trimValue(raw string) string {
+	return strings.Trim(strings.TrimSpace(raw), `"'`)
+}
+
+// parseMeta reads the top-level kind and metadata.name/namespace of one
+// hand-authored manifest document.
+func parseMeta(doc string) (string, string, string) {
+	kind := ""
+	name := ""
+	ns := ""
+	inMeta := false
+	for _, line := range strings.Split(doc, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if !strings.HasPrefix(line, " ") {
+			inMeta = strings.HasPrefix(line, "metadata:")
+			if strings.HasPrefix(line, "kind:") {
+				kind = trimValue(strings.TrimPrefix(line, "kind:"))
+			}
+			continue
+		}
+		if !inMeta || !strings.HasPrefix(line, "  ") || strings.HasPrefix(line, "   ") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "name:") && name == "" {
+			name = trimValue(strings.TrimPrefix(trimmed, "name:"))
+		}
+		if strings.HasPrefix(trimmed, "namespace:") && ns == "" {
+			ns = trimValue(strings.TrimPrefix(trimmed, "namespace:"))
+		}
+	}
+	return kind, name, ns
+}
+
+func stageFor(kind string, name string) (int, bool) {
+	for _, entry := range scopeTable {
+		if entry.Kind == kind && entry.Name == name {
+			return entry.Stage, true
+		}
+	}
+	return 0, false
+}
+
+func (d *deploy) pinDigest(manifest string, body string, pattern *regexp.Regexp, digest string, want int) string {
+	found := pattern.FindStringSubmatch(body)
+	guard found != nil else {
+		d.fail("deploy/k8s/" + manifest + ": no pinned image digest")
+	}
+	count := strings.Count(body, found[1])
+	guard count == want else {
+		d.fail(fmt.Sprintf("deploy/k8s/%s: expected the pinned digest %d times, found %d", manifest, want, count))
+	}
+	return strings.ReplaceAll(body, found[1], digest)
+}
+
+func orderKey(o *object) int {
+	if o.Stage == 0 {
+		return 99
+	}
+	return o.Stage
+}
+
+// render writes one file per object: the new digests pinned, and the live
+// WIF values in place of the committed placeholders.
+func (d *deploy) render() {
+	step("Render manifests")
+	d.checkManifestSet()
+	wif := d.liveWIF()
+	for _, manifest := range manifestFiles {
+		raw, err := os.ReadFile(filepath.Join(d.Root, "deploy", "k8s", manifest))
+		guard err == nil else {
+			d.fail("read deploy/k8s/" + manifest + ": " + err.Error())
+		}
+		body := string(raw)
+		pinned := body
+		if manifest == "deployment.yaml" {
+			pinned = d.pinDigest(manifest, body, appImagePattern, d.Rel.AppDigest, 2)
+		}
+		if manifest == "statrelay.yaml" {
+			pinned = d.pinDigest(manifest, body, relayImagePattern, d.Rel.RelayDigest, 1)
+		}
+		if pinned != body {
+			// The repository follow-up: the new digests only, never the WIF values.
+			d.mustWrite(filepath.Join(d.RunDir, "pin", manifest), pinned)
+		}
+		rendered := strings.ReplaceAll(pinned, wifProviderPlaceholder, wif.ProviderPath)
+		rendered = strings.ReplaceAll(rendered, wifAccountPlaceholder, "serviceAccounts/"+wif.Account+":generateAccessToken")
+		for _, doc := range splitDocs(rendered) {
+			kind, name, ns := parseMeta(doc)
+			stage, ok := stageFor(kind, name)
+			guard ok else {
+				d.fail("deploy/k8s/" + manifest + " holds " + kind + "/" + name + ", which is outside this release's scope")
+			}
+			guard (kind == "Namespace" && name == namespace && ns == "") || ns == namespace else {
+				d.fail(kind + "/" + name + " is in namespace " + ns + "; this script changes only " + namespace)
+			}
+			d.Objects = append(d.Objects, &object{File: manifest, Kind: kind, Name: name, Namespace: ns, Stage: stage, Doc: doc})
+		}
+	}
+	for _, entry := range scopeTable {
+		count := 0
+		for _, o := range d.Objects {
+			if o.Kind == entry.Kind && o.Name == entry.Name {
+				count++
+			}
+		}
+		guard count == 1 else {
+			d.fail(fmt.Sprintf("%s/%s appears %d times in deploy/k8s; expected exactly once", entry.Kind, entry.Name, count))
+		}
+	}
+	d.checkRendered()
+	sort.SliceStable(d.Objects, func(i int, j int) bool { return orderKey(d.Objects[i]) < orderKey(d.Objects[j]) })
+	for i, o := range d.Objects {
+		o.Path = filepath.Join(d.RunDir, "rendered", fmt.Sprintf("%02d-%s-%s.yaml", i+1, strings.ToLower(o.Kind), o.Name))
+		d.mustWrite(o.Path, o.Doc)
+	}
+	fmt.Printf("  %d objects rendered to %s\n", len(d.Objects), filepath.Join(d.RunDir, "rendered"))
+}
+
+// checkRendered is the render gate: no placeholder outside a comment, every
+// Deployment image pinned by digest in Harbor, and the app's self-reported
+// APP_IMAGE_DIGEST equal to its image.
+func (d *deploy) checkRendered() {
+	for _, o := range d.Objects {
+		for _, line := range strings.Split(o.Doc, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+			for _, token := range placeholderTokens {
+				guard !strings.Contains(line, token) else {
+					d.fail(o.id() + " still holds the placeholder " + token + " after rendering")
+				}
+			}
+		}
+		if o.Kind != "Deployment" {
+			continue
+		}
+		images := imageLinePattern.FindAllStringSubmatch(o.Doc, -1)
+		guard len(images) > 0 else {
+			d.fail(o.id() + " has no image")
+		}
+		for _, image := range images {
+			guard pinnedImagePattern.MatchString(image[1]) else {
+				d.fail(o.id() + " image " + image[1] + " is not pinned by digest in Harbor")
+			}
+		}
+	}
+	for _, o := range d.Objects {
+		if o.Kind == "Deployment" && o.Name == appName {
+			envDigest := appDigestEnvPattern.FindStringSubmatch(o.Doc)
+			guard strings.Contains(o.Doc, "image: "+appRepo+"@"+d.Rel.AppDigest) && envDigest != nil && envDigest[1] == d.Rel.AppDigest else {
+				d.fail("rendered gridiron-2000 image and APP_IMAGE_DIGEST do not both name " + d.Rel.AppDigest)
+			}
+		}
+		if o.Kind == "Deployment" && o.Name == relayName {
+			guard strings.Contains(o.Doc, "image: "+relayRepo+"@"+d.Rel.RelayDigest) else {
+				d.fail("rendered statrelay image is not " + d.Rel.RelayDigest)
+			}
+		}
+	}
+	fmt.Println("  render gate passed: no placeholders; images pinned by digest; APP_IMAGE_DIGEST matches")
+}
+
+func (o *object) label() string {
+	suffix := ""
+	if o.Stage == 0 {
+		suffix = " [drift check only]"
+	}
+	return o.id() + " (" + o.File + ")" + suffix
+}
+
+// diffAll prints the server dry-run diff of every object: kubectl diff sends
+// the same client-side apply this script performs as a dry-run request, so
+// the API server computes exactly the object an apply would store.
+func (d *deploy) diffAll() {
+	step("Server dry-run diff of every manifest (kubectl diff)")
+	for _, o := range d.Objects {
+		found := capture(d.Root, time.Minute, "kubectl", "get", "-f", o.Path, "--ignore-not-found", "-o", "name")
+		guard found.Code == 0 else {
+			d.fail("kubectl get " + o.id() + ": " + found.Err)
+		}
+		o.Exists = strings.TrimSpace(found.Out) != ""
+		res := capture(d.Root, 2*time.Minute, "kubectl", "diff", "-f", o.Path)
+		switch res.Code {
+		case 0:
+			fmt.Println("  " + o.label() + ": no change")
+		case 1:
+			o.Changed = true
+			d.mustWrite(filepath.Join(d.RunDir, "diffs", strings.TrimSuffix(filepath.Base(o.Path), ".yaml")+".diff"), res.Out)
+			verb := "changes"
+			if !o.Exists {
+				verb = "is created"
+			}
+			fmt.Println("\n  " + o.label() + " " + verb + ":")
+			fmt.Print(indent(res.Out))
+			fmt.Println()
+		default:
+			d.fail("kubectl diff " + o.id() + ": " + res.Err)
+		}
+	}
+}
+
+// planGates stops a run whose diff reaches outside the apply scope, and
+// holds any routing or network change until the operator acknowledges it:
+// a Service, Ingress, or NetworkPolicy change can cut the public route.
+func (d *deploy) planGates() {
+	step("Plan gates")
+	var drift []string
+	var network []string
+	var changes []string
+	for _, o := range d.Objects {
+		if !o.Changed {
+			continue
+		}
+		if o.Stage == 0 {
+			drift = append(drift, o.id())
+			continue
+		}
+		changes = append(changes, o.id())
+		if o.Kind == "Service" || o.Kind == "Ingress" || o.Kind == "NetworkPolicy" {
+			network = append(network, o.id())
+		}
+	}
+	guard len(drift) == 0 else {
+		d.fail("live drift outside the apply scope: " + strings.Join(drift, ", ") + "; reconcile it in a separate, reviewed change")
+	}
+	if len(network) > 0 {
+		msg := "routing or network changes: " + strings.Join(network, ", ")
+		guard d.Mode == "diff" || os.Getenv("GRIDIRON_DEPLOY_ACK_NETWORK_DIFF") == "1" else {
+			d.fail(msg + "; read their diff, then set GRIDIRON_DEPLOY_ACK_NETWORK_DIFF=1 to apply them")
+		}
+		fmt.Println("  NOTE: " + msg + "; apply mode requires GRIDIRON_DEPLOY_ACK_NETWORK_DIFF=1")
+	}
+	if len(changes) == 0 {
+		fmt.Println("  nothing to apply: the live objects already match this release")
+		return
+	}
+	fmt.Println("  apply order: " + strings.Join(changes, ", "))
+}
+
+func schemaOf(health map[string]any) schema {
+	raw, ok := health["stateSchema"].(map[string]any)
+	if !ok {
+		return schema{}
+	}
+	persisted, ok1 := raw["persistedVersion"].(float64)
+	supported, ok2 := raw["supportedVersion"].(float64)
+	persistedDB, ok3 := raw["persistedDatabaseVersion"].(float64)
+	supportedDB, ok4 := raw["supportedDatabaseVersion"].(float64)
+	compatible, ok5 := raw["compatible"].(bool)
+	return schema{
+		Persisted:   int(persisted),
+		Supported:   int(supported),
+		PersistedDB: int(persistedDB),
+		SupportedDB: int(supportedDB),
+		Compatible:  compatible,
+		Known:       ok1 && ok2 && ok3 && ok4 && ok5,
+	}
+}
+
+func (s schema) String() string {
+	return fmt.Sprintf("logical %d/%d, database %d/%d (persisted/supported), compatible=%t", s.Persisted, s.Supported, s.PersistedDB, s.SupportedDB, s.Compatible)
+}
+
+// readyPod returns the single Running, Ready, non-terminating pod of app
+// that runs image, or "" when there is not exactly one.
+func (d *deploy) readyPod(app string, image string) string {
+	list, err := d.tryJSON("get", "pods", "-n", namespace, "-l", "app="+app, "-o", "json")
+	if err != nil {
+		return ""
+	}
+	items, _ := list["items"].([]any)
+	var names []string
+	for _, item := range items {
+		if dig(item, "metadata", "deletionTimestamp") != nil || digString(item, "status", "phase") != "Running" {
+			continue
+		}
+		if digString(item, "spec", "containers", 0, "image") != image {
+			continue
+		}
+		conditions, _ := dig(item, "status", "conditions").([]any)
+		for _, condition := range conditions {
+			if digString(condition, "type") == "Ready" && digString(condition, "status") == "True" {
+				names = append(names, digString(item, "metadata", "name"))
+			}
+		}
+	}
+	if len(names) != 1 {
+		return ""
+	}
+	return names[0]
+}
+
+// startPortForward opens a loopback tunnel to one pod. The app returns its
+// full health payload only to a loopback caller, and a tunnel into the
+// relay pod does not pass through its NetworkPolicy.
+func (d *deploy) startPortForward(pod string, local string, remote string) (*exec.Cmd, error) {
+	probe, dialErr := net.DialTimeout("tcp", "127.0.0.1:"+local, 500*time.Millisecond)
+	if dialErr == nil {
+		probe.Close()
+		return nil, errors.New("local port " + local + " is already in use")
+	}
+	logFile, err := os.OpenFile(filepath.Join(d.RunDir, "port-forward-"+local+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command("kubectl", "port-forward", "-n", namespace, "pod/"+pod, local+":"+remote)
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	if err := cmd.Start(); err != nil {
+		logFile.Close()
+		return nil, err
+	}
+	logFile.Close()
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, connErr := net.DialTimeout("tcp", "127.0.0.1:"+local, 500*time.Millisecond)
+		if connErr == nil {
+			conn.Close()
+			d.Tunnels = append(d.Tunnels, cmd)
+			return cmd, nil
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	stopPortForward(cmd)
+	return nil, errors.New("port-forward to " + pod + " did not open local port " + local)
+}
+
+// stopPortForward ends only the tunnel process this script started.
+func stopPortForward(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	cmd.Process.Kill()
+	cmd.Wait()
+}
+
+func (d *deploy) stopTunnel(cmd *exec.Cmd) {
+	stopPortForward(cmd)
+	var kept []*exec.Cmd
+	for _, tunnel := range d.Tunnels {
+		if tunnel != cmd {
+			kept = append(kept, tunnel)
+		}
+	}
+	d.Tunnels = kept
+}
+
+func (d *deploy) stopAllTunnels() {
+	for _, tunnel := range d.Tunnels {
+		stopPortForward(tunnel)
+	}
+	d.Tunnels = nil
+}
+
+func httpGet(url string, limit time.Duration) (int, http.Header, []byte, error) {
+	client := &http.Client{
+		Timeout: limit,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	resp, err := client.Get(url)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	return resp.StatusCode, resp.Header, body, err
+}
+
+// fetchHealth reads the full /api/health payload over an open tunnel.
+func fetchHealth(local string) (map[string]any, error) {
+	lastErr := errors.New("no attempt")
+	for attempt := 0; attempt < 10; attempt++ {
+		status, _, body, err := httpGet("http://127.0.0.1:"+local+"/api/health", 15*time.Second)
+		if err == nil && status == 200 {
+			var health map[string]any
+			if jsonErr := json.Unmarshal(body, &health); jsonErr != nil {
+				return nil, jsonErr
+			}
+			return health, nil
+		}
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = fmt.Errorf("/api/health returned %d", status)
+		}
+		time.Sleep(time.Second)
+	}
+	return nil, lastErr
+}
+
+func (d *deploy) loopbackHealth(pod string) (map[string]any, error) {
+	tunnel, err := d.startPortForward(pod, appLocalPort, "8080")
+	if err != nil {
+		return nil, err
+	}
+	defer d.stopTunnel(tunnel)
+	return fetchHealth(appLocalPort)
+}
+
+// baseline records the running app's health before any change. The
+// rollback path needs its stateSchema to decide whether an undo is safe.
+func (d *deploy) baseline() {
+	step("Pre-deploy baseline (running app, loopback health)")
+	pod := d.readyPod(appName, d.OldApp)
+	guard pod != "" else {
+		d.fail("there is not exactly one ready gridiron-2000 pod running " + d.OldApp)
+	}
+	health, err := d.loopbackHealth(pod)
+	guard err == nil else {
+		d.fail("pre-deploy health of " + pod + ": " + err.Error())
+	}
+	current := schemaOf(health)
+	guard current.Known && current.Compatible else {
+		d.fail("pre-deploy health has no compatible stateSchema; a safe rollback cannot be checked")
+	}
+	d.Baseline = health
+	fmt.Printf("  %s: appVersion=%v gitSHA=%v\n", pod, health["appVersion"], health["gitSHA"])
+	fmt.Println("  stateSchema " + current.String())
+}
+
+// saveLive saves every existing object this run will change: the full live
+// YAML for a person, its last applied configuration for the automatic
+// restore, and each Deployment's revision for rollout undo.
+func (d *deploy) saveLive() {
+	step("Save every live object this run will change")
+	for _, o := range d.Objects {
+		if o.Stage == 0 || !o.Changed {
+			continue
+		}
+		if !o.Exists {
+			fmt.Println("  " + o.id() + ": new object; rollback deletes it")
+			continue
+		}
+		base := strings.TrimSuffix(filepath.Base(o.Path), ".yaml")
+		yml := capture(d.Root, time.Minute, "kubectl", "get", "-f", o.Path, "-o", "yaml")
+		guard yml.Code == 0 else {
+			d.fail("kubectl get " + o.id() + ": " + yml.Err)
+		}
+		d.mustWrite(filepath.Join(d.RunDir, "live-backup", base+".yaml"), yml.Out)
+		live := d.kubectlJSON("get", "-f", o.Path, "-o", "json")
+		lastApplied := digString(live, "metadata", "annotations", "kubectl.kubernetes.io/last-applied-configuration")
+		if lastApplied != "" {
+			o.RestorePath = filepath.Join(d.RunDir, "restore", base+".json")
+			d.mustWrite(o.RestorePath, lastApplied)
+		}
+		detail := ""
+		if o.Kind == "Deployment" {
+			o.Revision = digString(live, "metadata", "annotations", "deployment.kubernetes.io/revision")
+			o.Image = digString(live, "spec", "template", "spec", "containers", 0, "image")
+			guard o.Revision != "" else {
+				d.fail(o.id() + " has no revision annotation; rollback could not target it")
+			}
+			detail = " at revision " + o.Revision + " (" + o.Image + ")"
+		}
+		fmt.Println("  saved " + o.id() + detail)
+	}
+	fmt.Println("  saved to " + filepath.Join(d.RunDir, "live-backup"))
+}
+
+// applyAll applies each changed object in stage order and waits for each
+// Deployment. The relay is checked before the app changes.
+func (d *deploy) applyAll() {
+	step("Apply: config, identity, Services, relay, app, routing, NetworkPolicies last")
+	for _, o := range d.Objects {
+		if o.Stage == 0 || !o.Changed {
+			continue
+		}
+		fmt.Println("\n  apply " + o.id())
+		d.Applying = true
+		o.Applied = true
+		o.Created = !o.Exists
+		res := capture(d.Root, 2*time.Minute, "kubectl", "apply", "-f", o.Path)
+		fmt.Print(indent(res.Out))
+		guard res.Code == 0 else {
+			d.fail("kubectl apply " + o.id() + ": " + res.Err)
+		}
+		if o.Kind != "Deployment" {
+			continue
+		}
+		err := stream(d.Root, 7*time.Minute, "kubectl", "rollout", "status", "deployment/"+o.Name, "-n", namespace, "--timeout="+rolloutTimeout)
+		guard err == nil else {
+			d.fail("rollout of " + o.id() + " did not complete")
+		}
+		if o.Name == relayName {
+			d.relayChecks("after the statrelay rollout")
+		}
+	}
+}
+
+// relayChecks proves the relay serves, refuses a path outside its allow
+// list before any upstream call, and reaches Tank01 for an allow-listed
+// path.
+func (d *deploy) relayChecks(when string) {
+	step("statrelay checks " + when)
+	d.RelayChecked = true
+	pod := d.readyPod(relayName, relayRepo+"@"+d.Rel.RelayDigest)
+	if pod == "" {
+		d.record("statrelay pod", "FAIL", "there is not exactly one ready statrelay pod on the release image")
+		d.failOnCheckFailures("statrelay checks")
+	}
+	tunnel, err := d.startPortForward(pod, relayLocalPort, "8090")
+	if err != nil {
+		d.record("statrelay tunnel", "FAIL", err.Error())
+		d.failOnCheckFailures("statrelay checks")
+	}
+	defer d.stopTunnel(tunnel)
+	base := "http://127.0.0.1:" + relayLocalPort
+	status, _, body, getErr := httpGet(base+"/healthz", 10*time.Second)
+	if getErr == nil && status == 200 && strings.TrimSpace(string(body)) == "ok" {
+		d.record("statrelay /healthz", "PASS", "200 ok from "+pod)
+	} else {
+		d.record("statrelay /healthz", "FAIL", fmt.Sprintf("status %d, error %v", status, getErr))
+	}
+	status, _, body, getErr = httpGet(base+"/getNFLBettingOdds", 10*time.Second)
+	if getErr == nil && status == 404 && strings.Contains(string(body), "not a relayed Tank01 endpoint") {
+		d.record("statrelay allow-list", "PASS", "/getNFLBettingOdds refused with 404 before any upstream call")
+	} else {
+		d.record("statrelay allow-list", "FAIL", fmt.Sprintf("/getNFLBettingOdds returned %d (%v); want a 404 refusal", status, getErr))
+	}
+	d.tank01Check(pod, base)
+	d.failOnCheckFailures("statrelay checks")
+}
+
+// tank01Check sends one allow-listed request whose cache entry lives 10
+// seconds (STATRELAY_SCOREBOARD_TTL), then reads the relay log for its
+// upstream call. It spends one Tank01 request.
+func (d *deploy) tank01Check(pod string, base string) {
+	key := "/getNFLScoresOnly?gameDate=" + time.Now().UTC().Format("20060102")
+	upstreamPattern := regexp.MustCompile(`statrelay: upstream status=([0-9]+) path=` + regexp.QuoteMeta(key))
+	for attempt := 0; attempt < 2; attempt++ {
+		since := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
+		status, header, body, err := httpGet(base+key, 60*time.Second)
+		if err != nil {
+			d.record("statrelay to Tank01", "FAIL", key+": "+err.Error())
+			return
+		}
+		time.Sleep(time.Second)
+		logs := capture(d.Root, time.Minute, "kubectl", "logs", "pod/"+pod, "-n", namespace, "--since-time="+since)
+		found := upstreamPattern.FindAllStringSubmatch(logs.Out, -1)
+		if len(found) == 0 {
+			if attempt == 0 && strings.Contains(logs.Out, "cache=hit path="+key) {
+				time.Sleep(11 * time.Second)
+				continue
+			}
+			d.record("statrelay to Tank01", "FAIL", fmt.Sprintf("%s returned %d, and the relay logged no upstream call", key, status))
+			return
+		}
+		upstream := found[len(found)-1][1]
+		if upstream == "200" && status == 200 && header.Get("X-Statrelay-Stale") == "" {
+			d.record("statrelay to Tank01", "PASS", fmt.Sprintf("allow-listed %s reached Tank01: upstream 200, %d bytes, relay budget left %s", key, len(body), header.Get("X-Statrelay-Budget-Remaining")))
+			return
+		}
+		if upstream == "401" || upstream == "403" {
+			d.record("statrelay to Tank01", "FAIL", "Tank01 refused the relay's credential: upstream "+upstream)
+			return
+		}
+		d.record("statrelay to Tank01", "WARN", fmt.Sprintf("the relay reached Tank01, which answered %s (client saw %d)", upstream, status))
+		return
+	}
+	d.record("statrelay to Tank01", "FAIL", "each attempt came from the relay cache; the upstream call is unproven")
+}
+
+// relayProbe proves the app pod itself reaches the relay Service. An
+// ephemeral container shares the pod's network namespace and labels, so the
+// request crosses the same DNS, Service, and NetworkPolicy path as the app.
+// The terminated container stays in the pod record until the pod is replaced.
+func (d *deploy) relayProbe(appPod string) {
+	name := "relay-probe-" + strconv.FormatInt(time.Now().Unix(), 10)
+	res := capture(d.Root, 2*time.Minute, "kubectl", "debug", "-n", namespace, "pod/"+appPod, "--image="+d.ProbeImage, "--profile=restricted", "--container="+name, "--", "wget", "-q", "-T", "10", "-O", "-", relayServiceURL+"/healthz")
+	if res.Code != 0 {
+		d.record("gridiron to statrelay", "FAIL", "could not start the in-pod probe: "+res.Err)
+		return
+	}
+	exitCode := ""
+	for attempt := 0; attempt < 45 && exitCode == ""; attempt++ {
+		time.Sleep(2 * time.Second)
+		pod, err := d.tryJSON("get", "pod", appPod, "-n", namespace, "-o", "json")
+		if err != nil {
+			continue
+		}
+		statuses, _ := dig(pod, "status", "ephemeralContainerStatuses").([]any)
+		for _, status := range statuses {
+			if digString(status, "name") != name {
+				continue
+			}
+			if code, ok := dig(status, "state", "terminated", "exitCode").(float64); ok {
+				exitCode = strconv.Itoa(int(code))
+			}
+		}
+	}
+	logs := capture(d.Root, time.Minute, "kubectl", "logs", "pod/"+appPod, "-n", namespace, "-c", name)
+	output := strings.TrimSpace(logs.Out)
+	if exitCode == "0" && output == "ok" {
+		d.record("gridiron to statrelay", "PASS", appPod+" reached "+relayServiceURL+"/healthz (probe container "+name+")")
+		return
+	}
+	d.record("gridiron to statrelay", "FAIL", fmt.Sprintf("probe %s exit code %q, output %q", name, exitCode, output))
+}
+
+func (d *deploy) checkPublicRoot() {
+	for attempt := 0; attempt < 45; attempt++ {
+		status, _, _, err := httpGet(publicOrigin+"/", 20*time.Second)
+		if err == nil && status == 200 {
+			d.record("public root", "PASS", publicOrigin+"/ returned 200")
+			return
+		}
+		time.Sleep(2 * time.Second)
+	}
+	d.record("public root", "FAIL", publicOrigin+"/ did not return 200 within 90 seconds")
+}
+
+func (d *deploy) checkPublicHealth() {
+	lastDetail := ""
+	for attempt := 0; attempt < 15; attempt++ {
+		status, _, body, err := httpGet(publicOrigin+"/api/health", 20*time.Second)
+		if err == nil && status == 200 {
+			var health map[string]any
+			if json.Unmarshal(body, &health) == nil {
+				ok, _ := health["ok"].(bool)
+				version := digString(health, "appVersion")
+				if ok && version == d.Rel.Tag {
+					d.record("public /api/health", "PASS", fmt.Sprintf("ok=true appVersion=%s (%d fields for an anonymous caller)", version, len(health)))
+					return
+				}
+				lastDetail = fmt.Sprintf("ok=%t appVersion=%s", ok, version)
+			}
+		} else {
+			lastDetail = fmt.Sprintf("status %d, error %v", status, err)
+		}
+		time.Sleep(2 * time.Second)
+	}
+	d.record("public /api/health", "FAIL", "want ok=true and appVersion="+d.Rel.Tag+"; last: "+lastDetail)
+}
+
+// checkAppHealth applies the release health gates to the new pod's full
+// loopback payload, then waits for the startup backup to report.
+func (d *deploy) checkAppHealth(appPod string) {
+	tunnel, err := d.startPortForward(appPod, appLocalPort, "8080")
+	if err != nil {
+		d.record("app loopback health", "FAIL", err.Error())
+		return
+	}
+	defer d.stopTunnel(tunnel)
+	health, err := fetchHealth(appLocalPort)
+	if err != nil {
+		d.record("app loopback health", "FAIL", err.Error())
+		return
+	}
+	ok, _ := health["ok"].(bool)
+	sha := digString(health, "gitSHA")
+	if ok && sha == d.Rel.SHA {
+		d.record("app loopback health", "PASS", "ok=true gitSHA="+sha)
+	} else {
+		d.record("app loopback health", "FAIL", fmt.Sprintf("ok=%t gitSHA=%s; want ok=true gitSHA=%s", ok, sha, d.Rel.SHA))
+	}
+	current := schemaOf(health)
+	old := schemaOf(d.Baseline)
+	if current.Known && current.Compatible {
+		note := "the previous image also supports it"
+		if current.Persisted > old.Supported || current.PersistedDB > old.SupportedDB {
+			note = "NEWER than the previous image supports; an image-only undo is not safe"
+		}
+		d.record("state schema", "PASS", current.String()+"; "+note)
+	} else {
+		d.record("state schema", "FAIL", "missing or incompatible: "+current.String())
+	}
+	leagueConfig := digString(health, "leagueConfig")
+	if strings.HasPrefix(leagueConfig, "file:") {
+		d.record("league config", "PASS", leagueConfig)
+	} else {
+		d.record("league config", "FAIL", "leagueConfig="+leagueConfig+"; want the mounted file")
+	}
+	players, _ := health["fantasyPoolPlayers"].(float64)
+	capacity, _ := health["fantasyRosterCapacity"].(float64)
+	mode := digString(health, "fantasyPoolMode")
+	poolErr := digString(health, "fantasyPoolError")
+	if (mode == "live" || mode == "cache") && poolErr == "" && players >= capacity && capacity > 0 {
+		d.record("player pool", "PASS", fmt.Sprintf("mode=%s players=%d capacity=%d", mode, int(players), int(capacity)))
+	} else {
+		d.record("player pool", "FAIL", fmt.Sprintf("mode=%s players=%d capacity=%d error=%q", mode, int(players), int(capacity), poolErr))
+	}
+	wasListening, _ := d.Baseline["commissionerHQV1Listening"].(bool)
+	listening, _ := health["commissionerHQV1Listening"].(bool)
+	if listening || !wasListening {
+		d.record("Commissioner HQ v1", "PASS", fmt.Sprintf("listening=%t (before: %t)", listening, wasListening))
+	} else {
+		d.record("Commissioner HQ v1", "FAIL", "the provider listened before the release and does not now")
+	}
+	d.checkStartupBackup(appPod)
+}
+
+// checkStartupBackup waits for the snapshot the app takes at startup. A sink
+// failure never blocks the app, so this check warns and never rolls back.
+func (d *deploy) checkStartupBackup(appPod string) {
+	pod, err := d.tryJSON("get", "pod", appPod, "-n", namespace, "-o", "json")
+	if err != nil {
+		d.record("startup backup", "WARN", err.Error())
+		return
+	}
+	started, err := time.Parse(time.RFC3339, digString(pod, "status", "startTime"))
+	if err != nil {
+		d.record("startup backup", "WARN", "no pod start time")
+		return
+	}
+	detail := "no backup attempt reported yet"
+	for attempt := 0; attempt < 18; attempt++ {
+		health, fetchErr := fetchHealth(appLocalPort)
+		if fetchErr == nil {
+			complete, healthy, summary := backupState(health, started)
+			detail = summary
+			if complete {
+				status := "PASS"
+				if !healthy {
+					status = "WARN"
+				}
+				d.record("startup backup", status, summary)
+				return
+			}
+		}
+		time.Sleep(5 * time.Second)
+	}
+	d.record("startup backup", "WARN", detail+" (waited 90 seconds)")
+}
+
+// backupState reports whether the local snapshot and every off-host sink
+// attempted a copy after started, and whether every attempt succeeded.
+func backupState(health map[string]any, started time.Time) (bool, bool, string) {
+	backups, _ := health["backups"].(map[string]any)
+	targets := map[string]any{"local": backups["local"]}
+	sinks, _ := backups["sinks"].(map[string]any)
+	for name, sink := range sinks {
+		targets[name] = sink
+	}
+	names := make([]string, 0, len(targets))
+	for name := range targets {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	complete := true
+	healthy := true
+	var parts []string
+	for _, name := range names {
+		target := targets[name]
+		attempt, err := time.Parse(time.RFC3339, digString(target, "lastAttempt"))
+		if err != nil || attempt.Before(started.Add(-2*time.Second)) {
+			complete = false
+			parts = append(parts, name+" has not run since the pod started")
+			continue
+		}
+		ok, _ := dig(target, "healthy").(bool)
+		if !ok {
+			healthy = false
+			parts = append(parts, name+" failed: "+digString(target, "lastError"))
+			continue
+		}
+		parts = append(parts, name+" succeeded at "+digString(target, "lastSuccess"))
+	}
+	return complete, healthy, strings.Join(parts, "; ")
+}
+
+// verify runs every release check against the final state, after the
+// NetworkPolicies, and rolls back on any FAIL.
+func (d *deploy) verify() {
+	step("Verify the release")
+	appPod := d.readyPod(appName, appRepo+"@"+d.Rel.AppDigest)
+	if appPod == "" {
+		d.record("app pod", "FAIL", "there is not exactly one ready gridiron-2000 pod on the release image")
+		d.failOnCheckFailures("verification")
+	}
+	d.checkPublicRoot()
+	d.checkPublicHealth()
+	d.checkAppHealth(appPod)
+	d.relayProbe(appPod)
+	if !d.RelayChecked {
+		d.relayChecks("in the final verification")
+	}
+	d.failOnCheckFailures("verification")
+}
+
+// rollback reverts every object this run applied, in reverse order: it
+// deletes what the run created (NetworkPolicies first), undoes each
+// Deployment to its recorded revision, and re-applies the previous
+// configuration of anything else. It never stops the run early.
+func (d *deploy) rollback() {
+	d.RolledBack = true
+	step("Automatic rollback of every change this run made")
+	for i := len(d.Objects) - 1; i >= 0; i-- {
+		o := d.Objects[i]
+		if !o.Applied {
+			continue
+		}
+		if o.Created {
+			res := capture(d.Root, 3*time.Minute, "kubectl", "delete", "-f", o.Path, "--ignore-not-found", "--wait=true")
+			d.noteResult(o.id(), "deleted the object this run created", res)
+			continue
+		}
+		if o.Kind == "Deployment" {
+			d.undoDeployment(o)
+			continue
+		}
+		if o.RestorePath != "" {
+			res := capture(d.Root, 2*time.Minute, "kubectl", "apply", "-f", o.RestorePath)
+			d.noteResult(o.id(), "re-applied its previous configuration", res)
+			continue
+		}
+		d.Notes = append(d.Notes, o.id()+": no previous configuration on record; restore it by hand from "+filepath.Join(d.RunDir, "live-backup"))
+	}
+}
+
+func (d *deploy) noteResult(id string, action string, res result) {
+	if res.Code == 0 {
+		d.Notes = append(d.Notes, id+": "+action)
+		fmt.Println("  " + id + ": " + action)
+		return
+	}
+	d.Notes = append(d.Notes, id+": FAILED to roll back ("+action+"): "+res.Err)
+	fmt.Println("  " + id + ": FAILED to roll back: " + res.Err)
+}
+
+// schemaBlocksUndo refuses an image-only undo when the new binary wrote a
+// state schema the previous binary cannot read (deploy/README.md).
+func (d *deploy) schemaBlocksUndo() string {
+	old := schemaOf(d.Baseline)
+	pod := d.readyPod(appName, appRepo+"@"+d.Rel.AppDigest)
+	if !old.Known || pod == "" {
+		return ""
+	}
+	health, err := d.loopbackHealth(pod)
+	if err != nil {
+		return ""
+	}
+	current := schemaOf(health)
+	if current.Known && (current.Persisted > old.Supported || current.PersistedDB > old.SupportedDB) {
+		return "the new binary persisted " + current.String() + ", newer than the previous binary supports (" + old.String() + ")"
+	}
+	return ""
+}
+
+func (d *deploy) undoDeployment(o *object) {
+	if o.Name == appName {
+		if reason := d.schemaBlocksUndo(); reason != "" {
+			d.Notes = append(d.Notes, o.id()+": automatic undo REFUSED: "+reason+"; roll forward or deploy a tested compatible digest")
+			fmt.Println("  " + o.id() + ": automatic undo refused: " + reason)
+			return
+		}
+	}
+	live, err := d.tryJSON("get", "deployment", o.Name, "-n", namespace, "-o", "json")
+	if err == nil && digString(live, "metadata", "annotations", "deployment.kubernetes.io/revision") == o.Revision {
+		d.Notes = append(d.Notes, o.id()+": still at revision "+o.Revision+"; nothing to undo")
+		return
+	}
+	res := capture(d.Root, 2*time.Minute, "kubectl", "rollout", "undo", "deployment/"+o.Name, "-n", namespace, "--to-revision="+o.Revision)
+	if res.Code != 0 {
+		d.noteResult(o.id(), "rollout undo --to-revision="+o.Revision, res)
+		return
+	}
+	statusErr := stream(d.Root, 7*time.Minute, "kubectl", "rollout", "status", "deployment/"+o.Name, "-n", namespace, "--timeout="+rolloutTimeout)
+	after, _ := d.tryJSON("get", "deployment", o.Name, "-n", namespace, "-o", "json")
+	image := digString(after, "spec", "template", "spec", "containers", 0, "image")
+	if statusErr == nil && image == o.Image {
+		d.Notes = append(d.Notes, o.id()+": undone to revision "+o.Revision+" ("+image+")")
+		return
+	}
+	d.Notes = append(d.Notes, o.id()+": undo to revision "+o.Revision+" did not finish cleanly; image now "+image)
+}
+
+type summaryFile struct {
+	Outcome     string   `json:"outcome"`
+	Mode        string   `json:"mode"`
+	Release     string   `json:"release"`
+	SourceSHA   string   `json:"sourceSHA"`
+	OldApp      string   `json:"oldAppImage"`
+	NewApp      string   `json:"newAppImage"`
+	OldRelay    string   `json:"oldRelayImage"`
+	NewRelay    string   `json:"newRelayImage"`
+	Changed     []string `json:"changedObjects"`
+	Checks      []check  `json:"checks"`
+	Notes       []string `json:"notes"`
+	Rollback    []string `json:"rollbackCommands"`
+	RunDir      string   `json:"runDir"`
+	ElapsedSecs int64    `json:"elapsedSeconds"`
+}
+
+// summary prints the outcome and writes it to the run directory. It never
+// stops the run, because fail calls it.
+func (d *deploy) summary(outcome string) {
+	step("Summary: " + outcome)
+	var b strings.Builder
+	line := func(text string) {
+		b.WriteString(text + "\n")
+	}
+	newApp := ""
+	newRelay := ""
+	if d.Rel.AppDigest != "" {
+		newApp = appRepo + "@" + d.Rel.AppDigest
+	}
+	if d.Rel.RelayDigest != "" {
+		newRelay = relayRepo + "@" + d.Rel.RelayDigest
+	}
+	line("outcome:   " + outcome)
+	line("release:   " + d.Rel.Tag + " (source " + d.Rel.SHA + ")")
+	line("run dir:   " + d.RunDir)
+	line("elapsed:   " + time.Since(d.Started).Round(time.Second).String())
+	line("app:       " + d.OldApp + " -> " + newApp)
+	line("statrelay: " + d.OldRelay + " -> " + newRelay)
+	var changed []string
+	line("objects:")
+	for _, o := range d.Objects {
+		state := "no change"
+		if o.Changed && o.Stage == 0 {
+			state = "DRIFT (not applied)"
+		} else if o.Applied && o.Created {
+			state = "created"
+		} else if o.Applied {
+			state = "applied"
+		} else if o.Changed {
+			state = "will change"
+		}
+		if o.Changed {
+			changed = append(changed, o.id())
+		}
+		line(fmt.Sprintf("  %-20s %s", state, o.id()))
+	}
+	if len(d.Checks) > 0 {
+		line("checks:")
+		for _, c := range d.Checks {
+			line(fmt.Sprintf("  %-4s %s: %s", c.Status, c.Name, c.Detail))
+		}
+	}
+	if len(d.Notes) > 0 {
+		line("notes:")
+		for _, note := range d.Notes {
+			line("  " + note)
+		}
+	}
+	var commands []string
+	for _, o := range d.Objects {
+		if o.Applied && o.Kind == "Deployment" && o.Revision != "" {
+			commands = append(commands, "kubectl -n "+namespace+" rollout undo deployment/"+o.Name+" --to-revision="+o.Revision)
+			commands = append(commands, "kubectl -n "+namespace+" rollout status deployment/"+o.Name+" --timeout="+rolloutTimeout)
+		}
+		if o.Applied && o.Created {
+			commands = append(commands, "kubectl -n "+namespace+" delete "+strings.ToLower(o.Kind)+" "+o.Name)
+		}
+	}
+	if len(commands) > 0 {
+		line("manual rollback commands (the previous revisions this run recorded):")
+		for _, command := range commands {
+			line("  " + command)
+		}
+	}
+	if outcome == "DEPLOYED" {
+		line("follow-up: pin the new digests in the repository so kubectl diff -f deploy/k8s/ stays clean:")
+		line("  cp " + filepath.Join(d.RunDir, "pin") + "/*.yaml deploy/k8s/   # digests only; no WIF values")
+	}
+	fmt.Print(b.String())
+	if d.RunDir == "" {
+		return
+	}
+	if err := writeFile(filepath.Join(d.RunDir, "summary.txt"), b.String()); err != nil {
+		fmt.Println("  warning: could not write summary.txt: " + err.Error())
+	}
+	report := summaryFile{Outcome: outcome, Mode: d.Mode, Release: d.Rel.Tag, SourceSHA: d.Rel.SHA, OldApp: d.OldApp, NewApp: newApp, OldRelay: d.OldRelay, NewRelay: newRelay, Changed: changed, Checks: d.Checks, Notes: d.Notes, Rollback: commands, RunDir: d.RunDir, ElapsedSecs: int64(time.Since(d.Started) / time.Second)}
+	raw, err := json.MarshalIndent(report, "", "  ")
+	if err == nil {
+		writeFile(filepath.Join(d.RunDir, "summary.json"), string(raw)+"\n")
+	}
+}

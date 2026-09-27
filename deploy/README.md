@@ -189,6 +189,64 @@ only when `fantasyPoolError` is empty and
 `fantasyPoolPlayers >= fantasyRosterCapacity`. A `cache` result is not an
 error when those conditions hold.
 
+## Deploying
+
+`scripts/deploy.fw` releases the flagship app and the shared `statrelay`.
+Run it from a clean checkout of `origin/main`:
+
+```bash
+GRIDIRON_DEPLOY_MODE=diff  ferrous-wheel run scripts/deploy.fw   # the default
+GRIDIRON_DEPLOY_MODE=apply ferrous-wheel run scripts/deploy.fw
+```
+
+Both modes do these steps. Each step stops the run when its gate fails.
+
+1. Preflight: `HEAD` must equal the fetched `origin/main`, with no local
+   change. `go build ./...` and `go vet ./...` must pass with `GOWORK=off`.
+2. Disk gate: `ssh buildbox 'df -h /'` must show at least 60G free.
+   buildbox runs the k3s node and Harbor, so low disk there stops the cluster.
+3. Images: build both images from a `git archive` of `HEAD`. Tag them
+   `release-<UTC date>-<short SHA>` and push them to
+   `harbor.draco.quest/orchard/`. A second run of the same tag reuses them.
+4. Render: pin the new digests. Fill the Workload Identity Federation
+   placeholders from the live backup ConfigMap and Deployment, because the
+   repository never holds those values. A remaining placeholder stops the run.
+5. Diff: print the server dry-run diff (`kubectl diff`) of every object in
+   `deploy/k8s/`. The script never reads `sk/` or a `*.example.yaml` file.
+   A change to the Namespace, a PVC, a Middleware, or the HTTP redirect
+   Ingress stops the run. A Service, Ingress, or NetworkPolicy change needs
+   `GRIDIRON_DEPLOY_ACK_NETWORK_DIFF=1` after you read its diff.
+
+`diff` mode stops after step 5 and makes no cluster change. `apply` mode
+continues:
+
+6. Record the running app's health. Save each live object that will change.
+7. Apply only the changed objects, in this order: ConfigMaps, the
+   ServiceAccount, Services, `statrelay`, `gridiron-2000`, the Ingress, and
+   NetworkPolicies last. Wait for `kubectl rollout status` after each
+   Deployment, and check the relay before the app changes.
+8. Verify the release:
+   - `https://gridiron.draco.quest/` returns 200.
+   - The public `/api/health` returns `ok` and the new `appVersion`.
+   - The loopback health payload passes the release health gate above.
+   - The new app pod reaches the `statrelay` Service.
+   - The relay refuses a path outside its allow-list, and it reaches Tank01
+     for an allowed path. This check spends one Tank01 request.
+9. On a failure after the first apply, roll back. The script undoes each
+   Deployment to its recorded revision, unless the new binary wrote a newer
+   state schema. It deletes each object the run created and re-applies the
+   previous configuration of every other changed object.
+
+The app-to-relay check adds a short-lived ephemeral container to the new app
+pod. The container stays in the pod record until the pod is replaced.
+
+Each run writes its rendered manifests, diffs, live backups, and
+`summary.txt` under `$GRIDIRON_DEPLOY_STATE_DIR` (default
+`~/.local/state/gridiron-deploy`). After a successful apply, copy the run's
+`pin/*.yaml` files to `deploy/k8s/` and merge them, so
+`kubectl diff -f deploy/k8s/` stays clean. Those files carry only the new
+digests.
+
 ## Existing-instance release controls
 
 For a release that enables Commissioner HQ, generate one newly generated,
@@ -384,12 +442,10 @@ share one metered upstream quota.
 
 ### Deploying statrelay
 
-The relay is an existing shared dependency, not part of this application
-release. The checked-in `deploy/k8s/statrelay.yaml` still uses
-`harbor.draco.quest/orchard/gridiron-2000-statrelay:latest`, and its image
-provenance/digest pinning is future cleanup. Do not rebuild, retag, repin, or
-roll `statrelay` while applying the app release; do not turn that future
-cleanup into a prerequisite for the SK-first canary.
+`deploy/k8s/statrelay.yaml` pins the relay image by digest (ops-drift
+hardening, 2026-09-23). `scripts/deploy.fw` builds the relay from the same
+commit as the app, pins its digest, and rolls it before the app. See
+"Deploying" above.
 
 ```bash
 kubectl apply -f deploy/k8s/statrelay.yaml
@@ -399,11 +455,7 @@ kubectl apply -f deploy/k8s/statrelay.yaml
 kubectl apply -f deploy/local/statrelay-secret.yaml
 ```
 
-The apply commands above are first-install/bootstrap only. A future,
-separate relay cleanup must build from a recorded source commit, publish an
-immutable tag and digest with provenance, update the relay Deployment, and
-roll it under its own acceptance and rollback plan. This app release records
-the relay dependency and leaves that cleanup untouched.
+The apply commands above are first-install/bootstrap only.
 
 After this app release is accepted, removal of the stale flagship
 `TANK01_API_KEY` is an explicit, separate secret-maintenance operation. Do
