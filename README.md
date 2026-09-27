@@ -29,9 +29,8 @@ Every league-specific fact — name, team count, divisions, draft date, and invi
 - A public /guide for managers arriving from another fantasy provider, with a five-minute start, commissioner checklist, draft controls, data states, and a manual migration checklist.
 - An explicit [season operations handbook](docs/season-operations.md) for draft night, weekly lineup locks, waivers, trades, week close, degraded data, and fleet-scale commissioner operations.
 
-The seat-scoped board ownership, transfer/detach behavior, legacy per-account
-migration, rollback, and attribution follow-up are versioned in
-[Decision 0001](docs/decisions/0001-seat-scoped-big-board.md).
+Each franchise seat has one private, durable Big Board shared by its primary
+manager and co-manager.
 
 There are no Sleeper, Genius Sports, sportsbook, PrizePicks, or NFL+ account integrations. No sports-data API key is required: without one the draft room runs on the embedded offline pool.
 
@@ -448,7 +447,6 @@ Every file under `docs/`, indexed at [`docs/README.md`](docs/README.md):
 
 | Document | Covers |
 | --- | --- |
-| [`docs/project-state-2026-09-26.md`](docs/project-state-2026-09-26.md) | Current source, CI, open-gate, and next-work snapshot (no deployment assertion) |
 | [`docs/quickstart.md`](docs/quickstart.md) | Ten-minute Docker Compose deployment walkthrough |
 | [`docs/configuration.md`](docs/configuration.md) | Every `league.json` field, boot states, and environment override |
 | [`docs/season-operations.md`](docs/season-operations.md) | Draft night through week close, live scoring, and degraded-data operations |
@@ -465,9 +463,6 @@ Every file under `docs/`, indexed at [`docs/README.md`](docs/README.md):
 | [`docs/px1_help_corpus.md`](docs/px1_help_corpus.md) | The `/help` corpus contract: topics, search, and recovery guidance |
 | [`docs/px1_glossary.md`](docs/px1_glossary.md) | A projection of the in-app glossary |
 | [`docs/px1_concept-transition.md`](docs/px1_concept-transition.md) | A vocabulary map for managers migrating from another platform |
-| [`docs/px1_comprehension-gate.md`](docs/px1_comprehension-gate.md) | Scripted PX-1 participant comprehension worksheet; remains open until human review |
-| [`docs/px1_evidence-packet.md`](docs/px1_evidence-packet.md) | PX-1 evidence inventory, source reconciliation, and unresolved acceptance receipts |
-| [`docs/decisions/0001-seat-scoped-big-board.md`](docs/decisions/0001-seat-scoped-big-board.md) | Seat-scoped Big Board ownership decision record |
 
 ## Upstream references
 

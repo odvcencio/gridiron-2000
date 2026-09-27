@@ -158,8 +158,6 @@ Write plainly: lead with the point, use common words and the active voice, keep 
 
 ## Where decisions live
 
-Durable product and architecture decisions are versioned under
-[`docs/decisions/`](docs/decisions/), for example
-[Decision 0001](docs/decisions/0001-seat-scoped-big-board.md) on
-seat-scoped Big Board ownership. Record a decision there when a change
-affects behavior a future contributor could reasonably assume differently.
+Record durable product and architecture decisions in the appropriate Hyphae
+space when a change affects behavior a future contributor could reasonably
+assume differently.
