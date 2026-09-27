@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "image": "harbor.draco.quest/orchard/gridiron-2000@sha256:8e13456bcf79c59fe6a2c95d2e8cbc5c65fe554e1d3363aa66894c61911b7e42",
+  "image": "registry.example.com/gridiron/gridiron-2000@sha256:0000000000000000000000000000000000000000000000000000000000000000",
   "statrelay_origin": "http://statrelay.gridiron.svc.cluster.local",
   "ingress_class": "traefik",
   "certificate_issuer": "cloudflare-issuer",
@@ -9,7 +9,7 @@
       "id": "g2k",
       "namespace": "gridiron",
       "resource_prefix": "gridiron-2000",
-      "public_origin": "https://gridiron.draco.quest",
+      "public_origin": "https://league.example.com",
       "league_config_path": "league.json.example",
       "pvc_storage": "1Gi",
       "commissioner_hq": {
@@ -24,7 +24,7 @@
       "id": "skl",
       "namespace": "stablekernel",
       "resource_prefix": "gridiron-2000-sk",
-      "public_origin": "https://sk.gridiron.draco.quest",
+      "public_origin": "https://second.league.example.com",
       "league_config_path": "league.json.example",
       "pvc_storage": "1Gi",
       "commissioner_hq": {

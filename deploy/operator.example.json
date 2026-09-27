@@ -1,0 +1,7 @@
+{
+  "app_repo": "registry.example.com/gridiron/app",
+  "relay_repo": "registry.example.com/gridiron/statrelay",
+  "public_origin": "https://league.example.com",
+  "build_host": "your-build-host",
+  "manifest_dir": "/secure/gridiron/k8s"
+}

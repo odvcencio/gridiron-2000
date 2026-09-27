@@ -3,9 +3,9 @@
 # through Cloudflare, so the certificate can be ready before the public DNS
 # record exists), and a short "<app>-tls" TLS secret name.
 #
-# sk.gridiron.draco.quest is the live Stable Kernel hostname. Its public DNS,
-# certificate, and league.url are already configured; keep them aligned if
-# the league ever moves.
+# second.league.example.com is a placeholder. Configure your private hostname,
+# DNS, certificate, OAuth callback, and league.url together; verify them before
+# accepting a deployment.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -20,7 +20,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: sk.gridiron.draco.quest
+    - host: second.league.example.com
       http:
         paths:
           - path: /
@@ -32,5 +32,5 @@ spec:
                   name: http
   tls:
     - hosts:
-        - sk.gridiron.draco.quest
+        - second.league.example.com
       secretName: gridiron-2000-sk-tls

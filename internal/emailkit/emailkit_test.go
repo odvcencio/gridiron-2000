@@ -38,7 +38,7 @@ func TestBlockGoldens(t *testing.T) {
 			{Label: "VENUE", Value: "During the Dolphins preseason game — bring both screens, the second one is for the board."},
 			{Label: "YOUR KEY", Value: "Sign in with Google as manager@example.com"},
 		}}},
-		{"cta", CTA{Label: "SEE THE BOARD →", URL: "https://gridiron.draco.quest/draft"}},
+		{"cta", CTA{Label: "SEE THE BOARD →", URL: "https://league.example.com/draft"}},
 		{"stattable", StatTable{
 			Title:  "AROUND THE LEAGUE",
 			Header: []string{"SLOT", "TEAM", "MANAGER"},
@@ -96,7 +96,7 @@ func onTheClockShell() Shell {
 		Signoff:    "— The Commissioner",
 		FooterJoke: "GRIDIRON 2000 · Eight seats. One trophy. Permanent group-chat evidence.",
 		PrefLine:   "You hold a seat in GRIDIRON 2000. Draft-room alerts: on.",
-		PrefURL:    "https://gridiron.draco.quest/settings",
+		PrefURL:    "https://league.example.com/settings",
 	}
 }
 
@@ -115,7 +115,7 @@ func onTheClockBlocks() []Block {
 			{Label: "YOUR BOARD", Value: "Jahmyr Gibbs · RB · DET still sits " +
 				"at #1. Two of your top five are already gone."},
 		}},
-		CTA{Label: "TAKE YOUR PICK →", URL: "https://gridiron.draco.quest/draft"},
+		CTA{Label: "TAKE YOUR PICK →", URL: "https://league.example.com/draft"},
 		Note{Text: "If the cap hits zero, the server drafts the top of your Big Board for " +
 			"you. No board? Best available by ADP. Either way the tape reads AUTO " +
 			"next to your name — forever. One tap fixes that."},
@@ -403,7 +403,7 @@ func TestWrapTextNeverReachesWidth(t *testing.T) {
 }
 
 func TestWrapTextSingleLongWordNeverBreaks(t *testing.T) {
-	url := "https://gridiron.draco.quest/draft?utm_source=notification&utm_medium=email&utm_campaign=on-the-clock-reminder"
+	url := "https://league.example.com/draft?utm_source=notification&utm_medium=email&utm_campaign=on-the-clock-reminder"
 	lines := wrapText(url, TextWrapWidth)
 	if len(lines) != 1 || lines[0] != url {
 		t.Errorf("a single long token must occupy one unbroken line, got %v", lines)

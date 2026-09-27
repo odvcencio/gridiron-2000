@@ -1332,7 +1332,7 @@ func (s *Service) evalPickemResults(state PersistedState, now time.Time) {
 	if !s.notifyReady() {
 		return
 	}
-	games := s.schedule()
+	games := s.pickemSchedule()
 	season := strconv.Itoa(s.cfg.Season)
 	for _, week := range pickemWeeks(games) {
 		weekGames := gamesInWeek(games, week)

@@ -26,7 +26,8 @@ func scoreboardRow(awayPts, homePts float64, possessing, period, clock string) f
 	return fantasy.ScoreboardGame{
 		GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF",
 		AwayPoints: awayPts, HomePoints: homePts,
-		StatusCode: "1", InProgress: true, Period: period, Clock: clock,
+		ScoresPresent: true,
+		StatusCode:    "1", InProgress: true, Period: period, Clock: clock,
 		Raw: map[string]any{
 			"away": "BAL", "home": "BUF",
 			"lineScore": map[string]any{"away": side("away"), "home": side("home")},

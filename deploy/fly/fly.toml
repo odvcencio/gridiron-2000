@@ -27,12 +27,8 @@ app = "gridiron-2000"
 primary_region = "iad"
 
 [build]
-  # Deploy the published image directly. Self-hosters who want to build
-  # from source instead can delete this line and add:
-  #   dockerfile = "Dockerfile"
-  # (run fly deploy from the repository root in that case, since the
-  # Dockerfile's build context is the whole checkout, not this directory).
-  image = "harbor.draco.quest/orchard/gridiron-2000@sha256:ab646811af28b5abaf2135dc13c51cdd4a06ae307017a7a3407019afc30a3ab2"
+  # Build from this checkout; select the repository root as build context.
+  dockerfile = "Dockerfile"
 
 [env]
   PORT = "8080"

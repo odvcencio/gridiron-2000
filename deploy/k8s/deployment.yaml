@@ -41,19 +41,8 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # Release release-2026.09.27-e588bff, source e588bff (main),
-          # deployed by scripts/deploy.fw. Logical and physical state schemas
-          # remain at 12. The previous release digest (1765fc55,
-          # release-2026.09.23-67550e3) supports both persisted versions for
-          # rollback. Flagship and statrelay only; inactive SK is unchanged.
-          #
-          # Image digest independently reconciled to the live running pod,
-          # 2026-09-23 (ops-drift hardening): the tracked digest had fallen
-          # behind an image-only roll that was applied straight with a
-          # patch, not through this manifest. Always deploy a pinned
-          # digest, never :latest or a mutable tag — see deploy/README.md's
-          # release image policy.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:e6ebf3e264b7806da3f7fa9f8b2522861d002669da4c13779df5f9d36320103e
+          # Example only. Pin your private operator manifest to your own image digest.
+          image: registry.example.com/gridiron/gridiron-2000@sha256:0000000000000000000000000000000000000000000000000000000000000000
           imagePullPolicy: IfNotPresent
           ports:
             # hq-v1 (8091) is the Commissioner HQ v1 provider's own private
@@ -79,7 +68,7 @@ spec:
             # image: field above on every change — a mismatch here is a
             # silent lie to every federated peer, not just a stale label.
             - name: APP_IMAGE_DIGEST
-              value: "sha256:e6ebf3e264b7806da3f7fa9f8b2522861d002669da4c13779df5f9d36320103e"
+              value: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
             # Commissioner HQ v1: this instance's own read-only federation
             # provider (deploy/README.md's "Existing-instance release
             # controls" section documents the rollout). COMMISSIONER_HQ_PROVIDER_SECRET
@@ -152,28 +141,11 @@ spec:
             - name: COMMISSIONER_INSTANCE_ID
               value: "g2k"
             - name: COMMISSIONER_HQ_PEERS
-              value: "skl=http://gridiron-2000-sk.stablekernel.svc.cluster.local|https://sk.gridiron.draco.quest"
-            # Off-host backup copy: owner decision 2026-09-23 (ops-drift
-            # hardening) — Google Cloud Storage, project bookt-cc,
-            # authenticated by keyless Workload Identity Federation (WIF):
-            # org policy (constraints/iam.disableServiceAccountKeyCreation)
-            # blocks both a service-account JSON key and an HMAC key, so
-            # no long-lived credential lives in a Secret or ConfigMap
-            # here. The database is tiny (league.db is under 1MB), so the
-            # off-host copy is deliberately minimal: one fresh
-            # gzip-compressed VACUUM INTO snapshot per nightly tick
-            # (backup_gcs_sink.go's gcsBackupSink, wired in by
-            # backupSinksFromEnv), uploaded straight to the bucket over
-            # the GCS JSON API with no sidecar container — see
-            # docs/backup-restore.md's "Google Cloud Storage" section for
-            # the full recipe (WIF pool/provider/impersonation setup and
-            # the bucket's own 14-day lifecycle rule, the sole retention
-            # mechanism) and why this is a real, un-applied change until
-            # the coordinator provisions the pool/provider and fills in
-            # the gridiron-backup-gcp-config ConfigMap's placeholders this
-            # Deployment now references.
+              value: "skl=http://gridiron-2000-sk.stablekernel.svc.cluster.local|https://second.league.example.com"
+            # Optional off-host backup. Set the bucket and WIF identity only
+            # in your private operator manifests.
             - name: BACKUP_GCS_BUCKET
-              value: "m31labs-gridiron-backups"
+              value: "example-league-backups"
             # GOOGLE_APPLICATION_CREDENTIALS is Google's own standard
             # variable (golang.org/x/oauth2/google's default discovery),
             # not an app-specific one — it points at the mounted

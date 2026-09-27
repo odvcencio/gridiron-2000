@@ -1,16 +1,6 @@
-// deploy/k8s/ is the authoritative, applied source of truth for the
-// flagship's live objects: the Deployment, its Services, its
-// NetworkPolicy, and its non-league ConfigMaps. `kubectl diff -f
-// deploy/k8s/` against the live gridiron namespace must show no change
-// beyond a deliberately recorded, in-flight edit (ops-drift hardening,
-// 2026-09-23 — see CHANGELOG.md and this file's own tests). A manifest
-// edit that is not also applied live, or a live `kubectl edit`/`patch`
-// that is not also committed here, is drift and must be reconciled the
-// same day it is found, not left for the next release to rediscover.
-// gridiron-2000-league-config is the one deliberate, documented exception
-// (deploy/README.md's "Why a ConfigMap, not a file in this repo") — it
-// carries one operator's real league identity and is created out-of-band,
-// never tracked.
+// deploy/k8s contains portable examples, never the live operator configuration.
+// These contracts validate topology and safety of the examples. Production
+// manifests and release pins belong in a private directory outside this checkout.
 package main
 
 import (
@@ -32,14 +22,14 @@ func TestCommissionerHQDeploymentsUseExplicitTrustedPeerOrigins(t *testing.T) {
 			name:       "flagship",
 			path:       "deploy/k8s/deployment.yaml",
 			instanceID: "g2k",
-			peer:       "skl=http://gridiron-2000-sk.stablekernel.svc.cluster.local|https://sk.gridiron.draco.quest",
+			peer:       "skl=http://gridiron-2000-sk.stablekernel.svc.cluster.local|https://second.league.example.com",
 			secret:     "gridiron-2000-secrets",
 		},
 		{
 			name:       "stable kernel",
 			path:       "deploy/k8s/sk/deployment.yaml",
 			instanceID: "skl",
-			peer:       "g2k=http://gridiron-2000.gridiron.svc.cluster.local|https://gridiron.draco.quest",
+			peer:       "g2k=http://gridiron-2000.gridiron.svc.cluster.local|https://league.example.com",
 			secret:     "gridiron-2000-sk-secrets",
 		},
 	}
@@ -129,7 +119,7 @@ func TestLiveScoringDeploymentValuesArePinnedAndMirrored(t *testing.T) {
 
 // manifestImageDigest matches a Deployment container's pinned `image:`
 // field's own sha256 digest (the part after the @, never a tag).
-var manifestImageDigest = regexp.MustCompile(`image: harbor\.draco\.quest/orchard/gridiron-2000@(sha256:[0-9a-f]{64})`)
+var manifestImageDigest = regexp.MustCompile(`image: registry\.example\.com/gridiron/gridiron-2000@(sha256:[0-9a-f]{64})`)
 
 // manifestAppImageDigestEnv matches the flagship's own inline
 // APP_IMAGE_DIGEST env value.
@@ -154,7 +144,7 @@ func TestFlagshipManifestAppImageDigestMatchesPinnedImage(t *testing.T) {
 	manifest := string(raw)
 	imageMatch := manifestImageDigest.FindStringSubmatch(manifest)
 	if imageMatch == nil {
-		t.Fatal("deploy/k8s/deployment.yaml: no pinned harbor.draco.quest/orchard/gridiron-2000@sha256:... image digest found")
+		t.Fatal("deploy/k8s/deployment.yaml: no pinned registry.example.com/gridiron/gridiron-2000@sha256:... image digest found")
 	}
 	envMatch := manifestAppImageDigestEnv.FindStringSubmatch(manifest)
 	if envMatch == nil {

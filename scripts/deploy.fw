@@ -3,7 +3,7 @@ package main
 // deploy.fw releases GRIDIRON 2000 to the flagship "gridiron" namespace: the
 // gridiron-2000 app and the shared statrelay cache. It builds both images
 // from a clean origin/main, pins them by digest, prints a server dry-run
-// diff of every manifest, applies only what changes, verifies the result,
+// diff of private operator manifests, applies only what changes, verifies the result,
 // and rolls back every change it made when a gate fails.
 //
 //	GRIDIRON_DEPLOY_MODE=diff  ferrous-wheel run scripts/deploy.fw   # default; no cluster change
@@ -21,6 +21,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,17 +36,13 @@ const (
 	namespace       = "gridiron"
 	appName         = "gridiron-2000"
 	relayName       = "statrelay"
-	appRepo         = "harbor.draco.quest/orchard/gridiron-2000"
-	relayRepo       = "harbor.draco.quest/orchard/gridiron-2000-statrelay"
-	publicOrigin    = "https://gridiron.draco.quest"
 	relayServiceURL = "http://statrelay.gridiron.svc.cluster.local"
 	appLocalPort    = "8105"
 	relayLocalPort  = "8106"
 	minFreeGiB      = 60
 	rolloutTimeout  = "5m"
 	// The probe runs busybox wget inside the new app pod's network namespace.
-	// This digest is the nginx:1.27-alpine image already cached on the node,
-	// so the probe needs no registry pull.
+	// Pin the diagnostic image so probe behavior is reproducible.
 	defaultProbeImage = "docker.io/library/nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"
 	// The committed manifests carry these placeholders. The live objects carry
 	// the real Workload Identity Federation (WIF) values, which the public
@@ -55,18 +52,23 @@ const (
 )
 
 var (
+	appRepo             string
+	relayRepo           string
+	publicOrigin        string
+	buildHost           string
+	manifestDir         string
 	digestPattern       = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-	appImagePattern     = regexp.MustCompile(`image: harbor\.draco\.quest/orchard/gridiron-2000@(sha256:[0-9a-f]{64})`)
-	relayImagePattern   = regexp.MustCompile(`image: harbor\.draco\.quest/orchard/gridiron-2000-statrelay@(sha256:[0-9a-f]{64})`)
+	appImagePattern     *regexp.Regexp
+	relayImagePattern   *regexp.Regexp
 	appDigestEnvPattern = regexp.MustCompile(`name: APP_IMAGE_DIGEST\n\s+value: "(sha256:[0-9a-f]{64})"`)
 	imageLinePattern    = regexp.MustCompile(`(?m)^\s*image:\s*(\S+)\s*$`)
-	pinnedImagePattern  = regexp.MustCompile(`^harbor\.draco\.quest/orchard/[a-z0-9-]+@sha256:[0-9a-f]{64}$`)
+	pinnedImagePattern  *regexp.Regexp
 	wifAudiencePattern  = regexp.MustCompile(`^//iam\.googleapis\.com/(projects/[0-9]+/locations/global/workloadIdentityPools/[a-z0-9-]+/providers/[a-z0-9-]+)$`)
 	wifAccountPattern   = regexp.MustCompile(`^https://iamcredentials\.googleapis\.com/v1/projects/-/serviceAccounts/([A-Za-z0-9._@-]+):generateAccessToken$`)
-	placeholderTokens   = []string{"PROJECT_NUMBER", "POOL_ID", "PROVIDER_ID", "IMPERSONATED_SA_EMAIL", "REPLACE_ME", "replace-with"}
+	placeholderTokens   = []string{"PROJECT_NUMBER", "POOL_ID", "PROVIDER_ID", "IMPERSONATED_SA_EMAIL", "REPLACE_ME", "replace-with", "example.com", "example-project", "example-league-backups"}
 )
 
-// manifestFiles is every tracked top-level manifest under deploy/k8s. A new
+// manifestFiles is the supported private operator manifest set. A new
 // top-level YAML file stops the run until scopeTable names its objects.
 var manifestFiles = []string{
 	"hq-registry.yaml",
@@ -202,6 +204,11 @@ func main() {
 	}
 	d := &deploy{Mode: mode, Started: started, ProbeImage: envOr("GRIDIRON_DEPLOY_PROBE_IMAGE", defaultProbeImage)}
 	d.Root = d.repoRoot()
+	d.loadOperatorConfig()
+	if os.Getenv("GRIDIRON_DEPLOY_CHECK_CONFIG") == "1" {
+		fmt.Println("Operator configuration valid; no release actions performed")
+		return
+	}
 	d.preflight()
 	d.makeRunDir()
 	d.diskGate("before the build")
@@ -220,6 +227,75 @@ func main() {
 	d.applyAll()
 	d.verify()
 	d.summary("DEPLOYED")
+}
+
+// Operator targets and manifests belong outside the public source checkout.
+type operatorConfig struct {
+	AppRepo      string `json:"app_repo"`
+	RelayRepo    string `json:"relay_repo"`
+	PublicOrigin string `json:"public_origin"`
+	BuildHost    string `json:"build_host"`
+	ManifestDir  string `json:"manifest_dir"`
+}
+
+func (d *deploy) loadOperatorConfig() {
+	path := os.Getenv("GRIDIRON_DEPLOY_CONFIG")
+	guard filepath.IsAbs(path) else {
+		d.fail("GRIDIRON_DEPLOY_CONFIG must name an absolute private operator JSON file")
+	}
+	resolvedConfig, err := filepath.EvalSymlinks(path)
+	guard err == nil else { d.fail("resolve operator configuration: " + err.Error()) }
+	d.rejectPublicOperatorPath(filepath.Dir(resolvedConfig))
+	raw, err := os.ReadFile(resolvedConfig)
+	guard err == nil else { d.fail("read operator configuration: " + err.Error()) }
+	var cfg operatorConfig
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.DisallowUnknownFields()
+	guard decoder.Decode(&cfg) == nil else { d.fail("invalid operator configuration JSON") }
+	var extra any
+	guard decoder.Decode(&extra) == io.EOF else { d.fail("operator configuration must contain one JSON object") }
+	repoPattern := regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?/[a-z0-9][a-z0-9._/-]*$`)
+	guard repoPattern.MatchString(cfg.AppRepo) && repoPattern.MatchString(cfg.RelayRepo) && cfg.AppRepo != cfg.RelayRepo else {
+		d.fail("operator app_repo and relay_repo must be distinct registry/repository names without tags or digests")
+	}
+	origin, err := url.Parse(cfg.PublicOrigin)
+	guard err == nil && origin.Scheme == "https" && origin.Host != "" && origin.User == nil && origin.Path == "" && origin.RawQuery == "" && origin.Fragment == "" else {
+		d.fail("operator public_origin must be an HTTPS origin without credentials, path, query, or fragment")
+	}
+	guard regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`).MatchString(cfg.BuildHost) else {
+		d.fail("operator build_host must be an explicit SSH host alias")
+	}
+	guard filepath.IsAbs(cfg.ManifestDir) else { d.fail("operator manifest_dir must be an absolute private directory") }
+	resolved, err := filepath.EvalSymlinks(cfg.ManifestDir)
+	guard err == nil else { d.fail("resolve private manifest directory: " + err.Error()) }
+	root, err := filepath.EvalSymlinks(d.Root)
+	guard err == nil else { d.fail("resolve source checkout: " + err.Error()) }
+	relative, err := filepath.Rel(root, resolved)
+	guard err == nil && relative != "." && (relative == ".." || strings.HasPrefix(relative, ".." + string(os.PathSeparator))) else {
+		d.fail("operator manifests must live outside the public source checkout")
+	}
+	d.rejectPublicOperatorPath(resolved)
+	for _, value := range []string{cfg.AppRepo, cfg.RelayRepo, cfg.PublicOrigin} {
+		guard !strings.Contains(value, "example.com") && !strings.Contains(value, "example.invalid") else {
+			d.fail("replace example operator targets before running a release")
+		}
+	}
+	appRepo, relayRepo, publicOrigin, buildHost, manifestDir = cfg.AppRepo, cfg.RelayRepo, cfg.PublicOrigin, cfg.BuildHost, resolved
+	appImagePattern = regexp.MustCompile(`image: ` + regexp.QuoteMeta(appRepo) + `@(sha256:[0-9a-f]{64})`)
+	relayImagePattern = regexp.MustCompile(`image: ` + regexp.QuoteMeta(relayRepo) + `@(sha256:[0-9a-f]{64})`)
+	pinnedImagePattern = regexp.MustCompile(`^(?:` + regexp.QuoteMeta(appRepo) + `|` + regexp.QuoteMeta(relayRepo) + `)@sha256:[0-9a-f]{64}$`)
+	d.checkManifestSet()
+}
+
+// Reject every worktree of this public repository, not just the active one.
+// A separate private infrastructure repository remains a valid operator source.
+func (d *deploy) rejectPublicOperatorPath(dir string) {
+	source := capture(d.Root, 10*time.Second, "git", "rev-parse", "--path-format=absolute", "--git-common-dir")
+	guard source.Code == 0 else { d.fail("identify public source repository") }
+	candidate := capture(dir, 10*time.Second, "git", "rev-parse", "--path-format=absolute", "--git-common-dir")
+	guard candidate.Code != 0 || strings.TrimSpace(candidate.Out) != strings.TrimSpace(source.Out) else {
+		d.fail("operator configuration and manifests must be outside every worktree of the public repository")
+	}
 }
 
 // prepareEnvironment builds against published modules only, never a local
@@ -467,12 +543,12 @@ func (d *deploy) makeRunDir() {
 	fmt.Println("  run directory " + dir)
 }
 
-// diskGate protects the production host. buildbox runs the k3s node and
+// diskGate protects the configured build host, which runs the cluster and
 // Harbor, so low disk there is a cluster outage (2026-09-24), not a build
 // failure.
 func (d *deploy) diskGate(when string) {
 	step("Buildbox disk gate " + when + " (at least 60G free on /)")
-	host := envOr("GRIDIRON_DEPLOY_BUILDBOX", "buildbox")
+	host := buildHost
 	human := capture(d.Root, time.Minute, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, "df -h /")
 	guard human.Code == 0 else {
 		d.fail("ssh " + host + " df -h /: " + human.Err)
@@ -653,7 +729,7 @@ func (d *deploy) liveWIF() wifValues {
 }
 
 func (d *deploy) checkManifestSet() {
-	dir := filepath.Join(d.Root, "deploy", "k8s")
+	dir := manifestDir
 	entries, err := os.ReadDir(dir)
 	guard err == nil else {
 		d.fail("read " + dir + ": " + err.Error())
@@ -781,7 +857,7 @@ func (d *deploy) render() {
 	d.checkManifestSet()
 	wif := d.liveWIF()
 	for _, manifest := range manifestFiles {
-		raw, err := os.ReadFile(filepath.Join(d.Root, "deploy", "k8s", manifest))
+		raw, err := os.ReadFile(filepath.Join(manifestDir, manifest))
 		guard err == nil else {
 			d.fail("read deploy/k8s/" + manifest + ": " + err.Error())
 		}
@@ -794,7 +870,7 @@ func (d *deploy) render() {
 			pinned = d.pinDigest(manifest, body, relayImagePattern, d.Rel.RelayDigest, 1)
 		}
 		if pinned != body {
-			// The repository follow-up: the new digests only, never the WIF values.
+			// Private operator follow-up: retain new digests without copying WIF values.
 			d.mustWrite(filepath.Join(d.RunDir, "pin", manifest), pinned)
 		}
 		rendered := strings.ReplaceAll(pinned, wifProviderPlaceholder, wif.ProviderPath)
@@ -832,7 +908,7 @@ func (d *deploy) render() {
 }
 
 // checkRendered is the render gate: no placeholder outside a comment, every
-// Deployment image pinned by digest in Harbor, and the app's self-reported
+// Deployment image pinned by digest in the configured registry, and the app's self-reported
 // APP_IMAGE_DIGEST equal to its image.
 func (d *deploy) checkRendered() {
 	for _, o := range d.Objects {
@@ -856,7 +932,7 @@ func (d *deploy) checkRendered() {
 		}
 		for _, image := range images {
 			guard pinnedImagePattern.MatchString(image[1]) else {
-				d.fail(o.id() + " image " + image[1] + " is not pinned by digest in Harbor")
+				d.fail(o.id() + " image " + image[1] + " is not pinned by digest in the configured registry")
 			}
 		}
 	}
@@ -1668,8 +1744,8 @@ func (d *deploy) summary(outcome string) {
 		}
 	}
 	if outcome == "DEPLOYED" {
-		line("follow-up: pin the new digests in the repository so kubectl diff -f deploy/k8s/ stays clean:")
-		line("  cp " + filepath.Join(d.RunDir, "pin") + "/*.yaml deploy/k8s/   # digests only; no WIF values")
+		line("follow-up: retain the new digests in the private operator manifest directory:")
+		line("  copy files from " + filepath.Join(d.RunDir, "pin") + " to " + manifestDir + "; never commit operator manifests")
 	}
 	fmt.Print(b.String())
 	if d.RunDir == "" {
