@@ -341,26 +341,30 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 		</ul>
 		<div class="matchup-pairs-totals" role="row">
 			<span class="matchup-pairs-totals__side" role="cell">PROJ <ProjectionValue ClassName="matchup-pairs-totals__projection mono" Value={props.Mine.Projected} Bind={"originalProjected." + props.Mine.ID} TipID={"total-" + props.Mine.ID} Coverage={props.Mine.ProjectionCoverage} CoverageBind={"originalProjectionCoverage." + props.Mine.ID} Note={props.Mine.ProjectionNote} NoteBind={"originalProjectionNote." + props.Mine.ID}></ProjectionValue> · PTS <b data-gosx-live-bind={"scores." + props.Mine.ID}>{props.Mine.Score}</b></span>
-			<span class="matchup-pairs-totals__label" role="cell">Total</span>
+			<span class="matchup-pairs-totals__label" role="cell">Starters total</span>
 			<span class="matchup-pairs-totals__side matchup-pairs-totals__side--right" role="cell">PROJ <ProjectionValue ClassName="matchup-pairs-totals__projection mono" Value={props.Theirs.Projected} Bind={"originalProjected." + props.Theirs.ID} TipID={"total-" + props.Theirs.ID} Coverage={props.Theirs.ProjectionCoverage} CoverageBind={"originalProjectionCoverage." + props.Theirs.ID} Note={props.Theirs.ProjectionNote} NoteBind={"originalProjectionNote." + props.Theirs.ID}></ProjectionValue> · PTS <b data-gosx-live-bind={"scores." + props.Theirs.ID}>{props.Theirs.Score}</b></span>
 		</div>
 		</div>
-		<details class="matchup-benches">
-			<summary>Benches</summary>
+		<details class="matchup-benches" open>
+			<summary>Bench</summary>
 			<div class="matchup-benches__body">
 				<div class="matchup-benches__side">
 					<span class="section-index">{props.Mine.Name}</span>
+					<p class="matchup-benches__total mono" data-gosx-live-bind={"benchTotal." + props.Mine.ID}>{props.MineBenchSummary.TotalLine}</p>
+					<p class="matchup-benches__left mono" data-gosx-live-bind={"benchLeft." + props.Mine.ID}>{props.MineBenchSummary.LeftLine}</p>
 					<ul class="matchup-benches__list">
 						<Each of={props.MineBench} as="player">
-							<li><TextBlock as="span" class="matchup-benches__name" font="600 14px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={player.PlayerName} /><span class="matchup-benches__meta muted">{player.Position} · {player.NFLTeam}</span><span class="matchup-benches__proj mono">PROJ {player.Proj}</span></li>
+							<li><TextBlock as="span" class="matchup-benches__name" font="600 14px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={player.PlayerName} /><span class="matchup-benches__meta muted">{player.Position} · {player.NFLTeam}</span><span class="matchup-benches__beat" data-gosx-live-bind={"benchBeat." + player.LiveKey}>{player.BeatText}</span><span class="matchup-benches__value mono" data-phase={player.Phase}><span class="matchup-benches__label" data-gosx-live-bind={"benchLabel." + player.LiveKey}>{player.Label}</span> <b data-gosx-live-bind={"benchValue." + player.LiveKey}>{player.Value}</b></span></li>
 						</Each>
 					</ul>
 				</div>
 				<div class="matchup-benches__side">
 					<span class="section-index">{props.Theirs.Name}</span>
+					<p class="matchup-benches__total mono" data-gosx-live-bind={"benchTotal." + props.Theirs.ID}>{props.TheirsBenchSummary.TotalLine}</p>
+					<p class="matchup-benches__left mono" data-gosx-live-bind={"benchLeft." + props.Theirs.ID}>{props.TheirsBenchSummary.LeftLine}</p>
 					<ul class="matchup-benches__list">
 						<Each of={props.TheirsBench} as="player">
-							<li><TextBlock as="span" class="matchup-benches__name" font="600 14px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={player.PlayerName} /><span class="matchup-benches__meta muted">{player.Position} · {player.NFLTeam}</span><span class="matchup-benches__proj mono">PROJ {player.Proj}</span></li>
+							<li><TextBlock as="span" class="matchup-benches__name" font="600 14px Plus Jakarta Sans" lineHeight={18} maxLines={1} overflow="ellipsis" text={player.PlayerName} /><span class="matchup-benches__meta muted">{player.Position} · {player.NFLTeam}</span><span class="matchup-benches__beat" data-gosx-live-bind={"benchBeat." + player.LiveKey}>{player.BeatText}</span><span class="matchup-benches__value mono" data-phase={player.Phase}><span class="matchup-benches__label" data-gosx-live-bind={"benchLabel." + player.LiveKey}>{player.Label}</span> <b data-gosx-live-bind={"benchValue." + player.LiveKey}>{player.Value}</b></span></li>
 						</Each>
 					</ul>
 				</div>
