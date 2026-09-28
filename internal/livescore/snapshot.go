@@ -29,15 +29,16 @@ type DSTLine struct {
 
 // GameState is one polled game's clock, keyed by the schedule game ID.
 type GameState struct {
-	ID         string
-	Tank01ID   string
-	Week       int
-	Away, Home string // nflverse abbreviations
-	Period     string
-	Clock      string
-	AwayPoints float64
-	HomePoints float64
-	Final      bool
+	ID            string
+	Tank01ID      string
+	Week          int
+	Away, Home    string // nflverse abbreviations
+	Period        string
+	Clock         string
+	AwayPoints    float64
+	HomePoints    float64
+	ScoresPresent bool // both real team scores were present in the provider payload
+	Final         bool
 	// BoxFinal distinguishes a final box-score response from a scoreboard
 	// row that announced final before the last box fetch caught up. Consumers
 	// may treat a player omitted from a BoxFinal game as a confirmed zero.
@@ -156,7 +157,7 @@ func addBoxToSnapshot(out *Snapshot, game Game, box fantasy.BoxScore, at time.Ti
 		possession, possessionKnown = ExtractPossession(box.Raw)
 	}
 	out.Games[game.ID] = GameState{ID: game.ID, Tank01ID: box.GameID, Week: game.Week, Away: NormalizeTeam(box.Away), Home: NormalizeTeam(box.Home),
-		Period: box.Period, Clock: box.Clock, AwayPoints: box.AwayPoints, HomePoints: box.HomePoints, Final: box.Final, BoxFinal: box.Final, InProgress: box.InProgress, Kickoff: game.Kickoff, FetchedAt: at,
+		Period: box.Period, Clock: box.Clock, AwayPoints: box.AwayPoints, HomePoints: box.HomePoints, ScoresPresent: box.ScoresPresent, Final: box.Final, BoxFinal: box.Final, InProgress: box.InProgress, Kickoff: game.Kickoff, FetchedAt: at,
 		Possession: possession, PossessionKnown: possessionKnown}
 }
 

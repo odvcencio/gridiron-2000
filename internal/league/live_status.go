@@ -16,9 +16,10 @@ type LiveGameState struct {
 	// InProgress and the final score once Final; before kickoff both are
 	// zero, which is why every reader gates on Final or InProgress rather
 	// than on the numbers themselves.
-	AwayPoints float64
-	HomePoints float64
-	Final      bool
+	AwayPoints    float64
+	HomePoints    float64
+	ScoresPresent bool // distinguishes real zeros from absent provider scores
+	Final         bool
 	// BoxFinal is true only when the underlying box-score response itself
 	// was final. It stays false when the lighter scoreboard gets there first.
 	BoxFinal   bool

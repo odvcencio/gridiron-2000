@@ -304,6 +304,27 @@ func starterFinalLabel(team, away, home string, awayPoints, homePoints float64) 
 	return fmt.Sprintf("%s %d-%d", result, int(math.Round(own)), int(math.Round(opponent)))
 }
 
+// starterGameScore shows the real NFL score while the starter's game is live.
+// The snapshot is already week-scoped; retain an explicit check for a known
+// mismatched week and never invent a zero for missing provider fields.
+func starterGameScore(player Player, week int, snapshot matchupStatsSnapshot) string {
+	if !snapshot.hasLive || starterOnBye(player, week, snapshot) {
+		return ""
+	}
+	team := normalizeNFLAbbreviation(player.NFLTeam)
+	game, ok := snapshot.live.Games[team]
+	away, home := normalizeNFLAbbreviation(game.Away), normalizeNFLAbbreviation(game.Home)
+	if !ok || !game.InProgress || game.Final || !game.ScoresPresent || (game.Week != 0 && game.Week != week) || away == "" || home == "" || (team != away && team != home) {
+		return ""
+	}
+	for _, score := range []float64{game.AwayPoints, game.HomePoints} {
+		if math.IsNaN(score) || math.IsInf(score, 0) || score < 0 || score != math.Trunc(score) {
+			return ""
+		}
+	}
+	return fmt.Sprintf("%s %.0f · %s %.0f", away, game.AwayPoints, home, game.HomePoints)
+}
+
 // starterGameState renders one starter's game clock: "BYE" when the
 // starter's team has no game this week, "Q3 8:12" while the poller sees
 // the game in progress, the game's own result ("W 27-20", see
@@ -665,6 +686,7 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 		row.Position = assignment.Player.Position
 		row.NFLTeam = assignment.Player.NFLTeam
 		row.GameState = starterGameState(assignment.Player, week, snapshot, s.matchupLocation())
+		row.GameScore = starterGameScore(assignment.Player, week, snapshot)
 		row.GameFinal = starterGameFinal(assignment.Player.NFLTeam, snapshot)
 		row.Injury = injuryDesignationAbbr(assignment.Player.Injury)
 		row.InjuryLabel = strings.TrimSpace(assignment.Player.Injury)
