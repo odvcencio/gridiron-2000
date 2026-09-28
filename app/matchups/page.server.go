@@ -543,29 +543,63 @@ func starterProgressWinChances(progress StarterProgressData, chance string, seco
 	return progress
 }
 
-// BenchRowData is one Benches-disclosure row (A4, matchup redesign
-// 2026-09-07): bench composition is public information in this league —
-// it explains why a manager is favoured — so this carries only the plain
-// facts a manager reads at a glance, no live-bind (the bench never plays
-// in this matchup and its weekly projection never changes mid-game).
+// BenchRowData is one Bench-section row. Value is the projection before
+// kickoff, the live actual once the player's game has started, and the
+// final actual after it ends; Label says which ("PROJ", "LIVE", "FINAL",
+// "BYE") in words, so the meaning never rests on colour. LiveKey binds the
+// row to the live poll (league.BenchLiveKey). Beat marks a bench player
+// who outscored a started player at an eligible position.
 type BenchRowData struct {
 	PlayerName string
 	Position   string
 	NFLTeam    string
 	Proj       string
+	Value      string
+	Label      string
+	Phase      string
+	LiveKey    string
+	Beat       bool
+	// BeatText is the words behind Beat, empty when false.
+	BeatText string
 }
 
 func benchRowsData(raw []map[string]any) []BenchRowData {
 	out := make([]BenchRowData, 0, len(raw))
 	for _, row := range raw {
+		value := stringField(row, "value")
+		if value == "" {
+			value = stringField(row, "proj")
+		}
 		out = append(out, BenchRowData{
 			PlayerName: stringField(row, "player_name"),
 			Position:   stringField(row, "position"),
 			NFLTeam:    stringField(row, "nfl_team"),
 			Proj:       stringField(row, "proj"),
+			Value:      value,
+			Label:      stringField(row, "label"),
+			Phase:      stringField(row, "phase"),
+			LiveKey:    stringField(row, "live_key"),
+			Beat:       boolField(row, "beat"),
+			BeatText:   benchBeatText(boolField(row, "beat")),
 		})
 	}
 	return out
+}
+
+// BenchSummaryData is one team's bench total and points-left sentences.
+type BenchSummaryData struct {
+	TotalLine string
+	LeftLine  string
+	HasLeft   bool
+}
+
+func benchSummaryData(raw any) BenchSummaryData {
+	row, _ := raw.(map[string]any)
+	return BenchSummaryData{
+		TotalLine: stringField(row, "total_line"),
+		LeftLine:  stringField(row, "left_line"),
+		HasLeft:   boolField(row, "has_left"),
+	}
 }
 
 // FeaturedMatchupData is the typed data.my_matchup entry: MatchupsData's
@@ -598,14 +632,16 @@ type FeaturedMatchupData struct {
 	// names whose percentage WinProb is. Both exist because neither was
 	// derivable from the card itself: "mine" follows the viewer, so it is
 	// Home for a spectator and either side for a manager.
-	MineIsHome      bool
-	WinProbTeam     string
-	Mine            FeaturedTeamData
-	Theirs          FeaturedTeamData
-	Pairs           []FeaturedMatchupPairData
-	MineBench       []BenchRowData
-	TheirsBench     []BenchRowData
-	StarterProgress StarterProgressData
+	MineIsHome         bool
+	WinProbTeam        string
+	Mine               FeaturedTeamData
+	Theirs             FeaturedTeamData
+	Pairs              []FeaturedMatchupPairData
+	MineBench          []BenchRowData
+	TheirsBench        []BenchRowData
+	MineBenchSummary   BenchSummaryData
+	TheirsBenchSummary BenchSummaryData
+	StarterProgress    StarterProgressData
 }
 
 func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
@@ -650,6 +686,8 @@ func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
 		Pairs:               pairs,
 		MineBench:           benchRowsData(mineBenchRaw),
 		TheirsBench:         benchRowsData(theirsBenchRaw),
+		MineBenchSummary:    benchSummaryData(raw["mine_bench_summary"]),
+		TheirsBenchSummary:  benchSummaryData(raw["theirs_bench_summary"]),
 		StarterProgress:     featuredStarterProgressData(raw),
 	}
 }
@@ -892,4 +930,8 @@ func init() {
 	}); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func benchBeatText(beat bool) string {
+	return league.BenchBeatText(beat)
 }

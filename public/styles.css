@@ -19733,10 +19733,11 @@ a.skip-link {
   text-align: right;
 }
 
-/* Benches disclosure (A4): closed by default, native <details> — bench
-   composition is public information in this league (it explains why a
-   manager is favoured). No live-bind: the bench never plays in this
-   matchup and its weekly projection never changes mid-game. */
+/* Bench section: open by default, native <details>. Bench composition is
+   public in this league. Each row shows a projection before kickoff and
+   the actual (live, then final) once the player's game starts; the word
+   beside the number (PROJ, LIVE, FINAL, BYE) carries the meaning, not
+   colour. The bench total and points-left lines are live-bound. */
 .matchup-benches {
   border-top: 1px solid var(--color-border);
   padding: var(--space-sm) var(--space-md);
@@ -19789,6 +19790,57 @@ a.skip-link {
 .matchup-benches__proj {
   font-size: var(--type-xs);
   color: var(--color-text-muted);
+}
+
+.matchup-benches__total,
+.matchup-benches__left {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--type-xs);
+}
+
+.matchup-benches__total {
+  font-weight: 700;
+}
+
+.matchup-benches__left:empty,
+.matchup-benches__beat:empty {
+  display: none;
+}
+
+.matchup-benches__beat {
+  font-size: var(--type-xs);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.matchup-benches__value {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: var(--type-xs);
+  white-space: nowrap;
+}
+
+.matchup-benches__value b {
+  font-size: var(--type-sm, 0.9rem);
+}
+
+.matchup-benches__label {
+  color: var(--color-text-muted);
+  letter-spacing: 0.04em;
+}
+
+.matchup-benches__value[data-phase="proj"] b {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+@media (width <= 38rem) {
+  .matchups-page .matchup-benches__list li {
+    flex-wrap: wrap;
+  }
 }
 
 /* Featured card centre number (A1): PROJ big before kickoff, the live

@@ -110,7 +110,7 @@ func TestFeaturedMatchupDataBenchesWireThrough(t *testing.T) {
 		"mine":        map[string]any{"id": "team-1"},
 		"theirs":      map[string]any{"id": "team-2"},
 		"mine_bench": []map[string]any{
-			{"player_name": "Backup One", "position": "RB", "nfl_team": "KC", "proj": "8.4"},
+			{"player_name": "Backup One", "position": "RB", "nfl_team": "KC", "proj": "8.4", "value": "11.2", "label": "LIVE", "phase": "live", "live_key": "team-1_bench_b1", "beat": true},
 		},
 		"theirs_bench": []map[string]any{
 			{"player_name": "Backup Two", "position": "WR", "nfl_team": "MIA", "proj": "6.1"},
@@ -118,6 +118,9 @@ func TestFeaturedMatchupDataBenchesWireThrough(t *testing.T) {
 	})
 	if len(got.MineBench) != 1 || got.MineBench[0].PlayerName != "Backup One" || got.MineBench[0].Proj != "8.4" {
 		t.Fatalf("MineBench = %+v, want one Backup One row at 8.4", got.MineBench)
+	}
+	if row := got.MineBench[0]; row.Value != "11.2" || row.Label != "LIVE" || !row.Beat || row.BeatText == "" || row.LiveKey != "team-1_bench_b1" {
+		t.Fatalf("MineBench[0] = %+v, want live actual 11.2 labelled LIVE that beat a starter", row)
 	}
 	if len(got.TheirsBench) != 1 || got.TheirsBench[0].PlayerName != "Backup Two" || got.TheirsBench[0].Proj != "6.1" {
 		t.Fatalf("TheirsBench = %+v, want one Backup Two row at 6.1", got.TheirsBench)
@@ -127,7 +130,7 @@ func TestFeaturedMatchupDataBenchesWireThrough(t *testing.T) {
 // TestRedesignedFeaturedTableRendersSlotProjTotalsAndBenches is the
 // render-level check for A2/A4: the slot table carries a PROJ column and
 // the slot label per row, a totals row sums PROJ and PTS, and the
-// Benches disclosure renders closed by default.
+// Bench section renders open with live-bound total and points-left lines.
 func TestRedesignedFeaturedTableRendersSlotProjTotalsAndBenches(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestMatchupsPageFixtureProcess$")
 	cmd.Env = append(os.Environ(),
@@ -145,9 +148,11 @@ func TestRedesignedFeaturedTableRendersSlotProjTotalsAndBenches(t *testing.T) {
 		` projected points">Proj</span>`,
 		`class="slot-row__slot" role="cell">`,
 		`class="matchup-pairs-totals" role="row"`,
-		`class="matchup-pairs-totals__label" role="cell">Total</span>`,
-		`class="matchup-benches">`,
-		`<summary>Benches</summary>`,
+		`class="matchup-pairs-totals__label" role="cell">Starters total</span>`,
+		`class="matchup-benches" open>`,
+		`<summary>Bench</summary>`,
+		`data-gosx-live-bind="benchTotal.`,
+		`data-gosx-live-bind="benchLeft.`,
 		`class="proj starter-cell__proj" role="cell"> <span class="projection-cell projection-value"`,
 		`data-gosx-live-bind="starterOriginalProj.`,
 		`class="projection-tip"`, `ORIGINAL PROJECTION`,
@@ -178,17 +183,9 @@ func TestRedesignedFeaturedTableRendersSlotProjTotalsAndBenches(t *testing.T) {
 		t.Error("wheel retained crowded center or unwanted quarter explanation")
 	}
 
-	// The Benches <details> is closed by default (no "open" attribute) so
-	// the featured table still reads as the primary surface.
-	if idx := strings.Index(body, `class="matchup-benches"`); idx >= 0 {
-		tagEnd := strings.Index(body[idx:], ">")
-		if tagEnd < 0 {
-			t.Fatal("matchup-benches details tag never closes")
-		}
-		if strings.Contains(body[idx:idx+tagEnd], " open") {
-			t.Error("Benches disclosure rendered open by default, want closed")
-		}
-	}
+	// The Bench <details> is open by default: bench points are a number
+	// managers read every game day, so they are not tucked behind a tap.
+	// The disclosure stays native <details> so it can still be collapsed.
 
 	// PROJ always renders a real number, never borrowing PTS's own
 	// not-yet-known dash placeholder.

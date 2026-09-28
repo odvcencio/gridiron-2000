@@ -4228,6 +4228,31 @@ func (s *Service) liveScoresView(live LiveSnapshot, isCurrentWeek bool, currentW
 	starterProgressComplete := make(map[string]string, len(live.Matchups)*2)
 	starterProgressLabel := make(map[string]string)
 	starterProgressPlayers := make(map[string]string)
+	// bench* binds keep the Bench section on the same live poll as the
+	// starters: one row value and label per bench player, one total and
+	// one points-left sentence per team.
+	benchValueBind := make(map[string]string)
+	benchLabelBind := make(map[string]string)
+	benchTotalBind := make(map[string]string)
+	benchLeftBind := make(map[string]string)
+	benchBeatBind := make(map[string]string)
+	var benchState PersistedState
+	var benchSnapshot matchupStatsSnapshot
+	if len(live.Matchups) > 0 {
+		benchState = s.store.Snapshot()
+		benchSnapshot = s.matchupStatsSnapshot(live.Week)
+	}
+	addBench := func(side ScoreTeam, postedFinal bool) {
+		report := s.benchReport(benchState, side.ID, live.Week, side.StarterLedger, benchSnapshot, postedFinal)
+		for _, line := range report.Players {
+			key := BenchLiveKey(side.ID, line.PlayerID)
+			benchValueBind[key] = line.Value
+			benchLabelBind[key] = line.Label
+			benchBeatBind[key] = BenchBeatText(line.Beat)
+		}
+		benchTotalBind[side.ID] = report.TotalLine()
+		benchLeftBind[side.ID] = report.LeftLine()
+	}
 	liveStatusValue, hasLive := s.liveStatusForWeek(live.Week)
 	pool := s.pool()
 	projectionByID, projectionAvailable, projectionNote := s.projectionPoolForWeek(pool, live.Week)
@@ -4273,6 +4298,8 @@ func (s *Service) liveScoresView(live LiveSnapshot, isCurrentWeek bool, currentW
 		for _, row := range matchup.Home.StarterLedger {
 			addStarterRow(row)
 		}
+		addBench(matchup.Away, matchup.State == MatchupStateFinal)
+		addBench(matchup.Home, matchup.State == MatchupStateFinal)
 		status := matchup.Status
 		if status == "" {
 			status = "SCORES POSTED"
@@ -4385,6 +4412,11 @@ func (s *Service) liveScoresView(live LiveSnapshot, isCurrentWeek bool, currentW
 		"stillToPlayTotal":           stillToPlayTotalBind,
 		"stillToPlaySentence":        stillToPlaySentenceBind,
 		"starterPoints":              starterPoints,
+		"benchValue":                 benchValueBind,
+		"benchLabel":                 benchLabelBind,
+		"benchTotal":                 benchTotalBind,
+		"benchLeft":                  benchLeftBind,
+		"benchBeat":                  benchBeatBind,
 		"starterProj":                starterProjBind,
 		"starterOriginalProj":        starterOriginalProjBind,
 		"starterProgressDetail":      starterProgressDetailBind,
@@ -6210,6 +6242,7 @@ func emptyFeaturedMatchup() map[string]any {
 		"next_lineup_href": "", "next_week": 0, "has_next_week": false,
 		"mine": map[string]any{}, "theirs": map[string]any{}, "pairs": []map[string]any{},
 		"mine_bench": []map[string]any{}, "theirs_bench": []map[string]any{},
+		"mine_bench_summary": map[string]any{}, "theirs_bench_summary": map[string]any{},
 	}
 }
 
@@ -6285,8 +6318,12 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 	// viewedWeek; a closed week's historical bench composition is not
 	// separately pinned the way its starting lineup is, so this is an
 	// informational best-effort read for past weeks, not a scored value.
-	mineBench := benchRowMapsWithProjection(s.effectiveLineupForTeam(state, mine.ID, viewedWeek).Bench, projectionAvailable)
-	theirsBench := benchRowMapsWithProjection(s.effectiveLineupForTeam(state, theirs.ID, viewedWeek).Bench, projectionAvailable)
+	benchSnapshot := s.matchupStatsSnapshot(viewedWeek)
+	postedFinal := m.State == MatchupStateFinal
+	mineBenchReport := s.benchReport(state, mine.ID, viewedWeek, mine.StarterLedger, benchSnapshot, postedFinal)
+	theirsBenchReport := s.benchReport(state, theirs.ID, viewedWeek, theirs.StarterLedger, benchSnapshot, postedFinal)
+	mineBench := benchRowMapsFromReport(mine.ID, mineBenchReport)
+	theirsBench := benchRowMapsFromReport(theirs.ID, theirsBenchReport)
 	return map[string]any{
 		"has_matchup":    true,
 		"is_viewer":      isViewer,
@@ -6315,6 +6352,8 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 		"pairs":                    featuredStarterPairs(mine.StarterLedger, theirs.StarterLedger, byID, status, hasLive),
 		"mine_bench":               mineBench,
 		"theirs_bench":             theirsBench,
+		"mine_bench_summary":       benchSummaryMap(mineBenchReport),
+		"theirs_bench_summary":     benchSummaryMap(theirsBenchReport),
 	}
 }
 
