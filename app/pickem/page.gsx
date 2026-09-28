@@ -255,13 +255,15 @@ type PickemLeaderboardEntry struct {
 	Total   int
 	Wins    int
 	Losses  int
+	// TrophyHref deep-links the name to that manager's trophy case.
+	TrophyHref string
 }
 
 component LeaderboardRow(props: PickemLeaderboardEntry) {
 	return <div class="rank-row">
 		<span class="pool-rank mono">{props.Rank}</span>
 		<div class="pool-player">
-			<strong>{props.Name}</strong>
+			<a class="pickem-manager-link" href={props.TrophyHref} data-gosx-link><strong>{props.Name}</strong></a>
 			<span class="position-chip">{props.Team}</span>
 		</div>
 		<b class="mono">
@@ -270,6 +272,31 @@ component LeaderboardRow(props: PickemLeaderboardEntry) {
 			{props.Losses}
 		</b>
 	</div>
+}
+
+// PickemTrophy structurally mirrors internal/league's PickemTrophy and is
+// TrophyRow's own props type, the same shape-sharing LeaderboardRow uses.
+// Every trophy renders even when unawarded (Names and Value carry
+// placeholders) so the case keeps one height as weeks settle. The rule is
+// visible text, not a tooltip, so phone and keyboard readers get the tie
+// rules too.
+type PickemTrophy struct {
+	Label   string
+	Names   string
+	Value   string
+	Rule    string
+	Awarded bool
+}
+
+component TrophyRow(props: PickemTrophy) {
+	return <li class="pickem-trophy" data-awarded={props.Awarded}>
+		<span class="section-index">{props.Label}</span>
+		<div class="pickem-trophy__body">
+			<strong class="pickem-trophy__names">{props.Names}</strong>
+			<b class="mono pickem-trophy__value">{props.Value}</b>
+		</div>
+		<p class="scoring-note pickem-trophy__rule">{props.Rule}</p>
+	</li>
 }
 
 func Page() Node {
@@ -478,6 +505,12 @@ func PickemLiveRegion() Node {
 						<h2>Season standings</h2>
 					</div>
 				</div>
+				<ul class="pickem-trophies" aria-label="Season highlights, settled weeks only">
+					<Each of={data.season_highlights} as="trophy">
+						<TrophyRow {...trophy}></TrophyRow>
+					</Each>
+				</ul>
+				<p class="scoring-note"><a href="/trophies" data-gosx-link class="access-link">See every trophy, by week or by manager →</a></p>
 				<If cond={data.leaderboard_empty}>
 					<div class="empty-tape">
 						<strong>NO RESULTS YET</strong>

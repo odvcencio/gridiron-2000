@@ -20,6 +20,7 @@ var pageLabelEntries = []struct {
 	{"/board", "your Big Board"},
 	{"/players", "the Player pool"},
 	{"/trades", "Trades"},
+	{"/trophies", "the Trophy Case"},
 	{"/pickem", "Pick'em HQ"},
 	{"/matchups", "Matchups"},
 	{"/blitz", "Preseason Blitz"},

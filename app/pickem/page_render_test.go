@@ -183,6 +183,21 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 	if !strings.Contains(body, "rank-row") {
 		t.Fatalf("expected the graded pick to reach the season leaderboard as a real rank-row, got: %s", body)
 	}
+	// The season leaderboard carries the two season highlights. Week 2 still
+	// holds open games, so nothing has settled: both rows render as
+	// placeholders (no layout shift when a week settles), each with its tie
+	// rule as visible text, and the trophy case is one link away.
+	for _, want := range []string{"Season highlights, settled weeks only", "Best Picker", "Best Weekly Record", "Not awarded yet", "Ties go to win percentage, then wins", "See every trophy, by week or by manager"} {
+		if !strings.Contains(compactBody, want) {
+			t.Fatalf("expected season highlight %q in rendered page, got: %s", want, body)
+		}
+	}
+	if !strings.Contains(body, `href="/trophies"`) {
+		t.Fatalf("season leaderboard must link the trophy case, got: %s", body)
+	}
+	if !strings.Contains(body, `class="pickem-manager-link" href="/trophies?manager=m-`) {
+		t.Fatalf("leaderboard names must deep-link to that manager's trophy case, got: %s", body)
+	}
 	if !strings.Contains(body, "action=\"/__actions/pickem-set?week=2\"") {
 		t.Fatalf("pick forms must carry the selected week in their action URL, got: %s", body)
 	}

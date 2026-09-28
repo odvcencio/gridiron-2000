@@ -634,6 +634,7 @@ var csrfFailurePageNames = map[string]string{
 	"/board":       "the Big Board",
 	"/players":     "the Player Pool",
 	"/trades":      "Trades",
+	"/trophies":    "the Trophy Case",
 	"/draft":       "the Draft",
 	"/blitz":       "Preseason Blitz",
 	"/wire":        "the Signal Wire",

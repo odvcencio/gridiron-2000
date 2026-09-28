@@ -998,6 +998,7 @@ func (s *Service) pickemData(r *http.Request) map[string]any {
 		weekStateNote = fmt.Sprintf("%d of %d games are locked. The rest accept picks until their own kickoff.", len(games)-voidCount-openCount, len(games)-voidCount)
 	}
 	weekWinnerNames, weekWinnerRecord, hasWeekWinner := pickemWeekWinner(weekLeaderboard)
+	seasonHighlights := s.pickemSeasonHighlights(state, allGames, now)
 
 	seasonRecord := tallyPicks(allGames, state.PickemMarkets, viewerPicks, viewerEnteredAt, now)
 	weekRecord := tallyPicks(weekGames, state.PickemMarkets, viewerPicks, viewerEnteredAt, now)
@@ -1054,6 +1055,7 @@ func (s *Service) pickemData(r *http.Request) map[string]any {
 		},
 		"leaderboard":            seasonLeaderboard,
 		"leaderboard_empty":      len(seasonLeaderboard) == 0,
+		"season_highlights":      seasonHighlights,
 		"not_entered_names":      strings.Join(notEntered, ", "),
 		"not_entered_count":      len(notEntered),
 		"has_not_entered":        len(notEntered) > 0,
@@ -1101,6 +1103,8 @@ type PickemLeaderboardEntry struct {
 	Total   int
 	Wins    int
 	Losses  int
+	// TrophyHref deep-links the name to that manager's trophy case.
+	TrophyHref string
 }
 
 // assignSharedRanks sets each entry's Rank from its position in an
@@ -1145,12 +1149,13 @@ func (s *Service) pickemLeaderboard(state PersistedState, games, entryGames []Ga
 			team = s.teamAbbreviation(member.TeamID)
 		}
 		out = append(out, PickemLeaderboardEntry{
-			Name:    name,
-			Team:    team,
-			Correct: entry.Wins,
-			Total:   entry.Wins + entry.Losses,
-			Wins:    entry.Wins,
-			Losses:  entry.Losses,
+			TrophyHref: TrophyManagerHref(email),
+			Name:       name,
+			Team:       team,
+			Correct:    entry.Wins,
+			Total:      entry.Wins + entry.Losses,
+			Wins:       entry.Wins,
+			Losses:     entry.Losses,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {

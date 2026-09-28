@@ -27,5 +27,6 @@ import (
 	_ "gridiron-2000/app/team"
 	_ "gridiron-2000/app/terms"
 	_ "gridiron-2000/app/trades"
+	_ "gridiron-2000/app/trophies"
 	_ "gridiron-2000/app/wire"
 )
