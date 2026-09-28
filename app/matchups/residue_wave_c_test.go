@@ -7,35 +7,32 @@ import (
 	"testing"
 )
 
-// TestMatchupsResidueStarterNameClampsAtTwoLinesAboveDesktopBreakpoint pins
-// the birch wave-C fix for the matchups residue after oak: at true desktop
-// widths (above the 80rem/1280px breakpoint oak's own two-column stack
-// already covers) the STARTER cell's full name must clamp at a real
-// two-line boundary, not a single-line CSS ellipsis, so "De'Von Ach…" gets
-// its row's own second line instead of losing characters.
-func TestMatchupsResidueStarterNameClampsAtTwoLinesAboveDesktopBreakpoint(t *testing.T) {
+// TestMatchupsStarterNamesWrapAbovePhoneBreakpoint preserves readable full
+// names above the compact phone layout, without a fixed line limit.
+func TestMatchupsStarterNamesWrapAbovePhoneBreakpoint(t *testing.T) {
 	css := readMatchupsStylesheet(t)
 	start := strings.Index(css, "/* comb — birch (2026-09-08 wave C)")
 	if start < 0 {
 		t.Fatal("styles.css is missing the comb — birch (2026-09-08 wave C) block")
 	}
 	block := css[start:]
-	mediaStart := strings.Index(block, "@media (width > 80rem) {")
+	mediaStart := strings.Index(block, "@media (width > 38rem) {")
 	if mediaStart < 0 {
-		t.Fatal("birch block is missing the @media (width > 80rem) desktop override")
+		t.Fatal("birch block is missing the @media (width > 38rem) tablet/desktop override")
 	}
 	end := strings.Index(block[mediaStart:], "\n}\n")
 	if end < 0 {
-		t.Fatal("could not find the end of the @media (width > 80rem) block")
+		t.Fatal("could not find the end of the @media (width > 38rem) block")
 	}
 	media := block[mediaStart : mediaStart+end]
 	for _, want := range []string{
 		".matchups-page .starter-cell__name strong {",
-		"-webkit-line-clamp: 2;",
-		"overflow: hidden;",
+		"white-space: normal;",
+		"overflow-wrap: anywhere;",
+		"overflow: visible;",
 	} {
 		if !strings.Contains(media, want) {
-			t.Errorf("birch desktop STARTER clamp block missing %q: %s", want, media)
+			t.Errorf("birch tablet/desktop STARTER wrapping block missing %q: %s", want, media)
 		}
 	}
 }

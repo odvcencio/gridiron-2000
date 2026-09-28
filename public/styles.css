@@ -20380,28 +20380,14 @@ body.is-on-clock .draft-command__pill-sentence {
 /* comb — birch (2026-09-08 wave C) --------------------------------------
    J0 matchups residue after oak. */
 
-/* Item 1: at true desktop widths (above the 80rem/1280px breakpoint the
-   "comb — oak" block already stacks below) the STARTER cell's full-name
-   <strong> (.starter-cell__name-full's own ancestor — see page.gsx's own
-   StarterCell doc comment on why the full name stays a plain span, not a
-   TextBlock, there) still clamped to one line with a literal CSS
-   ellipsis ("De'Von Ach…") even though the row has room to grow: PROJ,
-   PTS, and every fixed chip column already sit on their own line beside
-   it. A real two-line clamp (the standard line-clamp shape, not a plain
-   nowrap+ellipsis) lets a long name wrap onto the row's own second line
-   instead of losing characters. Later in source order than the base
-   .starter-cell__name strong rule (this file, wins the cascade tie at
-   equal specificity) and scoped to width > 80rem so the oak block's own
-   <= 80rem two-column stack (which already gives the name a full row)
-   is untouched. */
-@media (width > 80rem) {
+/* Let full starter names grow their row instead of cutting off identifying
+   text at tablet and laptop widths. Phones retain the compact name variant. */
+@media (width > 38rem) {
   .matchups-page .starter-cell__name strong {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
+    display: block;
     white-space: normal;
-    overflow: hidden;
-    overflow-wrap: break-word;
+    overflow: visible;
+    overflow-wrap: anywhere;
   }
 }
 
