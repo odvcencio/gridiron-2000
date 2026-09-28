@@ -319,21 +319,21 @@ func TestScoringDataVariesAcrossConfigFixtures(t *testing.T) {
 	}
 }
 
-// TestScoringDataSKSharesFlagshipRosterButDiffersOnIdentityAndMembership is
-// the SK launch-prep isolation proof (owner decision, 2026-08-18: "SK
+// TestScoringDataInstanceBSharesFlagshipRosterButDiffersOnIdentityAndMembership is
+// the instance B launch-prep isolation proof (owner decision, 2026-08-18: "instance B
 // should get flagship scoring rules and roster... i think its fun that
-// way"): the real SK league.json (loaded through LoadConfig, not a hand-
-// built literal — the same file deploy/k8s/sk's ConfigMap ships) and a
+// way"): the real instance B league.json (loaded through LoadConfig, not a hand-
+// built literal — the same file deploy/k8s/instance-b's ConfigMap ships) and a
 // config carrying the flagship's own real shape (gridiron-house preset, no
 // membership block) render, from the same binary and the same code path,
 // an IDENTICAL roster/draft-rounds ruleset and a DIFFERENT identity and
 // membership ruleset — proving the platform's isolation thesis on exactly
 // what the owner decided should differ, not on the roster (which no longer
 // does).
-func TestScoringDataSKSharesFlagshipRosterButDiffersOnIdentityAndMembership(t *testing.T) {
-	skCfg, err := loadConfigFromEnvFile(t, mustReadFile(t, skConfigFixture))
+func TestScoringDataInstanceBSharesFlagshipRosterButDiffersOnIdentityAndMembership(t *testing.T) {
+	instanceBCfg, err := loadConfigFromEnvFile(t, mustReadFile(t, instanceBConfigFixture))
 	if err != nil {
-		t.Fatalf("loading the real SK config: %v", err)
+		t.Fatalf("loading the real instance B config: %v", err)
 	}
 
 	flagshipCfg := DefaultConfig()
@@ -356,54 +356,54 @@ func TestScoringDataSKSharesFlagshipRosterButDiffersOnIdentityAndMembership(t *t
 	// both configs select the identical gridiron-house preset, so one
 	// setRosterShape call correctly backs both services' ScoringData call.
 	t.Cleanup(clearRosterShape)
-	setRosterShape(skCfg.Roster)
+	setRosterShape(instanceBCfg.Roster)
 
-	svcSK := newRulesTestService(t, skCfg, time.Now().Add(48*time.Hour))
-	svcSK.teams = teamsFromSeeds(skCfg.Teams)
-	dataSK := svcSK.ScoringData(rulesTestRequest(t))
+	svcB := newRulesTestService(t, instanceBCfg, time.Now().Add(48*time.Hour))
+	svcB.teams = teamsFromSeeds(instanceBCfg.Teams)
+	dataB := svcB.ScoringData(rulesTestRequest(t))
 
 	svcFlagship := newRulesTestService(t, flagshipCfg, time.Now().Add(72*time.Hour))
 	svcFlagship.teams = teamsFromSeeds(flagshipCfg.Teams)
 	dataFlagship := svcFlagship.ScoringData(rulesTestRequest(t))
 
 	// Same platform, same roster decision: SAME ruleset.
-	rosterSK := dataSK["roster_rules"].(map[string]any)
+	rosterB := dataB["roster_rules"].(map[string]any)
 	rosterFlagship := dataFlagship["roster_rules"].(map[string]any)
 	for _, key := range []string{"starters", "bench", "total", "rounds"} {
-		if rosterSK[key] != rosterFlagship[key] {
-			t.Errorf("roster_rules[%q] differs: SK=%v flagship=%v, want identical (both run gridiron-house)", key, rosterSK[key], rosterFlagship[key])
+		if rosterB[key] != rosterFlagship[key] {
+			t.Errorf("roster_rules[%q] differs: instance B=%v flagship=%v, want identical (both run gridiron-house)", key, rosterB[key], rosterFlagship[key])
 		}
 	}
-	if rosterSK["rounds"] != 17 {
-		t.Errorf("roster_rules[\"rounds\"] = %v, want 17", rosterSK["rounds"])
+	if rosterB["rounds"] != 17 {
+		t.Errorf("roster_rules[\"rounds\"] = %v, want 17", rosterB["rounds"])
 	}
 
 	// Different membership rules: the isolation proof.
-	membershipSK := dataSK["membership_rules"].(map[string]any)
+	membershipB := dataB["membership_rules"].(map[string]any)
 	membershipFlagship := dataFlagship["membership_rules"].(map[string]any)
-	if membershipSK["domain_gated"] != true || membershipSK["has_invitation_source"] != false {
-		t.Errorf("SK membership_rules = %+v, want domain_gated=true and no invitation source", membershipSK)
+	if membershipB["domain_gated"] != true || membershipB["has_invitation_source"] != false {
+		t.Errorf("instance B membership_rules = %+v, want domain_gated=true and no invitation source", membershipB)
 	}
 	if membershipFlagship["domain_gated"] != false {
 		t.Errorf("flagship membership_rules = %+v, want domain_gated=false", membershipFlagship)
 	}
 
 	// Different identity: name, short code, seat count.
-	identitySK := dataSK["identity_rules"].(map[string]any)
+	identityB := dataB["identity_rules"].(map[string]any)
 	identityFlagship := dataFlagship["identity_rules"].(map[string]any)
 	for _, key := range []string{"name", "short_code", "team_count"} {
-		if identitySK[key] == identityFlagship[key] {
-			t.Errorf("identity_rules[%q] identical across SK/flagship: %v", key, identitySK[key])
+		if identityB[key] == identityFlagship[key] {
+			t.Errorf("identity_rules[%q] identical across instance B/flagship: %v", key, identityB[key])
 		}
 	}
-	if identitySK["team_count"] != 14 {
-		t.Errorf("SK identity_rules[\"team_count\"] = %v, want 14", identitySK["team_count"])
+	if identityB["team_count"] != 14 {
+		t.Errorf("instance B identity_rules[\"team_count\"] = %v, want 14", identityB["team_count"])
 	}
 }
 
 // mustReadFile reads path and fails the test on error — a small local
-// helper so TestScoringDataSKSharesFlagshipRosterButDiffersOnIdentityAndMembership
-// can load skConfigFixture's real bytes through loadConfigFromEnvFile
+// helper so TestScoringDataInstanceBSharesFlagshipRosterButDiffersOnIdentityAndMembership
+// can load instanceBConfigFixture's real bytes through loadConfigFromEnvFile
 // (config_test.go), the same $LEAGUE_FILE path LoadConfig uses in
 // production, rather than a hand-typed literal that could drift from the
 // committed file.

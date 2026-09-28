@@ -169,7 +169,7 @@ callbacks; then apply the reviewed resources. Neither the fleet document nor
 the generated bundle contains a Secret value or a member identity.
 
 For an existing immutable release, build and publish one image once, pin and
-record its digest, pass the Stable Kernel (SK) canary acceptance gates, then
+record its digest, pass the League B canary acceptance gates, then
 roll that identical digest through the flagship and remaining fleet instances
 in the recorded order. `fleetgen check` verifies the reviewed bundle; it never
 applies resources.
@@ -257,7 +257,7 @@ For Kubernetes or any host running more than one league, deploy one `statrelay`,
 TANK01_BASE_URL=http://statrelay.gridiron.svc.cluster.local
 ```
 
-Do not copy the upstream key into a league Secret. The relay owns authentication, caching, and quota sharing; each league process consumes its Tank01-compatible envelope. The tracked flagship and Stable Kernel Deployment manifests are a two-instance example of this N-instance contract.
+Do not copy the upstream key into a league Secret. The relay owns authentication, caching, and quota sharing; each league process consumes its Tank01-compatible envelope. The tracked flagship and League B Deployment manifests are a two-instance example of this N-instance contract.
 
 One sync fetches the player list, ADP, weekly projections, fantasy news, and team bye weeks, then writes an atomic cache under `data/fantasy/`. Between syncs, and across restarts, the last good pool serves from that cache. `SCORING_FORMAT` (half_ppr, ppr, standard) selects the ADP type and projection scoring.
 

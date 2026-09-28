@@ -401,7 +401,7 @@ func (s *Service) lineupStarters(state PersistedState, teamID string, week int) 
 	}
 	preset := CurrentRoster()
 	roster, _ := s.rosterForTeam(state, teamID)
-	// Zone occupants (RESERVE, IR) never score: the SK spec's "scorer
+	// Zone occupants (RESERVE, IR) never score: the instance B spec's "scorer
 	// exclusion of zone occupants" rule. general is the same
 	// splitRosterZones filter TeamData and the lineup actions use.
 	general, _, _ := splitRosterZones(state, teamID, roster)

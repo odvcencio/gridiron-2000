@@ -36,7 +36,7 @@ func trimUnclaimedSeatsForTest(t *testing.T, svc *Service, request *http.Request
 }
 
 // TestTrimUnclaimedSeatsDropsUnclaimedKeepsClaimed is the trim's core
-// contract (SK unclaimed-seat spec): a claimed seat's own record (ID,
+// contract (instance B unclaimed-seat spec): a claimed seat's own record (ID,
 // name, division, tone) survives untouched; every unclaimed seat is
 // dropped, and defaultTeams() reflects the drop immediately.
 func TestTrimUnclaimedSeatsDropsUnclaimedKeepsClaimed(t *testing.T) {

@@ -395,7 +395,7 @@ func validateTradeAssetsForOperation(state PersistedState, cfg Config, games []G
 			return err
 		}
 	}
-	// T7's bound reads the effective (IR-excluding) roster size (SK spec:
+	// T7's bound reads the effective (IR-excluding) roster size (instance B spec:
 	// "placing a player in IR frees a general roster spot"). A Give/Get
 	// player who is themself an IR occupant on the sending side does not
 	// count against that side's effective size in the first place, so it
@@ -414,7 +414,7 @@ func validateTradeAssetsForOperation(state PersistedState, cfg Config, games []G
 	if toNext < starterCount || toNext > rosterCap { // T7
 		return fmt.Errorf("this trade would leave %s with %d players; rosters must hold %d to %d", toName, toNext, starterCount, rosterCap)
 	}
-	// Limits (optional knob, default off, SK spec): each side's incoming
+	// Limits (optional knob, default off, instance B spec): each side's incoming
 	// players must not push any position past its configured cap.
 	if position, limit, breach := teamWouldBreachLimit(state, poolByID, offer.FromTeamID, offer.Get, offer.Give); breach {
 		return fmt.Errorf("%s", limitMessage(position, limit))

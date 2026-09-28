@@ -912,7 +912,7 @@ func init() {
 				return lineupMutationSuccess(ctx, message)
 			},
 			// reserve-place/reserve-activate and ir-place/ir-activate
-			// apply the roster-ops SK spec's zone actions: place moves a
+			// apply the roster-ops instance B spec's zone actions: place moves a
 			// general-pool player into the position-gated reserve zone or
 			// the injury-gated IR zone; activate returns a zone occupant
 			// to the general pool (IR activation optionally names a

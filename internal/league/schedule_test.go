@@ -352,10 +352,10 @@ func TestGenerateScheduleOddCountHasByeEveryWeek(t *testing.T) {
 }
 
 // TestGenerateScheduleEveryCountFourToFourteen proves every team count a
-// seat trim could plausibly land the SK instance on (config's engine floor
+// seat trim could plausibly land the instance B instance on (config's engine floor
 // through the engine max, minTeams/maxTeams — config.go) produces a valid
 // schedule: an odd count carries exactly one bye per week and every team,
-// bye included, is scheduled exactly once a week (SK unclaimed-seat spec:
+// bye included, is scheduled exactly once a week (instance B unclaimed-seat spec:
 // "odd resulting counts are expected and fine"). An even count carries no
 // bye at all.
 func TestGenerateScheduleEveryCountFourToFourteen(t *testing.T) {

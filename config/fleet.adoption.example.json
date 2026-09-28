@@ -21,17 +21,17 @@
       }
     },
     {
-      "id": "skl",
-      "namespace": "stablekernel",
-      "resource_prefix": "gridiron-2000-sk",
+      "id": "lgb",
+      "namespace": "league-b",
+      "resource_prefix": "gridiron-2000-b",
       "public_origin": "https://second.league.example.com",
       "league_config_path": "league.json.example",
       "pvc_storage": "1Gi",
       "commissioner_hq": {
-        "league_id": "skl",
+        "league_id": "lgb",
         "order": 1,
         "accent": "violet",
-        "key_id": "skl-hq-v1",
+        "key_id": "lgb-hq-v1",
         "host": false
       }
     }

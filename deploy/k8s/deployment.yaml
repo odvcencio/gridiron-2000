@@ -141,7 +141,7 @@ spec:
             - name: COMMISSIONER_INSTANCE_ID
               value: "g2k"
             - name: COMMISSIONER_HQ_PEERS
-              value: "skl=http://gridiron-2000-sk.stablekernel.svc.cluster.local|https://second.league.example.com"
+              value: "lgb=http://gridiron-2000-b.league-b.svc.cluster.local|https://second.league.example.com"
             # Optional off-host backup. Set the bucket and WIF identity only
             # in your private operator manifests.
             - name: BACKUP_GCS_BUCKET

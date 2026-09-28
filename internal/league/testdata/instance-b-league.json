@@ -1,8 +1,8 @@
 {
   "version": 1,
   "league": {
-    "name": "STABLE KERNEL LEAGUE",
-    "short_code": "SKL",
+    "name": "EXAMPLE LEAGUE B",
+    "short_code": "LGB",
     "tagline": "",
     "mode_label": "REDRAFT",
     "url": "https://second.league.example.com",
@@ -138,6 +138,6 @@
     "review_hours": 24
   },
   "membership": {
-    "allowed_domain": "stablekernel.com"
+    "allowed_domain": "example.org"
   }
 }

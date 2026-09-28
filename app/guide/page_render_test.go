@@ -69,7 +69,7 @@ func TestPublicGuideDataReflectsDynastyAndRedraftConfig(t *testing.T) {
 		},
 		{
 			name: "redraft domain posture",
-			cfg:  guideConfig("Stable Kernel League", "redraft", "America/New_York", "stablekernel.com", 14, 17),
+			cfg:  guideConfig("Example League B", "redraft", "America/New_York", "example.org", 14, 17),
 			want: map[string]any{"league_format_summary": "14 teams · REDRAFT", "roster_capacity": 238, "pool_target": 595, "pool_target_cushion": 357, "membership_label": "DOMAIN OR INVITE", "draft_timezone": "Eastern Time"},
 		},
 	}
@@ -86,10 +86,10 @@ func TestPublicGuideDataReflectsDynastyAndRedraftConfig(t *testing.T) {
 }
 
 func TestGuidePageRendersSeasonReadyManagerPath(t *testing.T) {
-	body := renderGuidePage(t, publicGuideData(guideConfig("Stable Kernel League", "redraft", "America/New_York", "stablekernel.com", 14, 17)))
+	body := renderGuidePage(t, publicGuideData(guideConfig("Example League B", "redraft", "America/New_York", "example.org", 14, 17)))
 	for _, want := range []string{
 		"MANAGER GUIDE",
-		"Manager Guide · Stable Kernel League",
+		"Manager Guide · Example League B",
 		"14 teams · REDRAFT",
 		"Sat, Aug 29, 2026 · 4:00 PM EDT",
 		"Eastern Time",
@@ -136,7 +136,7 @@ func TestGuidePageRendersSeasonReadyManagerPath(t *testing.T) {
 	if strings.Contains(body, "class=\"error-page\"") {
 		t.Fatalf("guide page rendered the GoSX error page: %s", body)
 	}
-	for _, obsolete := range []string{"G2K", "SKL", "Toggle ready", "toggle ready", "DOMAIN + INVITES", "Access comes from an individual invite", "CURRENT, SAVED, or BUILT-IN", "whether the pool is live"} {
+	for _, obsolete := range []string{"G2K", "LGB", "Toggle ready", "toggle ready", "DOMAIN + INVITES", "Access comes from an individual invite", "CURRENT, SAVED, or BUILT-IN", "whether the pool is live"} {
 		if strings.Contains(body, obsolete) {
 			t.Errorf("guide page retained obsolete or league-specific claim %q", obsolete)
 		}
@@ -161,7 +161,7 @@ func TestGuidePageRendersDynastyVariantWithoutDomain(t *testing.T) {
 	if strings.Contains(strings.ToLower(body), "rosters carry over") {
 		t.Errorf("dynasty guide must not promise automatic roster carryover: %s", body)
 	}
-	for _, wrong := range []string{"Stable Kernel League", "@stablekernel.com", "INVITES / ALLOWLIST", "Access comes from an individual invite"} {
+	for _, wrong := range []string{"Example League B", "@example.org", "INVITES / ALLOWLIST", "Access comes from an individual invite"} {
 		if strings.Contains(body, wrong) {
 			t.Errorf("dynasty guide leaked redraft/domain claim %q", wrong)
 		}

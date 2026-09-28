@@ -705,7 +705,7 @@ func TestReferenceDeploymentConfigValidates(t *testing.T) {
 	}
 }
 
-// TestShippedExampleConfigCarriesNoZones is the regression half of the SK
+// TestShippedExampleConfigCarriesNoZones is the regression half of the instance B
 // roster-zones wave: the flagship shipped example (no reserve/ir/limits
 // block at all) must resolve with every zone concept at its pre-zones
 // zero value — zero behavior change when the concepts are absent.
@@ -728,17 +728,17 @@ func TestShippedExampleConfigCarriesNoZones(t *testing.T) {
 	}
 }
 
-// skLeagueConfigJSON is the Stable Kernel instance's league.json (owner
+// instanceBLeagueConfigJSON is the League B instance's league.json (owner
 // decision, 2026-08-18): 10 teams, QB/RB×3/WR×2/SUPERFLEX/DST/P/K starters
 // (no TE, no FLEX — TE enters only via superflex), 4 general bench, a
 // QB-only reserve slot, and a 2-player IR — 15 draftable spots (10+4+1),
 // 15 draft rounds; IR sits outside that total.
-const skLeagueConfigJSON = `{
+const instanceBLeagueConfigJSON = `{
   "version": 1,
   "league": {
-    "name": "STABLE KERNEL LEAGUE",
-    "short_code": "SKL",
-    "tagline": "Stable Kernel",
+    "name": "EXAMPLE LEAGUE B",
+    "short_code": "LGB",
+    "tagline": "League B",
     "mode_label": "DYNASTY",
     "url": "http://localhost:8080",
     "timezone": "America/New_York",
@@ -768,24 +768,24 @@ const skLeagueConfigJSON = `{
   }
 }`
 
-// TestSKLeagueConfigLoadsExactShape loads the Stable Kernel fixture end to
+// TestInstanceBLeagueConfigLoadsExactShape loads the League B fixture end to
 // end and pins its exact resolved shape: 10 starters (no TE, no FLEX), 4
 // bench, a 1-slot QB reserve (counted in the 15 draftable spots and in
 // draft.rounds), and a 2-player IR (not counted).
-func TestSKLeagueConfigLoadsExactShape(t *testing.T) {
-	cfg, err := loadConfigFromEnvFile(t, skLeagueConfigJSON)
+func TestInstanceBLeagueConfigLoadsExactShape(t *testing.T) {
+	cfg, err := loadConfigFromEnvFile(t, instanceBLeagueConfigJSON)
 	if err != nil {
-		t.Fatalf("the Stable Kernel fixture must load and validate cleanly: %v", err)
+		t.Fatalf("the League B fixture must load and validate cleanly: %v", err)
 	}
 	wantSlots := map[string]int{"QB": 1, "RB": 3, "WR": 2, "SUPERFLEX": 1, "DST": 1, "P": 1, "K": 1}
 	if !reflect.DeepEqual(cfg.Roster.Slots, wantSlots) {
 		t.Errorf("Slots = %+v, want %+v", cfg.Roster.Slots, wantSlots)
 	}
 	if _, hasTE := cfg.Roster.Slots["TE"]; hasTE {
-		t.Error("SK shape must not carry a TE slot; TE enters only through SUPERFLEX")
+		t.Error("instance B shape must not carry a TE slot; TE enters only through SUPERFLEX")
 	}
 	if _, hasFlex := cfg.Roster.Slots["FLEX"]; hasFlex {
-		t.Error("SK shape must not carry a FLEX slot")
+		t.Error("instance B shape must not carry a FLEX slot")
 	}
 	if cfg.Roster.Starters() != 10 {
 		t.Errorf("Starters() = %d, want 10", cfg.Roster.Starters())

@@ -401,7 +401,7 @@ func checklist(fleet Fleet, instances []DerivedInstance) string {
 	b.WriteString("The host client Secret has one distinct read-only/scoped HMAC placeholder per registry connection. Fill each value with exactly the matching participant provider Secret value, then rotate provider/client pairs deliberately. These are not legacy bearer tokens, Tank01 credentials, sessions, OAuth credentials, or browser identity values.\n\n")
 	b.WriteString("## Release order\n\n")
 	b.WriteString("First install generation: generate/inspect the complete bundle, create each namespace, fill each Secret example, then apply the namespace, PVC, ConfigMaps, Secrets, Services, NetworkPolicies, Deployments, security middleware, HTTPS ingress, and HTTP redirect in that order. DNS, OAuth registration, Secret values, and kubectl apply are operator actions.\n\n")
-	b.WriteString("Existing SK-first canary release: apply and verify the stablekernel/SK canary first, then promote the remaining instances in ascending stable ID order; do not treat first-install generation as a substitute for the canary gate.\n\n")
+	b.WriteString("Existing instance-B-first canary release: apply and verify the league-b/instance-b canary first, then promote the remaining instances in ascending stable ID order; do not treat first-install generation as a substitute for the canary gate.\n\n")
 	b.WriteString("## Per-instance checks\n\n")
 	for _, instance := range instances {
 		b.WriteString("- ")

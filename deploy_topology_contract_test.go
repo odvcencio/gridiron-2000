@@ -22,15 +22,15 @@ func TestCommissionerHQDeploymentsUseExplicitTrustedPeerOrigins(t *testing.T) {
 			name:       "flagship",
 			path:       "deploy/k8s/deployment.yaml",
 			instanceID: "g2k",
-			peer:       "skl=http://gridiron-2000-sk.stablekernel.svc.cluster.local|https://second.league.example.com",
+			peer:       "lgb=http://gridiron-2000-b.league-b.svc.cluster.local|https://second.league.example.com",
 			secret:     "gridiron-2000-secrets",
 		},
 		{
-			name:       "stable kernel",
-			path:       "deploy/k8s/sk/deployment.yaml",
-			instanceID: "skl",
+			name:       "league b",
+			path:       "deploy/k8s/instance-b/deployment.yaml",
+			instanceID: "lgb",
 			peer:       "g2k=http://gridiron-2000.gridiron.svc.cluster.local|https://league.example.com",
-			secret:     "gridiron-2000-sk-secrets",
+			secret:     "gridiron-2000-b-secrets",
 		},
 	}
 	for _, test := range tests {
@@ -61,12 +61,12 @@ func TestCommissionerHQDeploymentsUseExplicitTrustedPeerOrigins(t *testing.T) {
 
 // TestLiveScoringDeploymentValuesArePinnedAndMirrored is rider item 12
 // (review of ff2a9b3): the live-scoring cadence values must be present
-// and identical on both the flagship and Stable Kernel app manifests.
+// and identical on both the flagship and League B app manifests.
 // The kill switch is pinned per manifest: the flagship flipped it to
 // "true" on 2026-09-02 with release-2026.09.02-ee12ed7-wave6, ahead of
 // the 2026-09-10 Thursday-night canary and kill-switch drill
-// (docs/launch-checklist.md section 13); the Stable Kernel league did
-// not form for the 2026 season, so deploy/k8s/sk/deployment.yaml is not
+// (docs/launch-checklist.md section 13); the League B league did
+// not form for the 2026 season, so deploy/k8s/instance-b/deployment.yaml is not
 // a live canary today and keeps the switch "false" as the template a
 // future second live instance rolls from. Its cadence values still must
 // not drift from the flagship's. Neither manifest
@@ -77,8 +77,8 @@ func TestCommissionerHQDeploymentsUseExplicitTrustedPeerOrigins(t *testing.T) {
 // shared relay's own manifest.
 func TestLiveScoringDeploymentValuesArePinnedAndMirrored(t *testing.T) {
 	killSwitch := map[string]string{
-		"deploy/k8s/deployment.yaml":    "name: LIVE_SCORING_ENABLED\n              value: \"true\"",
-		"deploy/k8s/sk/deployment.yaml": "name: LIVE_SCORING_ENABLED\n              value: \"false\"",
+		"deploy/k8s/deployment.yaml":            "name: LIVE_SCORING_ENABLED\n              value: \"true\"",
+		"deploy/k8s/instance-b/deployment.yaml": "name: LIVE_SCORING_ENABLED\n              value: \"false\"",
 	}
 	liveScoringEnv := []string{
 		"name: LIVE_SCOREBOARD_INTERVAL\n              value: \"10s\"",
@@ -87,7 +87,7 @@ func TestLiveScoringDeploymentValuesArePinnedAndMirrored(t *testing.T) {
 		"name: LIVE_MAX_INFLIGHT\n              value: \"4\"",
 		"name: LIVE_DAILY_BUDGET\n              value: \"9000\"",
 	}
-	for _, path := range []string{"deploy/k8s/deployment.yaml", "deploy/k8s/sk/deployment.yaml"} {
+	for _, path := range []string{"deploy/k8s/deployment.yaml", "deploy/k8s/instance-b/deployment.yaml"} {
 		t.Run(path, func(t *testing.T) {
 			raw, err := os.ReadFile(path)
 			if err != nil {

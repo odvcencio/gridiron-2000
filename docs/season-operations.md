@@ -47,7 +47,7 @@ The commissioner performs this once for each isolated league instance.
 7. At the draft-order milestone, one draw publishes both the final order and the default 14-week regular-season schedule, then sends one notification batch. Use the separate schedule control beforehand only when the league needs a custom span or first NFL week.
 8. Download a league backup from `/admin` (League configuration) before draft night, and again after any major change. See [Backup and restore](backup-restore.md) for what the archive holds and how to restore it.
 
-For a multi-instance Kubernetes topology, every league can use the shared `statrelay`. Only `statrelay-secrets` owns `TANK01_API_KEY`; each league sets `TANK01_BASE_URL` to the relay Service. The tracked flagship and Stable Kernel manifests are the current two-instance example, not a fleet-size limit.
+For a multi-instance Kubernetes topology, every league can use the shared `statrelay`. Only `statrelay-secrets` owns `TANK01_API_KEY`; each league sets `TANK01_BASE_URL` to the relay Service. The tracked flagship and League B manifests are the current two-instance example, not a fleet-size limit.
 
 ## Manager five-minute setup
 
@@ -323,7 +323,7 @@ Live scoring classifies a game from Tank01's `gameStatusCode`:
 That has a direct consequence for the state you will observe. `PAUSED` (the precedence above) requires the *current* poller to already hold an in-progress game in its own memory; a pod that just booted with the flag off never reaches that condition, no matter how far into a game the drill runs. **The drill's correct, expected result is `LEDGER`, not `PAUSED · disabled`.** `LEDGER` here still proves the kill switch works — the poller is off (`Health().Enabled == false`), degraded, and correctly reports `disabled` — it is only the *status-line label* that differs from a same-process runtime toggle, because this product has no such toggle. Confirmed on the harness: `TestSimGameDayTimeline` (`sim_gameday_test.go`) restarts a live-in-progress child with the flag off and observes `LEDGER` every time; see [Replay harness evidence](#replay-harness-evidence) below.
 
 1. Confirm at least one starter's game is currently in progress (the status line already reads `LIVE`).
-2. Set the flag to `false` on flagship (`LIVE_SCORING_ENABLED=false` on its ConfigMap/Deployment) and roll the pod. Flagship is the only live instance for 2026 (the Stable Kernel league did not form).
+2. Set the flag to `false` on flagship (`LIVE_SCORING_ENABLED=false` on its ConfigMap/Deployment) and roll the pod. Flagship is the only live instance for 2026 (the League B league did not form).
 3. Within 60 seconds, confirm the Matchups status line reads `LEDGER` (`Weekly ledger (nflverse)`) and `/api/health`-adjacent poller diagnostics (or an operator route, once one exists) show the poller disabled.
 4. To resume, set `LIVE_SCORING_ENABLED=true` and roll again; confirm the state chip reads `LIVE` within 60 seconds.
 5. Log the drill (date, times, and confirmed state transitions) in `docs/launch-checklist.md`. The Sep 10 2026 TNF drill (DAL@PHI, kickoff 20:20 EDT) is the first scheduled run: at 21:00 EDT (one hour after kickoff, a game in progress), set the flag to `false` on flagship, confirm `LEDGER` within 60 s, set it back to `true`, and confirm `LIVE` within 60 s.
@@ -387,7 +387,7 @@ Use the least destructive response that preserves an honest league record.
 - Incorrect open week lineup: change only players whose games have not locked.
 - Incorrect final week: stop and make a commissioner ruling before attempting any repair. A final week is intentionally immutable through normal manager flows.
 - Source outage: preserve the last good cache and diagnose the relay or upstream. Do not replace a known snapshot with fabricated zeros.
-- Release failure: follow `docs/launch-checklist.md`, canary Stable Kernel first, and adjudicate both recorded logical and physical state-schema bounds before using any prior revision. If an old binary cannot read either persisted marker, roll forward or use the separately tested compatible fallback digest; an image-only undo is forbidden.
+- Release failure: follow `docs/launch-checklist.md`, canary League B first, and adjudicate both recorded logical and physical state-schema bounds before using any prior revision. If an old binary cannot read either persisted marker, roll forward or use the separately tested compatible fallback digest; an image-only undo is forbidden.
 - Full data loss, a corrupted database, or a required rollback to an earlier league state: stop Gridiron and follow [Backup and restore](backup-restore.md). Restore is an offline `leaguerestore` step; there is no web-facing restore/upload path.
 
 ## Current year-one boundary
@@ -425,4 +425,4 @@ Before calling a league season-ready, verify:
 - [ ] Every co-located league uses the shared relay rather than duplicating upstream credentials.
 - [ ] The release rollback point is recorded before either deployment changes.
 
-For deployment mechanics, immutable image provenance, SK-first canary order, and rollback commands, use [`launch-checklist.md`](launch-checklist.md). For the public manager-oriented introduction, use `/guide`.
+For deployment mechanics, immutable image provenance, instance-B-first canary order, and rollback commands, use [`launch-checklist.md`](launch-checklist.md). For the public manager-oriented introduction, use `/guide`.

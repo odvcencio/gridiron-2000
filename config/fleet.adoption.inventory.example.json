@@ -26,17 +26,17 @@
       }
     },
     {
-      "id": "skl",
-      "namespace": "stablekernel",
-      "resource_prefix": "gridiron-2000-sk",
+      "id": "lgb",
+      "namespace": "league-b",
+      "resource_prefix": "gridiron-2000-b",
       "public_origin": "https://second.league.example.com",
       "image": "registry.example.com/gridiron/gridiron-2000@sha256:0000000000000000000000000000000000000000000000000000000000000000",
       "resources": {
-        "deployment": "gridiron-2000-sk",
-        "service": "gridiron-2000-sk",
-        "pvc": "gridiron-2000-sk-data",
-        "league_config": "gridiron-2000-sk-league-config",
-        "secret": "gridiron-2000-sk-secrets"
+        "deployment": "gridiron-2000-b",
+        "service": "gridiron-2000-b",
+        "pvc": "gridiron-2000-b-data",
+        "league_config": "gridiron-2000-b-league-config",
+        "secret": "gridiron-2000-b-secrets"
       },
       "legacy": {
         "peer_mesh_configured": true,

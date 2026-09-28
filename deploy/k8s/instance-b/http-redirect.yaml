@@ -2,14 +2,14 @@
 # who types the bare hostname over HTTP gets a redirect instead of a
 # traefik 404. The middleware reference format is
 # "<namespace>-<middleware-name>@kubernetescrd" — note the namespace here
-# is "stablekernel", not "gridiron".
+# is "league-b", not "gridiron".
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: redirect-https
-  namespace: stablekernel
+  namespace: league-b
   labels:
-    app: gridiron-2000-sk
+    app: gridiron-2000-b
 spec:
   redirectScheme:
     scheme: https
@@ -18,13 +18,13 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: gridiron-2000-sk-http
-  namespace: stablekernel
+  name: gridiron-2000-b-http
+  namespace: league-b
   labels:
-    app: gridiron-2000-sk
+    app: gridiron-2000-b
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
-    traefik.ingress.kubernetes.io/router.middlewares: stablekernel-redirect-https@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: league-b-redirect-https@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:
@@ -35,6 +35,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: gridiron-2000-sk
+                name: gridiron-2000-b
                 port:
                   name: http

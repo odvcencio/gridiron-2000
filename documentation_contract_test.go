@@ -241,7 +241,7 @@ func TestTrackedIdentityExamplesKeepCanonicalDirection(t *testing.T) {
 		"README.md",
 		filepath.Join("deploy", "README.md"),
 		filepath.Join("deploy", "k8s", "secret.example.yaml"),
-		filepath.Join("deploy", "k8s", "sk", "secret.example.yaml"),
+		filepath.Join("deploy", "k8s", "instance-b", "secret.example.yaml"),
 		filepath.Join("docs", "launch-checklist.md"),
 		filepath.Join("internal", "identity", "identity.go"),
 	}
@@ -262,7 +262,7 @@ func TestReleaseChecklistRequiresAuthenticatedPromotionGates(t *testing.T) {
 	doc := readDocumentationFile(t, filepath.Join("docs", "launch-checklist.md"))
 	normalized := strings.Join(strings.Fields(doc), " ")
 	for _, required := range []string{
-		"### 11.1 SK canary acceptance before flagship",
+		"### 11.1 instance B canary acceptance before flagship",
 		"### 11.2 Bilateral post-flagship acceptance",
 		"allowed manager",
 		"read-only Team, Board, and Draft",
@@ -282,8 +282,8 @@ func TestReleaseChecklistRequiresAuthenticatedPromotionGates(t *testing.T) {
 	}
 
 	ordered := []string{
-		"apply the new digest-pinned SK Deployment manifest",
-		"complete the authenticated SK canary gate",
+		"apply the new digest-pinned instance B Deployment manifest",
+		"complete the authenticated instance B canary gate",
 		"apply the new digest-pinned flagship Deployment manifest",
 		"complete the bilateral post-flagship gate",
 	}

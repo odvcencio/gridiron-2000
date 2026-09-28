@@ -31,9 +31,9 @@ func TestUnavailableCardRendersConfiguredPublicLeagueLink(t *testing.T) {
 
 	const publicURL = "https://second.league.example.com"
 	card := fleetCard(commissionerhq.FleetEntry{
-		PeerID: "skl", PublicURL: publicURL, Error: "League unavailable",
+		PeerID: "lgb", PublicURL: publicURL, Error: "League unavailable",
 	})
-	if card["available"] != false || card["peer_id"] != "skl" || card["public_url"] != publicURL {
+	if card["available"] != false || card["peer_id"] != "lgb" || card["public_url"] != publicURL {
 		t.Fatalf("unavailable card data = %#v", card)
 	}
 	encoded, err := json.Marshal(card)

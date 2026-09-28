@@ -454,7 +454,7 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 	// list" alone does not mean any Google account may claim a seat when a
 	// membership.allowed_domain gate is configured — the admin console's
 	// own "Who may claim a seat" banner made exactly that false claim for
-	// a domain-gated league (SK launch-prep dry run finding) until this.
+	// a domain-gated league (instance B launch-prep dry run finding) until this.
 	domainGate := strings.TrimSpace(s.cfg.Membership.AllowedDomain)
 	scheduleMap := s.adminScheduleMap(state, now)
 	// runbookStepStates (item 7, 2026-09-02 audit): the draft-night
@@ -908,7 +908,7 @@ func (s *Service) rosterShapeMap(state PersistedState) map[string]any {
 			"count":      roster.Slots[slot.Key],
 		})
 	}
-	// Reserve/Limits editor rows (SK spec): one row per real player
+	// Reserve/Limits editor rows (instance B spec): one row per real player
 	// position, so the form always offers the full, fixed key set
 	// regardless of whether the active shape currently uses it — the same
 	// "every key, current count" shape the starter slots grid above uses.
@@ -929,7 +929,7 @@ func (s *Service) rosterShapeMap(state PersistedState) map[string]any {
 		"rounds":        roster.Total(),
 		"has_override":  state.RosterOverride != nil,
 		"draft_started": state.DraftStarted,
-		// Zones/Limits (roster-ops SK spec): additive fields onto the same
+		// Zones/Limits (roster-ops instance B spec): additive fields onto the same
 		// panel. reserve_total counts toward rounds; ir sits outside it.
 		"reserve_rows":  reserveRows,
 		"reserve_total": roster.ReserveTotal(),
@@ -1081,7 +1081,7 @@ func (s *Service) AdminResetRosterShape(r *http.Request) error {
 	return nil
 }
 
-// TrimUnclaimedSeats applies the SK unclaimed-seat spec's T-1hr commissioner
+// TrimUnclaimedSeats applies the instance B unclaimed-seat spec's T-1hr commissioner
 // action: every seat with no member (primary or co-manager) is dropped, and
 // the league locks to its claimed team count for the rest of the season —
 // schedule generation, draft order, and waiver priority all read

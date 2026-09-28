@@ -49,7 +49,7 @@ func (s *Service) StartRosterOps(ctx context.Context) {
 // rosterOpsTick is the whole time-driven roster-ops decision for one
 // instant (section 5.4), evaluated in order: the waiver run predicate,
 // trade execution and expiry (section 6.1's T-exec/T-expire steps), then
-// the healed-IR lifecycle (SK IR rule).
+// the healed-IR lifecycle (instance B IR rule).
 func (s *Service) rosterOpsTick(now time.Time) {
 	s.evalWeekAutoClose(now)
 	s.evalWaiverRun(now)
@@ -133,7 +133,7 @@ func (s *Service) evalWeekAutoClose(now time.Time) {
 }
 
 // ---------------------------------------------------------------------
-// Healed-IR lifecycle (roster-ops SK spec, 2026-08-18 owner decision): a
+// Healed-IR lifecycle (roster-ops instance B spec, 2026-08-18 owner decision): a
 // healed IR player must be activated (with a corresponding drop) before
 // his NFL team's next kickoff. Unresolved at kickoff, the platform
 // auto-cuts him — a typed auto-drop transaction — and he becomes
@@ -147,7 +147,7 @@ func (s *Service) evalWeekAutoClose(now time.Time) {
 // inventing a second one.
 const healedIRWarnWindow = 24 * time.Hour
 
-// deferredClearsAt resolves an auto-cut player's clear instant (SK IR
+// deferredClearsAt resolves an auto-cut player's clear instant (instance B IR
 // rule: "waiver-eligible THE FOLLOWING WEEK, not an instant free agent").
 // Unlike a manager's own drop (clearsAt's clear_days formula), an
 // auto-cut always defers to the first daily waiver-processing run at or
@@ -215,7 +215,7 @@ func (s *Service) evalHealedIR(now time.Time) {
 	}
 }
 
-// autoCutHealedIR appends the SK IR rule's typed auto-drop transaction and
+// autoCutHealedIR appends the instance B IR rule's typed auto-drop transaction and
 // clears the zone assignment, one atomic Store call.
 func (s *Service) autoCutHealedIR(teamID string, player Player, week int, now time.Time) {
 	if _, err := s.store.AutoCutHealedIR(teamID, transactionPlayerFromPlayer(player), s.cfg.Season, week, now); err != nil {

@@ -407,7 +407,7 @@ type PersistedState struct {
 	TradeOffers []TradeOffer `json:"tradeOffers,omitempty"`
 
 	// RosterZones maps team ID to player ID to that player's roster-zone
-	// placement (RESERVE or IR — roster-ops SK spec, zones.go). It is an
+	// placement (RESERVE or IR — roster-ops instance B spec, zones.go). It is an
 	// overlay atop the derived roster (currentRosters/Picks+Transactions):
 	// placing or activating a zone occupant never touches ownership, only
 	// where the player sits. Additive under schema version 2 — the
@@ -430,7 +430,7 @@ type PersistedState struct {
 	// Missing entries from older state decode as generation zero.
 	SeatRevisions map[string]uint64 `json:"seatRevisions,omitempty"`
 
-	// TrimmedTeamIDs holds the team IDs a commissioner's seat trim (SK
+	// TrimmedTeamIDs holds the team IDs a commissioner's seat trim (instance B
 	// unclaimed-seat spec, Store.TrimUnclaimedSeats) removed as unclaimed.
 	// Empty means no trim has run: defaultTeams() returns the full
 	// config-seeded list. Once set, Default()'s boot restore recomputes the
@@ -841,7 +841,7 @@ type LiveSnapshot struct {
 // defaultTeamIDs) and for divisionMaps' first-seen division order.
 var activeTeams = teamsFromSeeds(DefaultConfig().Teams)
 
-// teamRuntimeMu guards the commissioner's seat trim (SK unclaimed-seat
+// teamRuntimeMu guards the commissioner's seat trim (instance B unclaimed-seat
 // spec: "basically whatever seats are filled by an hour before draft
 // time"). Mirrors rosterRuntimeMu/runtimeRoster's "config baseline, runtime
 // override" shape (lineup.go): activeTeams stays the full config-seeded
@@ -919,7 +919,7 @@ func teamsFromSeeds(seeds []TeamSeed) []Team {
 // The name is historical (it once returned one hardcoded reference
 // league); it now returns whichever config is active — see activeTeams
 // and applyActiveConfig in config.go — or, once a commissioner's seat trim
-// has run (SK unclaimed-seat spec, applySeatTrim above), the trimmed list.
+// has run (instance B unclaimed-seat spec, applySeatTrim above), the trimmed list.
 func defaultTeams() []Team {
 	teamRuntimeMu.RLock()
 	defer teamRuntimeMu.RUnlock()

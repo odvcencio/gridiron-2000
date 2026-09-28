@@ -72,7 +72,7 @@ func TestFleetViewSortsAttentionAndKeepsOnlyQualifiedPublicLinks(t *testing.T) {
 			},
 		},
 	}
-	failed := commissionerhq.FleetEntry{PeerID: "skl", PublicURL: "https://sk.example", Error: "League unavailable"}
+	failed := commissionerhq.FleetEntry{PeerID: "lgb", PublicURL: "https://b.example", Error: "League unavailable"}
 	view := buildFleetView([]commissionerhq.FleetEntry{entry, failed}, now, time.UTC)
 	if len(view.Cards) != 2 || view.LeagueCount != 2 {
 		t.Fatalf("fleet cards = %#v", view.Cards)
@@ -83,7 +83,7 @@ func TestFleetViewSortsAttentionAndKeepsOnlyQualifiedPublicLinks(t *testing.T) {
 	if !strings.Contains(view.Attention[0].OwnerURL, "/admin?section=draft-control#admin-draft-control") {
 		t.Fatalf("qualified owner URL = %q", view.Attention[0].OwnerURL)
 	}
-	if view.Cards[1].PublicURL != "https://sk.example" || view.Cards[1].HomeURL != "https://sk.example/" {
+	if view.Cards[1].PublicURL != "https://b.example" || view.Cards[1].HomeURL != "https://b.example/" {
 		t.Fatalf("failed peer link = %#v", view.Cards[1])
 	}
 	payload, err := json.Marshal(view.toData())

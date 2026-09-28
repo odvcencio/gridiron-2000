@@ -276,10 +276,10 @@ func TestStableAdminSectionsAndAllowlistedFocus(t *testing.T) {
 }
 
 func TestCommissionerLeagueSwitcherIsAllowlistedAndPreservesAdminSection(t *testing.T) {
-	publicURL, _ := url.Parse("https://sk.example")
+	publicURL, _ := url.Parse("https://b.example")
 	service, err := commissionerhq.New(commissionerhq.Config{
 		InstanceID: "g2k", Timeout: time.Second,
-		Peers: []commissionerhq.Peer{{ID: "skl", PublicURL: publicURL}},
+		Peers: []commissionerhq.Peer{{ID: "lgb", PublicURL: publicURL}},
 	}, func() commissionerhq.Summary {
 		return commissionerhq.Summary{Instance: commissionerhq.Instance{
 			ID: "g2k", Name: "GRIDIRON 2000", PublicURL: "https://gridiron.example",
@@ -290,7 +290,7 @@ func TestCommissionerLeagueSwitcherIsAllowlistedAndPreservesAdminSection(t *test
 	}
 
 	options, visible := adminLeagueSwitcherData(service, true)
-	if !visible || len(options) != 2 || options[0]["current"] != true || options[1]["id"] != "skl" {
+	if !visible || len(options) != 2 || options[0]["current"] != true || options[1]["id"] != "lgb" {
 		t.Fatalf("switcher options = %#v, visible=%v", options, visible)
 	}
 	if options, visible := adminLeagueSwitcherData(service, false); visible || len(options) != 0 {
@@ -298,14 +298,14 @@ func TestCommissionerLeagueSwitcherIsAllowlistedAndPreservesAdminSection(t *test
 	}
 
 	handler := switchHandler(service, func(*http.Request) bool { return true })
-	request := httptest.NewRequest(http.MethodGet, "/commissioner/switch?league=skl&section=data", nil)
+	request := httptest.NewRequest(http.MethodGet, "/commissioner/switch?league=lgb&section=data", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "https://sk.example/admin?section=data#admin-data" {
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "https://b.example/admin?section=data#admin-data" {
 		t.Fatalf("switch response = %d %q", response.Code, response.Header().Get("Location"))
 	}
 
-	for _, target := range []string{"https://attacker.example", "skl%0d%0aLocation:%20https://attacker.example"} {
+	for _, target := range []string{"https://attacker.example", "lgb%0d%0aLocation:%20https://attacker.example"} {
 		request := httptest.NewRequest(http.MethodGet, "/commissioner/switch?league="+target, nil)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
@@ -314,16 +314,16 @@ func TestCommissionerLeagueSwitcherIsAllowlistedAndPreservesAdminSection(t *test
 		}
 	}
 
-	request = httptest.NewRequest(http.MethodGet, "/commissioner/switch?league=skl&section=../../danger", nil)
+	request = httptest.NewRequest(http.MethodGet, "/commissioner/switch?league=lgb&section=../../danger", nil)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "https://sk.example/admin" {
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "https://b.example/admin" {
 		t.Fatalf("hostile section was preserved: %d %q", response.Code, response.Header().Get("Location"))
 	}
 
 	denied := switchHandler(service, func(*http.Request) bool { return false })
 	response = httptest.NewRecorder()
-	denied.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/commissioner/switch?league=skl", nil))
+	denied.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/commissioner/switch?league=lgb", nil))
 	if response.Code != http.StatusForbidden || response.Header().Get("Location") != "" {
 		t.Fatalf("noncommissioner switch = %d %q", response.Code, response.Header().Get("Location"))
 	}

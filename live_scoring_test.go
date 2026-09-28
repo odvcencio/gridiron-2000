@@ -508,7 +508,7 @@ func TestLiveScoringInputsRefusesReplayOutsideLocalAppEnv(t *testing.T) {
 }
 
 // TestLiveScoringInputsAllowsReplayInProductionWithOverride covers the
-// Stable Kernel rehearsal override: LIVE_REPLAY_ALLOW_PRODUCTION=true lets
+// League B rehearsal override: LIVE_REPLAY_ALLOW_PRODUCTION=true lets
 // replay mode run even outside a local APP_ENV.
 func TestLiveScoringInputsAllowsReplayInProductionWithOverride(t *testing.T) {
 	hermeticEnv(t)

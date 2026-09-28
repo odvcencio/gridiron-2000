@@ -562,7 +562,7 @@ func adoptionActions(generated DerivedInstance, current AdoptionInstance) []Adop
 	}
 	if current.Legacy.PeerMeshConfigured != nil && *current.Legacy.PeerMeshConfigured {
 		actions = append(actions, AdoptionAction{
-			InstanceID: instanceID, Phase: "defer", Resource: "legacy peer/token wiring", Reason: "remove only after both sides of the v1 provider/client pair pass the SK-first canary; do not mix legacy and generated values in one patch",
+			InstanceID: instanceID, Phase: "defer", Resource: "legacy peer/token wiring", Reason: "remove only after both sides of the v1 provider/client pair pass the instance-B-first canary; do not mix legacy and generated values in one patch",
 		})
 	}
 	return actions

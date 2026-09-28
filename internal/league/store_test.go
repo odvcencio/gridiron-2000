@@ -2341,7 +2341,7 @@ func TestResetLeagueClearsTransactions(t *testing.T) {
 }
 
 // TestResetDraftClearsRosterZones and TestResetLeagueClearsRosterZones pin
-// the SK IR spec's own reset rationale (matching Transactions/Lineups/
+// the instance B IR spec's own reset rationale (matching Transactions/Lineups/
 // WaiverClaims/TradeOffers above): a zone assignment names a player
 // against the pre-reset roster, so a redrawn draft or a full league reset
 // must not leave a stale reserve/IR tag behind.

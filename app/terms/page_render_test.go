@@ -21,7 +21,7 @@ func TestTermsPageEyebrowAndLastUpdated(t *testing.T) {
 	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
 	t.Setenv("DEMO_MODE", "false")
 	t.Setenv("GOOGLE_CLIENT_ID", "")
-	leagueFile, err := filepath.Abs(filepath.Join("..", "..", "internal", "league", "testdata", "sk-league.json"))
+	leagueFile, err := filepath.Abs(filepath.Join("..", "..", "internal", "league", "testdata", "instance-b-league.json"))
 	if err != nil {
 		t.Fatalf("league fixture path: %v", err)
 	}

@@ -1839,7 +1839,7 @@ func (s *Store) ResetDraft() error {
 	// 7.3).
 	s.state.TradeOffers = []TradeOffer{}
 	// RosterZones name a zoned player against the pre-reset roster; same
-	// rationale (SK IR spec) — a redrawn draft must not leave a stale
+	// rationale (instance B IR spec) — a redrawn draft must not leave a stale
 	// reserve/IR tag behind to trip up the new one.
 	s.state.RosterZones = map[string]map[string]ZoneAssignment{}
 	s.state.DraftStarted = false
@@ -2226,7 +2226,7 @@ func validateScheduleForState(schedule SeasonSchedule, state PersistedState) err
 	return nil
 }
 
-// TrimUnclaimedSeats drops every currently-unclaimed seat (SK unclaimed-
+// TrimUnclaimedSeats drops every currently-unclaimed seat (instance B unclaimed-
 // seat spec: "basically whatever seats are filled by an hour before draft
 // time"), locking the league to its claimed team count. A seat counts as
 // claimed when memberForTeam finds a primary or co-manager Member for it;
@@ -3695,7 +3695,7 @@ func (s *Store) recordTransactionWithAuthority(txn Transaction, rosterCap int, g
 	for _, drop := range txn.Drops {
 		dropIDs = append(dropIDs, drop.PlayerID)
 	}
-	// effectiveRosterSize excludes IR occupants from the cap math (SK
+	// effectiveRosterSize excludes IR occupants from the cap math (instance B
 	// spec: "placing a player in IR frees a general roster spot") — with
 	// no IR occupants this is exactly the raw ownership count, unchanged.
 	// creditedDropCount (F3) counts only the named drops that actually

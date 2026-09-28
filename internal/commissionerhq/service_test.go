@@ -131,10 +131,10 @@ func TestFleetKeepsConfiguredOrderAndIsolatesPeerFailure(t *testing.T) {
 func TestFleetUnavailableCardRetainsConfiguredPublicOrigin(t *testing.T) {
 	service, _ := New(Config{
 		InstanceID: "local", Token: "token", Timeout: 20 * time.Millisecond,
-		Peers: []Peer{{ID: "skl", ServiceURL: mustOrigin("http://127.0.0.1:1"), PublicURL: mustOrigin("https://sk.example")}},
+		Peers: []Peer{{ID: "lgb", ServiceURL: mustOrigin("http://127.0.0.1:1"), PublicURL: mustOrigin("https://b.example")}},
 	}, func() Summary { return testSummary("local", "https://local.example") })
 	entries := service.Fleet(context.Background())
-	if len(entries) != 2 || entries[1].Available() || entries[1].PublicURL != "https://sk.example" {
+	if len(entries) != 2 || entries[1].Available() || entries[1].PublicURL != "https://b.example" {
 		t.Fatalf("unavailable card = %#v", entries)
 	}
 }
@@ -143,7 +143,7 @@ func TestAdminDestinationsUsePublicTopologyWithoutPeerReads(t *testing.T) {
 	service, err := New(Config{
 		InstanceID: "g2k", Timeout: time.Second,
 		Peers: []Peer{
-			{ID: "skl", ServiceURL: mustOrigin("http://service.internal"), PublicURL: mustOrigin("https://sk.example")},
+			{ID: "lgb", ServiceURL: mustOrigin("http://service.internal"), PublicURL: mustOrigin("https://b.example")},
 			{ID: "fun", ServiceURL: mustOrigin("http://fun.internal"), PublicURL: mustOrigin("https://fun.example")},
 		},
 	}, func() Summary {
@@ -159,7 +159,7 @@ func TestAdminDestinationsUsePublicTopologyWithoutPeerReads(t *testing.T) {
 	if local := destinations[0]; !local.Current || local.ID != "g2k" || local.Label != "League g2k" || local.PublicURL != "https://gridiron.example" {
 		t.Fatalf("local destination = %#v", local)
 	}
-	if peer := destinations[1]; peer.Current || peer.ID != "skl" || peer.Label != "SKL · sk.example" || peer.PublicURL != "https://sk.example" {
+	if peer := destinations[1]; peer.Current || peer.ID != "lgb" || peer.Label != "LGB · b.example" || peer.PublicURL != "https://b.example" {
 		t.Fatalf("peer destination = %#v", peer)
 	}
 	encoded, _ := json.Marshal(destinations)
@@ -167,7 +167,7 @@ func TestAdminDestinationsUsePublicTopologyWithoutPeerReads(t *testing.T) {
 		t.Fatalf("admin destinations leaked service topology: %s", encoded)
 	}
 
-	if got, ok := service.AdminURL("skl"); !ok || got != "https://sk.example/admin" {
+	if got, ok := service.AdminURL("lgb"); !ok || got != "https://b.example/admin" {
 		t.Fatalf("peer admin URL = %q, %v", got, ok)
 	}
 	if got, ok := service.AdminURL("g2k"); !ok || got != "https://gridiron.example/admin" {

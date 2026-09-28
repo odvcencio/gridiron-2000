@@ -74,14 +74,14 @@ func renderLandingPage(t *testing.T) string {
 	t.Setenv("GOOGLE_CLIENT_SECRET", "")
 	t.Setenv("APP_ENV", "test")
 
-	leagueFile, err := filepath.Abs(filepath.Join("..", "internal", "league", "testdata", "sk-league.json"))
+	leagueFile, err := filepath.Abs(filepath.Join("..", "internal", "league", "testdata", "instance-b-league.json"))
 	if err != nil {
 		t.Fatalf("league fixture path: %v", err)
 	}
 	t.Setenv("LEAGUE_FILE", leagueFile)
 
 	// The fixture pins the draft window at a fixed instant
-	// (sk-league.json's draft.at). Freeze the service clock to a point
+	// (instance-b-league.json's draft.at). Freeze the service clock to a point
 	// safely before that window so this test's "SCHEDULED WINDOW" copy
 	// assertion does not flip to "AWAITING COMMISSIONER" once wall time
 	// walks past the fixture's pinned date. See SetClockForTest's doc
@@ -134,7 +134,7 @@ func TestCoManagerWelcomePanelReadsBoundFlash(t *testing.T) {
 	setter := manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session.AddFlash(r, "co_manager_bound", map[string]any{
 			"team_name":          "Caleb's Corn Dogs",
-			"primary_first_name": "Melanie",
+			"primary_first_name": "Morgan",
 		})
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -160,8 +160,8 @@ func TestCoManagerWelcomePanelReadsBoundFlash(t *testing.T) {
 	if !shown {
 		t.Fatal("co-manager welcome panel did not fire from the bound flash")
 	}
-	if teamName != "Caleb's Corn Dogs" || primaryFirstName != "Melanie" {
-		t.Fatalf("panel fields = team %q primary %q, want Caleb's Corn Dogs / Melanie", teamName, primaryFirstName)
+	if teamName != "Caleb's Corn Dogs" || primaryFirstName != "Morgan" {
+		t.Fatalf("panel fields = team %q primary %q, want Caleb's Corn Dogs / Morgan", teamName, primaryFirstName)
 	}
 }
 
@@ -254,7 +254,7 @@ func TestPublicLandingPreservesConfiguredModeAndEventTruth(t *testing.T) {
 	body := renderLandingPage(t)
 
 	for _, want := range []string{
-		"STABLE KERNEL LEAGUE",
+		"EXAMPLE LEAGUE B",
 		"redraft format",
 		"LEAGUE DRAFT",
 		"Saturday, August 29, 2026",
@@ -454,7 +454,7 @@ func TestHomepageStandingsRendersFinalizedScheduleData(t *testing.T) {
 func runHomepageStandingsFixture(t *testing.T, fixture string) string {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHomepageStandingsFixtureProcess$")
-	leagueFile, err := filepath.Abs(filepath.Join("..", "internal", "league", "testdata", "sk-league.json"))
+	leagueFile, err := filepath.Abs(filepath.Join("..", "internal", "league", "testdata", "instance-b-league.json"))
 	if err != nil {
 		t.Fatalf("league fixture path: %v", err)
 	}
@@ -581,7 +581,7 @@ func TestHomepageBootstrapAndHubGateOnSignedInAndSeated(t *testing.T) {
 func runHomeBootstrapFixture(t *testing.T, scenario string) string {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHomeBootstrapRenderFixtureProcess$")
-	leagueFile, err := filepath.Abs(filepath.Join("..", "internal", "league", "testdata", "sk-league.json"))
+	leagueFile, err := filepath.Abs(filepath.Join("..", "internal", "league", "testdata", "instance-b-league.json"))
 	if err != nil {
 		t.Fatalf("league fixture path: %v", err)
 	}

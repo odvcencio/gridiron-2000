@@ -900,12 +900,12 @@ func TestTransactionPlayersFromIDsRejectsMissingAsset(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------
-// Zones/Limits at trade execution (roster-ops SK spec)
+// Zones/Limits at trade execution (roster-ops instance B spec)
 // ---------------------------------------------------------------------
 
 // TestValidateTradeAssetsIRExcludedFromCapMath pins T7's IR-exclusion
 // rule: an IR occupant never counts against the [starterCount, rosterCap]
-// bound (SK spec: "placing a player in IR frees a general roster spot").
+// bound (instance B spec: "placing a player in IR frees a general roster spot").
 // team-1 raw-owns 4 players (one, t1-ir, parked on IR) — a 1-for-1 trade
 // that keeps team-1 at its true 3-player effective size must pass, even
 // though the raw ownership count (4) would otherwise read as already
