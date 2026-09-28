@@ -21697,6 +21697,98 @@ body.is-on-clock .draft-command__pill-sentence {
   color: var(--color-accent);
 }
 
+/* Pick'em trophies. Each row always renders, awarded or not, so the case
+   keeps one height as weeks settle. Names wrap rather than truncate and the
+   rule stays visible text (no hover), so a phone reader gets the tie rules
+   too. Awarded rows use the FINAL accent the week record already uses; the
+   label and value carry the meaning, never color alone. */
+.pickem-trophies {
+  display: grid;
+  gap: var(--space-xs);
+  margin: 0 0 var(--space-md);
+  padding: 0;
+  list-style: none;
+}
+
+.pickem-trophy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: var(--space-xs) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-white-faint);
+}
+
+.pickem-trophy[data-awarded="true"] {
+  border-left-color: var(--color-accent);
+}
+
+.pickem-trophy__body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.2rem var(--space-sm);
+  min-width: 0;
+}
+
+.pickem-trophy__names {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pickem-trophy[data-awarded="true"] .pickem-trophy__value {
+  color: var(--color-accent);
+}
+
+.pickem-trophy__rule {
+  margin: 0;
+}
+
+.pickem-manager-link {
+  display: block;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.pickem-manager-link:hover,
+.pickem-manager-link:focus-visible {
+  text-decoration: underline;
+}
+
+.trophy-manager-list,
+.trophy-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin: 0 0 var(--space-md);
+  padding: 0;
+  list-style: none;
+}
+
+.trophy-manager-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.trophy-manager-chip[aria-current="true"] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.trophy-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
 /* The settled note replaces the pick rule note on a closed week, so it
    reads as a record rather than an instruction: the same block, keyed to
    the FINAL state color .pickem-week-record already uses. */

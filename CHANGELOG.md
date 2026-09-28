@@ -5,6 +5,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- A trophy case at `/trophies`, by week and by manager, with a deep link for each week and each manager. Twelve trophies, all derived from closed weeks (nothing is stored): High Score, Nailbiter, Blowout, Toilet Bowl, Pick'em Winner, Perfect Week, Upset Hunter, and Contrarian each week, and Points Leader, Hot Streak, Best Picker, and Best Weekly Record for the season. Each trophy's tie rule is shown on the page.
+- The Pick'em season leaderboard now shows the best picker and the best weekly record, computed from settled weeks only, and each leaderboard name links to that manager's trophy case.
+
 ### Changed
 - Reconciled `deploy/k8s/` against the live cluster: the Commissioner HQ v1 provider's env block, private port, registry ConfigMap, Service, and NetworkPolicy were already running but untracked, and the tracked `APP_IMAGE_DIGEST` had drifted from the running image. `deploy/k8s/` is now the authoritative source for the flagship's live objects, verified by `kubectl diff`.
 - Hardened the shared statrelay cache: an allow-list of the Tank01 endpoints this app actually calls, a bounded in-memory and on-disk cache with eviction, and a NetworkPolicy restricting it to the fleet's own pods.
