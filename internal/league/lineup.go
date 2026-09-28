@@ -72,7 +72,7 @@ type RosterPreset struct {
 	Slots map[string]int
 	Bench int
 	// Reserve is the position-gated reserve zone's capacity, keyed by
-	// position (roster-ops SK spec): an occupant's position must match one
+	// position (roster-ops instance B spec): an occupant's position must match one
 	// of these keys, and that position's own count caps how many players
 	// may sit there at once. Reserve occupants keep counting toward
 	// Total() — reserve is draftable, in-cap roster space, only zoned
@@ -84,13 +84,13 @@ type RosterPreset struct {
 	// per-position — any position may qualify, gated on injury
 	// designation instead (see irQualifies, zones.go). IR sits OUTSIDE
 	// Total(): an IR occupant frees a general roster spot for the season
-	// (owner decision, SK spec). Not draftable — in-season stash only.
+	// (owner decision, instance B spec). Not draftable — in-season stash only.
 	// Zero means no IR zone at all.
 	IR int
 	// Limits optionally caps how many players of one position a team may
 	// hold across starters+bench+reserve (IR exempt — an injured stashed
 	// player should never force a cut). An absent or zero entry is
-	// unlimited. Default off everywhere (roster-ops SK spec) — nil is the
+	// unlimited. Default off everywhere (roster-ops instance B spec) — nil is the
 	// pre-existing behavior for every preset and every config that never
 	// mentions it.
 	Limits map[string]int
@@ -118,7 +118,7 @@ func (p RosterPreset) ReserveTotal() int {
 
 // Total returns the preset's full draftable roster size: starters plus
 // bench plus reserve. IR is deliberately excluded — it is not draftable,
-// in-season stash only (roster-ops SK spec: "reserve YES (counts in
+// in-season stash only (roster-ops instance B spec: "reserve YES (counts in
 // rounds), IR NO"). The slot-count/draft-round equality rule (roster-ops
 // spec section 10) requires this to equal DraftRounds for whichever
 // preset is active. When Reserve is empty this is exactly the pre-zones
@@ -288,7 +288,7 @@ func rosterOverridePreset(o RosterOverride) RosterPreset {
 // key must be one slotTable names (validRosterSlotKeys, config.go); each
 // slot count is 0-4; at least 1 QB; RB plus WR at least 2; starters total
 // at least 6; bench 0-10; the full roster (starters plus bench plus
-// reserve) 10-25. Reserve/IR/Limits extend this same source (SK spec) via
+// reserve) 10-25. Reserve/IR/Limits extend this same source (instance B spec) via
 // validateZonesAndLimits (zones.go) — one validation source, extended
 // rather than duplicated. Store.SetRosterOverride is the only caller
 // today, keeping validation in one place the way validateDraftOrderForState

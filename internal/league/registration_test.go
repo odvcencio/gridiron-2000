@@ -618,7 +618,7 @@ func TestEmailAllowedDomainGate(t *testing.T) {
 // TestValidateMembershipDomain pins the config-validation rules (build
 // item 5): empty is valid (no gate), an "@" address is rejected, and a
 // malformed domain is rejected. A valid bare domain — the flagship
-// omits this block; a config like a "SK" deployment's would set
+// omits this block; a config like a "instance B" deployment's would set
 // example.com — passes.
 func TestValidateMembershipDomain(t *testing.T) {
 	if err := validateMembership(MembershipBlock{}); err != nil {

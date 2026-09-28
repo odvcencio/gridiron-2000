@@ -28,17 +28,17 @@ func TestBrowserAnonymousHeadlineFlowsLongLeagueNameWithoutClipping(t *testing.T
 	chrome := chromePath(t)
 	root := browserAppRoot(t)
 
-	source, err := os.ReadFile(filepath.Join(root, "internal", "league", "testdata", "sk-league.json"))
+	source, err := os.ReadFile(filepath.Join(root, "internal", "league", "testdata", "instance-b-league.json"))
 	if err != nil {
-		t.Fatalf("read sk-league.json fixture: %v", err)
+		t.Fatalf("read instance-b-league.json fixture: %v", err)
 	}
 	var doc map[string]any
 	if err := json.Unmarshal(source, &doc); err != nil {
-		t.Fatalf("decode sk-league.json: %v", err)
+		t.Fatalf("decode instance-b-league.json: %v", err)
 	}
 	leagueSection, ok := doc["league"].(map[string]any)
 	if !ok {
-		t.Fatal("sk-league.json has no \"league\" object")
+		t.Fatal("instance-b-league.json has no \"league\" object")
 	}
 	leagueSection["name"] = textflowLongFixtureName
 	rewritten, err := json.Marshal(doc)

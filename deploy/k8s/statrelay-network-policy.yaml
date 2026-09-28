@@ -9,10 +9,10 @@
 #
 # Two ingress sources, matching deploy/README.md's "Shared Tank01 relay"
 # topology: the flagship (app=gridiron-2000) in this same gridiron
-# namespace, and Stable Kernel (app=gridiron-2000-sk) in the stablekernel
+# namespace, and League B (app=gridiron-2000-b) in the league-b
 # namespace — both point TANK01_BASE_URL at this Service across that
 # namespace boundary. Add a third `from` entry here (mirroring the
-# stablekernel one) the day a real second SK instance, or any future
+# league-b one) the day a real second instance B instance, or any future
 # fleet member, is provisioned in its own namespace.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -34,10 +34,10 @@ spec:
               app: gridiron-2000
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: stablekernel
+              kubernetes.io/metadata.name: league-b
           podSelector:
             matchLabels:
-              app: gridiron-2000-sk
+              app: gridiron-2000-b
       ports:
         - protocol: TCP
           port: 8090

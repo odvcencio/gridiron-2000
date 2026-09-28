@@ -302,7 +302,7 @@ func isFreeAgencyDrop(txn Transaction) bool {
 
 // lastDropInstant returns the At instant and Type of the most recent
 // isFreeAgencyDrop transaction naming playerID among its Drops, and whether
-// one exists at all. origin backs clearsAt's IR auto-cut carve-out (SK
+// one exists at all. origin backs clearsAt's IR auto-cut carve-out (instance B
 // spec): only an "auto-drop" origin clears on the different, deferred
 // schedule; every other origin this can now return ("drop", "add", or
 // "claim") clears on the ordinary clear_days schedule — see
@@ -371,7 +371,7 @@ func playerWaiverStatus(state PersistedState, cfg Config, games []GameInfo, play
 	if droppedAt, origin, ok := lastDropInstant(state, playerID); ok {
 		clears := clearsAt(cfg, droppedAt)
 		if origin == "auto-drop" {
-			// SK IR rule: a healed-IR auto-cut never clears on the
+			// instance B IR rule: a healed-IR auto-cut never clears on the
 			// ordinary clear_days schedule — it defers to the following
 			// NFL week's processing run, never an instant free agent.
 			clears = deferredClearsAt(cfg, games, droppedAt)

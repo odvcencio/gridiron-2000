@@ -9,14 +9,14 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: gridiron-2000-sk
-  namespace: stablekernel
+  name: gridiron-2000-b
+  namespace: league-b
   labels:
-    app: gridiron-2000-sk
+    app: gridiron-2000-b
   annotations:
     cert-manager.io/cluster-issuer: cloudflare-issuer
     traefik.ingress.kubernetes.io/router.tls: "true"
-    traefik.ingress.kubernetes.io/router.middlewares: stablekernel-security-headers@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: league-b-security-headers@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:
@@ -27,10 +27,10 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: gridiron-2000-sk
+                name: gridiron-2000-b
                 port:
                   name: http
   tls:
     - hosts:
         - second.league.example.com
-      secretName: gridiron-2000-sk-tls
+      secretName: gridiron-2000-b-tls

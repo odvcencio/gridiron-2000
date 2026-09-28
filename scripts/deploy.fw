@@ -10,8 +10,8 @@ package main
 //	GRIDIRON_DEPLOY_MODE=apply ferrous-wheel run scripts/deploy.fw   # change production
 //
 // deploy/README.md's "Deploying" section lists every gate and variable. This
-// script never reads a Secret, never touches the stablekernel namespace, and
-// never applies deploy/k8s/sk/ or an *.example.yaml file.
+// script never reads a Secret, never touches the league-b namespace, and
+// never applies deploy/k8s/instance-b/ or an *.example.yaml file.
 
 import (
 	"context"

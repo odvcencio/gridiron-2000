@@ -80,7 +80,7 @@ type RosterBlock struct {
 	Preset string         `json:"preset,omitempty"`
 	Slots  map[string]int `json:"slots,omitempty"`
 	Bench  int            `json:"bench,omitempty"`
-	// Reserve, IR, and Limits are the SK roster-zones spec's optional
+	// Reserve, IR, and Limits are the instance B roster-zones spec's optional
 	// additions: a position-gated reserve zone, an injury-gated IR zone,
 	// and an optional per-position roster cap. They ride along with
 	// either a preset or an explicit slots/bench shape (resolveRosterBlock
@@ -641,7 +641,7 @@ func resolveRosterBlock(block RosterBlock, draftRounds int) RosterPreset {
 	default:
 		preset = RosterPreset{Name: "", Slots: block.Slots, Bench: block.Bench}
 	}
-	// Reserve/IR/Limits merge onto whichever base resolved above (SK
+	// Reserve/IR/Limits merge onto whichever base resolved above (instance B
 	// spec): they ride along with either a preset or an explicit shape.
 	// Absent (nil/zero) leaves the base untouched — every existing preset
 	// and every config that never mentions them is unaffected.

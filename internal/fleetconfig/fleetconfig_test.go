@@ -233,7 +233,7 @@ func TestLoadRejectsCollisions(t *testing.T) {
 }
 
 func TestPublicOriginRejectsLegacyDottedIPv4ButAcceptsNumericDNS(t *testing.T) {
-	for _, hostname := range []string{"127.000.000.001", "192.168.001.001", "001.002.003.004"} {
+	for _, hostname := range []string{"127.000.000.001", "192.000.002.001", "001.002.003.004"} {
 		t.Run("reject-"+hostname, func(t *testing.T) {
 			dir := t.TempDir()
 			writeLeague(t, dir, "league.json")
@@ -621,7 +621,7 @@ func TestCompileZeroHQAndParticipantSeparation(t *testing.T) {
 		}
 	}
 	checklist := findFile(t, bundle, "operator-checklist.md")
-	for _, needle := range []string{"First install generation", "Existing SK-first canary release", "DNS, OAuth registration, Secret values, and kubectl apply are operator actions", "https://alpha.example.test/auth/google/callback", "node-local", "reclaim policy", "CSP remains application-owned"} {
+	for _, needle := range []string{"First install generation", "Existing instance-B-first canary release", "DNS, OAuth registration, Secret values, and kubectl apply are operator actions", "https://alpha.example.test/auth/google/callback", "node-local", "reclaim policy", "CSP remains application-owned"} {
 		if !strings.Contains(checklist, needle) {
 			t.Fatalf("checklist missing %q", needle)
 		}

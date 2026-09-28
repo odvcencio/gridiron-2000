@@ -580,8 +580,8 @@ func scoringGroupNote(group string) string {
 // short code, mode, season, timezone, and the draft/season-start dates —
 // every field read straight from s.cfg, so the reference deployment's own
 // league.json (or a test fixture's Config) renders as this section's
-// facts with no code change (owner directive: "the same binary with SK's
-// league.json must produce SK's rules").
+// facts with no code change (owner directive: "the same binary with instance B's
+// league.json must produce instance B's rules").
 func (s *Service) rulesIdentityMap(now time.Time, location *time.Location) map[string]any {
 	// DefaultConfig ships neutral 400+-day-out placeholder draft/season
 	// instants (2099-01-01 / 2099-01-08, config.go's placeholderDraftAt /

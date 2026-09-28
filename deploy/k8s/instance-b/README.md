@@ -1,4 +1,4 @@
-# Stable Kernel (SK) instance — deploy/k8s/sk
+# League B instance — deploy/k8s/instance-b
 
 A second deployment of the same digest-pinned Gridiron image, its own
 namespace, its own config, its own SQLite state — the
@@ -14,7 +14,7 @@ Before use, copy these examples outside the checkout and replace placeholders.
 
 | File | Mirrors | Differs |
 |---|---|---|
-| `namespace.yaml` | — (new) | namespace `stablekernel`, not `gridiron` |
+| `namespace.yaml` | — (new) | namespace `league-b`, not `gridiron` |
 | `pvc.yaml` | `../pvc.yaml` | name, namespace |
 | `deployment.yaml` | `../deployment.yaml` | namespace, resource names, ConfigMap/Secret refs, env (see the file's own comments — no redundant `DRAFT_AT`/`DRAFT_TZ`/`SEASON_START_AT`/`SCORING_FORMAT`, `TANK01_BASE_URL` set) |
 | `service.yaml` | `../service.yaml` | name, namespace |
@@ -38,52 +38,52 @@ The paths below show the example layout. Run these commands against your
 prepared private copies, with your own registry and league configuration.
 
 ```bash
-kubectl apply -f deploy/k8s/sk/namespace.yaml
+kubectl apply -f deploy/k8s/instance-b/namespace.yaml
 
-# regcred does not cross namespace boundaries — create SK's own copy
+# regcred does not cross namespace boundaries — create instance B's own copy
 # (docs/launch-checklist.md's "Create the pull secret" step, same command,
-# -n stablekernel):
+# -n league-b):
 kubectl create secret docker-registry regcred \
   --docker-server=registry.example.com \
   --docker-username=<user> --docker-password=<password> \
-  --namespace stablekernel
+  --namespace league-b
 
-kubectl apply -f deploy/k8s/sk/pvc.yaml
+kubectl apply -f deploy/k8s/instance-b/pvc.yaml
 
 # Copy config/league.json.example into your private operator directory,
 # configure it for this instance, then use its path below:
-kubectl create configmap gridiron-2000-sk-league-config \
-  --from-file=league.json=/path/to/private/league-sk.json \
-  --namespace stablekernel \
+kubectl create configmap gridiron-2000-b-league-config \
+  --from-file=league.json=/path/to/private/league-b.json \
+  --namespace league-b \
   --dry-run=client -o yaml | kubectl apply -f -
 
-cp deploy/k8s/sk/secret.example.yaml /tmp/gridiron-2000-sk-secret.yaml
-# edit /tmp/gridiron-2000-sk-secret.yaml with real values, then:
-kubectl apply -f /tmp/gridiron-2000-sk-secret.yaml
-rm /tmp/gridiron-2000-sk-secret.yaml
+cp deploy/k8s/instance-b/secret.example.yaml /tmp/gridiron-2000-b-secret.yaml
+# edit /tmp/gridiron-2000-b-secret.yaml with real values, then:
+kubectl apply -f /tmp/gridiron-2000-b-secret.yaml
+rm /tmp/gridiron-2000-b-secret.yaml
 
-kubectl apply -f deploy/k8s/sk/deployment.yaml
-kubectl apply -f deploy/k8s/sk/service.yaml
-kubectl apply -f deploy/k8s/sk/security-headers.yaml
-kubectl apply -f deploy/k8s/sk/ingress.yaml
-kubectl apply -f deploy/k8s/sk/http-redirect.yaml
+kubectl apply -f deploy/k8s/instance-b/deployment.yaml
+kubectl apply -f deploy/k8s/instance-b/service.yaml
+kubectl apply -f deploy/k8s/instance-b/security-headers.yaml
+kubectl apply -f deploy/k8s/instance-b/ingress.yaml
+kubectl apply -f deploy/k8s/instance-b/http-redirect.yaml
 ```
 
 The commands above are first-install/bootstrap order. For an existing
-application release, use the strict SK-first canary order in
+application release, use the strict instance-B-first canary order in
 [`docs/launch-checklist.md`](../../../docs/launch-checklist.md): record both
 old Deployment revisions and image digests, install one newly generated
 independent 256-bit `COMMISSIONER_HQ_TOKEN` in both existing application
 Secrets before either roll using the launch checklist's no-display patch
 workflow; never print or read (including fetch, echo, or log) the token value.
 Only after both Secret patches succeed, apply the future digest-pinned
-`deploy/k8s/sk/deployment.yaml` and smoke SK; then apply
+`deploy/k8s/instance-b/deployment.yaml` and smoke instance B; then apply
 `deploy/k8s/deployment.yaml` and smoke both instances. Your private manifests are
 the source of truth for `COMMISSIONER_INSTANCE_ID` and
 `COMMISSIONER_HQ_PEERS`; do not use `kubectl set image`. Never roll the two
 Deployments concurrently.
 
-During the first SK roll, the flagship peer card may be unavailable until the
+During the first instance B roll, the flagship peer card may be unavailable until the
 second (flagship) roll because the flagship is still on its old image. That is
 expected canary state. After the second roll, both Commissioner HQ peer cards
 must be available. A passing health response accepts `fantasyPoolMode`
@@ -92,13 +92,13 @@ must be available. A passing health response accepts `fantasyPoolMode`
 
 ## statrelay dependency
 
-SK's `deployment.yaml` sets `TANK01_BASE_URL=http://statrelay.gridiron.svc.cluster.local`,
+instance B's `deployment.yaml` sets `TANK01_BASE_URL=http://statrelay.gridiron.svc.cluster.local`,
 the shared relay's fully-qualified in-cluster DNS name. This form —
 `<service>.<namespace>.svc.cluster.local` — resolves from any namespace in
-the cluster, including `stablekernel`, so no extra DNS/networking setup is
+the cluster, including `league-b`, so no extra DNS/networking setup is
 needed here; `statrelay` itself must already be running in the `gridiron`
 namespace (`deploy/k8s/statrelay.yaml`, `deploy/README.md`'s "Shared Tank01
-relay" section). SK's own secret carries no `TANK01_API_KEY` — only
+relay" section). instance B's own secret carries no `TANK01_API_KEY` — only
 `statrelay-secrets` (in `gridiron`) needs the real RapidAPI key.
 
 ## Changing the draft date after launch
@@ -107,15 +107,15 @@ relay" section). SK's own secret carries no `TANK01_API_KEY` — only
 `SEASON_START_AT`/`SCORING_FORMAT` env vars the flagship's manifest still
 carries (see that file's comment for why: env wins over the config file, so
 leaving them set would mean a ConfigMap-only edit silently does nothing).
-For SK, moving the draft date is exactly:
+For instance B, moving the draft date is exactly:
 
 ```bash
-# edit your private league-sk.json's draft.at, then:
-kubectl create configmap gridiron-2000-sk-league-config \
-  --from-file=league.json=/path/to/private/league-sk.json \
-  --namespace stablekernel \
+# edit your private league-b.json's draft.at, then:
+kubectl create configmap gridiron-2000-b-league-config \
+  --from-file=league.json=/path/to/private/league-b.json \
+  --namespace league-b \
   --dry-run=client -o yaml | kubectl apply -f -
-kubectl rollout restart deployment/gridiron-2000-sk --namespace stablekernel
+kubectl rollout restart deployment/gridiron-2000-b --namespace league-b
 ```
 
 Claimed seats, members, team names, and badges survive the restart. The

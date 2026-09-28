@@ -8,7 +8,7 @@ Validate each instance before creating its ConfigMap or rolling its pod:
 
 ```sh
 go run ./cmd/leaguecheck --file deploy/local/league.json
-go run ./cmd/leaguecheck --file deploy/local/league-sk.json --format json
+go run ./cmd/leaguecheck --file deploy/local/league-b.json --format json
 ```
 
 `leaguecheck` uses the same strict loader and the seven supported field environment overrides as the application, but it does not start the server or open the league state database. The `--file` path is authoritative: `LEAGUE_FILE`, `GOSX_APP_ROOT`, `DATA_FILE`, and the current working directory cannot redirect it. A successful text report shows the resolved public identity, season, draft meeting and timezone, team count, roster capacity, membership posture, waivers, and trade policy. JSON output is intended for fleet automation. An invalid file exits nonzero before a deployment changes.
@@ -131,7 +131,7 @@ All four fields are strings:
 
 ## `membership`
 
-`membership.allowed_domain` is either empty or a bare domain such as `stablekernel.com`—never an email address and never prefixed with `@`. The runtime exposes one effective posture to admission and public copy.
+`membership.allowed_domain` is either empty or a bare domain such as `example.org`—never an email address and never prefixed with `@`. The runtime exposes one effective posture to admission and public copy.
 
 Public labels and details expose only this posture mode; they never include the configured domain or invitation identities.
 
@@ -383,7 +383,7 @@ adopted by this tooling.
 
 For first installation, author the league and run leaguecheck, render/check and
 review the fleet bundle, provision Secrets/DNS/OAuth, then apply in the
-reviewed order. For an existing immutable release, build once, pass the SK
+reviewed order. For an existing immutable release, build once, pass the instance B
 canary gate, and roll the identical recorded image digest through the flagship
 and remaining fleet. The shared statrelay is the sole Tank01 key owner.
 Generated local-path PVCs are node-local ReadWriteOnce storage; check the

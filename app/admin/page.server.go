@@ -916,7 +916,7 @@ func init() {
 					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
 				}
 				override.Bench = bench
-				// Reserve/IR/Limits (roster-ops SK spec): additive fields
+				// Reserve/IR/Limits (roster-ops instance B spec): additive fields
 				// on the same form. A blank or absent field defaults to 0
 				// (no zone/limit for that key) rather than failing the
 				// whole submit — every existing deployment's form posts

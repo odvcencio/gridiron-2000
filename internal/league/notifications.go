@@ -1,7 +1,7 @@
 // Notification catalog, key builders, preference precedence, and the
 // N1-N7 and N8 template builders (design spec "Notification Email System",
 // sections 3, 6.4, 7.1). The catalog registers all 19 entries (N1-N19,
-// roster-ops spec section 9's N14-N18 additions plus the SK IR spec's
+// roster-ops spec section 9's N14-N18 additions plus the instance B IR spec's
 // N19) so the default matrix stays total (spec section 9, test 18;
 // roster-ops spec section 12 test 25). N9-N13 are evaluated by this file's
 // notifier ticker; N14 lives in waivers.go, N15-N17 in trades.go, N18 below,
@@ -130,7 +130,7 @@ type keyContext struct {
 	// TradeOffer's ID, already unique per offer, the same
 	// naturally-idempotent shape ClaimID uses for N14.
 	OfferID string
-	// PlayerID backs N19's key (roster-ops SK spec): the healed IR
+	// PlayerID backs N19's key (roster-ops instance B spec): the healed IR
 	// occupant's player ID, so two IR occupants on the same team in the
 	// same week never collide on one idempotency key.
 	PlayerID string
@@ -158,7 +158,7 @@ type catalogEntry struct {
 
 // catalogEntries is the full 19-entry registry (spec section 3's summary
 // matrix, extended by roster-ops spec section 9's N14-N18, the pick'em
-// HQ task's N8, and the SK IR spec's N19). N9-N13 carry their complete
+// HQ task's N8, and the instance B IR spec's N19). N9-N13 carry their complete
 // catalog metadata, key builders, evaluators, and templates here; the
 // remaining roster-operation entries keep their existing event hooks.
 var catalogEntries = buildCatalog()
@@ -2082,7 +2082,7 @@ func (s *Service) buildLineupWarning(member Member, lineup EffectiveLineup, prob
 }
 
 // ---------------------------------------------------------------------
-// N19 — healed-ir-warning (roster-ops SK spec, 2026-08-18 owner decision)
+// N19 — healed-ir-warning (roster-ops instance B spec, 2026-08-18 owner decision)
 // ---------------------------------------------------------------------
 
 // keyHealedIRWarning is N19's idempotency key: season+week+player+email,

@@ -431,7 +431,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	generalRosterCap := preset.Starters() + preset.Bench
 	generalRosterSize, reserveRosterSize, irRosterSize := playerRosterZoneCounts(state, teamID)
 	// atCap reads the effective (IR-excluding) size, so a team stashing an
-	// injured player on IR correctly sees the spot it frees (SK spec).
+	// injured player on IR correctly sees the spot it frees (instance B spec).
 	effectiveSize := effectiveRosterSize(state, teamID)
 	atCap := effectiveSize >= rosterCap
 	// drafted (wave 7, item 2) backs the ROSTERED owner chip's own "R3 ·
@@ -882,7 +882,7 @@ func (s *Service) AddPlayer(r *http.Request, requestedTeam, addID, dropID, confi
 	if effectiveRosterSize(state, teamID)+1-creditedDropCount(state, teamID, dropIDs) > rosterCap {
 		return "", fmt.Errorf("your roster is full; choose a player to drop for %s", addPlayer.Name)
 	}
-	// Limits (optional knob, default off, SK spec).
+	// Limits (optional knob, default off, instance B spec).
 	if position, limit, breach := teamWouldBreachLimit(state, pool.byID, teamID, []string{addID}, dropIDs); breach {
 		return "", fmt.Errorf("%s", limitMessage(position, limit))
 	}
@@ -1038,7 +1038,7 @@ func (s *Service) FileClaim(r *http.Request, requestedTeam, addID, dropID string
 	if effectiveRosterSize(state, teamID)+1-creditedDropCount(state, teamID, claimOutgoing) > rosterCap { // W6
 		return "", fmt.Errorf("your roster is full; choose a player to drop for %s", addPlayer.Name)
 	}
-	// Limits (optional knob, default off, SK spec) — filing-time fail
+	// Limits (optional knob, default off, instance B spec) — filing-time fail
 	// fast; ProcessWaivers re-checks at resolution time, since roster
 	// composition may shift between filing and the claim's own run.
 	if position, limit, breach := teamWouldBreachLimit(state, pool.byID, teamID, []string{addID}, claimOutgoing); breach {

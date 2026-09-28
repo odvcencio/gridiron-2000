@@ -1,5 +1,5 @@
-# Mirrors ../deployment.yaml exactly, except: namespace (stablekernel, not
-# gridiron), resource names (the -sk suffix), the ConfigMap/Secret names
+# Mirrors ../deployment.yaml exactly, except: namespace (league-b, not
+# gridiron), resource names (the -b suffix), the ConfigMap/Secret names
 # this Deployment references, and the env block below — see its own
 # comments for what differs and why. The same digest-pinned image is the
 # platform's isolation thesis proof — one binary, two independently configured,
@@ -7,10 +7,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gridiron-2000-sk
-  namespace: stablekernel
+  name: gridiron-2000-b
+  namespace: league-b
   labels:
-    app: gridiron-2000-sk
+    app: gridiron-2000-b
     app.kubernetes.io/name: gridiron-2000
 spec:
   replicas: 1
@@ -22,15 +22,15 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app: gridiron-2000-sk
+      app: gridiron-2000-b
   template:
     metadata:
       labels:
-        app: gridiron-2000-sk
+        app: gridiron-2000-b
     spec:
       imagePullSecrets:
         # This namespace holds its own copy of regcred — Harbor pull
-        # secrets do not cross namespace boundaries. See deploy/k8s/sk's
+        # secrets do not cross namespace boundaries. See deploy/k8s/instance-b's
         # README.md.
         - name: regcred
       securityContext:
@@ -53,7 +53,7 @@ spec:
               protocol: TCP
           envFrom:
             - secretRef:
-                name: gridiron-2000-sk-secrets
+                name: gridiron-2000-b-secrets
           env:
             - name: APP_ENV
               value: "production"
@@ -61,11 +61,11 @@ spec:
               value: "false"
             - name: PORT
               value: "8080"
-            # LEAGUE_FILE points at the mounted league-sk.json ConfigMap
-            # (productization spec section 3.3, lookup rule 1): SK's real
+            # LEAGUE_FILE points at the mounted league-b.json ConfigMap
+            # (productization spec section 3.3, lookup rule 1): instance B's real
             # identity, teams/divisions, domain gate, draft date, and the
             # flagship's own roster preset (owner decision, 2026-08-18).
-            # See deploy/k8s/sk/README.md for how the ConfigMap is created.
+            # See deploy/k8s/instance-b/README.md for how the ConfigMap is created.
             - name: LEAGUE_FILE
               value: "/etc/gridiron/league.json"
             # Deliberately NOT setting DRAFT_AT/DRAFT_TZ/SEASON_START_AT/
@@ -79,7 +79,7 @@ spec:
             # instance: edit the ConfigMap, `kubectl rollout restart`, done.
             # ../deployment.yaml's own comment already calls these four
             # "optional... removing is optional per the spec's migration
-            # steps" — SK is a fresh deployment, so it starts without them
+            # steps" — instance B is a fresh deployment, so it starts without them
             # rather than inheriting a trap the flagship predates.
             #
             # TANK01_BASE_URL points at the shared statrelay cache in the
@@ -87,7 +87,7 @@ spec:
             # section) so both league instances split one metered RapidAPI
             # quota. The fully-qualified <service>.<namespace>.svc.cluster.
             # local form resolves correctly from any namespace, including
-            # this one (stablekernel) — verified against the cluster's
+            # this one (league-b) — verified against the cluster's
             # CoreDNS convention; no per-namespace DNS setup is needed.
             - name: TANK01_BASE_URL
               value: "http://statrelay.gridiron.svc.cluster.local"
@@ -95,7 +95,7 @@ spec:
             # mirroring ../deployment.yaml, including the retired
             # LIVE_POLL_INTERVAL and GC-2b's verified Ultra quota real
             # values (LIVE_BOX_BASELINE/LIVE_BOX_FAST/LIVE_DAILY_BUDGET —
-            # see that file's own comment). The Stable Kernel league did
+            # see that file's own comment). The League B league did
             # not form for the 2026 season, so this manifest is not a live
             # canary right now — flagship is the only live instance,
             # enabled behind the replay rehearsal and the Thursday-night
@@ -116,7 +116,7 @@ spec:
             - name: LIVE_DAILY_BUDGET
               value: "9000"
             - name: COMMISSIONER_INSTANCE_ID
-              value: "skl"
+              value: "lgb"
             - name: COMMISSIONER_HQ_PEERS
               value: "g2k=http://gridiron-2000.gridiron.svc.cluster.local|https://league.example.com"
           volumeMounts:
@@ -155,12 +155,12 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: gridiron-2000-sk-data
+            claimName: gridiron-2000-b-data
         # league-config is a ConfigMap, NOT a file tracked in this repo:
-        # deploy/ is a tracked directory, so SK's real league.json (its
+        # deploy/ is a tracked directory, so instance B's real league.json (its
         # actual team list, domain gate, and draft date) never lands here.
         # Create the ConfigMap out-of-band from a gitignored local file —
-        # see deploy/k8s/sk/README.md for the exact command.
+        # see deploy/k8s/instance-b/README.md for the exact command.
         - name: league-config
           configMap:
-            name: gridiron-2000-sk-league-config
+            name: gridiron-2000-b-league-config

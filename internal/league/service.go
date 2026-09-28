@@ -72,7 +72,7 @@ type Service struct {
 	// directly afterward — see admin_test.go's
 	// TestInviteEmailTemplateReproducesDeployedLeagueFacts), but mutated
 	// once more, post-construction, on the production singleton by
-	// TrimUnclaimedSeats (SK unclaimed-seat spec). Every read goes through
+	// TrimUnclaimedSeats (instance B unclaimed-seat spec). Every read goes through
 	// Teams() below, never the bare field, so that later mutation is race-
 	// free against concurrent request handling.
 	teamsMu sync.RWMutex
@@ -155,7 +155,7 @@ type Service struct {
 	historicalFn     HistoricalSource
 	weekStatsFn      WeekStatsSource
 	// injuryFn supplies the openstats mirror's weekly injury-report
-	// designation (roster-ops SK spec): IR placement and the healed-IR
+	// designation (roster-ops instance B spec): IR placement and the healed-IR
 	// ticker both read it via injuryDesignationSource() (zones.go). nil
 	// means no source is wired (every test Service literal by default) —
 	// IR placement fails closed and the healed-IR ticker is a no-op.
@@ -446,7 +446,7 @@ func Default() *Service {
 		if override := defaultSvc.store.Snapshot().RosterOverride; override != nil {
 			setRosterShape(rosterOverridePreset(*override))
 		}
-		// A commissioner's seat trim (SK unclaimed-seat spec) similarly
+		// A commissioner's seat trim (instance B unclaimed-seat spec) similarly
 		// survives a restart in the state file's TrimmedTeamIDs, not in
 		// league.json: the commissioner runs it once, against real
 		// membership, and a redeploy must never un-trim the league back to
@@ -2588,7 +2588,7 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	preset := CurrentRoster()
 	// Zone occupants (RESERVE, IR) never reach the lineup engine: general
 	// is the starters/bench pool effectiveLineup/autoFillWeek may draw
-	// from (roster-ops SK spec: "effectiveLineup/lineupStarters NEVER
+	// from (roster-ops instance B spec: "effectiveLineup/lineupStarters NEVER
 	// include zone occupants").
 	general, reserveOccupants, irOccupants := splitRosterZones(state, teamID, roster)
 	lineup := effectiveLineupWithState(preset, general, state, teamID, week, games, now)
@@ -2807,7 +2807,7 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		// manager can see at a glance whether an empty FLEX is a real
 		// shortage or just an unset lineup. general (not roster) is
 		// deliberate: reserve/IR occupants sit outside the countable
-		// lineup pool (roster-ops SK spec), the same slice effectiveLineup
+		// lineup pool (roster-ops instance B spec), the same slice effectiveLineup
 		// itself draws starters and bench from.
 		"positional_depth":       positionalDepthSummary(general),
 		"positional_depth_chips": positionalDepthChips(general),
@@ -2851,7 +2851,7 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		// unlabeled dash.
 		"points_source_line": "Weekly ledger (nflverse)",
 		"points_updated_at":  s.formatMatchupUpdateOrUnavailable(s.statsUpdatedAt()),
-		// RESERVE and IR sections (roster-ops SK spec): render-tolerant —
+		// RESERVE and IR sections (roster-ops instance B spec): render-tolerant —
 		// has_reserve/has_ir are false, and the section stays hidden,
 		// whenever the active roster shape carries no such zone.
 		"has_reserve":             len(preset.Reserve) > 0,
@@ -3008,7 +3008,7 @@ func rosterShapeRows() []map[string]any {
 		"has_eligible": false,
 	})
 	// Reserve/IR rows only appear when the active shape carries that zone
-	// (roster-ops SK spec) — a flagship config with neither renders byte-
+	// (roster-ops instance B spec) — a flagship config with neither renders byte-
 	// identical to before this rule existed.
 	if reserveTotal := preset.ReserveTotal(); reserveTotal > 0 {
 		keys := make([]string, 0, len(preset.Reserve))
@@ -3039,7 +3039,7 @@ func rosterShapeRows() []map[string]any {
 // rosterShapeSummary is the one-line count summary under the shape strip:
 // starters + bench + reserve = total, and how many of those spots the
 // team has filled so far (reserve occupants counted; IR excluded — it
-// sits outside Total(), the SK spec's cap-math rule). Slot-level
+// sits outside Total(), the instance B spec's cap-math rule). Slot-level
 // assignment (who is the FLEX) is WP-R1's lineup engine; until it lands
 // this stays an honest count, not a claim about which player sits in
 // which slot.
@@ -3100,7 +3100,7 @@ func (s *Service) rosterForTeam(state PersistedState, teamID string) ([]Player, 
 // glance whether an empty FLEX slot is a real positional shortage or
 // just an unset lineup. general is starters+bench only — the same
 // reserve/IR-excluded slice effectiveLineup itself draws from (roster-
-// ops SK spec: zone occupants sit outside the countable lineup pool).
+// ops instance B spec: zone occupants sit outside the countable lineup pool).
 // Any position outside the six named groups (a rostered P, or a shape
 // this league's active preset never carries) still counts, appended in
 // playerPoolPositions order after the six named groups, so a punter or
@@ -4474,7 +4474,7 @@ func (s *Service) MakePick(r *http.Request, requestedTeam, playerID string) (Dra
 	if !s.draftIsLive(now) {
 		return DraftPick{}, Player{}, Team{}, fmt.Errorf("the draft room is not open yet")
 	}
-	// Limits (optional knob, default off, SK spec): a draft pick is an
+	// Limits (optional knob, default off, instance B spec): a draft pick is an
 	// enforcement point too, just like an add/claim/trade.
 	if position, limit, breach := teamWouldBreachLimit(state, pool.byID, teamID, []string{playerID}, nil); breach {
 		return DraftPick{}, Player{}, Team{}, fmt.Errorf("%s", limitMessage(position, limit))
@@ -6877,7 +6877,7 @@ func playerMapsWithScoring(players []Player, scoringValues map[string]float64, m
 // zoneOccupantRows renders a RESERVE or IR zone's occupants for the team
 // page: playerMap's usual fields plus, for IR only (checkHealed), whether
 // the player no longer carries a qualifying injury designation and, when
-// so, the activation deadline label (SK IR rule) — the "non-compliance/
+// so, the activation deadline label (instance B IR rule) — the "non-compliance/
 // deadline state surfaced honestly" requirement. A nil injury source
 // (never wired) or a schedule with no upcoming game for the player's NFL
 // team both render "healed" false rather than guess.

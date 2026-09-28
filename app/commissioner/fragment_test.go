@@ -57,7 +57,7 @@ func TestCommissionerFragmentUsesSharedReadoutAndDegradesWholeFragment(t *testin
 	t.Cleanup(func() { timeNow = previousNow })
 
 	entries := []commissionerhq.FleetEntry{{
-		PeerID: "skl", PublicURL: "https://sk.example",
+		PeerID: "lgb", PublicURL: "https://b.example",
 		Error: "https://service.internal Bearer bearer-token operator@example.com",
 	}}
 	fetches := 0

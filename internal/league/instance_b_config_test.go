@@ -4,36 +4,36 @@ import (
 	"testing"
 )
 
-// skConfigFixture is the committed copy of the Stable Kernel deployment's
-// real league.json (deploy/local/league-sk.json is its gitignored twin,
-// loaded into the SK ConfigMap — see deploy/k8s/sk/ and deploy/README.md).
+// instanceBConfigFixture is the committed copy of the League B deployment's
+// real league.json (deploy/local/league-b.json is its gitignored twin,
+// loaded into the instance B ConfigMap — see deploy/k8s/instance-b/ and deploy/README.md).
 // Loading it here, through the real LoadConfig/$LEAGUE_FILE path rather
 // than a hand-built Config literal, proves the file the commissioner will
-// actually deploy parses and validates cleanly on this binary (SK launch
+// actually deploy parses and validates cleanly on this binary (instance B launch
 // prep, build item 1).
-const skConfigFixture = "testdata/sk-league.json"
+const instanceBConfigFixture = "testdata/instance-b-league.json"
 
-// TestSKConfigLoadsAndProducesFlagshipRosterShape loads the real SK
-// league.json and asserts the full parsed shape the owner specified: SK's
+// TestInstanceBConfigLoadsAndProducesFlagshipRosterShape loads the real instance B
+// league.json and asserts the full parsed shape the owner specified: instance B's
 // own identity and domain gate, riding the flagship's own roster preset
-// and scoring format (owner decision, 2026-08-18: "SK should get flagship
+// and scoring format (owner decision, 2026-08-18: "instance B should get flagship
 // scoring rules and roster. i think its fun that way") — the same
 // gridiron-house preset and half_ppr label deploy/local/league.json (the
 // flagship's real deployment config) sets, so the two leagues' rulesets
 // match exactly except identity and membership.
-func TestSKConfigLoadsAndProducesFlagshipRosterShape(t *testing.T) {
-	t.Setenv("LEAGUE_FILE", skConfigFixture)
+func TestInstanceBConfigLoadsAndProducesFlagshipRosterShape(t *testing.T) {
+	t.Setenv("LEAGUE_FILE", instanceBConfigFixture)
 	cfg, err := LoadConfig()
 	if err != nil {
-		t.Fatalf("SK config failed to load: %v", err)
+		t.Fatalf("instance B config failed to load: %v", err)
 	}
 
 	// Identity.
-	if cfg.Name != "STABLE KERNEL LEAGUE" {
-		t.Errorf("Name = %q, want STABLE KERNEL LEAGUE", cfg.Name)
+	if cfg.Name != "EXAMPLE LEAGUE B" {
+		t.Errorf("Name = %q, want EXAMPLE LEAGUE B", cfg.Name)
 	}
-	if cfg.ShortCode != "SKL" {
-		t.Errorf("ShortCode = %q, want SKL", cfg.ShortCode)
+	if cfg.ShortCode != "LGB" {
+		t.Errorf("ShortCode = %q, want LGB", cfg.ShortCode)
 	}
 	if cfg.Season != 2026 {
 		t.Errorf("Season = %d, want 2026", cfg.Season)
@@ -58,11 +58,11 @@ func TestSKConfigLoadsAndProducesFlagshipRosterShape(t *testing.T) {
 
 	// Domain gate: the isolation proof against the flagship, which sets no
 	// membership block at all (invite-list only).
-	if cfg.Membership.AllowedDomain != "stablekernel.com" {
-		t.Errorf("Membership.AllowedDomain = %q, want stablekernel.com", cfg.Membership.AllowedDomain)
+	if cfg.Membership.AllowedDomain != "example.org" {
+		t.Errorf("Membership.AllowedDomain = %q, want example.org", cfg.Membership.AllowedDomain)
 	}
 
-	// Roster: the flagship's own gridiron-house preset, not a custom SK
+	// Roster: the flagship's own gridiron-house preset, not a custom instance B
 	// shape (owner reversal, 2026-08-18) — 11 starters (QB, 2 RB, 2 WR, TE,
 	// FLEX, SUPERFLEX, K, P, DST) + 6 bench = 17, no reserve/IR zone.
 	if cfg.RosterPresetName != "gridiron-house" {
@@ -112,24 +112,24 @@ func TestSKConfigLoadsAndProducesFlagshipRosterShape(t *testing.T) {
 		t.Errorf("ScoringFormat = %q, want half_ppr", cfg.ScoringFormat)
 	}
 
-	if cfg.Source != "file:"+skConfigFixture {
-		t.Errorf("Source = %q, want file:%s", cfg.Source, skConfigFixture)
+	if cfg.Source != "file:"+instanceBConfigFixture {
+		t.Errorf("Source = %q, want file:%s", cfg.Source, instanceBConfigFixture)
 	}
 }
 
-// TestSKConfigTeamsMatchFlagshipWhenResolved proves the SK roster resolves
+// TestInstanceBConfigTeamsMatchFlagshipWhenResolved proves the instance B roster resolves
 // to byte-identical Slots/Bench/Reserve/IR/Limits as the flagship's own
 // gridiron-house preset selection — not merely "the same numbers by
 // coincidence" but literally rosterPresets["gridiron-house"], the same
 // value CurrentRoster() would return for either deployment.
-func TestSKConfigTeamsMatchFlagshipWhenResolved(t *testing.T) {
-	t.Setenv("LEAGUE_FILE", skConfigFixture)
+func TestInstanceBConfigTeamsMatchFlagshipWhenResolved(t *testing.T) {
+	t.Setenv("LEAGUE_FILE", instanceBConfigFixture)
 	cfg, err := LoadConfig()
 	if err != nil {
-		t.Fatalf("SK config failed to load: %v", err)
+		t.Fatalf("instance B config failed to load: %v", err)
 	}
 	want := rosterPresets["gridiron-house"]
 	if cfg.Roster.Total() != want.Total() || cfg.Roster.Starters() != want.Starters() || cfg.Roster.Bench != want.Bench {
-		t.Errorf("SK's resolved roster (%+v) does not match rosterPresets[gridiron-house] (%+v)", cfg.Roster, want)
+		t.Errorf("instance B's resolved roster (%+v) does not match rosterPresets[gridiron-house] (%+v)", cfg.Roster, want)
 	}
 }

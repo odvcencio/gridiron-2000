@@ -817,7 +817,7 @@ func leagueWeekStatsSource(stats *openstats.Service) league.WeekStatsSource {
 }
 
 // leagueInjuryDesignationSource adapts the mirrored nflverse weekly injury
-// report to league.InjuryDesignationSource (roster-ops SK spec: the IR
+// report to league.InjuryDesignationSource (roster-ops instance B spec: the IR
 // eligibility gate). It is keyed by normalizePlayerKey(name, position) —
 // the same join key historicalSource and leagueWeekStatsSource already
 // use — because internal/fantasy's Tank01-backed live pool carries no

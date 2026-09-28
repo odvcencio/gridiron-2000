@@ -1,4 +1,4 @@
-// Roster zones (roster-ops SK spec, 2026-08-18 owner decision): the
+// Roster zones (roster-ops instance B spec, 2026-08-18 owner decision): the
 // RESERVE zone (position-gated, draftable, counts toward Total()) and the
 // IR zone (injury-gated, not draftable, sits outside Total()). Both are one
 // primitive — a per-team, per-player overlay atop the derived roster
@@ -60,7 +60,7 @@ func validPoolPosition(key string) bool {
 
 // validateZonesAndLimits is the one validation source Reserve/IR/Limits
 // share (extending validateRoster and validateRosterOverride, which both
-// call this after their own slot/bench checks — SK spec: "validated by the
+// call this after their own slot/bench checks — instance B spec: "validated by the
 // same rules ... extend those rules only where the new concepts require").
 // scope names the caller for its exact-message prefix ("league config" or
 // "roster shape").
@@ -88,7 +88,7 @@ func validateZonesAndLimits(reserve map[string]int, ir int, limits map[string]in
 }
 
 // limitMessage is the one exact message pattern every Limits enforcement
-// point returns (SK spec: "one exact message pattern"), at every point —
+// point returns (instance B spec: "one exact message pattern"), at every point —
 // draft picks, adds, claims, trade execution, and IR activation.
 func limitMessage(position string, limit int) string {
 	return fmt.Sprintf("your roster already holds the maximum %d %s", limit, position)
@@ -96,7 +96,7 @@ func limitMessage(position string, limit int) string {
 
 // teamWouldBreachLimit reports whether moving incoming positions onto
 // teamID's roster (while outgoing positions leave in the same move) would
-// push any position past the league's optional Limits cap (SK spec:
+// push any position past the league's optional Limits cap (instance B spec:
 // "config limits map position->max across starters+bench+reserve (IR
 // exempt) ... absent = unlimited"). state/pool resolve the team's current
 // holdings; IR-zoned holdings are excluded from the baseline, matching the
@@ -179,7 +179,7 @@ func (s *Service) injuryDesignationSource() InjuryDesignationSource {
 }
 
 // irQualifyingDesignations is the IR eligibility gate's qualifying set
-// (SK spec: "define the qualifying set from what the mirror actually
+// (instance B spec: "define the qualifying set from what the mirror actually
 // carries, document it"). The openstats mirror's weekly injury report
 // (nflverse injuries dataset, report_status column — internal/openstats'
 // InjuryReport.ReportStatus) carries exactly the NFL's official
@@ -379,7 +379,7 @@ func irOccupantCount(state PersistedState, teamID string) int {
 }
 
 // effectiveRosterSize is teamID's roster-cap count: ownership
-// (currentRosters) minus IR occupants (SK spec: "placing a player in IR
+// (currentRosters) minus IR occupants (instance B spec: "placing a player in IR
 // frees a general roster spot"). Reserve occupants stay counted — reserve
 // is in-cap space, only zoned apart from the general bench. Every cap
 // check against CurrentRoster().Total() (AddPlayer, FileClaim,
@@ -425,7 +425,7 @@ func maxOpenClaimsPerTeam() int {
 // pickemWeekAt (pickem.go) already uses for "which NFL week is this."
 const nextKickoffGrace = 4 * time.Hour
 
-// nextKickoffForTeam returns nflTeam's relevant kickoff for the SK IR
+// nextKickoffForTeam returns nflTeam's relevant kickoff for the instance B IR
 // rule's deadline anchor ("before his NFL team's next kickoff"): the
 // earliest kickoff at or after (now - nextKickoffGrace), across every
 // week the schedule mirror carries. The grace window matters for
@@ -543,7 +543,7 @@ func (s *Store) clearZoneWithAuthority(teamID, playerID, expectZone string, play
 
 // ActivateFromIRWithDrop clears playerID's IR zone assignment and appends
 // dropTxn (a normal "drop" Transaction for a different, named player) in
-// one lock, one persist — the SK spec's "activated with a corresponding
+// one lock, one persist — the instance B spec's "activated with a corresponding
 // drop" move. It re-validates under the lock that playerID is still on
 // teamID's IR and that every dropTxn.Drops player is still owned by
 // teamID.
@@ -592,7 +592,7 @@ func (s *Store) activateFromIRWithDropAuthority(teamID, playerID string, dropTxn
 }
 
 // AutoCutHealedIR appends one "auto-drop" Transaction and clears
-// player's IR zone assignment for teamID, one lock, one persist (SK IR
+// player's IR zone assignment for teamID, one lock, one persist (instance B IR
 // rule: "the platform auto-cuts him — typed auto-drop transaction — one
 // atomic persist"). It re-validates under the lock that player is still
 // on teamID's IR, so a manager's own concurrent activate-from-IR always
@@ -703,7 +703,7 @@ func (s *Service) PlaceInReserve(r *http.Request, requestedTeam, playerID string
 // seat, ownership, not already zoned, the league carries an IR zone at
 // all, the zone still has room, and the player currently carries a
 // qualifying injury designation (irEligible) from the wired openstats
-// mirror at this instant — "at placement time" (SK spec).
+// mirror at this instant — "at placement time" (instance B spec).
 func (s *Service) PlaceInIR(r *http.Request, requestedTeam, playerID string) (string, error) {
 	teamID, err := s.actingTeam(r, requestedTeam)
 	if err != nil {
@@ -771,7 +771,7 @@ func (s *Service) ActivateFromReserve(r *http.Request, requestedTeam, playerID s
 	return fmt.Sprintf("%s activated from reserve.", player.Name), nil
 }
 
-// ActivateFromIR applies the IR-activation action (SK IR rule: "must be
+// ActivateFromIR applies the IR-activation action (instance B IR rule: "must be
 // activated (with a corresponding drop) before his NFL team's next
 // kickoff"). IR sits outside Total(), so bringing the player back into
 // the cap needs a same-move drop whenever the team is already at cap;

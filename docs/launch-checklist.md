@@ -13,7 +13,7 @@ degraded-data decisions, and Commissioner HQ operating boundaries.
 
 For an existing installation, skip steps 2–9. Build and pin the image in step
 1, record rollback state in 10.1, provision or intentionally rotate the shared
-Commissioner HQ token only when required by 10.2, then canary Stable Kernel
+Commissioner HQ token only when required by 10.2, then canary League B
 before the flagship as described in 10.3–10.4.
 
 ## Before you start
@@ -178,8 +178,8 @@ kubectl apply -f deploy/k8s/ingress.yaml
 kubectl apply -f deploy/k8s/http-redirect.yaml
 ```
 
-For Stable Kernel, apply the matching files under `deploy/k8s/sk/`, including
-`sk/http-redirect.yaml` and `sk/security-headers.yaml`. The HTTPS ingress
+For League B, apply the matching files under `deploy/k8s/instance-b/`, including
+`instance-b/http-redirect.yaml` and `instance-b/security-headers.yaml`. The HTTPS ingress
 references the namespaced middleware, so apply that middleware before or
 with the ingress rollout.
 
@@ -266,7 +266,7 @@ state database before retrying a conflict; no live data mutation is performed
 by the application until the migration passes.
 
 After changing the applied list, roll each Deployment through the normal
-SK-first release gate. A Secret update alone does not alter an already-running
+instance-B-first release gate. A Secret update alone does not alter an already-running
 pod's environment, and a live identity check should use `/commissioner` after
 the new pod is Ready. Do not use `kubectl set env` because it bypasses the
 tracked Secret workflow.
@@ -297,23 +297,23 @@ watched rollout window. Apply private operator manifests, not the tracked
 examples. The full sequence below assumes two provisioned instances.
 
 Use this sequence for the already-provisioned `gridiron-2000` and
-`gridiron-2000-sk` Deployments. Never roll both at once. The order is
-strictly Stable Kernel (SK) canary first, then flagship:
+`gridiron-2000-b` Deployments. Never roll both at once. The order is
+strictly League B canary first, then flagship:
 
 1. record both old revisions and image digests;
 2. when first enabling HQ or intentionally rotating its credential, install
    one newly generated independent 256-bit token into both application
    Secrets before either Deployment rolls; otherwise leave it untouched;
-3. apply the new digest-pinned SK Deployment manifest and wait for its
+3. apply the new digest-pinned instance B Deployment manifest and wait for its
    rollout;
-4. complete the authenticated SK canary gate in step 11.1. Health and
+4. complete the authenticated instance B canary gate in step 11.1. Health and
    redirect checks alone are not sufficient: an allowed manager must verify
    login continuity plus read-only Team, Board, and Draft truth, and an
    authenticated commissioner must verify the local HQ card and the exact
    candidate release metadata. The old flagship peer may be unavailable or
    still report its previous release during this canary gate;
 5. apply the new digest-pinned flagship Deployment manifest only after the
-   complete SK gate passes;
+   complete instance B gate passes;
 6. complete the bilateral post-flagship gate in step 11.2. Both instances
    must pass authenticated manager and commissioner acceptance, and both HQ
    peers must be available and show the candidate release metadata.
@@ -328,11 +328,11 @@ values:
 RECORD_DIR="/tmp/gridiron-release-record-$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "${RECORD_DIR}"
 
-kubectl -n stablekernel get deployment/gridiron-2000-sk \
+kubectl -n league-b get deployment/gridiron-2000-b \
   -o jsonpath='name={.metadata.name} revision={.metadata.annotations.deployment\.kubernetes\.io/revision} image={.spec.template.spec.containers[?(@.name=="gridiron-2000")].image}{"\n"}' \
-  | tee "${RECORD_DIR}/sk-before.txt"
-kubectl -n stablekernel rollout history deployment/gridiron-2000-sk \
-  | tee -a "${RECORD_DIR}/sk-before.txt"
+  | tee "${RECORD_DIR}/b-before.txt"
+kubectl -n league-b rollout history deployment/gridiron-2000-b \
+  | tee -a "${RECORD_DIR}/b-before.txt"
 
 kubectl -n gridiron get deployment/gridiron-2000 \
   -o jsonpath='name={.metadata.name} revision={.metadata.annotations.deployment\.kubernetes\.io/revision} image={.spec.template.spec.containers[?(@.name=="gridiron-2000")].image}{"\n"}' \
@@ -353,7 +353,7 @@ the logical persisted value is the live store's authoritative
 ```bash
 curl --fail-with-body -sS https://second.league.example.com/api/health \
   | jq '{appVersion,gitSHA,buildDate,frameworkVersion,stateSchema}' \
-  > "${RECORD_DIR}/sk-before-health.txt"
+  > "${RECORD_DIR}/b-before-health.txt"
 curl --fail-with-body -sS https://league.example.com/api/health \
   | jq '{appVersion,gitSHA,buildDate,frameworkVersion,stateSchema}' \
   > "${RECORD_DIR}/flagship-before-health.txt"
@@ -394,7 +394,7 @@ jq -n --rawfile token "${TOKEN_FILE}" \
 
 kubectl -n gridiron patch secret/gridiron-2000-secrets \
   --type=merge --patch-file="${PATCH_FILE}"
-kubectl -n stablekernel patch secret/gridiron-2000-sk-secrets \
+kubectl -n league-b patch secret/gridiron-2000-b-secrets \
   --type=merge --patch-file="${PATCH_FILE}"
 ```
 
@@ -403,13 +403,13 @@ The identical patch file is the equality check. Do not reuse
 When this step is required, both patches must succeed before either Deployment
 manifest is applied or any rollout command runs.
 
-### 10.3 Apply the new digest-pinned SK Deployment as the canary
+### 10.3 Apply the new digest-pinned instance B Deployment as the canary
 
 Step 1 and the release manifest commit must prepare these two repository
 Deployment manifests with the new immutable image digest before this gate,
 without applying either one yet:
 
-- `deploy/k8s/sk/deployment.yaml` — SK canary, applied first.
+- `deploy/k8s/instance-b/deployment.yaml` — instance B canary, applied first.
 - `deploy/k8s/deployment.yaml` — flagship, applied second.
 
 Change only each manifest's application image to the new
@@ -419,23 +419,23 @@ Preserve the manifest as the source of truth, including
 and the existing Secret/ConfigMap references. Do not use `kubectl set image`
 for this release path.
 
-After any required step 10.2 patches succeed, apply the SK Deployment manifest
+After any required step 10.2 patches succeed, apply the instance B Deployment manifest
 and wait for its canary rollout:
 
 ```bash
-kubectl apply -f deploy/k8s/sk/deployment.yaml
-kubectl -n stablekernel rollout status deployment/gridiron-2000-sk \
+kubectl apply -f deploy/k8s/instance-b/deployment.yaml
+kubectl -n league-b rollout status deployment/gridiron-2000-b \
   --timeout=5m
 ```
 
 Run the complete authenticated canary gate in step 11.1. During this first
-roll, SK's Commissioner HQ page may show the flagship peer card as unavailable
+roll, instance B's Commissioner HQ page may show the flagship peer card as unavailable
 or may show the flagship's previous release metadata because the flagship is
 still on the old image. That peer state can remain until the second roll; the
-SK local card, authenticated manager journey, and candidate release metadata
+instance B local card, authenticated manager journey, and candidate release metadata
 must still pass.
 
-### 10.4 Apply the flagship Deployment manifest only after SK passes
+### 10.4 Apply the flagship Deployment manifest only after instance B passes
 
 ```bash
 kubectl apply -f deploy/k8s/deployment.yaml
@@ -453,7 +453,7 @@ must show the exact candidate release metadata before the release is accepted.
 Stop the sequence and roll back if either rollout times out, its pod is not
 Ready, health is not `ok`, the pool mode is neither `live` nor `cache`,
 `fantasyPoolError` is non-empty, the player count is below
-`fantasyRosterCapacity`, the resolved SK redirect breaks, or either app
+`fantasyRosterCapacity`, the resolved instance B redirect breaks, or either app
 cannot complete its read-only smoke checks. After the second roll, an
 unavailable HQ peer card is also a rollback failure.
 
@@ -483,11 +483,11 @@ Use the exact old revision numbers and image references captured in step
 10.1; placeholders below are deliberately not current digests:
 
 ```bash
-# SK canary failed before the flagship rolled, and the recorded target passed
+# instance B canary failed before the flagship rolled, and the recorded target passed
 # the schema compatibility adjudication above:
-kubectl -n stablekernel rollout undo deployment/gridiron-2000-sk \
-  --to-revision=<recorded-sk-before-revision>
-kubectl -n stablekernel rollout status deployment/gridiron-2000-sk \
+kubectl -n league-b rollout undo deployment/gridiron-2000-b \
+  --to-revision=<recorded-b-before-revision>
+kubectl -n league-b rollout status deployment/gridiron-2000-b \
   --timeout=5m
 
 # Flagship or final acceptance failed after both rolls; adjudicate both
@@ -496,9 +496,9 @@ kubectl -n gridiron rollout undo deployment/gridiron-2000 \
   --to-revision=<recorded-flagship-before-revision>
 kubectl -n gridiron rollout status deployment/gridiron-2000 \
   --timeout=5m
-kubectl -n stablekernel rollout undo deployment/gridiron-2000-sk \
-  --to-revision=<recorded-sk-before-revision>
-kubectl -n stablekernel rollout status deployment/gridiron-2000-sk \
+kubectl -n league-b rollout undo deployment/gridiron-2000-b \
+  --to-revision=<recorded-b-before-revision>
+kubectl -n league-b rollout status deployment/gridiron-2000-b \
   --timeout=5m
 ```
 
@@ -510,7 +510,7 @@ with `kubectl set image`.
 
 ## 11. Authenticated acceptance and pre-draft smoke test
 
-Release acceptance has two ordered gates. The SK canary gate below must pass
+Release acceptance has two ordered gates. The instance B canary gate below must pass
 before the flagship Deployment is applied; the bilateral gate must pass after
 the flagship rollout. Health and redirect checks are necessary transport
 evidence, but they are not sufficient release acceptance.
@@ -525,17 +525,17 @@ and test that flow in a separate staging or rehearsal environment instead.
 Use a fresh authenticated browser session per host; never carry a cookie,
 OAuth callback, or return URL from one league instance to the other.
 
-### 11.1 SK canary acceptance before flagship
+### 11.1 instance B canary acceptance before flagship
 
-Run the shared health and redirect checks below for Stable Kernel only, then
-complete both authenticated acceptance roles on the SK host:
+Run the shared health and redirect checks below for League B only, then
+complete both authenticated acceptance roles on the instance B host:
 
 1. An allowed manager signs in from a deep link and confirms login continuity
-   returns to the same SK host. The manager then opens Team, Board, and Draft
+   returns to the same instance B host. The manager then opens Team, Board, and Draft
    and verifies the instance's truthful identity, roster-capacity/empty
    pre-draft state, Big Board controls, draft order, player pool, pick tape,
    and closed/ready state. Do not save, toggle, claim, or start anything.
-2. An authenticated commissioner opens Commissioner HQ on SK and confirms the
+2. An authenticated commissioner opens Commissioner HQ on instance B and confirms the
    local card is available, contains no PII, and reports the exact candidate
    release metadata: release/app version, source Git SHA, build timestamp,
    and framework version. Separately verify the immutable image digest with
@@ -544,8 +544,8 @@ complete both authenticated acceptance roles on the SK host:
    still show its previous release during this gate; that temporary peer state
    is the only canary exception.
 
-Do not apply the flagship manifest until both authenticated SK checks and all
-shared SK transport checks pass.
+Do not apply the flagship manifest until both authenticated instance B checks and all
+shared instance B transport checks pass.
 
 ### 11.2 Bilateral post-flagship acceptance
 
@@ -553,7 +553,7 @@ After the flagship rollout is Ready, run the shared checks for both hosts and
 repeat both authenticated acceptance roles independently on each host:
 
 1. An allowed manager completes login continuity and the read-only Team, Board,
-   and Draft truth checks on flagship and SK. Each session must remain on its
+   and Draft truth checks on flagship and instance B. Each session must remain on its
    own host and show that instance's league configuration and state.
 2. An authenticated commissioner opens Commissioner HQ on each host. Each
    local card and its peer card must be available, contain no PII, and show
@@ -595,19 +595,19 @@ those gates.
      fi
      printf '%s: health OK\n' "${label}"
    }
-   # SK canary gate (11.1):
-   check_health stable-kernel https://second.league.example.com
+   # instance B canary gate (11.1):
+   check_health league-b https://second.league.example.com
 
    # Bilateral final gate (11.2):
    check_health flagship https://league.example.com
-   check_health stable-kernel https://second.league.example.com
+   check_health league-b https://second.league.example.com
    ```
    `set -euo pipefail` makes a failure on either host fail this block
    immediately; the second host cannot mask a first-host failure.
 2. **HTTP redirects for the requested host set.** With redirects disabled,
    confirm each requested host returns a permanent redirect whose
-   `Location` is the matching HTTPS host. The SK result verifies the
-   tracked/live-resolved `sk/http-redirect.yaml` wiring:
+   `Location` is the matching HTTPS host. The instance B result verifies the
+   tracked/live-resolved `instance-b/http-redirect.yaml` wiring:
    ```bash
    set -euo pipefail
    check_redirect() {
@@ -626,7 +626,7 @@ those gates.
      fi
      printf '%s: redirect OK\n' "${host}"
    }
-   # SK canary gate (11.1):
+   # instance B canary gate (11.1):
    check_redirect second.league.example.com
 
    # Bilateral final gate (11.2):
@@ -648,7 +648,7 @@ those gates.
    Do not accept a generic healthy response as a substitute for the visible
    release metadata check.
 5. **No mutation or peer exception outside the canary.** The only tolerated
-   unavailable peer is the old flagship peer during SK canary acceptance in
+   unavailable peer is the old flagship peer during instance B canary acceptance in
    11.1. Any final-gate peer outage or any attempted production mutation
    fails acceptance. Test mutations only in a separate staging environment.
 

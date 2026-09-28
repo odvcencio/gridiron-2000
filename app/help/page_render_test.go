@@ -60,7 +60,7 @@ func TestHelpIndexRendersSearchAndProjectionMarkers(t *testing.T) {
 			t.Errorf("help index omitted %q", want)
 		}
 	}
-	if strings.Contains(body, "commissioner"+"@"+"example.invalid") || strings.Contains(body, "stablekernel"+".invalid") {
+	if strings.Contains(body, "commissioner"+"@"+"example.invalid") || strings.Contains(body, "league-b"+".invalid") {
 		t.Fatal("help index leaked identity/domain PII")
 	}
 }

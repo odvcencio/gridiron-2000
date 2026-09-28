@@ -17,8 +17,8 @@ import (
 var trackedEmailPattern = regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)
 
 // TestTrackedPublicRepositoryPrivacyContract keeps examples and source safe to
-// publish. The forbidden values are assembled from pieces so this contract
-// does not reintroduce the exact personal tokens it is designed to catch.
+// publish. The forbidden values come from an untracked file or environment
+// variable (see privacyForbiddenTokens), so no personal data lives in the repo.
 func TestTrackedPublicRepositoryPrivacyContract(t *testing.T) {
 	root := privacyRepositoryRoot(t)
 	paths, err := privacyScanPaths(root)
@@ -26,6 +26,7 @@ func TestTrackedPublicRepositoryPrivacyContract(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	forbidden := privacyForbiddenTokens(root)
 	var violations []string
 	for _, rel := range paths {
 		path := filepath.Join(root, filepath.FromSlash(rel))
@@ -38,7 +39,7 @@ func TestTrackedPublicRepositoryPrivacyContract(t *testing.T) {
 		}
 		text := string(body)
 		lower := strings.ToLower(text)
-		for _, token := range privacyForbiddenTokens() {
+		for _, token := range forbidden {
 			if strings.Contains(lower, strings.ToLower(token)) {
 				violations = append(violations, fmt.Sprintf("%s contains prohibited personal token", rel))
 			}
@@ -181,21 +182,27 @@ func privacyPathExcluded(path string) bool {
 	return false
 }
 
-func privacyForbiddenTokens() []string {
-	return []string{
-		strings.Join([]string{"os", "car", ".", "villavi", "cencio", "@", "stablekernel.com"}, ""),
-		strings.Join([]string{"os", "car", "@", "m31labs.dev"}, ""),
-		strings.Join([]string{
-			strings.Join([]string{"os", "car"}, ""),
-			strings.Join([]string{"villavi", "cencio"}, ""),
-		}, " "),
-		strings.Join([]string{"os", "car", "'", "s"}, ""),
-		strings.Join([]string{"os", "car"}, ""),
-		strings.Join([]string{"villavi", "cencio"}, ""),
-		strings.Join([]string{"/home/", "draco"}, ""),
-		strings.Join([]string{"os", "car", "villavi", "cencio", "@", "Melanies", "-", "MacBook-Air.local"}, ""),
-		strings.Join([]string{"Melanies", "-", "MacBook-Air.local"}, ""),
+// privacyForbiddenTokens loads operator-specific strings that must never
+// appear in tracked files. The list lives outside the repository: set
+// PRIVACY_FORBIDDEN_TOKENS_FILE to a file with one token per line, or place
+// the file at deploy/local/privacy-forbidden-tokens.txt (gitignored). When
+// neither exists the token check is skipped and only the email-shape check runs.
+func privacyForbiddenTokens(root string) []string {
+	path := os.Getenv("PRIVACY_FORBIDDEN_TOKENS_FILE")
+	if path == "" {
+		path = filepath.Join(root, "deploy", "local", "privacy-forbidden-tokens.txt")
 	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var tokens []string
+	for _, line := range strings.Split(string(body), "\n") {
+		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
+			tokens = append(tokens, line)
+		}
+	}
+	return tokens
 }
 
 func reservedPrivacyEmail(email string) bool {

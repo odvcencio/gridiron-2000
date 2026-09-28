@@ -17,7 +17,7 @@ import (
 
 func TestSpecialPagesCarryViewerAndLeagueDataWithoutMutation(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "league-state.json")
-	leagueFile, err := filepath.Abs(filepath.Join("..", "internal", "league", "testdata", "sk-league.json"))
+	leagueFile, err := filepath.Abs(filepath.Join("..", "internal", "league", "testdata", "instance-b-league.json"))
 	if err != nil {
 		t.Fatalf("league fixture path: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestSpecialPagesCarryViewerAndLeagueDataWithoutMutation(t *testing.T) {
 // pins that it still does after the copy change).
 func TestNotFoundPageOffersHomeAndHelp(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "league-state.json")
-	leagueFile, err := filepath.Abs(filepath.Join("..", "internal", "league", "testdata", "sk-league.json"))
+	leagueFile, err := filepath.Abs(filepath.Join("..", "internal", "league", "testdata", "instance-b-league.json"))
 	if err != nil {
 		t.Fatalf("league fixture path: %v", err)
 	}

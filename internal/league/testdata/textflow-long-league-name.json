@@ -2,7 +2,7 @@
   "version": 1,
   "league": {
     "name": "DeBÍ TiRAR MáS TOUCHDOWNS del Norte y Sur",
-    "short_code": "SKL",
+    "short_code": "LGB",
     "tagline": "",
     "mode_label": "REDRAFT",
     "url": "https://second.league.example.com",
@@ -138,6 +138,6 @@
     "review_hours": 24
   },
   "membership": {
-    "allowed_domain": "stablekernel.com"
+    "allowed_domain": "example.org"
   }
 }

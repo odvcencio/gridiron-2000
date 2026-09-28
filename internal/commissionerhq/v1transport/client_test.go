@@ -219,7 +219,7 @@ func TestClientExpectedLeagueAndTargetValidation(t *testing.T) {
 	if _, err := NewTarget("https://example.com", "league\nsecret", testCredentials(t)); err == nil {
 		t.Fatal("control character in expected league ID was accepted")
 	}
-	if _, err := NewTarget("http://gridiron-hq.stablekernel.svc.cluster.local:8091", "league", testCredentials(t)); err != nil {
+	if _, err := NewTarget("http://gridiron-hq.league-b.svc.cluster.local:8091", "league", testCredentials(t)); err != nil {
 		t.Fatalf("reviewed cluster-service HTTP target rejected: %v", err)
 	}
 	if _, err := client.Fetch(context.Background(), Target{}); !FailureIs(err, FailureMisconfigured) {
