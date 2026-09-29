@@ -547,7 +547,7 @@ func (d *deploy) makeRunDir() {
 // Harbor, so low disk there is a cluster outage (2026-09-24), not a build
 // failure.
 func (d *deploy) diskGate(when string) {
-	step("Buildbox disk gate " + when + " (at least 60G free on /)")
+	step("Build host disk gate " + when + " (at least 60G free on /)")
 	host := buildHost
 	human := capture(d.Root, time.Minute, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, "df -h /")
 	guard human.Code == 0 else {
