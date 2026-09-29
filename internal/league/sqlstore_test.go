@@ -36,7 +36,7 @@ import (
 // none of them need the fsync FULL buys — and across hundreds of
 // short-lived Store instances, that fsync was this package's single
 // largest fixed wall-clock cost (2026-09-23 profiling on a 16-core
-// buildbox: ~230s of the ~260s -short run went to individually small,
+// benchmark host: ~230s of the ~260s -short run went to individually small,
 // evenly spread per-test costs, not a few outlier sleeps). Each crash
 // helper is a re-exec of this same test binary (exec.Command(os.Args[0],
 // ...)) with its own "*_HELPER=1" environment variable, so it gets its own

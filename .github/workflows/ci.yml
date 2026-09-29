@@ -91,8 +91,8 @@ jobs:
     if: github.event_name != 'schedule'
     # internal/league alone timed out at Go's default 10m package timeout
     # under -race on a GitHub-hosted runner (run 35836239666): -short
-    # there measures 159s without -race on a 16-core buildbox host. Also
-    # reproduced on a throttled 8-core buildbox slice (GOMAXPROCS=8, an
+    # there measures 159s without -race on a 16-core benchmark host. Also
+    # reproduced on a throttled 8-core benchmark-host slice (GOMAXPROCS=8, an
     # idle-priority nice/ionice class under load from unrelated jobs): the
     # same "go test -race -short ./internal/league/", with no explicit
     # -timeout, still hit the 10m default and was killed mid-test — so
