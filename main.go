@@ -824,9 +824,9 @@ func leagueWeekStatsSource(stats *openstats.Service) league.WeekStatsSource {
 // GSIS ID (see league.InjuryDesignationSource's doc comment); nflTeam
 // scopes the openstats query so one lookup stays cheap (openstats caps
 // InjuryReports at 1000 rows per call regardless of Limit). Among that
-// team's reports for the matching name+position, the highest-week row's
-// ReportStatus wins — "this player's most recently reported weekly
-// designation." ok is false when no report matches at all.
+// team's reports, only the team's latest report week counts
+// (currentInjuryDesignation): ok is false when that week's report does not
+// list the player.
 func leagueInjuryDesignationSource(stats *openstats.Service) league.InjuryDesignationSource {
 	return func(name, position, nflTeam string) (string, bool) {
 		key := openstats.NormalizePlayerKey(name, position)
@@ -842,21 +842,33 @@ func leagueInjuryDesignationSource(stats *openstats.Service) league.InjuryDesign
 		// 2026-09-10 holistic review; it is the same abbreviation
 		// mismatch already corrected in five other call sites.
 		reports := stats.InjuryReports(openstats.InjuryQuery{Team: livescore.NormalizeTeam(nflTeam), Limit: 1000})
-		bestWeek := -1
-		designation := ""
-		found := false
-		for _, r := range reports {
-			if openstats.NormalizePlayerKey(r.PlayerName, r.Position) != key {
-				continue
-			}
-			if r.Week > bestWeek {
-				bestWeek = r.Week
-				designation = r.ReportStatus
-				found = true
-			}
-		}
-		return designation, found
+		return currentInjuryDesignation(reports, key)
 	}
+}
+
+// currentInjuryDesignation returns a player's status from his team's most
+// recent weekly report, and ok=false when that report does not list him.
+//
+// Only the team's latest report week counts. The weekly report lists a
+// player only while he is on it; one who recovers, or whom the NFL moves to
+// injured reserve, simply stops appearing. Reading the player's own latest
+// row instead kept a week-1 "Out" alive all season: his chip stayed "O"
+// and he stayed IR-eligible long after he was healthy (2026-09-29 IR
+// review). A bye week publishes no report, so the team's latest week is
+// then the one before it, which is still the current word on the player.
+func currentInjuryDesignation(reports []openstats.InjuryReport, key string) (string, bool) {
+	latest := -1
+	for _, r := range reports {
+		if r.Week > latest {
+			latest = r.Week
+		}
+	}
+	for _, r := range reports {
+		if r.Week == latest && openstats.NormalizePlayerKey(r.PlayerName, r.Position) == key {
+			return r.ReportStatus, true
+		}
+	}
+	return "", false
 }
 
 // thousands formats an int with a comma separator, US style.

@@ -1158,6 +1158,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	liveRuntime.Replay = replayServer
 	rt.Live = liveRuntime
 	league.Default().SetInjuryDesignationSource(leagueInjuryDesignationSource(openStats))
+	league.Default().SetInjuryReportReady(func() bool { return openStats.Status().Injuries.Rows > 0 })
 	rt.starters = append(rt.starters, func(ctx context.Context) {
 		startBlitzPoller(ctx, fantasyPool, league.Default())
 	})

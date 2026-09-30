@@ -154,6 +154,7 @@ These optional fields may accompany either base shape:
 
 - `reserve`: map of real player positions (`QB`, `RB`, `WR`, `TE`, `DST`, `K`, `P`) to 0–4 draftable reserve slots. Reserve counts toward `draft.rounds`.
 - `ir`: 0–10 injury-gated, in-season stash slots. IR does not count toward `draft.rounds`.
+- `ir_eligible`: the injury statuses that qualify a player for IR, as a list of codes: `IR` (injured reserve), `O` (out), `D` (doubtful), `Q` (questionable), `PUP` (physically unable to perform), `NFI` (non-football injury), and `SUS` (suspended). Absent means `["IR", "O", "D", "PUP", "NFI", "SUS"]`. A player's status is the more serious of the player-pool designation and the latest weekly NFL injury report. When a player on IR no longer has a listed status, the manager must activate him before his next kickoff or the league drops him.
 - `limits`: map of real player positions to a maximum of 1–20 held players across starters, bench, and reserve. IR occupants are exempt. An absent entry is unlimited.
 
 ## `waivers`

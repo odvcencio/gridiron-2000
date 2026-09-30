@@ -90,6 +90,10 @@ type RosterBlock struct {
 	Reserve map[string]int `json:"reserve,omitempty"`
 	IR      int            `json:"ir,omitempty"`
 	Limits  map[string]int `json:"limits,omitempty"`
+	// IREligible lists the injury statuses that qualify a player for IR,
+	// as canonical codes (IREligibleCodes: IR, O, D, Q, PUP, NFI, SUS).
+	// Absent or empty means DefaultIREligible.
+	IREligible []string `json:"ir_eligible,omitempty"`
 }
 
 // WaiversBlock is the "waivers" config block (roster-ops spec section 10).
@@ -165,6 +169,9 @@ type Config struct {
 	// config's explicit slots/bench. Every reader (lineup.go, the draft
 	// engine) uses this and never re-reads RosterPresetName.
 	Roster RosterPreset
+	// IREligible is roster.ir_eligible as written (nil when absent). Read
+	// it through normalizeIREligible, which applies DefaultIREligible.
+	IREligible []string
 
 	Waivers WaiversBlock
 	Trades  TradesBlock
@@ -584,6 +591,7 @@ func loadConfigBytes(path string, raw []byte) (Config, error) {
 		cfg.RosterPresetName = "gridiron-house"
 	}
 	cfg.Roster = resolveRosterBlock(file.Roster, file.Draft.Rounds)
+	cfg.IREligible = file.Roster.IREligible
 	return cfg, nil
 }
 
@@ -814,6 +822,9 @@ func validateConfig(cfg *Config) (warnings []string, err error) {
 		return nil, fmt.Errorf("league config: league.season must be 2020 to 2100")
 	}
 
+	if err := validateIREligible(cfg.IREligible, "league config"); err != nil {
+		return nil, err
+	}
 	if err := validateRoster(cfg); err != nil {
 		return nil, err
 	}

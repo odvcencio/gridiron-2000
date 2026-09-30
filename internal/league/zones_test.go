@@ -127,12 +127,13 @@ func TestPlaceInIRRequiresQualifyingDesignation(t *testing.T) {
 	seedTeam1WithInjured(t, svc, now)
 	// No injury source wired at all.
 	_, err := svc.PlaceInIR(zonesRequest(), "team-1", "inj-1")
-	want := "Injured Rusher does not carry a qualifying injury designation"
+	want := "Injured Rusher has no injury designation, so he cannot go on IR. This league's IR takes: Injured reserve, Out, Doubtful, Physically unable to perform, Non-football injury, Suspended."
 	if err == nil || err.Error() != want {
 		t.Fatalf("(no source) err = %v, want %q", err, want)
 	}
+	want = "Injured Rusher is listed as Questionable, which does not qualify for IR. This league's IR takes: Injured reserve, Out, Doubtful, Physically unable to perform, Non-football injury, Suspended."
 	// A non-qualifying designation ("Questionable" — still expected to
-	// play, per irQualifyingDesignations' documented set).
+	// play, so DefaultIREligible leaves it out).
 	svc.SetInjuryDesignationSource(func(name, position, nflTeam string) (string, bool) {
 		return "Questionable", true
 	})
