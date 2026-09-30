@@ -223,15 +223,19 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 					<If cond={props.HasSeat || props.Commissioner}><span class="navigation-link__index mono"><If cond={props.DraftComplete}>14</If><If cond={props.DraftComplete == false}>13</If></span></If>
 					Rules &amp; scoring
 				</Link>
+				<Link href="/trophies" class="navigation-link" title="Trophies">
+					<If cond={props.HasSeat || props.Commissioner}><span class="navigation-link__index mono"><If cond={props.DraftComplete}>15</If><If cond={props.DraftComplete == false}>14</If></span></If>
+					Trophies
+				</Link>
 			</div>
 			<div class="navigation-group" data-navigation-group="help">
 				<p class="navigation-group__label mono">HELP</p>
 				<Link href="/guide" class="navigation-link navigation-link--guide" title="Manager guide">
-					<If cond={props.HasSeat || props.Commissioner}><span class="navigation-link__index mono"><If cond={props.DraftComplete}>15</If><If cond={props.DraftComplete == false}>14</If></span></If>
+					<If cond={props.HasSeat || props.Commissioner}><span class="navigation-link__index mono"><If cond={props.DraftComplete}>16</If><If cond={props.DraftComplete == false}>15</If></span></If>
 					Manager guide
 				</Link>
 				<Link href="/help" class="navigation-link navigation-link--guide" title="Help center">
-					<If cond={props.HasSeat || props.Commissioner}><span class="navigation-link__index mono"><If cond={props.DraftComplete}>16</If><If cond={props.DraftComplete == false}>15</If></span></If>
+					<If cond={props.HasSeat || props.Commissioner}><span class="navigation-link__index mono"><If cond={props.DraftComplete}>17</If><If cond={props.DraftComplete == false}>16</If></span></If>
 					Help center
 				</Link>
 			</div>
@@ -239,11 +243,11 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 				<div class="navigation-group" data-navigation-group="commissioner">
 					<p class="navigation-group__label mono">COMMISSIONER</p>
 					<Link href="/commissioner" class="navigation-link" title="All leagues">
-						<span class="navigation-link__index mono"><If cond={props.DraftComplete}>17</If><If cond={props.DraftComplete == false}>16</If></span>
+						<span class="navigation-link__index mono"><If cond={props.DraftComplete}>18</If><If cond={props.DraftComplete == false}>17</If></span>
 						All leagues
 					</Link>
 					<Link href="/admin" class="navigation-link" title="League settings">
-						<span class="navigation-link__index mono"><If cond={props.DraftComplete}>18</If><If cond={props.DraftComplete == false}>17</If></span>
+						<span class="navigation-link__index mono"><If cond={props.DraftComplete}>19</If><If cond={props.DraftComplete == false}>18</If></span>
 						League settings
 					</Link>
 				</div>
