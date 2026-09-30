@@ -380,6 +380,11 @@ func (s *Service) TrophyCaseData(r *http.Request) map[string]any {
 	viewer := s.Viewer(r)
 	email, _ := viewer["email"].(string)
 	signedIn, _ := viewer["signed_in"].(bool)
+	// viewer and league feed the app shell (app/layout.gsx): without them
+	// the layout read every visitor as signed out, so /trophies dropped the
+	// navigation rail and showed a "Sign in" header to signed-in managers.
+	data["viewer"] = viewer
+	data["league"] = s.leagueMapForViewer(r)
 	data["catalog_groups"] = s.trophyCatalog(eval, email, signedIn)
 	data["catalog_has_viewer"] = signedIn
 	data["catalog_href"] = "/trophies?view=catalog"

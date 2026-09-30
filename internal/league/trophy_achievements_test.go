@@ -604,3 +604,21 @@ func TestHomeSpecialHighlightsShowEachManagersBestAward(t *testing.T) {
 		t.Fatalf("special_more = %v, want the hidden awards counted", got["special_more"])
 	}
 }
+
+// TestTrophyCaseDataFeedsTheAppShell: the layout reads data.viewer and
+// data.league. Without them /trophies rendered the signed-out header and no
+// navigation rail for a signed-in manager.
+func TestTrophyCaseDataFeedsTheAppShell(t *testing.T) {
+	svc, _, _ := achievementFixture(t)
+	data := svc.TrophyCaseData(httptest.NewRequest("GET", "/trophies", nil))
+	viewer, ok := data["viewer"].(map[string]any)
+	if !ok {
+		t.Fatalf("trophy data carries no viewer map: %#v", data["viewer"])
+	}
+	if _, ok := viewer["signed_in"]; !ok {
+		t.Fatalf("viewer map lacks signed_in: %#v", viewer)
+	}
+	if _, ok := data["league"].(map[string]any); !ok {
+		t.Fatalf("trophy data carries no league map: %#v", data["league"])
+	}
+}
