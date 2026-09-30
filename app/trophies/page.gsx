@@ -104,14 +104,11 @@ func Page() Node {
 
 		<If cond={data.has_awards == false}>
 			<div class="empty-tape">
-				<strong>NO TROPHIES YET</strong>
-				<p>
-					Trophies are awarded once a week closes. Check back after the first slate settles.
-				</p>
+				<p>No trophies yet. They appear after the first week closes.</p>
 			</div>
 		</If>
 
-		<If cond={data.is_week}>
+		<If cond={data.is_week && data.has_awards}>
 			<section class="player-pool" id="by-week">
 				<div class="pool-toolbar">
 					<div>
@@ -189,7 +186,7 @@ func Page() Node {
 			</If>
 			<If cond={data.is_manager}>
 				<If cond={data.manager_known}>
-					<If cond={data.has_manager_rows == false}>
+					<If cond={data.has_manager_rows == false && data.has_awards}>
 						<div class="empty-tape">
 							<strong>NO TROPHIES YET</strong>
 							<p>
@@ -225,7 +222,7 @@ func Page() Node {
 					<h2>Season trophies</h2>
 				</div>
 			</div>
-			<If cond={data.has_season_rows == false}>
+			<If cond={data.has_season_rows == false && data.has_awards}>
 				<div class="empty-tape">
 					<strong>NOT AWARDED YET</strong>
 					<p>

@@ -112,6 +112,18 @@ func Page() Node {
 `), 0o644); err != nil {
 		t.Fatalf("write index page fixture: %v", err)
 	}
+	trophiesPagePath := filepath.Join(root, "trophies", "page.gsx")
+	if err := os.MkdirAll(filepath.Dir(trophiesPagePath), 0o755); err != nil {
+		t.Fatalf("mkdir trophies fixture: %v", err)
+	}
+	if err := os.WriteFile(trophiesPagePath, []byte(`package app
+
+func Page() Node {
+	return <main id="main-content"><h1>Trophies fixture</h1></main>
+}
+`), 0o644); err != nil {
+		t.Fatalf("write trophies page fixture: %v", err)
+	}
 
 	teamName, viewerName := "Quality Agents", "Quality Agents"
 	if viewer.noTeamName {
@@ -163,6 +175,9 @@ func Page() Node {
 	}
 	if err := modules.Register(route.FileModuleFor(indexPagePath, route.FileModuleOptions{Load: fixtureData})); err != nil {
 		t.Fatalf("register index fixture module: %v", err)
+	}
+	if err := modules.Register(route.FileModuleFor(trophiesPagePath, route.FileModuleOptions{Load: fixtureData})); err != nil {
+		t.Fatalf("register trophies fixture module: %v", err)
 	}
 
 	router := route.NewRouter()
@@ -368,10 +383,11 @@ func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigati
 			"/activity|" + railIndexPrefix(tradesShown, railIndex(viewer.draftComplete, 12)) + "Activity",
 			"/locker|" + railIndexPrefix(tradesShown, railIndex(viewer.draftComplete, 13)) + "Locker Room",
 			"/scoring|" + railIndexPrefix(tradesShown, railIndex(viewer.draftComplete, 14)) + "Rules & scoring",
+			"/trophies|" + railIndexPrefix(tradesShown, railIndex(viewer.draftComplete, 15)) + "Trophies",
 		}},
 		{Name: "help", Links: []string{
-			"/guide|" + railIndexPrefix(tradesShown, railIndex(viewer.draftComplete, 15)) + "Manager guide",
-			"/help|" + railIndexPrefix(tradesShown, railIndex(viewer.draftComplete, 16)) + "Help center",
+			"/guide|" + railIndexPrefix(tradesShown, railIndex(viewer.draftComplete, 16)) + "Manager guide",
+			"/help|" + railIndexPrefix(tradesShown, railIndex(viewer.draftComplete, 17)) + "Help center",
 		}},
 	}
 	team := &groups[1].Links
@@ -409,8 +425,8 @@ func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigati
 	}
 	if viewer.commissioner {
 		groups = append(groups, renderedNavigationGroup{Name: "commissioner", Links: []string{
-			"/commissioner|" + railIndex(viewer.draftComplete, 17) + " All leagues",
-			"/admin|" + railIndex(viewer.draftComplete, 18) + " League settings",
+			"/commissioner|" + railIndex(viewer.draftComplete, 18) + " All leagues",
+			"/admin|" + railIndex(viewer.draftComplete, 19) + " League settings",
 		}})
 	}
 	return groups
@@ -691,6 +707,22 @@ func TestPrimaryNavigationPublicAndDisclosureContracts(t *testing.T) {
 	for _, forbidden := range []string{`type="checkbox"`, `<label`, `role="menu"`, `role="menuitem"`} {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("rendered layout retained forbidden navigation contract %q", forbidden)
+		}
+	}
+}
+
+func TestPrimaryNavigationQuerylessCurrentTrophiesLinkUsesGoSXContract(t *testing.T) {
+	body := renderNavigationLayout(t, "/trophies", navigationViewerFixture{signedIn: true, hasSeat: true})
+	document := parseNavigationDocument(t, body)
+	links := findNodes(document, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && node.Data == "a" && nodeAttr(node, "href") == "/trophies" && hasClass(node, "navigation-link")
+	})
+	if len(links) != 3 {
+		t.Fatalf("trophies primary link count = %d, want 3", len(links))
+	}
+	for index, link := range links {
+		if got := nodeAttr(link, "aria-current"); got != "page" {
+			t.Errorf("trophies link %d aria-current = %q, want page", index, got)
 		}
 	}
 }

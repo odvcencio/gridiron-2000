@@ -65,19 +65,38 @@ func TestTrophiesPageEmptyCase(t *testing.T) {
 	t.Cleanup(func() { league.Default().SetClockForTest(nil) })
 	league.Default().SetScheduleSource(func() []league.GameInfo { return nil })
 
-	body, compact := get(t, trophiesHandler(t), "/")
-	for _, want := range []string{"NO TROPHIES YET", "NO AWARDS THIS WEEK", "NOT AWARDED YET", "By week", "By manager", "Every trophy and how ties work", "Exact ties share it", "Ties go to win percentage, then wins"} {
-		if !strings.Contains(compact, want) {
-			t.Fatalf("empty trophy case missing %q: %s", want, body)
+	for _, target := range []string{"/", "/?manager=t-team-1"} {
+		body, compact := get(t, trophiesHandler(t), target)
+		if !strings.Contains(compact, "No trophies yet. They appear after the first week closes.") {
+			t.Errorf("empty view %s missing the clear empty state: %s", target, body)
 		}
-	}
-	for _, title := range everyTrophy {
-		if !strings.Contains(compact, title) {
-			t.Fatalf("rules list missing trophy %q: %s", title, body)
+		if strings.Count(compact, "No trophies yet. They appear after the first week closes.") != 1 {
+			t.Errorf("empty view %s should show one empty state: %s", target, body)
 		}
-	}
-	if strings.Contains(body, "@") && strings.Contains(body, "mailto:") {
-		t.Fatalf("page must not expose email addresses: %s", body)
+		for _, forbidden := range []string{"WEEK 0", "NO TROPHIES YET", "NO AWARDS THIS WEEK", "NOT AWARDED YET"} {
+			if strings.Contains(compact, forbidden) {
+				t.Errorf("empty view %s still contains stacked state %q: %s", target, forbidden, body)
+			}
+		}
+		if target == "/" && !strings.Contains(body, `aria-current="true">By week`) {
+			t.Errorf("empty week view should mark By week current: %s", body)
+		}
+		if target != "/" && !strings.Contains(body, `aria-current="true">By manager`) {
+			t.Errorf("empty manager view should mark By manager current: %s", body)
+		}
+		for _, want := range []string{"By week", "By manager", "Every trophy and how ties work", "Exact ties share it", "Ties go to win percentage, then wins"} {
+			if !strings.Contains(compact, want) {
+				t.Errorf("empty trophy case missing %q: %s", want, body)
+			}
+		}
+		for _, title := range everyTrophy {
+			if !strings.Contains(compact, title) {
+				t.Errorf("rules list missing trophy %q: %s", title, body)
+			}
+		}
+		if strings.Contains(body, "@") && strings.Contains(body, "mailto:") {
+			t.Errorf("page must not expose email addresses: %s", body)
+		}
 	}
 }
 

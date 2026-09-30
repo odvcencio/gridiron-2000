@@ -16347,9 +16347,13 @@ a.skip-link {
     padding-block: var(--space-xs);
   }
 
+  /* 19 destinations since the Trophies link joined the League group:
+     1.45rem plus a 1.3 line height keeps League settings inside the rail
+     at 1440x900 (TestBrowserDesktopRailFitsAt900And800). */
   .site-rail .navigation-link {
-    min-height: 1.6rem;
+    min-height: 1.45rem;
     padding-block: 0.05rem;
+    line-height: 1.3;
   }
 
   .site-rail .navigation-group + .navigation-group {
@@ -16388,8 +16392,9 @@ a.skip-link {
    this height, this one layered on top. */
 @media (min-width: 56.25rem) and (max-height: 50rem) {
   .site-rail .navigation-link {
-    min-height: 1.3rem;
+    min-height: 1.25rem;
     padding-block: 0;
+    line-height: 1.2;
   }
 
   .site-rail .primary-navigation__groups {
