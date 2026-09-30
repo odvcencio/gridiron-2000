@@ -13,6 +13,8 @@ type TrophyRowView struct {
 	HasManager  bool
 	Value       string
 	Rule        string
+	Special bool
+	Tier string
 }
 
 // TrophyManagerOption mirrors internal/league's TrophyManagerOption.
@@ -30,7 +32,7 @@ type TrophyCountView struct {
 }
 
 component TrophyItem(props: TrophyRowView) {
-	return <li class="pickem-trophy" data-awarded="true">
+	return <li class="pickem-trophy" data-awarded="true" data-special={props.Special} data-tier={props.Tier}>
 		<span class="section-index">
 			{props.Title}
 			·
@@ -44,6 +46,7 @@ component TrophyItem(props: TrophyRowView) {
 			</If>
 			<b class="mono pickem-trophy__value">{props.Value}</b>
 		</div>
+		<If cond={props.Special}><span class="position-chip achievement-special">SPECIAL</span></If>
 		<p class="scoring-note pickem-trophy__rule">{props.Rule}</p>
 	</li>
 }
@@ -55,7 +58,7 @@ component RuleItem(props: TrophyRowView) {
 			·
 			{props.Meta}
 		</span>
-		<p class="scoring-note pickem-trophy__rule">{props.Rule}</p>
+			<p class="scoring-note pickem-trophy__rule">{props.Rule}</p>
 	</li>
 }
 
@@ -75,6 +78,52 @@ component CountItem(props: TrophyCountView) {
 			×
 			{props.Count}
 		</b>
+	</li>
+}
+
+type TrophyCatalogItem struct {
+	ID string
+	Title string
+	Description string
+	Rule string
+	Scope string
+	Tier string
+	Special bool
+	Earned bool
+	Status string
+	Progress string
+	HasProgress bool
+	Counter string
+	HasCounter bool
+	Holders []TrophyRowView
+	HasHolders bool
+}
+
+component CatalogItem(props: TrophyCatalogItem) {
+	return <li class="pickem-trophy achievement-card" data-achievement={props.ID} data-awarded={props.Earned} data-special={props.Special} data-tier={props.Tier}>
+		<div class="pickem-trophy__body">
+			<h3>{props.Title}</h3>
+			<span class="position-chip achievement-status">{props.Status}</span>
+		</div>
+		<p>{props.Description}</p>
+		<div class="achievement-badges">
+			<span class="section-index">{props.Scope}</span>
+			<span class="position-chip achievement-tier" data-tier={props.Tier}>{props.Tier}</span>
+			<If cond={props.Special}><span class="position-chip achievement-special">SPECIAL</span></If>
+			<If cond={props.HasCounter}><span class="mono">{props.Counter}</span></If>
+		</div>
+		<p class="scoring-note pickem-trophy__rule"><strong>How to earn:</strong> {props.Rule}</p>
+		<If cond={props.HasProgress}><p class="scoring-note achievement-progress">{props.Progress}</p></If>
+		<If cond={props.HasHolders}>
+			<ul class="achievement-holders" aria-label={props.Title + " holders and weeks"}>
+				<Each of={props.Holders} as="holder">
+					<li class="achievement-holder">
+						<a class="pickem-manager-link" href={holder.ManagerHref} data-gosx-link>{holder.Manager}</a>
+						<span class="mono">{holder.Meta} · {holder.Value}</span>
+					</li>
+				</Each>
+			</ul>
+		</If>
 	</li>
 }
 
@@ -98,14 +147,28 @@ func Page() Node {
 		</section>
 
 		<nav class="pickem-weeknav" aria-label="Trophy case view">
+			<a href={data.catalog_href} data-gosx-link class="board-button" aria-current={data.is_catalog}>Catalog</a>
 			<a href={data.by_week_href} data-gosx-link class="board-button" aria-current={data.is_week}>By week</a>
-			<a href="#by-manager" data-gosx-link class="board-button" aria-current={data.is_manager}>By manager</a>
+			<a href="/trophies#by-manager" data-gosx-link class="board-button" aria-current={data.is_manager}>By manager</a>
 		</nav>
 
-		<If cond={data.has_awards == false}>
+		<If cond={data.has_awards == false && data.manager_unknown == false}>
 			<div class="empty-tape">
 				<p>No trophies yet. They appear after the first week closes.</p>
 			</div>
+		</If>
+
+		<If cond={data.is_catalog}>
+			<p class="scoring-note">Every trophy and how ties work. Season records show the leader so far.</p>
+			<If cond={data.catalog_has_viewer}><p class="scoring-note">Your earned and locked achievements appear below. Career counters cover the history this league retains: the current season.</p></If>
+			<Each of={data.catalog_groups} as="group">
+				<section class="player-pool achievement-category" id={"catalog-" + group.ID}>
+					<div class="pool-toolbar"><div><span class="section-index">CATALOG</span><h2>{group.Title}</h2></div></div>
+					<ul class="pickem-trophies achievement-grid" aria-label={group.Title}>
+						<Each of={group.Items} as="item"><CatalogItem {...item}></CatalogItem></Each>
+					</ul>
+				</section>
+			</Each>
 		</If>
 
 		<If cond={data.is_week && data.has_awards}>
@@ -155,6 +218,7 @@ func Page() Node {
 			</section>
 		</If>
 
+		<If cond={data.is_catalog == false}>
 		<section class="player-pool" id="by-manager">
 			<div class="pool-toolbar">
 				<div>
@@ -250,5 +314,6 @@ func Page() Node {
 				</Each>
 			</ul>
 		</section>
+		</If>
 	</main>
 }

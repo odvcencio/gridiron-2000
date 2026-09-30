@@ -341,6 +341,26 @@ component ActionCenterPanel(props: ActionCenterPanelProps) {
 	</section>
 }
 
+type TrophyHighlight struct {
+	Title string
+	Meta string
+	Manager string
+	ManagerHref string
+	HasManager bool
+	Value string
+	Rule string
+	Special bool
+	Tier string
+}
+
+component TrophyHighlightItem(props: TrophyHighlight) {
+	return <li class="pickem-trophy" data-awarded="true" data-special={props.Special} data-tier={props.Tier}>
+		<div class="pickem-trophy__body"><strong>{props.Title}</strong><span class="mono">{props.Meta}</span></div>
+		<a class="pickem-manager-link" href={props.ManagerHref} data-gosx-link>{props.Manager}</a>
+		<span class="scoring-note">{props.Value}</span>
+	</li>
+}
+
 func Page() Node {
 	return <main class="page home-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
 		<If cond={data.viewer.signed_in == false}>
@@ -494,6 +514,33 @@ func Page() Node {
 			<a href="/matchups" data-gosx-link class="access-link">Open Matchups and bracket truth →</a>
 			<If cond={data.viewer.is_commissioner}><a href="/admin?section=playoffs#admin-playoffs" data-gosx-link class="access-link">Open commissioner controls →</a></If>
 		</section>
+		</If>
+
+		<If cond={data.viewer.signed_in}>
+			<section class="score-command achievement-highlights" aria-labelledby="achievement-highlights-heading">
+				<header class="section-heading section-heading--split">
+					<div><span class="section-index">LEAGUE HQ // ACHIEVEMENTS</span><h2 id="achievement-highlights-heading">Latest league awards</h2></div>
+					<a href="/trophies?view=catalog" data-gosx-link class="access-link">Trophy catalog →</a>
+				</header>
+				<If cond={data.has_trophy_highlights == false}><p class="scoring-note">No trophies yet. They appear after the first week closes.</p></If>
+				<If cond={data.has_trophy_highlights}>
+					<p class="scoring-note">Week {data.trophy_highlight_week} highlights</p>
+					<If cond={data.has_special_trophy_highlights}>
+						<div class="achievement-special-callout">
+							<h3><span class="position-chip achievement-special">SPECIAL</span> Special teams stepped up</h3>
+							<ul class="pickem-trophies achievement-grid" aria-label="Special teams achievements this week">
+								<Each of={data.special_trophy_highlights} as="award"><TrophyHighlightItem {...award}></TrophyHighlightItem></Each>
+							</ul>
+							<If cond={data.has_special_trophy_more}>
+								<a href="/trophies" data-gosx-link class="access-link">+{data.special_trophy_more} more special-teams awards this week →</a>
+							</If>
+						</div>
+					</If>
+					<ul class="pickem-trophies achievement-grid" aria-label="Latest league awards">
+						<Each of={data.trophy_highlights} as="award"><TrophyHighlightItem {...award}></TrophyHighlightItem></Each>
+					</ul>
+				</If>
+			</section>
 		</If>
 		<If cond={data.viewer.signed_in && data.has_seat}>
 		<section class="score-command" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval={data.live_interval} data-gosx-live-on="scores:changed">

@@ -206,6 +206,14 @@ type Member struct {
 	Role string `json:"role,omitempty"`
 }
 
+// SeatTenure records the first award-eligible week of a seat claim. Legacy
+// members have no entry; their existing franchise attribution is preserved.
+type SeatTenure struct {
+	TeamID    string `json:"teamId"`
+	Season    int    `json:"season"`
+	FirstWeek int    `json:"firstWeek"`
+}
+
 // PersistedState is intentionally small and can later be replaced by a DB adapter.
 type PersistedState struct {
 	// persistenceAuthority is a SQLite-only boot handoff marker. It is kept
@@ -231,6 +239,7 @@ type PersistedState struct {
 	FinalGameStats map[string]FinalGameStats `json:"finalGameStats,omitempty"`
 	Ready          map[string]bool           `json:"ready"`
 	Picks          []DraftPick               `json:"picks"`
+	SeatTenures    map[string]SeatTenure     `json:"seatTenures,omitempty"`
 	Members        map[string]Member         `json:"members"`
 	Invites        []string                  `json:"invites"`
 	Boards         map[string][]string       `json:"boards"`

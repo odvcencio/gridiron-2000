@@ -17,7 +17,7 @@ func init() {
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
 			return server.Metadata{
 				Title:       server.Title{Default: league.PageTitle("Trophies")},
-				Description: "The league trophy case: weekly and season honors, by week and by manager.",
+				Description: "The league achievement catalog: earned trophies, rules, and personal progress, by week and by manager.",
 			}, nil
 		},
 	}); err != nil {

@@ -312,7 +312,7 @@ func TestTrophyCaseWeekAndManagerViews(t *testing.T) {
 	}
 
 	// Manager with none.
-	none := svc.trophyCaseData(state, "", trophyManagerKey("two@example.com"), now)
+	none := svc.trophyCaseData(state, "", "t-team-5", now)
 	if none["manager_known"] != true || none["has_manager_rows"] != false || none["manager_total"] != 0 {
 		t.Fatalf("manager without trophies = %+v", none)
 	}
