@@ -22596,3 +22596,84 @@ body.is-on-clock .draft-command__pill-sentence {
     }
   }
 }
+
+/* Achievement cards wrap their content and use the trophy case's tokens. */
+.achievement-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+}
+
+.achievement-category,
+.achievement-grid > li,
+.achievement-card h3,
+.achievement-holder,
+.achievement-strip,
+.achievement-highlights {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.achievement-card h3,
+.achievement-card p {
+  margin: 0;
+}
+
+.achievement-card {
+  gap: var(--space-xs);
+}
+
+.achievement-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.achievement-holders {
+  list-style: none;
+  margin: var(--space-xs) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.achievement-holder {
+  display: grid;
+  gap: 0.2rem;
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--type-sm);
+}
+
+.achievement-card[data-awarded="false"] .achievement-status {
+  border-style: dashed;
+  color: var(--color-text-muted);
+}
+
+.achievement-special,
+.pickem-trophy[data-special="true"] {
+  border-color: var(--color-accent-cyan);
+}
+
+.achievement-special {
+  color: var(--color-accent-cyan);
+}
+
+.pickem-trophy[data-special="true"][data-tier="gold"] {
+  border-left-width: 6px;
+}
+
+.achievement-special-callout {
+  padding: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  border: 1px solid var(--color-accent-cyan);
+  border-radius: var(--radius-md);
+  background: var(--color-white-faint);
+}
+
+.achievement-strip .achievement-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+}
+
+.achievement-tier[data-tier=""] {
+  display: none;
+}

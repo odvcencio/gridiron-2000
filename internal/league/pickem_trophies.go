@@ -12,7 +12,7 @@ import (
 // so a half-played week never awards anything. Nothing is stored; each win is
 // re-derived from picks, frozen markets, and results, so two renders of the
 // same settled data agree. The kinds, their rules, and their tie handling are
-// listed in trophyDefs (trophies.go).
+// listed in trophyRegistry (trophy_registry.go).
 
 // pickemGradedPick is one graded call: a win, a loss, or a missed loss.
 // Voids and pending games never appear.
@@ -41,10 +41,11 @@ type pickemTrophyInput struct {
 // trophyWin is one entrant's win of one trophy. Week is 0 for a season
 // trophy.
 type trophyWin struct {
-	Kind  string
-	Week  int
-	Owner string
-	Value string
+	Kind       string
+	EarnedWeek int
+	Week       int
+	Owner      string
+	Value      string
 }
 
 func pickemRecordCompare(a, b PickemATSRecord) int {

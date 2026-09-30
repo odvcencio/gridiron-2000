@@ -697,6 +697,12 @@ func init() {
 			ctx.Runtime().EnableBootstrap()
 			ctx.Runtime().BindHub(matchupspage.ScoresLiveHubName, matchupspage.ScoresLiveBindingPath(), nil)
 			data := prepareTeamData(league.Default().TeamData(ctx.Request), ctx.Request)
+			strip := league.Default().ManagerTrophyStrip(ctx.Request)
+			data["manager_achievement_rows"] = strip["rows"]
+			data["manager_achievements_shown"] = strip["shown"]
+			data["has_manager_achievements"] = strip["has_rows"]
+			data["manager_achievement_total"] = strip["total"]
+			data["manager_achievement_href"] = strip["href"]
 			// Identity mutations stay on the open editor after a native
 			// POST-redirect-GET and after a managed success. GoSX removes the
 			// reserved field before action handlers see it and rejects hostile

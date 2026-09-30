@@ -351,6 +351,26 @@ func RosterRow(props RosterRowProps) Node {
 	</>
 }
 
+type ManagerAchievement struct {
+	Title string
+	Meta string
+	Manager string
+	ManagerHref string
+	HasManager bool
+	Value string
+	Rule string
+	Special bool
+	Tier string
+}
+
+component ManagerAchievementItem(props: ManagerAchievement) {
+	return <li class="pickem-trophy" data-awarded="true" data-special={props.Special} data-tier={props.Tier}>
+		<div class="pickem-trophy__body"><strong>{props.Title}</strong><span class="mono">{props.Meta}</span></div>
+		<If cond={props.Special}><span class="position-chip achievement-special">SPECIAL</span></If>
+		<span class="scoring-note">{props.Value}</span>
+	</li>
+}
+
 // Page's avatar-upload form posts to /avatar/upload as a plain, unmanaged
 // (data-gosx-managed="false") full-page submission. GoSX v0.50.0 supports
 // File/Files and MaxActionBodyBytes for managed actions, but this native route
@@ -579,6 +599,24 @@ func Page() Node {
 					<a href="/trades#trade-block" data-gosx-link class="access-link">See the league-wide block →</a>
 				</section>
 			</If>
+
+			<If cond={data.manager_achievements_shown}>
+				<section class="score-command team-trophy-case achievement-strip" id="trophy-case" aria-labelledby="trophy-case-heading">
+					<header class="section-heading section-heading--split">
+						<div><span class="section-index">YOUR ACHIEVEMENTS</span><h2 id="trophy-case-heading">Trophy case</h2></div>
+						<span class="position-chip">{data.manager_achievement_total} WON</span>
+					</header>
+					<If cond={data.has_manager_achievements}>
+						<ul class="pickem-trophies achievement-grid" aria-label="Your latest achievements">
+							<Each of={data.manager_achievement_rows} as="award"><ManagerAchievementItem {...award}></ManagerAchievementItem></Each>
+						</ul>
+					</If>
+					<If cond={data.has_manager_achievements == false}><p class="scoring-note">No trophies yet. Explore the catalog to see how to earn your first.</p></If>
+					<a href={data.manager_achievement_href} data-gosx-link class="access-link">Your full trophy case →</a>
+					<a href="/trophies?view=catalog" data-gosx-link class="access-link">Explore locked achievements →</a>
+				</section>
+			</If>
+			<If cond={data.manager_achievements_shown == false}>
 			<section class="score-command team-trophy-case" id="trophy-case" aria-labelledby="trophy-case-heading">
 				<header class="section-heading section-heading--split">
 					<div>
@@ -604,6 +642,7 @@ func Page() Node {
 					<p class="scoring-note">Weekly awards will collect here after the league closes each week.</p>
 				</If>
 			</section>
+			</If>
 			<If cond={data.is_commissioner}>
 				<section class="lineup-target-switcher" aria-label="Commissioner lineup target">
 					<div>

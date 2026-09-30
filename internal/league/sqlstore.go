@@ -663,6 +663,7 @@ const (
 	kvRosterOverride          = "roster_override"
 	kvScheduleHeader          = "schedule_header"
 	kvTrimmedTeamIDs          = "trimmed_team_ids"
+	kvSeatTenures             = "seat_tenures"
 	kvSeatRevisions           = "seat_revisions"
 	kvSeatReleaseNotices      = "seat_release_notices"
 	kvRosterCorrectionNotices = "roster_correction_notices"
@@ -722,6 +723,9 @@ var collectionSpecs = [collectionCount]collectionSpec{
 			// schedule "absent" convention above: no trim has run.
 			if len(st.TrimmedTeamIDs) > 0 {
 				put(kvTrimmedTeamIDs, sink.jsonValue(st.TrimmedTeamIDs))
+			}
+			if len(st.SeatTenures) > 0 {
+				put(kvSeatTenures, sink.jsonValue(st.SeatTenures))
 			}
 			if len(st.SeatRevisions) > 0 {
 				put(kvSeatRevisions, sink.jsonValue(st.SeatRevisions))
@@ -1535,6 +1539,11 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 			return state, fmt.Errorf("kv %s: %w", kvSeatRevisions, err)
 		}
 		state.SeatRevisions = revisions
+	}
+	if raw, ok := scalars[kvSeatTenures]; ok {
+		if err := json.Unmarshal([]byte(raw), &state.SeatTenures); err != nil {
+			return state, fmt.Errorf("kv %s: %w", kvSeatTenures, err)
+		}
 	}
 	if raw, ok := scalars[kvSeatReleaseNotices]; ok {
 		var notices map[string]SeatReleaseNotice
@@ -2371,6 +2380,9 @@ func queryRows(db *sql.DB, query string, scan func(*sql.Rows) error) error {
 // contract lives; both the database loader and the JSON importer call it,
 // exactly as the old JSON loader's nil-map guards did.
 func normalizeState(state *PersistedState) {
+	if state.SeatTenures == nil {
+		state.SeatTenures = map[string]SeatTenure{}
+	}
 	if state.FinalGameStats == nil {
 		state.FinalGameStats = map[string]FinalGameStats{}
 	}

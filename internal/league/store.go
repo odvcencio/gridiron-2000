@@ -1170,6 +1170,7 @@ func (s *Store) AssignMember(email, name string) (member Member, created bool, e
 		previousDirty := s.dirty
 		newMember := Member{TeamID: team.ID, Name: name, Email: email}
 		s.state.Members[email] = newMember
+		recordSeatTenure(&s.state, email, team.ID)
 		s.state.SeatRevisions[team.ID] = previous.SeatRevisions[team.ID] + 1
 
 		// A release moves the seat's previous shared order to escrow. On the
@@ -1285,6 +1286,7 @@ func (s *Store) ClaimFantasySeatTransaction(email, name, displayName, motif stri
 
 	newMember := Member{TeamID: teamID, Name: memberName, Email: email}
 	candidate.Members[email] = newMember
+	recordSeatTenure(&candidate, email, teamID)
 	candidate.SeatRevisions[teamID] = before.SeatRevisions[teamID] + 1
 
 	if candidate.TeamNames == nil {
@@ -1877,6 +1879,7 @@ func (s *Store) ResetLeague() error {
 	s.state.Picks = []DraftPick{}
 	s.state.Ready = map[string]bool{}
 	s.state.Members = map[string]Member{}
+	s.state.SeatTenures = map[string]SeatTenure{}
 	s.state.CoInvites = map[string]string{}
 	s.state.Boards = map[string][]string{}
 	s.state.Pickems = map[string]map[string]string{}
@@ -4836,6 +4839,7 @@ func cloneState(in PersistedState) PersistedState {
 		Ready:                   make(map[string]bool, len(in.Ready)),
 		Picks:                   append([]DraftPick(nil), in.Picks...),
 		Members:                 make(map[string]Member, len(in.Members)),
+		SeatTenures:             make(map[string]SeatTenure, len(in.SeatTenures)),
 		Invites:                 append([]string(nil), in.Invites...),
 		Boards:                  make(map[string][]string, len(in.Boards)),
 		TeamNames:               make(map[string]string, len(in.TeamNames)),
@@ -4886,6 +4890,9 @@ func cloneState(in PersistedState) PersistedState {
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
+	}
+	for key, value := range in.SeatTenures {
+		out.SeatTenures[key] = value
 	}
 	for key, value := range in.Members {
 		out.Members[key] = value

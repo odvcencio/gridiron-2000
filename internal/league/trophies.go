@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// The league trophy case: twelve trophies derived from data the league
+// The league trophy case: achievements derived from data the league
 // already keeps (closed fantasy weeks and settled Pick'em weeks). Nothing is
 // stored, so a trophy can never disagree with the scores or picks that earned
 // it. Two views read the same list: by week and by manager.
@@ -35,32 +35,8 @@ const (
 // hotStreakMin is the shortest weekly winning run that earns Hot Streak.
 const hotStreakMin = 2
 
-// TrophyDef names one trophy and states its rule, ties included. The rule is
-// shown as visible text on the page.
-type TrophyDef struct {
-	Kind   string
-	Title  string
-	Season bool
-	Rule   string
-}
-
-var trophyDefs = []TrophyDef{
-	{trophyHighScore, "High Score", false, "Highest team score of the week. Exact ties share it."},
-	{trophyNailbiter, "Nailbiter", false, "Narrowest win of the week. Exact ties in margin share it."},
-	{trophyBlowout, "Blowout", false, "Biggest margin of victory of the week. Exact ties in margin share it."},
-	{trophyToiletBowl, "Toilet Bowl", false, "Lowest team score of the week. A friendly nudge, not a penalty. Exact ties share it."},
-	{trophyPickemWin, "Pick'em Winner", false, "Most Pick'em wins in a settled week. Ties share it."},
-	{trophyPerfectWeek, "Perfect Week", false, "Every contested Pick'em game of a settled week called correctly. A late entrant's partial week does not qualify. Everyone perfect shares it."},
-	{trophyUpsetHunter, "Upset Hunter", false, "Most correct Pick'em picks on the market underdog in a settled week. Games with no favorite do not count. Ties share it."},
-	{trophyContrarian, "Contrarian", false, "Most correct Pick'em picks against the league majority in a settled week. An even split has no minority. Ties share it."},
-	{trophyPointsLead, "Points Leader", true, "Most fantasy points scored across closed weeks. Exact ties share it."},
-	{trophyHotStreak, "Hot Streak", true, "Longest run of weekly fantasy wins (2 or more). A loss or tie ends a run. Ties for the longest run share it."},
-	{trophyBestPicker, "Best Picker", true, "Best Pick'em record across settled weeks. Ties go to win percentage, then wins; anyone still level shares it."},
-	{trophyBestWeek, "Best Weekly Record", true, "Best single-week Pick'em record of the season. Ties go to win percentage, then wins, then the earlier week; anyone still level shares it."},
-}
-
 func trophyDefFor(kind string) TrophyDef {
-	for _, def := range trophyDefs {
+	for _, def := range trophyRegistry {
 		if def.Kind == kind {
 			return def
 		}
@@ -69,12 +45,12 @@ func trophyDefFor(kind string) TrophyDef {
 }
 
 func trophyOrder(kind string) int {
-	for i, def := range trophyDefs {
+	for i, def := range trophyRegistry {
 		if def.Kind == kind {
 			return i
 		}
 	}
-	return len(trophyDefs)
+	return len(trophyRegistry)
 }
 
 // TrophyAward is one manager's win of one trophy. Week is 0 for a season
@@ -88,6 +64,10 @@ type TrophyAward struct {
 	Manager    string
 	Value      string
 	Rule       string
+	Special    bool
+	Tier       string
+	EarnedWeek int
+	Complete   bool
 }
 
 // trophyManagerKey is the URL-safe manager identity. It is a short hash of
@@ -159,7 +139,7 @@ func (m trophyManagers) award(w trophyWin, team bool) TrophyAward {
 	if name == "" {
 		name = "Unknown manager"
 	}
-	return TrophyAward{Kind: def.Kind, Title: def.Title, Week: w.Week, Season: def.Season, ManagerKey: key, Manager: name, Value: w.Value, Rule: def.Rule}
+	return TrophyAward{Kind: def.Kind, Title: def.Title, Week: w.Week, Season: def.Season, ManagerKey: key, Manager: name, Value: w.Value, Rule: def.Rule, Special: def.Special, Tier: def.Tier.Name, EarnedWeek: w.EarnedWeek}
 }
 
 // fantasyTrophyWins derives the fantasy weekly and season trophies from
@@ -187,6 +167,9 @@ func (s *Service) fantasyTrophyWins(state PersistedState) (team []trophyWin, pic
 				pickem = append(pickem, trophyWin{Kind: trophyPickemWin, Week: week.Week, Owner: award.Email, Value: value})
 				continue
 			}
+			if !trophyTeamEligible(state, award.TeamID, week.Week) {
+				continue
+			}
 			team = append(team, trophyWin{Kind: award.Kind, Week: week.Week, Owner: award.TeamID, Value: value})
 		}
 		blowout := 0.0
@@ -194,8 +177,12 @@ func (s *Service) fantasyTrophyWins(state PersistedState) (team []trophyWin, pic
 		for _, m := range week.Matchups {
 			blowout = math.Max(blowout, math.Abs(m.HomeScore-m.AwayScore))
 			low = math.Min(low, math.Min(m.HomeScore, m.AwayScore))
-			points[m.HomeTeamID] += m.HomeScore
-			points[m.AwayTeamID] += m.AwayScore
+			if trophyTeamEligible(state, m.HomeTeamID, week.Week) {
+				points[m.HomeTeamID] += m.HomeScore
+			}
+			if trophyTeamEligible(state, m.AwayTeamID, week.Week) {
+				points[m.AwayTeamID] += m.AwayScore
+			}
 			switch {
 			case m.HomeScore > m.AwayScore:
 				results[m.HomeTeamID] = append(results[m.HomeTeamID], 1)
@@ -208,6 +195,11 @@ func (s *Service) fantasyTrophyWins(state PersistedState) (team []trophyWin, pic
 				results[m.AwayTeamID] = append(results[m.AwayTeamID], -1)
 			}
 		}
+		for id := range results {
+			if !trophyTeamEligible(state, id, week.Week) {
+				results[id] = nil
+			}
+		}
 		seenLow := map[string]bool{}
 		for _, m := range week.Matchups {
 			if blowout > 0 && sameAwardScore(math.Abs(m.HomeScore-m.AwayScore), blowout) {
@@ -215,13 +207,15 @@ func (s *Service) fantasyTrophyWins(state PersistedState) (team []trophyWin, pic
 				if m.AwayScore > m.HomeScore {
 					winner = m.AwayTeamID
 				}
-				team = append(team, trophyWin{Kind: trophyBlowout, Week: week.Week, Owner: winner, Value: fmt.Sprintf("won by %.1f", blowout)})
+				if trophyTeamEligible(state, winner, week.Week) {
+					team = append(team, trophyWin{Kind: trophyBlowout, Week: week.Week, Owner: winner, Value: fmt.Sprintf("won by %.1f", blowout)})
+				}
 			}
 			for _, side := range []struct {
 				id    string
 				score float64
 			}{{m.HomeTeamID, m.HomeScore}, {m.AwayTeamID, m.AwayScore}} {
-				if sameAwardScore(side.score, low) && !seenLow[side.id] {
+				if trophyTeamEligible(state, side.id, week.Week) && sameAwardScore(side.score, low) && !seenLow[side.id] {
 					seenLow[side.id] = true
 					team = append(team, trophyWin{Kind: trophyToiletBowl, Week: week.Week, Owner: side.id, Value: fmt.Sprintf("%.1f points", low)})
 				}
@@ -276,17 +270,34 @@ func (s *Service) fantasyTrophyWins(state PersistedState) (team []trophyWin, pic
 
 // allTrophies is the whole case, oldest week first, season trophies last.
 func (s *Service) allTrophies(state PersistedState, now time.Time) []TrophyAward {
+	return s.evaluateTrophies(state, now).Awards
+}
+
+func (s *Service) evaluateTrophies(state PersistedState, now time.Time) trophyEvaluation {
 	managers := s.trophyManagersFor(state)
-	teamWins, pickemAwards := s.fantasyTrophyWins(state)
+	ctx := s.trophyContext(state, now)
+	eval := trophyEvaluation{Context: ctx, Results: map[string]trophyResult{}}
 	var out []TrophyAward
-	for _, w := range teamWins {
-		out = append(out, managers.award(w, true))
-	}
-	for _, w := range pickemAwards {
-		out = append(out, managers.award(w, false))
-	}
-	for _, w := range pickemTrophyWins(state, s.pickemSchedule(), now) {
-		out = append(out, managers.award(w, false))
+	for _, def := range trophyRegistry {
+		if !def.visible(ctx.roster) {
+			continue
+		}
+		result := def.Evaluate(ctx)
+		sortTrophyWins(result.Wins)
+		eval.Results[def.Kind] = result
+		for _, w := range result.Wins {
+			award := managers.award(w, def.Team)
+			if def.Season && award.EarnedWeek == 0 {
+				if def.Team && len(ctx.closed) > 0 {
+					award.EarnedWeek = ctx.closed[len(ctx.closed)-1].Week
+				}
+				if !def.Team && len(ctx.settled) > 0 {
+					award.EarnedWeek = ctx.settled[len(ctx.settled)-1]
+				}
+			}
+			award.Complete = state.Phase == PhaseSeasonComplete
+			out = append(out, award)
+		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
@@ -299,9 +310,13 @@ func (s *Service) allTrophies(state PersistedState, now time.Time) []TrophyAward
 		if a.Kind != b.Kind {
 			return trophyOrder(a.Kind) < trophyOrder(b.Kind)
 		}
-		return a.Manager < b.Manager
+		if a.Manager != b.Manager {
+			return a.Manager < b.Manager
+		}
+		return a.ManagerKey < b.ManagerKey
 	})
-	return out
+	eval.Awards = out
+	return eval
 }
 
 // TrophyRowView is one row as the trophies page renders it.
@@ -313,6 +328,8 @@ type TrophyRowView struct {
 	HasManager  bool
 	Value       string
 	Rule        string
+	Special     bool
+	Tier        string
 }
 
 // TrophyCountView is one "Title x N" line of a manager's tally.
@@ -328,7 +345,13 @@ func trophyRowView(a TrophyAward, showManager bool) TrophyRowView {
 	} else {
 		meta = "Season · leader so far"
 	}
-	row := TrophyRowView{Title: a.Title, Meta: meta, Value: a.Value, Rule: a.Rule}
+	if a.Season && a.Complete {
+		meta = "Season · earned"
+	}
+	if a.Season && a.EarnedWeek > 0 {
+		meta += " · Week " + strconv.Itoa(a.EarnedWeek)
+	}
+	row := TrophyRowView{Title: a.Title, Meta: meta, Value: a.Value, Rule: a.Rule, Special: a.Special, Tier: a.Tier}
 	if showManager {
 		row.Manager = a.Manager
 		row.HasManager = true
@@ -351,11 +374,30 @@ type TrophyManagerOption struct {
 // award.
 func (s *Service) TrophyCaseData(r *http.Request) map[string]any {
 	state := s.store.Snapshot()
-	return s.trophyCaseData(state, r.URL.Query().Get("week"), r.URL.Query().Get("manager"), s.clock())
+	now := s.clock()
+	eval := s.evaluateTrophies(state, now)
+	data := s.trophyCaseData(state, r.URL.Query().Get("week"), r.URL.Query().Get("manager"), now, eval)
+	viewer := s.Viewer(r)
+	email, _ := viewer["email"].(string)
+	signedIn, _ := viewer["signed_in"].(bool)
+	data["catalog_groups"] = s.trophyCatalog(eval, email, signedIn)
+	data["catalog_has_viewer"] = signedIn
+	data["catalog_href"] = "/trophies?view=catalog"
+	data["is_catalog"] = r.URL.Query().Get("view") == "catalog" && r.URL.Query().Get("manager") == ""
+	if data["is_catalog"] == true {
+		data["is_week"] = false
+		data["view"] = "catalog"
+	}
+	return data
 }
 
-func (s *Service) trophyCaseData(state PersistedState, rawWeek, rawManager string, now time.Time) map[string]any {
-	all := s.allTrophies(state, now)
+func (s *Service) trophyCaseData(state PersistedState, rawWeek, rawManager string, now time.Time, evaluations ...trophyEvaluation) map[string]any {
+	var all []TrophyAward
+	if len(evaluations) > 0 {
+		all = evaluations[0].Awards
+	} else {
+		all = s.allTrophies(state, now)
+	}
 	managers := s.trophyManagersFor(state)
 
 	var weekly, season []TrophyAward
@@ -473,7 +515,7 @@ func (s *Service) trophyCaseData(state PersistedState, rawWeek, rawManager strin
 		}
 	}
 	countRows := make([]TrophyCountView, 0, len(tally))
-	for _, def := range trophyDefs {
+	for _, def := range trophyRegistry {
 		if tally[def.Kind] > 0 {
 			countRows = append(countRows, TrophyCountView{Title: def.Title, Count: tally[def.Kind]})
 		}
@@ -486,8 +528,11 @@ func (s *Service) trophyCaseData(state PersistedState, rawWeek, rawManager strin
 	data["manager_counts"] = countRows
 	data["manager_total"] = len(managerRows)
 
-	defs := make([]TrophyRowView, 0, len(trophyDefs))
-	for _, def := range trophyDefs {
+	defs := make([]TrophyRowView, 0, len(trophyRegistry))
+	for _, def := range trophyRegistry {
+		if !def.visible(CurrentRoster()) {
+			continue
+		}
 		scope := "Weekly"
 		if def.Season {
 			scope = "Season"

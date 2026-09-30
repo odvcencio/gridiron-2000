@@ -213,6 +213,19 @@ func init() {
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
 			data := league.Default().DashboardData(ctx.Request.Context(), ctx.Request)
+			// The achievement highlight renders for signed-in viewers only,
+			// so an anonymous landing visit skips the trophy evaluation.
+			highlights := map[string]any{"rows": []league.TrophyRowView{}, "special_rows": []league.TrophyRowView{}, "has_rows": false, "has_special": false, "special_more": 0, "has_special_more": false, "week": 0}
+			if viewer, _ := data["viewer"].(map[string]any); viewer["signed_in"] == true {
+				highlights = league.Default().LeagueTrophyHighlights(ctx.Request)
+			}
+			data["trophy_highlights"] = highlights["rows"]
+			data["special_trophy_highlights"] = highlights["special_rows"]
+			data["has_trophy_highlights"] = highlights["has_rows"]
+			data["has_special_trophy_highlights"] = highlights["has_special"]
+			data["special_trophy_more"] = highlights["special_more"]
+			data["has_special_trophy_more"] = highlights["has_special_more"]
+			data["trophy_highlight_week"] = highlights["week"]
 			// Bootstrap and the scores-live socket are gated exactly like
 			// page.gsx's own live element (data.viewer.signed_in &&
 			// data.has_seat, ~line 386): a signed-out landing visitor must
