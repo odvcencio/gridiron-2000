@@ -84,6 +84,16 @@ type ActionCenterLineupFacts struct {
 	HasFirstKickoff bool
 }
 
+// ActionCenterIRFacts counts the viewer's IR occupants that no longer
+// qualify (irHealedAlerts): the roster is out of compliance until each is
+// activated, or the league drops him at Deadline.
+type ActionCenterIRFacts struct {
+	Healed      int
+	FirstName   string
+	Deadline    time.Time
+	HasDeadline bool
+}
+
 type ActionCenterTradeFacts struct {
 	IncomingOpen       int
 	AcceptedReview     int
@@ -166,6 +176,7 @@ type ActionCenterFacts struct {
 	WeekCloseReason           string
 	Pickem                    ActionCenterPickemFacts
 	Lineup                    ActionCenterLineupFacts
+	IR                        ActionCenterIRFacts
 	Trades                    ActionCenterTradeFacts
 	Waivers                   ActionCenterWaiverFacts
 }
@@ -231,6 +242,9 @@ func BuildActionCenter(f ActionCenterFacts) ActionCenter {
 		}
 		if c.Stage != ActionCenterSeasonComplete {
 			if a := lineupAction(f); a != nil {
+				actions = append(actions, *a)
+			}
+			if a := irAction(f); a != nil {
 				actions = append(actions, *a)
 			}
 			actions = append(actions, pickemActions(f)...)
@@ -387,6 +401,19 @@ func lineupAction(f ActionCenterFacts) *ActionCenterAction {
 		return &ActionCenterAction{ID: "lineup", Priority: ActionCenterPriorityDeadline, PriorityLabel: "BEFORE KICKOFF", Label: "Fix your lineup", Detail: detail, Href: href, DueAt: f.Lineup.FirstKickoff, HasDueAt: f.Lineup.HasFirstKickoff, DueLabel: "FIRST KICKOFF", Urgent: true, Primary: true}
 	}
 	return &ActionCenterAction{ID: "lineup-review", Priority: ActionCenterPriorityStable, PriorityLabel: actionCenterLabelOnTrack, Label: "Review your lineup", Detail: fmt.Sprintf("Week %d starters and bench are ready to review.", week), Href: href}
+}
+
+// irAction asks the manager to activate an IR player who no longer
+// qualifies before the league drops him at his next kickoff.
+func irAction(f ActionCenterFacts) *ActionCenterAction {
+	if f.IR.Healed == 0 {
+		return nil
+	}
+	detail := fmt.Sprintf("%s no longer qualifies for IR. Activate him, dropping someone if your roster is full, or the league drops him at kickoff.", f.IR.FirstName)
+	if f.IR.Healed > 1 {
+		detail = fmt.Sprintf("%d IR players no longer qualify. Activate them, dropping players if your roster is full, or the league drops them at kickoff.", f.IR.Healed)
+	}
+	return &ActionCenterAction{ID: "ir-healed", Priority: ActionCenterPriorityDeadline, PriorityLabel: "ROSTER RULE", Label: "Activate your IR player", Detail: detail, Href: "/team#team-ir", DueAt: f.IR.Deadline, HasDueAt: f.IR.HasDeadline, DueLabel: "DROP DEADLINE", Urgent: true, Primary: true}
 }
 
 func pickemActions(f ActionCenterFacts) []ActionCenterAction {

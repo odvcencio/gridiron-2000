@@ -168,6 +168,24 @@ func (s *Service) SetInjuryDesignationSource(fn InjuryDesignationSource) {
 	s.poolMu.Unlock()
 }
 
+// SetInjuryReportReady attaches the check that the weekly report mirror
+// holds rows (see injuryFeedsReady). Call it once during startup, beside
+// SetInjuryDesignationSource.
+func (s *Service) SetInjuryReportReady(fn func() bool) {
+	s.poolMu.Lock()
+	s.injuryReadyFn = fn
+	s.poolMu.Unlock()
+}
+
+// injuryReportReady reports whether a weekly source is wired and its mirror
+// holds rows.
+func (s *Service) injuryReportReady() bool {
+	s.poolMu.Lock()
+	source, ready := s.injuryFn, s.injuryReadyFn
+	s.poolMu.Unlock()
+	return source != nil && ready != nil && ready()
+}
+
 // injuryDesignationSource returns the current injury lookup, or nil when
 // none is attached (every test Service literal, and any deployment before
 // main.go wires openstats).
@@ -178,26 +196,141 @@ func (s *Service) injuryDesignationSource() InjuryDesignationSource {
 	return fn
 }
 
-// irQualifyingDesignations is the IR eligibility gate's qualifying set
-// (instance B spec: "define the qualifying set from what the mirror actually
-// carries, document it"). The openstats mirror's weekly injury report
-// (nflverse injuries dataset, report_status column — internal/openstats'
-// InjuryReport.ReportStatus) carries exactly the NFL's official
-// three-tier weekly practice-report scale: "Out", "Doubtful",
-// "Questionable" (openstats/service_test.go fixes this shape). This rule
-// treats "Out" and "Doubtful" as qualifying — both signal the player is
-// not expected to play. "Questionable" does not qualify: a Questionable
-// player is still live to play that week, so IR (a season-length stash)
-// is not the correct zone for him.
-var irQualifyingDesignations = map[string]bool{
-	"out":      true,
-	"doubtful": true,
+// IR eligibility is league-config driven (roster.ir_eligible). A player
+// qualifies for IR when his canonical injury status (resolveInjury: the
+// more serious of the Tank01 pool designation and the nflverse weekly
+// report) carries one of the league's eligible codes.
+//
+// Both feeds matter. The weekly practice report only ever carries "Out",
+// "Doubtful", and "Questionable"; a player the NFL has moved to injured
+// reserve, PUP, NFI, or the suspended list drops off that report entirely,
+// and only the pool designation still says why he is unavailable. Before
+// 2026-09-29 the gate read the weekly report alone, so the players IR
+// exists for (an "IR" chip on the team page) were refused with "does not
+// carry a qualifying injury designation", and the healed-IR ticker could
+// read their silence on the weekly report as a recovery.
+
+// IREligibleCodes is every canonical status code roster.ir_eligible may
+// name, in display order.
+var IREligibleCodes = []string{"IR", "O", "D", "Q", "PUP", "NFI", "SUS"}
+
+// DefaultIREligible is the eligible set a league gets when its config does
+// not name one: every status that means the player is not expected to
+// play. "Q" is left out because a questionable player is still live for
+// the week's game.
+var DefaultIREligible = []string{"IR", "O", "D", "PUP", "NFI", "SUS"}
+
+// validateIREligible checks a roster.ir_eligible list: known codes only,
+// no duplicates. An empty list is valid and means DefaultIREligible.
+func validateIREligible(codes []string, scope string) error {
+	seen := map[string]bool{}
+	for _, raw := range codes {
+		code := strings.ToUpper(strings.TrimSpace(raw))
+		known := false
+		for _, allowed := range IREligibleCodes {
+			if code == allowed {
+				known = true
+				break
+			}
+		}
+		if !known {
+			return fmt.Errorf("%s: roster.ir_eligible: unknown status %q; valid statuses: %s", scope, raw, strings.Join(IREligibleCodes, ", "))
+		}
+		if seen[code] {
+			return fmt.Errorf("%s: roster.ir_eligible lists %q twice", scope, code)
+		}
+		seen[code] = true
+	}
+	return nil
 }
 
-// irQualifies reports whether designation (case-insensitive, trimmed) is
-// in irQualifyingDesignations.
-func irQualifies(designation string) bool {
-	return irQualifyingDesignations[strings.ToLower(strings.TrimSpace(designation))]
+// normalizeIREligible returns codes upper-cased and in IREligibleCodes
+// order, or DefaultIREligible when codes is empty.
+func normalizeIREligible(codes []string) []string {
+	if len(codes) == 0 {
+		return append([]string(nil), DefaultIREligible...)
+	}
+	want := map[string]bool{}
+	for _, raw := range codes {
+		want[strings.ToUpper(strings.TrimSpace(raw))] = true
+	}
+	out := make([]string, 0, len(want))
+	for _, code := range IREligibleCodes {
+		if want[code] {
+			out = append(out, code)
+		}
+	}
+	return out
+}
+
+// irEligibleSet is the league's eligible codes as a lookup set.
+func (s *Service) irEligibleSet() map[string]bool {
+	set := map[string]bool{}
+	for _, code := range normalizeIREligible(s.cfg.IREligible) {
+		set[code] = true
+	}
+	return set
+}
+
+// IREligibleLabels names the league's eligible statuses in plain words
+// ("Injured reserve, Out, Doubtful, ...") for the team page, the admin
+// notice, and validation messages.
+func (s *Service) IREligibleLabels() string {
+	codes := normalizeIREligible(s.cfg.IREligible)
+	labels := make([]string, 0, len(codes))
+	for _, code := range codes {
+		labels = append(labels, injuryCodeLabel(code))
+	}
+	return strings.Join(labels, ", ")
+}
+
+// injuryCodeLabel returns the plain word for a canonical status code.
+func injuryCodeLabel(code string) string {
+	for _, status := range injuryVocabulary {
+		if status.Code == code {
+			return status.Label
+		}
+	}
+	return code
+}
+
+// irEligibility resolves player's canonical injury status and reports
+// whether it qualifies for IR under the league's eligible set.
+func (s *Service) irEligibility(player Player) (InjuryStatus, bool) {
+	status := resolveInjury(player, s.injuryDesignationSource())
+	if !status.Reported() {
+		return status, false
+	}
+	return status, s.irEligibleSet()[status.Code]
+}
+
+// injuryFeedsReady reports whether the injury data is trustworthy enough to
+// call an IR occupant healed. Healing starts a clock that ends in an
+// automatic drop, so an outage must never read as a recovery: the pool must
+// be serving real rows, and at least one injury feed must hold data. A
+// live or cached Tank01 pool carries designations; an offline or demo pool
+// does not, so it needs the weekly report wired AND its mirror loaded — a
+// wired source over an empty mirror lists nobody, which would otherwise
+// read as everyone recovering.
+func (s *Service) injuryFeedsReady(pool playerPool) bool {
+	if playerPoolIsUnavailable(pool) {
+		return false
+	}
+	switch normalizePlayerPoolState("", pool.label, len(pool.players)) {
+	case "live", "cached":
+		return true
+	}
+	return s.injuryReportReady()
+}
+
+// irOccupantHealed reports whether an IR occupant no longer qualifies,
+// and only when the feeds are trustworthy (injuryFeedsReady).
+func (s *Service) irOccupantHealed(pool playerPool, player Player) bool {
+	if !s.injuryFeedsReady(pool) {
+		return false
+	}
+	_, eligible := s.irEligibility(player)
+	return !eligible
 }
 
 // InjuryStatus is this league's ONE injury vocabulary. Two feeds report a
@@ -214,7 +347,7 @@ func irQualifies(designation string) bool {
 // while the weekly report knew. One vocabulary, one resolver, every
 // reader.
 type InjuryStatus struct {
-	// Code is the compact chip text: "O", "D", "Q", "IR", "PUP", "SUS",
+	// Code is the compact chip text: "O", "D", "Q", "IR", "PUP", "NFI", "SUS",
 	// or "" for a player with no reported designation.
 	Code string
 	// Label is the plain word a reader knows: "Out", "Questionable", ...
@@ -260,6 +393,14 @@ var injuryVocabulary = map[string]InjuryStatus{
 	"physically unable to perform": {Code: "PUP", Label: "Physically unable to perform", Severity: injurySeverityUnavailable},
 	"pup":                          {Code: "PUP", Label: "Physically unable to perform", Severity: injurySeverityUnavailable},
 	"suspended":                    {Code: "SUS", Label: "Suspended", Severity: injurySeverityUnavailable},
+	"suspension":                   {Code: "SUS", Label: "Suspended", Severity: injurySeverityUnavailable},
+	"sus":                          {Code: "SUS", Label: "Suspended", Severity: injurySeverityUnavailable},
+	"non-football injury":          {Code: "NFI", Label: "Non-football injury", Severity: injurySeverityUnavailable},
+	"non football injury":          {Code: "NFI", Label: "Non-football injury", Severity: injurySeverityUnavailable},
+	"nfi":                          {Code: "NFI", Label: "Non-football injury", Severity: injurySeverityUnavailable},
+	"o":                            {Code: "O", Label: "Out", Severity: injurySeverityOut},
+	"d":                            {Code: "D", Label: "Doubtful", Severity: injurySeverityDoubtful},
+	"q":                            {Code: "Q", Label: "Questionable", Severity: injurySeverityQuestionable},
 	"doubtful/out":                 {Code: "D", Label: "Doubtful", Severity: injurySeverityDoubtful},
 }
 
@@ -310,17 +451,6 @@ func resolveInjury(player Player, source InjuryDesignationSource) InjuryStatus {
 // poolMu. The caller must already hold it — buildPool does.
 func (s *Service) injuryDesignationSourceLocked() InjuryDesignationSource {
 	return s.injuryFn
-}
-
-// irEligible reports whether player currently carries a qualifying injury
-// designation, per source. false when source is nil (not wired) or the
-// mirror carries no report for this player.
-func irEligible(source InjuryDesignationSource, player Player) bool {
-	if source == nil {
-		return false
-	}
-	designation, ok := source(player.Name, player.Position, player.NFLTeam)
-	return ok && irQualifies(designation)
 }
 
 // ---------------------------------------------------------------------
@@ -699,13 +829,16 @@ func (s *Service) PlaceInReserve(r *http.Request, requestedTeam, playerID string
 
 // PlaceInIR applies the IR-zone placement action: the acting team's own
 // general-pool player moves into the injury-gated IR zone, freeing a
-// general roster spot for the season. Validates, in order: signed-in
-// seat, ownership, not already zoned, the league carries an IR zone at
-// all, the zone still has room, and the player currently carries a
-// qualifying injury designation (irEligible) from the wired openstats
-// mirror at this instant — "at placement time" (instance B spec).
+// general roster spot for the season. The commissioner may act on any
+// claimed team's IR (dead-manager insurance, the same authority
+// lineupActingTeam gives lineup edits); that move leaves a commissioner
+// audit row. Validates, in order: seat (or commissioner target),
+// ownership, not already zoned, not locked, the league carries an IR zone
+// at all, the zone still has room, and the player's canonical injury
+// status is one of the league's roster.ir_eligible codes at this instant.
+// The commissioner gets the same eligibility rule as everyone else.
 func (s *Service) PlaceInIR(r *http.Request, requestedTeam, playerID string) (string, error) {
-	teamID, err := s.actingTeam(r, requestedTeam)
+	teamID, err := s.lineupActingTeam(r, requestedTeam)
 	if err != nil {
 		return "", err
 	}
@@ -734,15 +867,28 @@ func (s *Service) PlaceInIR(r *http.Request, requestedTeam, playerID string) (st
 		return "", fmt.Errorf("this league does not carry an IR zone")
 	}
 	if irOccupantCount(state, teamID) >= preset.IR {
-		return "", fmt.Errorf("the IR zone is full")
+		return "", fmt.Errorf("the IR zone is full (%d of %d); activate a player first", irOccupantCount(state, teamID), preset.IR)
 	}
-	if !irEligible(s.injuryDesignationSource(), player) {
-		return "", fmt.Errorf("%s does not carry a qualifying injury designation", player.Name)
+	status, eligible := s.irEligibility(player)
+	if !eligible {
+		return "", fmt.Errorf("%s", s.irIneligibleMessage(player, status))
 	}
 	if err := s.store.PlaceInZoneWithAuthority(teamID, playerID, zoneIR, player.Position, player, games, now); err != nil {
 		return "", err
 	}
+	s.recordLineupInterventionEvent(r, teamID, week, playerID, "roster.intervention_ir",
+		fmt.Sprintf("moved %s to IR for %s (%s)", player.Name, s.TeamLabel(teamID), status.Label))
 	return fmt.Sprintf("%s moved to IR.", player.Name), nil
+}
+
+// irIneligibleMessage explains an IR refusal in terms a manager can act
+// on: what the player is listed as, and which statuses this league
+// accepts.
+func (s *Service) irIneligibleMessage(player Player, status InjuryStatus) string {
+	if !status.Reported() {
+		return fmt.Sprintf("%s has no injury designation, so he cannot go on IR. This league's IR takes: %s.", player.Name, s.IREligibleLabels())
+	}
+	return fmt.Sprintf("%s is listed as %s, which does not qualify for IR. This league's IR takes: %s.", player.Name, status.Label, s.IREligibleLabels())
 }
 
 // ActivateFromReserve returns a reserve occupant to the general roster
@@ -779,7 +925,7 @@ func (s *Service) ActivateFromReserve(r *http.Request, requestedTeam, playerID s
 // against the activated player's position (IR is exempt from Limits
 // while stashed, but re-entering the counted roster is not).
 func (s *Service) ActivateFromIR(r *http.Request, requestedTeam, playerID, dropID string) (string, error) {
-	teamID, err := s.actingTeam(r, requestedTeam)
+	teamID, err := s.lineupActingTeam(r, requestedTeam)
 	if err != nil {
 		return "", err
 	}
@@ -825,6 +971,8 @@ func (s *Service) ActivateFromIR(r *http.Request, requestedTeam, playerID, dropI
 		if err := s.store.ActivateFromIRWithDropWithAuthority(teamID, playerID, txn, games, pool.byID, now); err != nil {
 			return "", err
 		}
+		s.recordLineupInterventionEvent(r, teamID, week, playerID, "roster.intervention_ir",
+			fmt.Sprintf("activated %s from IR for %s and dropped %s", player.Name, s.TeamLabel(teamID), dropPlayer.Name))
 		return fmt.Sprintf("%s activated from IR; %s dropped.", player.Name, dropPlayer.Name), nil
 	}
 
@@ -837,5 +985,7 @@ func (s *Service) ActivateFromIR(r *http.Request, requestedTeam, playerID, dropI
 	if err := s.store.ClearZoneWithAuthority(teamID, playerID, zoneIR, player, games, now); err != nil {
 		return "", err
 	}
+	s.recordLineupInterventionEvent(r, teamID, week, playerID, "roster.intervention_ir",
+		fmt.Sprintf("activated %s from IR for %s", player.Name, s.TeamLabel(teamID)))
 	return fmt.Sprintf("%s activated from IR.", player.Name), nil
 }

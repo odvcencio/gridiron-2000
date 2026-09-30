@@ -421,7 +421,17 @@ func Page() Node {
 			<section class="lineup-intervention-banner" aria-labelledby="lineup-intervention-title">
 				<span class="section-index">COMMISSIONER // LINEUP CONTROL</span>
 				<strong id="lineup-intervention-title">LINEUP INTERVENTION · {data.team.name}</strong>
-				<p>You are editing this claimed franchise for week {data.week}. Only lineup controls are enabled here; identity, ownership, badge, roster transactions, ready status, and autopick remain with the franchise manager.</p>
+				<p>You are editing this claimed franchise for week {data.week}. Only lineup and IR controls are enabled here; identity, ownership, badge, other roster transactions, ready status, and autopick remain with the franchise manager.</p>
+			</section>
+		</If>
+		<If cond={data.has_ir_healed}>
+			<section class="lineup-intervention-banner ir-healed-banner" role="alert" aria-labelledby="ir-healed-title">
+				<span class="section-index">ROSTER // ACTION NEEDED</span>
+				<strong id="ir-healed-title">IR PLAYER NO LONGER QUALIFIES</strong>
+				<Each of={data.ir_healed} as="alert">
+					<p>{alert.text}</p>
+				</Each>
+				<a href="#team-ir" class="access-link">Go to IR →</a>
 			</section>
 		</If>
 		<section class={"team-hero tone-" + data.team.tone} id="team-identity-hero">
@@ -1337,8 +1347,8 @@ func TeamLineupRegion() Node {
 									</form>
 								</If>
 							</If>
-							<If cond={data.has_ir && data.lineup_intervention == false}>
-								<h3 class="lineup-bench-title">
+							<If cond={data.has_ir}>
+								<h3 class="lineup-bench-title" id="team-ir">
 									<abbr title="injured reserve" aria-label="injured reserve">IR</abbr>
 									<small class="mono">{data.ir_capacity}</small>
 								</h3>
@@ -1346,7 +1356,7 @@ func TeamLineupRegion() Node {
 									<p class="stat-tip__empty">No one is on IR.</p>
 								</If>
 								<If cond={data.ir_occupants_empty == false}>
-									<p class="scoring-note zone-action-note">IR removes an injured player from the counted roster while the designation qualifies. Activate returns them to the roster; if full, choose a drop—the drop is permanent for this transaction and cannot be undone here.</p>
+									<p class="scoring-note zone-action-note">IR keeps an injured player off your counted roster while his status qualifies. Activate returns him to the roster; if your roster is full, choose a player to drop in the same move. That drop cannot be undone here.</p>
 									<div class="roster-list">
 										<Each of={data.ir_occupants} as="occ">
 											<div class="roster-row">
@@ -1355,6 +1365,10 @@ func TeamLineupRegion() Node {
 													<strong>{occ.name}</strong>
 													<small>
 														{occ.nfl_team}
+														<If cond={occ.has_ir_status}>
+															·
+															{occ.ir_status}
+														</If>
 														<If cond={occ.has_opponent}>
 															·
 															{occ.opponent}
@@ -1365,11 +1379,16 @@ func TeamLineupRegion() Node {
 														</If>
 													</small>
 													<If cond={occ.healed}>
-														<p class="error-message">
-															Off the injury report — activate before
-															{occ.deadline_label}
-															or the league drops him automatically.
-														</p>
+														<If cond={occ.has_deadline}>
+															<p class="error-message">
+																No longer qualifies for IR. Activate him before
+																{occ.deadline_label}
+																or the league drops him.
+															</p>
+														</If>
+														<If cond={occ.has_deadline == false}>
+															<p class="error-message">No longer qualifies for IR. Activate him before his next game or the league drops him.</p>
+														</If>
 													</If>
 												</div>
 												<form method="post" action={actionPath("ir-activate")} data-gosx-managed="true">
@@ -1389,8 +1408,8 @@ func TeamLineupRegion() Node {
 										</Each>
 									</div>
 								</If>
-								<If cond={data.ir_place_empty == false}>
-									<p class="scoring-note zone-action-note">Place on IR is reversible while the player remains eligible. It frees a roster slot for the season; activate later, or review the injury designation before dropping anyone.</p>
+								<If cond={data.ir_can_place}>
+									<p class="scoring-note zone-action-note">Only players whose status qualifies are listed. Placing one on IR frees a roster spot; you can activate him again later.</p>
 									<form method="post" action={actionPath("ir-place")} data-gosx-managed="true" class="lineup-toolbar">
 										<input type="hidden" name="csrf_token" value={csrf.token}></input>
 										<input type="hidden" name="team_id" value={data.team.id}></input>
@@ -1402,6 +1421,18 @@ func TeamLineupRegion() Node {
 										</select>
 										<button class="board-button" type="submit">Place on IR</button>
 									</form>
+								</If>
+								<If cond={data.ir_full}>
+									<p class="scoring-note zone-action-note">IR is full. Activate a player to open a spot.</p>
+								</If>
+								<If cond={data.ir_eligible_locked}>
+									<p class="scoring-note zone-action-note">The players who qualify for IR are locked until their games finish this week.</p>
+								</If>
+								<If cond={data.ir_none_eligible}>
+									<p class="scoring-note zone-action-note">
+										No one on this roster qualifies for IR right now. This league's IR takes players listed as:
+										{data.ir_eligible_labels}.
+									</p>
 								</If>
 							</If>
 						</If>

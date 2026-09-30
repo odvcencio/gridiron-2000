@@ -893,7 +893,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				notice := fmt.Sprintf("IR set to %d. An injured player reported Out or Doubtful can be stashed there, outside the roster cap.", preset.IR)
+				notice := fmt.Sprintf("IR set to %d. A player listed as %s can be stashed there, outside the roster cap.", preset.IR, league.Default().IREligibleLabels())
 				if preset.IR == 0 {
 					notice = "IR turned off. No player can be stashed outside the roster cap."
 				}

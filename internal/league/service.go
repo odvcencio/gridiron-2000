@@ -155,11 +155,16 @@ type Service struct {
 	historicalFn     HistoricalSource
 	weekStatsFn      WeekStatsSource
 	// injuryFn supplies the openstats mirror's weekly injury-report
-	// designation (roster-ops instance B spec): IR placement and the healed-IR
-	// ticker both read it via injuryDesignationSource() (zones.go). nil
-	// means no source is wired (every test Service literal by default) —
-	// IR placement fails closed and the healed-IR ticker is a no-op.
+	// designation (roster-ops instance B spec): IR eligibility and the
+	// healed-IR ticker both read it via injuryDesignationSource()
+	// (zones.go), together with the pool designation. nil means no weekly
+	// source is wired (every test Service literal by default).
 	injuryFn InjuryDesignationSource
+	// injuryReadyFn reports whether the weekly report mirror actually holds
+	// rows. A wired source over an empty or failed mirror answers "not
+	// listed" for everyone, which must not read as a recovery
+	// (injuryFeedsReady). nil means not ready.
+	injuryReadyFn func() bool
 	// blitzFn supplies the Preseason Blitz feed (games plus live stats,
 	// WP-B1); see blitz.go's SetBlitzSource. nil means the feature is
 	// disabled — no TANK01_API_KEY, or the contest has sunset — and
@@ -2670,13 +2675,37 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	seasonPhase := s.SeasonPhase(now)
 
 	placeOptions := make([]map[string]any, 0, len(general))
+	// irPlaceOptions is placeOptions narrowed to the players IR would
+	// actually accept right now (the league's roster.ir_eligible codes),
+	// labelled with the status that qualifies them. Offering the whole
+	// roster made a manager guess, and every wrong guess failed.
+	irPlaceOptions := make([]map[string]any, 0, len(general))
+	irLockedEligible := 0
 	for _, p := range general {
 		if playerLockedForRosterMutation(state, games, weekSelection.CurrentWeek, p, now) {
+			if preset.IR > 0 {
+				if _, eligible := s.irEligibility(p); eligible {
+					irLockedEligible++
+				}
+			}
 			continue
 		}
 		placeOptions = append(placeOptions, map[string]any{
 			"id": p.ID, "label": fmt.Sprintf("%s (%s)", p.Name, p.Position),
 		})
+		if preset.IR > 0 {
+			if status, eligible := s.irEligibility(p); eligible {
+				irPlaceOptions = append(irPlaceOptions, map[string]any{
+					"id": p.ID, "label": fmt.Sprintf("%s (%s) · %s", p.Name, p.Position, status.Label),
+				})
+			}
+		}
+	}
+	irFull := preset.IR > 0 && len(irOccupants) >= preset.IR
+	irHealed := s.irHealedAlerts(state, teamID, games, now)
+	irHealedRows := make([]map[string]any, 0, len(irHealed))
+	for _, alert := range irHealed {
+		irHealedRows = append(irHealedRows, map[string]any{"id": alert.PlayerID, "text": irHealedAlertText(alert)})
 	}
 
 	// starterRows/benchRows are built once here (rather than inline in the
@@ -2864,8 +2893,15 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		"ir_capacity":             fmt.Sprintf("%d / %d", len(irOccupants), preset.IR),
 		"ir_occupants":            s.zoneOccupantRows(irOccupants, scoringValues, games, week, now, true),
 		"ir_occupants_empty":      len(irOccupants) == 0,
-		"ir_place_options":        placeOptions,
-		"ir_place_empty":          len(placeOptions) == 0,
+		"ir_place_options":        irPlaceOptions,
+		"ir_place_empty":          len(irPlaceOptions) == 0,
+		"ir_can_place":            !irFull && len(irPlaceOptions) > 0,
+		"ir_full":                 irFull,
+		"ir_none_eligible":        !irFull && len(irPlaceOptions) == 0 && irLockedEligible == 0,
+		"ir_eligible_locked":      !irFull && len(irPlaceOptions) == 0 && irLockedEligible > 0,
+		"ir_eligible_labels":      s.IREligibleLabels(),
+		"ir_healed":               irHealedRows,
+		"has_ir_healed":           len(irHealedRows) > 0,
 		"ir_drop_options":         placeOptions,
 		"ir_drop_empty":           len(placeOptions) == 0,
 		// co_manager (registration wave, build item 4): "Operated by X ·
@@ -6914,34 +6950,99 @@ func playerMapsWithScoring(players []Player, scoringValues map[string]float64, m
 }
 
 // zoneOccupantRows renders a RESERVE or IR zone's occupants for the team
-// page: playerMap's usual fields plus, for IR only (checkHealed), whether
-// the player no longer carries a qualifying injury designation and, when
-// so, the activation deadline label (instance B IR rule) — the "non-compliance/
-// deadline state surfaced honestly" requirement. A nil injury source
-// (never wired) or a schedule with no upcoming game for the player's NFL
-// team both render "healed" false rather than guess.
+// page: playerMap's usual fields plus, for IR only (checkHealed), the
+// player's current injury status and whether he no longer qualifies
+// (irOccupantHealed) — and, when so, the activation deadline label
+// (instance B IR rule). Feeds that cannot be trusted (injuryFeedsReady) or
+// a schedule with no upcoming game for the player's NFL team both render
+// "healed" false rather than guess.
 func (s *Service) zoneOccupantRows(players []Player, scoringValues map[string]float64, games []GameInfo, week int, now time.Time, checkHealed bool) []map[string]any {
 	rows := playerMapsWithScoring(players, scoringValues, s.matchupIndexFor(games, week))
 	if !checkHealed {
 		return rows
 	}
-	source := s.injuryDesignationSource()
-	location := s.draftTZ
-	if location == nil {
-		location, _ = time.LoadLocation(DefaultDraftTZ)
-	}
+	pool := s.pool()
 	for i, player := range players {
-		healed := source != nil && !irEligible(source, player)
+		status, _ := s.irEligibility(player)
+		rows[i]["ir_status"] = status.Label
+		rows[i]["has_ir_status"] = status.Reported()
+		healed := s.irOccupantHealed(pool, player)
 		rows[i]["healed"] = healed
 		rows[i]["deadline_label"] = ""
+		rows[i]["has_deadline"] = false
 		if !healed {
 			continue
 		}
 		if kickoff, ok := nextKickoffForTeam(games, player.NFLTeam, now); ok {
-			rows[i]["deadline_label"] = kickoff.In(location).Format("Mon 3:04 PM MST")
+			rows[i]["deadline_label"] = s.irDeadlineLabel(kickoff)
+			rows[i]["has_deadline"] = true
 		}
 	}
 	return rows
+}
+
+// irDeadlineLabel formats a healed IR player's activation deadline with
+// its date, in the league's time zone: "Sun Sep 27, 1:00 PM EDT".
+func (s *Service) irDeadlineLabel(kickoff time.Time) string {
+	location := s.draftTZ
+	if location == nil {
+		location, _ = time.LoadLocation(DefaultDraftTZ)
+	}
+	return kickoff.In(location).Format("Mon Jan 2, 3:04 PM MST")
+}
+
+// IRHealedAlert is one IR occupant who no longer qualifies: the roster is
+// out of compliance until the manager activates him (with a drop if the
+// roster is full), or the league drops him at the deadline.
+type IRHealedAlert struct {
+	PlayerID   string
+	Name       string
+	Status     string
+	Deadline   string
+	DeadlineAt time.Time
+}
+
+// irHealedAlerts lists teamID's IR occupants that no longer qualify, in
+// roster order. Empty when the feeds cannot be trusted.
+func (s *Service) irHealedAlerts(state PersistedState, teamID string, games []GameInfo, now time.Time) []IRHealedAlert {
+	pool := s.pool()
+	if !s.injuryFeedsReady(pool) {
+		return nil
+	}
+	var out []IRHealedAlert
+	for _, playerID := range currentRosters(state)[teamID] {
+		if zoneOfPlayer(state, teamID, playerID) != zoneIR {
+			continue
+		}
+		live, ok := pool.byID[playerID]
+		if !ok || !s.irOccupantHealed(pool, live) {
+			continue
+		}
+		status, _ := s.irEligibility(live)
+		alert := IRHealedAlert{PlayerID: live.ID, Name: live.Name}
+		if status.Reported() {
+			alert.Status = status.Label
+		}
+		if kickoff, ok := nextKickoffForTeam(games, live.NFLTeam, now); ok {
+			alert.Deadline = s.irDeadlineLabel(kickoff)
+			alert.DeadlineAt = kickoff
+		}
+		out = append(out, alert)
+	}
+	return out
+}
+
+// irHealedAlertText is the one sentence the team page banner and the Home
+// action item share for a healed IR player.
+func irHealedAlertText(a IRHealedAlert) string {
+	lead := fmt.Sprintf("%s is now listed as %s and no longer qualifies for IR.", a.Name, a.Status)
+	if a.Status == "" {
+		lead = fmt.Sprintf("%s is off the injury report and no longer qualifies for IR.", a.Name)
+	}
+	if a.Deadline == "" {
+		return lead + " Activate him (drop someone if your roster is full) before his next game, or the league drops him."
+	}
+	return fmt.Sprintf("%s Activate him (drop someone if your roster is full) before %s, or the league drops him.", lead, a.Deadline)
 }
 
 // draftPickActivityLine builds the /activity feed's team/action/player
@@ -7528,6 +7629,15 @@ func (s *Service) actionCenterDataForSnapshot(r *http.Request, state PersistedSt
 			problems := lineupProblems(lineup, games, now)
 			first, ok := firstKickoff(games, week)
 			facts.Lineup = ActionCenterLineupFacts{Week: week, Problems: len(problems), FirstKickoff: first, HasFirstKickoff: ok}
+			for _, alert := range s.irHealedAlerts(state, teamID, games, now) {
+				facts.IR.Healed++
+				if facts.IR.FirstName == "" {
+					facts.IR.FirstName = alert.Name
+				}
+				if !alert.DeadlineAt.IsZero() && (!facts.IR.HasDeadline || alert.DeadlineAt.Before(facts.IR.Deadline)) {
+					facts.IR.Deadline, facts.IR.HasDeadline = alert.DeadlineAt, true
+				}
+			}
 		}
 		for _, offer := range state.TradeOffers {
 			switch {

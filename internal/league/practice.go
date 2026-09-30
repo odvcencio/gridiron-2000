@@ -425,6 +425,7 @@ func newPracticeDraft(base *Service, key, teamID string, startRound int, now tim
 	historicalFn := base.historicalFn
 	weekStatsFn := base.weekStatsFn
 	injuryFn := base.injuryFn
+	injuryReadyFn := base.injuryReadyFn
 	matchupFn := base.matchupFn
 	matchupLabel := base.matchupLabel
 	statsUpdatedAtFn := base.statsUpdatedAtFn
@@ -447,6 +448,7 @@ func newPracticeDraft(base *Service, key, teamID string, startRound int, now tim
 		historicalFn:      historicalFn,
 		weekStatsFn:       weekStatsFn,
 		injuryFn:          injuryFn,
+		injuryReadyFn:     injuryReadyFn,
 		matchupFn:         matchupFn,
 		matchupLabel:      matchupLabel,
 		statsUpdatedAtFn:  statsUpdatedAtFn,

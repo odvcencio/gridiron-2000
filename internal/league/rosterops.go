@@ -165,27 +165,27 @@ func deferredClearsAt(cfg Config, games []GameInfo, droppedAt time.Time) time.Ti
 }
 
 // evalHealedIR evaluates every team's IR occupants on every roster-ops
-// tick: an occupant whose injury designation no longer qualifies
-// (irEligible, zones.go) is "healed." Inside the due window before his
-// NFL team's next kickoff, a warning notification fires (N19, once per
-// week per player — recordAndSend's ledger); at or after that kickoff,
-// unresolved, the platform auto-cuts him (AutoCutHealedIR, one atomic
-// persist). A nil injury source (never wired) makes this whole
-// evaluation a no-op — IR eligibility cannot be reconfirmed, so nothing
-// is ever declared healed. Idempotent by construction: AutoCutHealedIR
-// removes the zone assignment it just cut, so a repeat tick's fresh
-// snapshot never re-sees an already-cut player.
+// tick: an occupant whose canonical injury status no longer carries one
+// of the league's eligible codes (irOccupantHealed, zones.go) is
+// "healed." Inside the due window before his NFL team's next kickoff, a
+// warning notification fires (N19, once per week per player —
+// recordAndSend's ledger); at or after that kickoff, unresolved, the
+// platform auto-cuts him (AutoCutHealedIR, one atomic persist). When the
+// injury feeds are not trustworthy (injuryFeedsReady: the pool is down, or
+// an offline pool with no weekly report wired) the whole evaluation is a
+// no-op: an outage never reads as a recovery. Idempotent by construction:
+// AutoCutHealedIR removes the zone assignment it just cut, so a repeat
+// tick's fresh snapshot never re-sees an already-cut player.
 func (s *Service) evalHealedIR(now time.Time) {
-	source := s.injuryDesignationSource()
-	if source == nil {
-		return
-	}
 	state := s.store.Snapshot()
 	if len(state.RosterZones) == 0 {
 		return
 	}
-	games := s.schedule()
 	pool := s.pool()
+	if !s.injuryFeedsReady(pool) {
+		return
+	}
+	games := s.schedule()
 	week := lineupCurrentWeekAt(games, now)
 	for teamID, zones := range state.RosterZones {
 		for playerID, za := range zones {
@@ -196,7 +196,7 @@ func (s *Service) evalHealedIR(now time.Time) {
 			if !ok {
 				continue
 			}
-			if irEligible(source, player) {
+			if !s.irOccupantHealed(pool, player) {
 				continue // still qualifies; stays parked on IR
 			}
 			kickoff, ok := nextKickoffForTeam(games, player.NFLTeam, now)

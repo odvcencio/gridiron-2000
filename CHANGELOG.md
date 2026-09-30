@@ -17,6 +17,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Added an off-host backup sink to Google Cloud Storage: a nightly gzipped database snapshot, uploaded over the GCS JSON API and authenticated by keyless Workload Identity Federation (no service-account key, per org policy). The bucket's own 14-day lifecycle rule is the sole retention mechanism.
 
 ### Fixed
+- IR now accepts the players it exists for. A player the NFL lists as injured reserve, physically unable to perform, non-football injury, or suspended drops off the weekly injury report, and the IR check read only that report, so it refused him even while his chip said IR. The check now uses the more serious of the player-pool designation and the weekly report, and the qualifying statuses are a league setting (`roster.ir_eligible`). A week-old "Out" no longer keeps a healthy player eligible: only the team's latest weekly report counts.
+- The team page offers only IR-eligible players for IR, each with the status that qualifies him, and says when IR is full or when nobody qualifies. A player on IR whose status clears now gets a banner at the top of the team page and a Home action item with the drop deadline, instead of a line inside the IR section only. An injury-feed outage no longer counts as a recovery, so it can never trigger the automatic drop.
+- The commissioner can now move a claimed team's players to and from IR from the lineup intervention view, under the same rules as the manager, with an audit row.
 - A starter's projection on the matchups page now explains itself. Its tooltip used to repeat only the total, while the points tooltip beside it listed every scoring rule. It now lists each projected stat, this league's value for it, and the points it adds, for example passing yards x236 for 9.4, under the total.
 
 ## [release-2026.09.18-5edcd0d-lineup-drag] — 2026-09-18

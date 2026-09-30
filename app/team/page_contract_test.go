@@ -204,7 +204,7 @@ func TestLineupContinuityContracts(t *testing.T) {
 		`data.lineup_deadline.timezone`,
 		`Set best lineup rewrites every currently unlocked starter slot`,
 		`Reserve keeps the player on your roster`,
-		`IR removes an injured player from the counted roster`,
+		`IR keeps an injured player off your counted roster`,
 		`name="week" value={data.week}`,
 	} {
 		if !strings.Contains(page, want) {
@@ -532,14 +532,14 @@ func TestCommissionerLineupInterventionContracts(t *testing.T) {
 	for _, want := range []string{
 		"<If cond={data.lineup_intervention}>",
 		"COMMISSIONER // LINEUP CONTROL",
-		"Only lineup controls are enabled here",
+		"Only lineup and IR controls are enabled here",
 		"<section class=\"lineup-target-switcher\" aria-label=\"Commissioner lineup target\">",
 		"name=\"team\" aria-label=\"Choose a claimed franchise lineup\"",
 		"value={data.lineup_target_id}",
 		"data.lineup_intervention_exit_href",
 		"<If cond={data.lineup_intervention == false}>",
 		"<If cond={data.has_reserve && data.lineup_intervention == false}>",
-		"<If cond={data.has_ir && data.lineup_intervention == false}>",
+		"<If cond={data.has_ir}>",
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("commissioner lineup intervention contract missing %q", want)
