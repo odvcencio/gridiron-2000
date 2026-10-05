@@ -104,6 +104,9 @@ func TestServerAnswersScoresOnlyForItsOwnGameDate(t *testing.T) {
 	if !row.InProgress || row.StatusCode != "1" {
 		t.Fatalf("row status = %+v, want in progress", row)
 	}
+	if row.Period != box.Period || row.Clock != box.Clock || row.Period != "Q1" {
+		t.Fatalf("scoreboard clock = %q %q, want served frame's %q %q", row.Period, row.Clock, box.Period, box.Clock)
+	}
 
 	// A date with no games is a real empty answer, never an error — the
 	// same contract the live endpoint has.

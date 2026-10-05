@@ -551,6 +551,10 @@ type PickemGameRow struct {
 	SpreadLock        string
 	SpreadSource      string
 	ScoreDisplay      string
+	HasScores         bool
+	GameState         string
+	LivePickState     string
+	LivePickLabel     string
 	Consensus         PickemConsensusView
 	// LeaguePicks is the row's permanent record: every entrant's recorded
 	// call on this game, with each call's grade once the game is final. It
@@ -570,14 +574,16 @@ type PickemGameRow struct {
 // only, not a "==" comparison -- the same reason PickedAway/PickedHome
 // exist on PickemGameRow.
 type PickemGamePickView struct {
-	Name       string
-	PickLabel  string
-	HasPick    bool
-	Outcome    string
-	StateLabel string
-	Correct    bool
-	Wrong      bool
-	IsViewer   bool
+	Name          string
+	PickLabel     string
+	HasPick       bool
+	Outcome       string
+	StateLabel    string
+	Correct       bool
+	Wrong         bool
+	IsViewer      bool
+	LivePickState string
+	LivePickLabel string
 }
 
 // pickemGamePickLedger lists every entrant's call on one game, ordered by
@@ -868,6 +874,7 @@ func (s *Service) pickemData(r *http.Request) map[string]any {
 
 	weekGames := gamesInWeek(allGames, week)
 	sortGamesByKickoff(weekGames)
+	liveStatus, hasLiveStatus := s.liveStatusForWeek(week)
 	previousWeekHref, nextWeekHref := "", ""
 	hasPreviousWeek, hasNextWeek := false, false
 	for index, availableWeek := range weeks {
@@ -916,10 +923,8 @@ func (s *Service) pickemData(r *http.Request) map[string]any {
 		}
 		grade := gradePickemAt(game, market, pick, viewerEnteredAt, now)
 		awayLine, homeLine, spreadState, spreadAsOf, spreadLock, spreadSource := pickemSpreadView(game, market, marketLocation)
-		scoreDisplay := ""
-		if game.Final {
-			scoreDisplay = fmt.Sprintf("%d-%d", game.AwayScore, game.HomeScore)
-		}
+		liveView := pickemGameLiveView(game, liveStatus, now)
+		livePickState, livePickLabel := pickemLiveStanding(game, market, pick, liveView)
 		consensus := hiddenConsensus()
 		var ledger []PickemGamePickView
 		if locked {
@@ -929,6 +934,12 @@ func (s *Service) pickemData(r *http.Request) map[string]any {
 			// this is what makes a past week's sheet a permanent record
 			// rather than an expired form.
 			ledger = s.pickemGamePickLedger(state, game, market, allGames, viewerKey, now)
+			for index := range ledger {
+				entry := &ledger[index]
+				if entry.HasPick {
+					entry.LivePickState, entry.LivePickLabel = pickemLiveStanding(game, market, entry.PickLabel, liveView)
+				}
+			}
 		}
 		if !locked && !marketUnavailable {
 			openCount++
@@ -966,7 +977,11 @@ func (s *Service) pickemData(r *http.Request) map[string]any {
 			SpreadAsOf:        spreadAsOf,
 			SpreadLock:        spreadLock,
 			SpreadSource:      spreadSource,
-			ScoreDisplay:      scoreDisplay,
+			ScoreDisplay:      liveView.ScoreDisplay,
+			HasScores:         liveView.HasScores,
+			GameState:         liveView.State,
+			LivePickState:     livePickState,
+			LivePickLabel:     livePickLabel,
 			Consensus:         consensus,
 			LeaguePicks:       ledger,
 			HasLeaguePicks:    len(ledger) > 0,
@@ -1005,9 +1020,16 @@ func (s *Service) pickemData(r *http.Request) map[string]any {
 	streak := pickemStreak(allGames, state.PickemMarkets, viewerPicks, viewerEnteredAt, now)
 	notEntered := pickemNotEnteredNames(state)
 	viewer := s.Viewer(r)
+	liveScoreNote := "Live ATS standings are provisional. Records settle when games are final."
+	if !hasLiveStatus || !liveStatus.Enabled {
+		liveScoreNote = "Live scores unavailable. Reload Pick'em for the latest saved scores."
+	} else if liveStatus.Degraded {
+		liveScoreNote = "Live updates paused. Showing the last available scores and ATS standings."
+	}
 
 	return map[string]any{
-		"viewer": viewer,
+		"live_score_note": liveScoreNote,
+		"viewer":          viewer,
 		// The canonical public-entry projection (public_entry.go) is the
 		// one source of "why can't I pick" copy: an anonymous visitor reads
 		// sign-in, a signed-in account with no recorded membership reads

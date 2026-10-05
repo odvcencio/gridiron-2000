@@ -230,14 +230,14 @@ func (s *Server) handleScoresOnly(w http.ResponseWriter, r *http.Request) {
 		"gameStatus":     status,
 		"gameStatusCode": statusCode,
 	}
-	lineScore, ok := box.Raw["lineScore"]
-	if !ok {
-		// The recorded frame carries no lineScore (the PBP-synthesized
-		// frames may not): give the row the period the box reports, the
-		// same field the real payload nests under lineScore.period, so
-		// the parser's period fallback still has nothing to invent.
-		lineScore = map[string]any{"period": box.Period, "gameClock": box.Clock}
+	lineScore, _ := box.Raw["lineScore"].(map[string]any)
+	if lineScore == nil {
+		lineScore = map[string]any{}
 	}
+	// Frames update currentPeriod/gameClock while retaining the recorded
+	// lineScore shape. The scoreboard must report this frame's clock,
+	// including when the retained lineScore period was cleared at kickoff.
+	lineScore["period"], lineScore["gameClock"] = box.Period, box.Clock
 	row["lineScore"] = lineScore
 	writeEnvelope(w, map[string]any{s.game.ID: row})
 }

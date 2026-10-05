@@ -6168,11 +6168,49 @@ body.is-on-clock .draft-clock-panel {
 
 .pickem-status {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: end;
   gap: var(--space-xs);
   font-family: var(--font-mono);
   font-size: var(--type-xs);
+}
+
+.pickem-game-time,
+.pickem-matchup {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.pickem-game-time {
+  font-size: var(--type-xs);
+  color: var(--color-text-secondary);
+}
+
+.pickem-score {
+  font-size: var(--type-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.pickem-pick-standing {
+  flex-basis: 100%;
+}
+
+[data-pick-standing="winning"] .pickem-pick-standing,
+.pickem-ledger__entry[data-pick-standing="winning"] .pickem-ledger__state {
+  color: var(--color-accent);
+}
+
+[data-pick-standing="losing"] .pickem-pick-standing,
+.pickem-ledger__entry[data-pick-standing="losing"] .pickem-ledger__state {
+  color: var(--color-accent-hot);
+}
+
+@media (max-width: 54rem) {
+  .pickem-matchup {
+    flex: 1 1 10rem;
+  }
 }
 
 .pickem-hit {
