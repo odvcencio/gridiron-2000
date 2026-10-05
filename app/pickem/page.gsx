@@ -43,11 +43,13 @@ func ConsensusBar(props ConsensusBarProps) Node {
 		<div class="consensus-legend mono">
 			<TextBlock as="span" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={1} overflow="ellipsis">
 				{props.Away}
-				{props.AwayPct}%
+				{props.AwayPct}
+				%
 			</TextBlock>
 			<TextBlock as="span" font="600 13px IBM Plex Mono" lineHeight={18} maxLines={1} overflow="ellipsis">
 				{props.Home}
-				{props.HomePct}%
+				{props.HomePct}
+				%
 			</TextBlock>
 		</div>
 	</div>
@@ -82,6 +84,10 @@ type PickemGameRow struct {
 	SpreadLock     string
 	SpreadSource   string
 	ScoreDisplay   string
+	HasScores      bool
+	GameState      string
+	LivePickState  string
+	LivePickLabel  string
 	Consensus      PickemConsensusView
 }
 
@@ -100,6 +106,8 @@ type PickemGamePickView struct {
 	Correct    bool
 	Wrong      bool
 	IsViewer   bool
+	LivePickState string
+	LivePickLabel string
 }
 
 type PickemRowProps struct {
@@ -115,19 +123,65 @@ type PickemRowProps struct {
 	LeaguePickLead string
 }
 
+// J3 F26: the row used to give five lines (state, lock time, both
+// spread numbers — already repeated on the pick buttons below —
+// an as-of stamp, and a source line) to provenance and an
+// auto-sized track to the pick itself, the smallest thing on the
+// action page. Provenance is now one compact state-and-lock line
+// plus a closed-by-default Details disclosure for the as-of/
+// source attribution; .pickem-buttons .filter-button (styles.css,
+// "comb — birch") grows the pick buttons to read as the row's
+// primary control.
+
+// The league record. The consensus bar above says how many
+// took each side; this says who took it, and how it graded.
+// Both ship only after kickoff, and both stay for good --
+// this is what keeps a settled week's sheet a record rather
+// than an expired form.
+
+// The name clamps in CSS rather than through
+// <TextBlock> (the clamp this page uses for the
+// matchup label and the consensus legend). This
+// list is the one place that multiplies: one
+// label per entrant per locked game, and every
+// one re-ships on the live region's 4s poll.
+// Measured on this league's own week-1 slate
+// (six entrants, fifteen locked games), the
+// fragment grows from 51 KB to 77 KB with the
+// ledger. A TextBlock label carries about ten
+// measurement attributes and renders near 490
+// bytes against this span's 33, which would add
+// roughly 40 KB more to every poll for a clamp
+// one line of CSS already gives
+// (.pickem-ledger__who).
 func PickemRow(props PickemRowProps) Node {
-	return <article class="pickem-row" id={"game-" + props.Game.ID} data-game-id={props.Game.ID} data-picked={props.Game.Picked}>
-		<small class="mono">{props.Game.KickoffDisplay}</small>
-		<TextBlock as="strong" font="600 16px Plus Jakarta Sans" lineHeight={22} maxLines={1} overflow="ellipsis" text={props.Game.Label} />
-		{/* J3 F26: the row used to give five lines (state, lock time, both
-		    spread numbers — already repeated on the pick buttons below —
-		    an as-of stamp, and a source line) to provenance and an
-		    auto-sized track to the pick itself, the smallest thing on the
-		    action page. Provenance is now one compact state-and-lock line
-		    plus a closed-by-default Details disclosure for the as-of/
-		    source attribution; .pickem-buttons .filter-button (styles.css,
-		    "comb — birch") grows the pick buttons to read as the row's
-		    primary control. */}
+	return <article
+		class="pickem-row"
+		id={"game-" + props.Game.ID}
+		data-game-id={props.Game.ID}
+		data-picked={props.Game.Picked}
+	>
+		<div class="pickem-game-time mono">
+			<b data-game-state>{props.Game.GameState}</b>
+			<small>{props.Game.KickoffDisplay}</small>
+		</div>
+		<div class="pickem-matchup">
+			<TextBlock
+				as="strong"
+				font="600 16px Plus Jakarta Sans"
+				lineHeight={22}
+				maxLines={1}
+				overflow="ellipsis"
+				text={props.Game.Label}
+			 />
+			<If cond={props.Game.HasScores}>
+				<b class="pickem-score mono" data-game-score>
+					{props.Game.Away}
+					{props.Game.ScoreDisplay}
+					{props.Game.Home}
+				</b>
+			</If>
+		</div>
 		<div class="pickem-market pickem-market--compact" data-state={props.Game.SpreadState}>
 			<span class="pickem-market__state mono">
 				<b>{props.Game.SpreadState}</b>
@@ -148,39 +202,90 @@ func PickemRow(props PickemRowProps) Node {
 		</div>
 		<div class="pickem-buttons">
 			<If cond={props.Game.MarketUnavailable}>
-				<button class="filter-button" type="button" disabled="disabled" aria-disabled="true" aria-pressed={props.Game.PickedAway}>{props.Game.AwayLine}<If cond={props.Game.PickedAway}><span class="pickem-your-pick"> ✓ YOUR PICK</span></If></button>
-				<button class="filter-button" type="button" disabled="disabled" aria-disabled="true" aria-pressed={props.Game.PickedHome}>{props.Game.HomeLine}<If cond={props.Game.PickedHome}><span class="pickem-your-pick"> ✓ YOUR PICK</span></If></button>
+				<button
+					class="filter-button"
+					type="button"
+					disabled="disabled"
+					aria-disabled="true"
+					aria-pressed={props.Game.PickedAway}
+				>
+					{props.Game.AwayLine}
+					<If cond={props.Game.PickedAway}>
+						<span class="pickem-your-pick">✓ YOUR PICK</span>
+					</If>
+				</button>
+				<button
+					class="filter-button"
+					type="button"
+					disabled="disabled"
+					aria-disabled="true"
+					aria-pressed={props.Game.PickedHome}
+				>
+					{props.Game.HomeLine}
+					<If cond={props.Game.PickedHome}>
+						<span class="pickem-your-pick">✓ YOUR PICK</span>
+					</If>
+				</button>
 			</If>
 			<If cond={props.Game.MarketUnavailable == false}>
-			<If cond={props.Game.Locked == false}>
-				<form method="post" action={props.Action} data-gosx-managed="true" data-gosx-action-signal="$pickem.state.refresh">
-					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-					<input type="hidden" name="game_id" value={props.Game.ID}></input>
-					<input type="hidden" name="week" value={props.Game.Week}></input>
-					<input type="hidden" name="team" value={props.Game.Away}></input>
-					<button class="filter-button" type="submit" aria-pressed={props.Game.PickedAway}>{props.Game.AwayLine}<If cond={props.Game.PickedAway}><span class="pickem-your-pick"> ✓ YOUR PICK</span></If></button>
-				</form>
-			</If>
-			<If cond={props.Game.Locked}>
-				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.Game.PickedAway}>{props.Game.AwayLine}<If cond={props.Game.PickedAway}><span class="pickem-your-pick"> ✓ YOUR PICK</span></If></button>
-			</If>
-			<If cond={props.Game.Locked == false}>
-				<form method="post" action={props.Action} data-gosx-managed="true" data-gosx-action-signal="$pickem.state.refresh">
-					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-					<input type="hidden" name="game_id" value={props.Game.ID}></input>
-					<input type="hidden" name="week" value={props.Game.Week}></input>
-					<input type="hidden" name="team" value={props.Game.Home}></input>
-					<button class="filter-button" type="submit" aria-pressed={props.Game.PickedHome}>{props.Game.HomeLine}<If cond={props.Game.PickedHome}><span class="pickem-your-pick"> ✓ YOUR PICK</span></If></button>
-				</form>
-			</If>
-			<If cond={props.Game.Locked}>
-				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.Game.PickedHome}>{props.Game.HomeLine}<If cond={props.Game.PickedHome}><span class="pickem-your-pick"> ✓ YOUR PICK</span></If></button>
-			</If>
+				<If cond={props.Game.Locked == false}>
+					<form
+						method="post"
+						action={props.Action}
+						data-gosx-managed="true"
+						data-gosx-action-signal="$pickem.state.refresh"
+					>
+						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+						<input type="hidden" name="game_id" value={props.Game.ID}></input>
+						<input type="hidden" name="week" value={props.Game.Week}></input>
+						<input type="hidden" name="team" value={props.Game.Away}></input>
+						<button class="filter-button" type="submit" aria-pressed={props.Game.PickedAway}>
+							{props.Game.AwayLine}
+							<If cond={props.Game.PickedAway}>
+								<span class="pickem-your-pick">✓ YOUR PICK</span>
+							</If>
+						</button>
+					</form>
+				</If>
+				<If cond={props.Game.Locked}>
+					<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.Game.PickedAway}>
+						{props.Game.AwayLine}
+						<If cond={props.Game.PickedAway}>
+							<span class="pickem-your-pick">✓ YOUR PICK</span>
+						</If>
+					</button>
+				</If>
+				<If cond={props.Game.Locked == false}>
+					<form
+						method="post"
+						action={props.Action}
+						data-gosx-managed="true"
+						data-gosx-action-signal="$pickem.state.refresh"
+					>
+						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+						<input type="hidden" name="game_id" value={props.Game.ID}></input>
+						<input type="hidden" name="week" value={props.Game.Week}></input>
+						<input type="hidden" name="team" value={props.Game.Home}></input>
+						<button class="filter-button" type="submit" aria-pressed={props.Game.PickedHome}>
+							{props.Game.HomeLine}
+							<If cond={props.Game.PickedHome}>
+								<span class="pickem-your-pick">✓ YOUR PICK</span>
+							</If>
+						</button>
+					</form>
+				</If>
+				<If cond={props.Game.Locked}>
+					<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.Game.PickedHome}>
+						{props.Game.HomeLine}
+						<If cond={props.Game.PickedHome}>
+							<span class="pickem-your-pick">✓ YOUR PICK</span>
+						</If>
+					</button>
+				</If>
 			</If>
 		</div>
-		<div class="pickem-status">
+		<div class="pickem-status" data-pick-standing={props.Game.LivePickState}>
 			<If cond={props.Game.Final}>
-				<b class="mono">{props.Game.ScoreDisplay}</b>
 				<span class="mono">{props.Game.ResultLabel}</span>
 				<If cond={props.Game.Correct}>
 					<b class="pickem-hit">✓</b>
@@ -191,6 +296,9 @@ func PickemRow(props PickemRowProps) Node {
 			</If>
 			<If cond={props.Game.Final == false}>
 				<b class="mono">{props.Game.ResultLabel}</b>
+			</If>
+			<If cond={props.Game.LivePickLabel}>
+				<span class="mono pickem-pick-standing">{props.Game.LivePickLabel}</span>
 			</If>
 		</div>
 		<If cond={props.Game.Locked}>
@@ -204,35 +312,25 @@ func PickemRow(props PickemRowProps) Node {
 					Home={props.Game.Home}
 				></ConsensusBar>
 			</If>
-			{/* The league record. The consensus bar above says how many
-			    took each side; this says who took it, and how it graded.
-			    Both ship only after kickoff, and both stay for good --
-			    this is what keeps a settled week's sheet a record rather
-			    than an expired form. */}
 			<If cond={props.HasLeaguePicks}>
 				<div class="pickem-ledger">
 					<span class="pickem-ledger__lead mono">{props.LeaguePickLead}</span>
 					<ul class="pickem-ledger__list">
 						<Each of={props.LeaguePicks} as="entry">
-							{/* The name clamps in CSS rather than through
-							    <TextBlock> (the clamp this page uses for the
-							    matchup label and the consensus legend). This
-							    list is the one place that multiplies: one
-							    label per entrant per locked game, and every
-							    one re-ships on the live region's 4s poll.
-							    Measured on this league's own week-1 slate
-							    (six entrants, fifteen locked games), the
-							    fragment grows from 51 KB to 77 KB with the
-							    ledger. A TextBlock label carries about ten
-							    measurement attributes and renders near 490
-							    bytes against this span's 33, which would add
-							    roughly 40 KB more to every poll for a clamp
-							    one line of CSS already gives
-							    (.pickem-ledger__who). */}
-							<li class="pickem-ledger__entry" data-outcome={entry.Outcome} data-viewer={entry.IsViewer}>
+							<li
+								class="pickem-ledger__entry"
+								data-outcome={entry.Outcome}
+								data-viewer={entry.IsViewer}
+								data-pick-standing={entry.LivePickState}
+							>
 								<span class="pickem-ledger__who">{entry.Name}</span>
 								<b class="mono pickem-ledger__call">{entry.PickLabel}</b>
-								<span class="mono pickem-ledger__state">{entry.StateLabel}</span>
+								<If cond={entry.LivePickLabel}>
+									<span class="mono pickem-ledger__state">{entry.LivePickLabel}</span>
+								</If>
+								<If cond={entry.LivePickLabel == ""}>
+									<span class="mono pickem-ledger__state">{entry.StateLabel}</span>
+								</If>
 							</li>
 						</Each>
 					</ul>
@@ -263,7 +361,9 @@ component LeaderboardRow(props: PickemLeaderboardEntry) {
 	return <div class="rank-row">
 		<span class="pool-rank mono">{props.Rank}</span>
 		<div class="pool-player">
-			<a class="pickem-manager-link" href={props.TrophyHref} data-gosx-link><strong>{props.Name}</strong></a>
+			<a class="pickem-manager-link" href={props.TrophyHref} data-gosx-link>
+				<strong>{props.Name}</strong>
+			</a>
 			<span class="position-chip">{props.Team}</span>
 		</div>
 		<b class="mono">
@@ -300,7 +400,12 @@ component TrophyRow(props: PickemTrophy) {
 }
 
 func Page() Node {
-	return <main class="page pickem-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
+	return <main
+		class="page pickem-page"
+		id="main-content"
+		data-gosx-revalidate-interval="4s"
+		data-gosx-revalidate-src="/api/league/version"
+	>
 		<div
 			id="pickem-live-region"
 			data-gosx-region
@@ -313,9 +418,15 @@ func Page() Node {
 			<PickemLiveRegion></PickemLiveRegion>
 		</div>
 		<p class="scoring-note pickem-live-note" role="status" aria-live="polite">
-			Pick'em state refreshes automatically while games are live and settles to a slower check once the displayed slate is final.
-			If a refresh fails, use
-			<button type="button" class="board-button" data-gosx-set="$pickem.state.refresh" data-gosx-set-value="manual">Refresh Pick'em now</button>.
+			Pick'em state refreshes automatically while games are live and settles to a slower check once the displayed slate is final. If a refresh fails, use
+			<button
+				type="button"
+				class="board-button"
+				data-gosx-set="$pickem.state.refresh"
+				data-gosx-set-value="manual"
+			>Refresh Pick'em now</button>
+			.
+			<a class="board-button" href={data.pickem_refresh_url}>Reload Pick'em</a>
 		</p>
 	</main>
 }
@@ -324,8 +435,27 @@ func Page() Node {
 // page and /pickem/fragment. Keeping the masthead counters, per-game rows,
 // lock/result state, records, and leaderboards together means a fragment swap
 // never leaves the sheet scoring summary out of sync with a game transition.
+// The week's own standing, stated plainly. A sheet that is meant
+// to serve the record permanently has to say which record it is
+// serving: open, in progress, or settled -- and, once settled,
+// who took the week. week_state/week_state_note/week_winner_*
+// come from PickemData (internal/league/pickem.go); the winner
+// is read off the same week leaderboard rendered below, so the
+// two can never disagree.
+
+// No pick controls: say why, from the canonical public-entry
+// projection (internal/league/public_entry.go) — sign-in for a
+// visitor, "membership not recorded" for a signed-in account the
+// league does not know, the invite for a pending co-manager —
+// the same projection /board and /blitz render.
+
+// A member with no pick at all has not entered, so the board
+// omits them by design. Naming them here keeps "where is X?"
+// from reading as a missing row (pickemNotEnteredNames,
+// internal/league/pickem.go).
 func PickemLiveRegion() Node {
 	return <div class="pickem-live-region-content">
+		<p class="scoring-note" role="status">{data.live_score_note}</p>
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
 				<span class="signal-label">
@@ -343,7 +473,6 @@ func PickemLiveRegion() Node {
 				</div>
 			</div>
 		</section>
-
 		<section class="pickem-record" aria-label="Your pick'em record">
 			<div class="pickem-record__stat">
 				<span class="section-index">THIS WEEK</span>
@@ -374,14 +503,6 @@ func PickemLiveRegion() Node {
 				</If>
 			</div>
 		</section>
-
-		{/* The week's own standing, stated plainly. A sheet that is meant
-		    to serve the record permanently has to say which record it is
-		    serving: open, in progress, or settled -- and, once settled,
-		    who took the week. week_state/week_state_note/week_winner_*
-		    come from PickemData (internal/league/pickem.go); the winner
-		    is read off the same week leaderboard rendered below, so the
-		    two can never disagree. */}
 		<section class="pickem-week-record" data-state={data.week_state} aria-label="This week's pick'em standing">
 			<span class="section-index">
 				WEEK
@@ -393,34 +514,65 @@ func PickemLiveRegion() Node {
 				<p class="pickem-week-record__winner">
 					<span class="pickem-week-record__mark" aria-hidden="true">◎</span>
 					<span class="section-index">WEEK LEADER</span>
-					<TextBlock as="strong" font="700 16px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis" text={data.week_winner_names} />
+					<TextBlock
+						as="strong"
+						font="700 16px Plus Jakarta Sans"
+						lineHeight={22}
+						maxLines={2}
+						overflow="ellipsis"
+						text={data.week_winner_names}
+					 />
 					<b class="mono">{data.week_winner_record}</b>
 				</p>
 			</If>
 		</section>
-
 		<div class="notice-stack">
 			<If cond={data.has_notice}>
-				<TextBlock as="p" class="flash-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.notice} />
+				<TextBlock
+					as="p"
+					class="flash-message"
+					font="400 15px Plus Jakarta Sans"
+					lineHeight={22}
+					maxLines={3}
+					overflow="ellipsis"
+					text={data.notice}
+				 />
 			</If>
 			<If cond={data.has_week_notice}>
-				<TextBlock as="p" class="demo-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={2} overflow="ellipsis">
+				<TextBlock
+					as="p"
+					class="demo-message"
+					font="400 15px Plus Jakarta Sans"
+					lineHeight={22}
+					maxLines={2}
+					overflow="ellipsis"
+				>
 					<strong>WEEK ADJUSTED:</strong>
 					{data.week_notice}
 				</TextBlock>
 			</If>
 			<If cond={data.has_pickem_error}>
-				<TextBlock as="p" class="error-message" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={3} overflow="ellipsis" text={data.pickem_error} />
+				<TextBlock
+					as="p"
+					class="error-message"
+					font="400 15px Plus Jakarta Sans"
+					lineHeight={22}
+					maxLines={3}
+					overflow="ellipsis"
+					text={data.pickem_error}
+				 />
 			</If>
-			{/* No pick controls: say why, from the canonical public-entry
-			    projection (internal/league/public_entry.go) — sign-in for a
-			    visitor, "membership not recorded" for a signed-in account the
-			    league does not know, the invite for a pending co-manager —
-			    the same projection /board and /blitz render. */}
 			<If cond={data.can_pick == false}>
 				<div class="demo-message pickem-entry-state">
 					<strong>{data.public_entry.state_label}</strong>
-					<TextBlock as="p" font="400 15px Plus Jakarta Sans" lineHeight={22} maxLines={4} overflow="ellipsis" text={data.public_entry.detail} />
+					<TextBlock
+						as="p"
+						font="400 15px Plus Jakarta Sans"
+						lineHeight={22}
+						maxLines={4}
+						overflow="ellipsis"
+						text={data.public_entry.detail}
+					 />
 					<a href={data.public_entry.action_href} data-gosx-link class="button button--compact">{data.public_entry.action_label}</a>
 				</div>
 			</If>
@@ -431,7 +583,6 @@ func PickemLiveRegion() Node {
 				</TextBlock>
 			</If>
 		</div>
-
 		<section class="player-pool" id="pickem-slate">
 			<div class="pool-toolbar">
 				<div>
@@ -444,10 +595,16 @@ func PickemLiveRegion() Node {
 				</div>
 			</div>
 			<If cond={data.week_settled == false}>
-				<p class="pickem-rule-note"><strong>LINE FREEZES THURSDAY</strong> Picks lock at kickoff · Unpicked games count as losses after entry.</p>
+				<p class="pickem-rule-note">
+					<strong>LINE FREEZES THURSDAY</strong>
+					Picks lock at kickoff · Unpicked games count as losses after entry.
+				</p>
 			</If>
 			<If cond={data.week_settled}>
-				<p class="pickem-rule-note pickem-rule-note--settled"><strong>WEEK SETTLED</strong> · Final scores and picks below.</p>
+				<p class="pickem-rule-note pickem-rule-note--settled">
+					<strong>WEEK SETTLED</strong>
+					· Final scores and picks below.
+				</p>
 			</If>
 			<If cond={data.has_weeks}>
 				<div class="pickem-weeknav">
@@ -496,7 +653,6 @@ func PickemLiveRegion() Node {
 				</Each>
 			</div>
 		</section>
-
 		<div class="pickem-boards">
 			<section class="player-pool">
 				<div class="pool-toolbar">
@@ -510,7 +666,11 @@ func PickemLiveRegion() Node {
 						<TrophyRow {...trophy}></TrophyRow>
 					</Each>
 				</ul>
-				<p class="scoring-note"><a href="/trophies" data-gosx-link class="access-link">See every trophy, by week or by manager →</a></p>
+				<p class="scoring-note">
+					<a href="/trophies" data-gosx-link class="access-link">
+						See every trophy, by week or by manager →
+					</a>
+				</p>
 				<If cond={data.leaderboard_empty}>
 					<div class="empty-tape">
 						<strong>NO RESULTS YET</strong>
@@ -524,10 +684,6 @@ func PickemLiveRegion() Node {
 						<LeaderboardRow {...entry}></LeaderboardRow>
 					</Each>
 				</div>
-				{/* A member with no pick at all has not entered, so the board
-				    omits them by design. Naming them here keeps "where is X?"
-				    from reading as a missing row (pickemNotEnteredNames,
-				    internal/league/pickem.go). */}
 				<If cond={data.has_not_entered}>
 					<p class="scoring-note pickem-not-entered">
 						<strong>Not yet entered:</strong>
@@ -535,7 +691,6 @@ func PickemLiveRegion() Node {
 					</p>
 				</If>
 			</section>
-
 			<section class="player-pool">
 				<div class="pool-toolbar">
 					<div>

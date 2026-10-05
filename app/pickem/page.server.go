@@ -155,6 +155,7 @@ func preparePickemData(data map[string]any, request *http.Request, actionPath st
 		data["games"] = pickemGameRowViews(games, actionPath, session.Token(request))
 	}
 	data["pickem_fragment_url"] = pickemFragmentURL(request)
+	data["pickem_refresh_url"] = pickemRedirectTarget(fmt.Sprint(data["week"]))
 	data["has_notice"] = false
 	data["notice"] = ""
 	data["has_pickem_error"] = false
