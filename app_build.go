@@ -1494,6 +1494,8 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		// The Team terminal's drag preview (lineup_drag_preview.go) rides the
 		// same nonce; it is inert on any page without a transfer grip.
 		head += `<script data-gridiron-drag-preview="true"` + navigationScriptNonceAttr(nonce) + `>` + lineupDragPreviewScript + `</script>`
+		// Keep the document viewport through Pick'em's live subtree swaps.
+		head += `<script data-gridiron-pickem-scroll="true"` + navigationScriptNonceAttr(nonce) + `>` + pickemScrollScript + `</script>`
 		if pushEnabled {
 			// The push client (push_transport.go) needs the same nonce the
 			// navigation runtime carries; nothing else on the page may run

@@ -33,7 +33,13 @@ func TestBrowserPickemLiveScoresUpdateWithoutReloadAndHaveNativeFallback(t *test
 	// A sentinel outside the refreshed region and the original navigation
 	// timing must survive every score change. This catches full document
 	// reloads, including a revalidation response taking the wrong path.
-	var loaded float64
+	var loaded, scrollBefore float64
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`window.scrollTo({top: (document.documentElement.scrollHeight - innerHeight) / 2, behavior: 'instant'}); window.scrollY`, &scrollBefore)); err != nil {
+		t.Fatal(err)
+	}
+	if scrollBefore < 200 {
+		t.Fatalf("Pick'em fixture did not have enough content to test scrolling: %v", scrollBefore)
+	}
 	if err := chromedp.Run(ctx, chromedp.Evaluate(`window.pickemLiveSentinel = 'retained';
 		window.pickemLiveHubEvents = 0;
 		document.addEventListener('gosx:hub:event', e => {
@@ -62,14 +68,18 @@ func TestBrowserPickemLiveScoresUpdateWithoutReloadAndHaveNativeFallback(t *test
 		Clock     string  `json:"clock"`
 		Fragments int     `json:"fragments"`
 		HubEvents int     `json:"hubEvents"`
+		ScrollY   float64 `json:"scrollY"`
 	}
 	if err := chromedp.Run(ctx, chromedp.Evaluate(`({origin: performance.timeOrigin, sentinel: window.pickemLiveSentinel,
-		clock: document.querySelector('[data-game-state]').textContent, hubEvents: window.pickemLiveHubEvents,
+		clock: document.querySelector('[data-game-state]').textContent, hubEvents: window.pickemLiveHubEvents, scrollY: window.scrollY,
 		fragments: performance.getEntriesByType('resource').filter(e => e.name.includes('/pickem/fragment?week=1')).length})`, &state)); err != nil {
 		t.Fatal(err)
 	}
 	if state.Origin != loaded || state.Sentinel != "retained" || state.Fragments == 0 || state.HubEvents == 0 || !strings.Contains(state.Clock, "Q") {
 		t.Fatalf("live region did not update score and clock in place: %+v", state)
+	}
+	if state.ScrollY < scrollBefore-8 || state.ScrollY > scrollBefore+8 {
+		t.Fatalf("live scores moved the Pick'em page from y=%v to y=%v", scrollBefore, state.ScrollY)
 	}
 	for _, viewport := range []pickemLockQAViewport{{name: "phone", width: 390, height: 844}, {name: "landscape-phone", width: 844, height: 390}, {name: "desktop", width: 1440, height: 900}} {
 		if err := chromedp.Run(ctx, chromedp.EmulateViewport(viewport.width, viewport.height)); err != nil {

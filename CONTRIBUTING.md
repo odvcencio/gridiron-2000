@@ -94,6 +94,12 @@ With that tag set, the browser suite still:
 Run `gosx build --dev .` first (see above) if you want the browser suite
 to run rather than skip.
 
+The Pick'em scroll regression also runs in WebKit when
+`GRIDIRON_WEBKIT_MODULE` names an installed Playwright module (for example,
+`playwright` or the absolute path to its `index.mjs`). Set
+`GRIDIRON_WEBKIT_EXECUTABLE` only to override Playwright's installed WebKit
+browser. Run it with `go test -tags e2e -run TestBrowserPickemWebKit .`.
+
 Other useful checks, from the root [`README.md`](README.md#run-locally):
 
 ```bash
