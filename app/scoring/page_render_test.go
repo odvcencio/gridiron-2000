@@ -317,10 +317,14 @@ func TestScoringPageCommissionerSeesDeadlineNotManagerSentence(t *testing.T) {
 		t.Fatalf("GET / (scoring page) = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "Scoring editable until") && !strings.Contains(body, "LOCKED") {
+	masthead := regexp.MustCompile(`(?s)<section class="draft-masthead">.*?</section>`).FindString(body)
+	if masthead == "" {
+		t.Fatal("commissioner's scoring page omitted the masthead")
+	}
+	if !strings.Contains(masthead, "Scoring editable until") && !strings.Contains(masthead, "LOCKED") {
 		t.Error("commissioner's scoring page lost both the editable-until and locked masthead states")
 	}
-	if strings.Contains(body, "kicks off") {
+	if strings.Contains(masthead, "kicks off") {
 		t.Error("commissioner's scoring page rendered the manager-only locked sentence")
 	}
 }

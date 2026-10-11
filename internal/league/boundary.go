@@ -28,10 +28,10 @@ import (
 // Adding a deadline to this product means adding a term here. The list is
 // currently: the shared NFL schedule (kickoff and final, which gate
 // Pick'em, the lineup, and waiver availability), the draft start, the
-// trade deadline, the waiver clear window, and the Preseason Blitz slate
-// locks.
+// trade deadline, the drop and game-week waiver clear windows, and the
+// Preseason Blitz slate locks.
 func (s *Service) boundaryDigest(now time.Time, blitzGames []BlitzGame) string {
-	parts := make([]string, 0, 5)
+	parts := make([]string, 0, 6)
 	state := s.store.Snapshot()
 	games := s.schedule()
 
@@ -71,6 +71,7 @@ func (s *Service) boundaryDigest(now time.Time, blitzGames []BlitzGame) string {
 	// Players/Team page learns that an add is available without waiting for
 	// another mutation.
 	parts = append(parts, waiverClearBoundaryDigest(state, s.cfg, games, now))
+	parts = append(parts, waiverGameWeekBoundaryDigest(s.cfg, games, now))
 
 	// Preseason Blitz slate locks. The caller passes the games it already
 	// pulled from the source, so one fingerprint never copies the Blitz
@@ -80,6 +81,24 @@ func (s *Service) boundaryDigest(now time.Time, blitzGames []BlitzGame) string {
 	}
 
 	return strings.Join(parts, "|")
+}
+
+// waiverGameWeekBoundaryDigest announces the clock-only release of kickoff
+// waivers, so open Players and Team pages offer immediate adds at the clear
+// run even when the week has no claims to process.
+func waiverGameWeekBoundaryDigest(cfg Config, games []GameInfo, now time.Time) string {
+	weeks := make(map[int]bool)
+	for _, game := range games {
+		weeks[game.Week] = true
+	}
+	cleared := 0
+	for week := range weeks {
+		clears, allFinal := gameWeekWaiverClear(cfg, games, week)
+		if allFinal && !clears.IsZero() && !now.Before(clears) {
+			cleared++
+		}
+	}
+	return fmt.Sprintf("waiver-weeks:%d", cleared)
 }
 
 // waiverClearBoundaryDigest counts the latest clear boundary crossed by each

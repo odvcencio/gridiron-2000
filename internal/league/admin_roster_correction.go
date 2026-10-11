@@ -146,15 +146,13 @@ func (s *Service) resolveRosterCorrection(r *http.Request, teamID, dropPlayerID,
 		if owner[addPlayerID] != "" {
 			return rosterCorrection{}, fmt.Errorf("%s is already on a roster", addPlayer.Name)
 		}
-		// A commissioner correction is an administrative fix, not an
-		// acquisition competing for waiver order, so the game-week
-		// claim-routing state never blocks it — only a real hold does
-		// (a drop's clear window, or a game in progress).
+		// Corrections observe the same drop-clear and per-player kickoff
+		// holds as manager acquisitions.
 		status := playerWaiverStatus(state, s.cfg, games, addPlayerID, addPlayer.NFLTeam, now)
 		if waiverStatusHoldsPlayer(status) {
 			resolves := formatResolvesAt(s.cfg, status.ResolvesAt)
 			if status.Reason == "kickoff" {
-				return rosterCorrection{}, fmt.Errorf("%s locked at kickoff; the claim resolves %s", addPlayer.Name, resolves)
+				return rosterCorrection{}, fmt.Errorf("%s locked at kickoff. %s", addPlayer.Name, waiverResolutionPhrase(s.cfg, addPlayer.NFLTeam, status, now))
 			}
 			return rosterCorrection{}, fmt.Errorf("%s is on waivers; claims resolve %s", addPlayer.Name, resolves)
 		}
@@ -342,9 +340,7 @@ func (s *Service) AdminRosterCorrectionData(r *http.Request) map[string]any {
 				if pos != "" && pos != "ALL" && player.Position != pos {
 					continue
 				}
-				// Same rule as the correction itself above: a player the
-				// game week has merely routed to the claim queue is still
-				// a correctable add for a commissioner.
+				// Offer only players the correction itself can add.
 				status := playerWaiverStatus(state, s.cfg, games, player.ID, player.NFLTeam, now)
 				if waiverStatusHoldsPlayer(status) {
 					continue

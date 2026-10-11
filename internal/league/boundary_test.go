@@ -223,6 +223,30 @@ func TestBoundaryDigestMovesAtTradeDeadline(t *testing.T) {
 	}
 }
 
+func TestBoundaryDigestMovesWhenKickoffWaiversClear(t *testing.T) {
+	thursday := time.Date(2026, 9, 17, 20, 15, 0, 0, time.UTC)
+	games := []GameInfo{
+		{Week: 1, Kickoff: thursday, Away: "PHI", Home: "GB", Final: true},
+		{Week: 1, Kickoff: thursday.Add(4 * 24 * time.Hour), Away: "DEN", Home: "KC", Final: true},
+		{Week: 2, Kickoff: thursday.Add(7 * 24 * time.Hour), Away: "PIT", Home: "BAL"},
+	}
+	service, clock := newPresenceTestService(t, false, thursday)
+	service.cfg.Timezone = "UTC"
+	service.SetScheduleSource(func() []GameInfo { return games })
+	clears := firstRunAtOrAfter(service.cfg, gameFinalAt(games[1]))
+	*clock = clears.Add(-time.Nanosecond)
+	before := service.StateFingerprint(1)
+	*clock = clears
+	after := service.StateFingerprint(1)
+	if after == before {
+		t.Fatalf("fingerprint did not move when kickoff waivers cleared at %v", clears)
+	}
+	*clock = clears.Add(time.Minute)
+	if quiet := service.StateFingerprint(1); quiet != after {
+		t.Fatalf("fingerprint churned after kickoff waivers cleared: %q then %q", after, quiet)
+	}
+}
+
 // TestBoundaryDigestStableAcrossQuietSeconds is the churn guard, and the
 // reason this digest counts boundary crossings instead of bucketing the
 // clock: nine pages poll /api/league/version every four seconds, so a

@@ -414,7 +414,7 @@ Acquire an eligible player using this league's own configured claim rule — pri
 ### Steps
 
 1. Read pool freshness and eligibility.
-2. Add a true free agent in the dead window, or file a claim once the week's games are underway.
+2. Add a true free agent before their own kickoff, even after Thursday's game starts; file a claim for a dropped player or one whose game has started.
 3. Enter non-currency FAAB units when configured.
 4. Review drop, priority, and submitted state.
 5. Cancel/reorder only while permitted.
@@ -770,7 +770,7 @@ The table is derived from the executable glossary entries and keeps each related
 | feature capability |  | Runtime-supported, unsupported, or temporarily unavailable workflow status. | `/` |
 | final score |  | A score pinned by finalization/close processing. | `/team` |
 | FLEX |  | This is a lineup slot that takes a player from more than one position, most often RB, WR, or TE. It gives a manager one extra flexible starter beyond the position-locked slots. | `/team` |
-| free agent |  | An eligible unrostered player. Signing one outright is possible only in the dead window between the run that settles a week and the next week's first kickoff; while that week's games are being played, the same player is won by claim in waiver order. | `/players` |
+| free agent |  | An eligible unrostered player who can be signed immediately until their own game kicks off, even while other teams are playing. Once their game starts, they stay on waivers until the week's games finish and the next daily waiver run; a recent drop can extend that hold. | `/players` |
 | identity |  | This is the signed-in account behind your actions. The authenticated account representing a person. | `/login` |
 | IR | injured reserve | This is a roster spot for an injured player that does not use a normal bench slot. Placing a player on IR (injured reserve) frees a bench spot while that designation still qualifies. | `/team` |
 | league mode |  | Configured format label such as dynasty or redraft. | `/` |

@@ -192,7 +192,8 @@ Do not rehearse start, pick, undo, or reset actions against either live producti
 
 - A true free agent can be added immediately while roster and position limits permit it.
 - A dropped player enters waivers for the configured clear window.
-- A player whose game has started is unavailable for immediate addition and follows the displayed waiver timing.
+- Free agents remain available until their own kickoff; Thursday's game does not lock players in Sunday or Monday games. Players on a bye remain available unless they have a drop hold.
+- Once a player's own game starts, they stay on waivers until every game in that NFL week is final and the next daily run. A later drop-clear window can extend the hold.
 - Claims resolve on the configured daily processing clock. Performance-priority leagues use the displayed order; FAAB leagues use bids and the configured budget.
 - A claim is revalidated when it resolves. A stale claim cannot bypass roster capacity, position limits, current ownership, or budget.
 - A manager may hold open claims up to the roster size at once. Cancel a claim to file another past that limit.

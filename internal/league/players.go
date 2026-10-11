@@ -45,8 +45,8 @@ func requirePlayerData(pool playerPool) error {
 // waiverClaimResolutionView projects the processor-authoritative resolution
 // state for one open private claim. A drop-clear instant may delay the next
 // processor run, but a stale clear instant never substitutes for that run.
-// Kickoff waivers depend on the live Final flag, so their approximate
-// kickoff-plus-five-hours display estimate is never promoted to an exact
+// Kickoff waivers depend on the week's live Final flags, so their approximate
+// end-of-week display estimate is never promoted to an exact
 // claim-resolution timestamp.
 func waiverClaimResolutionView(state PersistedState, cfg Config, games []GameInfo, player Player, now time.Time) map[string]any {
 	view := map[string]any{
@@ -71,7 +71,7 @@ func waiverClaimResolutionView(state PersistedState, cfg Config, games []GameInf
 			// this player's kickoff-locked resolve time can never
 			// disagree across the three surfaces.
 			// J3 F15: this is an ordinary, expected lock — the player's
-			// game has not gone final yet — not a processor fault, so it
+			// week has not cleared yet — not a processor fault, so it
 			// is "pending", not "degraded". DEGRADED stays reserved for a
 			// real data-degradation case.
 			view["resolution_state"] = "pending"
@@ -492,8 +492,8 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 			// (waiverClaimResolutionView), and /team's Signal Watch, so
 			// no two surfaces can ever disagree about when a waiver
 			// resolves — a kickoff-lock's ResolvesAt is only ever an
-			// estimate the live processor does not itself use to decide
-			// "due".
+			// estimate; the live processor also requires every game's
+			// Final flag before awarding the claim.
 			row["waiver_resolves"] = waiverResolutionPhrase(s.cfg, player.NFLTeam, status, now)
 		}
 		// owner_name (item 9, 2026-08-31 post-wave audit) rides beside
@@ -841,10 +841,7 @@ func (s *Service) AddPlayer(r *http.Request, requestedTeam, addID, dropID, confi
 	if status.State == AvailabilityOnWaivers {
 		resolves := formatResolvesAt(s.cfg, status.ResolvesAt)
 		if status.Reason == "kickoff" { // W13
-			return "", fmt.Errorf("%s locked at kickoff; file a claim — it resolves %s", addPlayer.Name, resolves)
-		}
-		if status.Reason == waiverReasonGameWeek {
-			return "", fmt.Errorf("this week's games are underway, so %s is signed by claim rather than first click — file one and it resolves %s in waiver order", addPlayer.Name, resolves)
+			return "", fmt.Errorf("%s locked at kickoff; file a claim. %s", addPlayer.Name, waiverResolutionPhrase(s.cfg, addPlayer.NFLTeam, status, now))
 		}
 		// W12
 		return "", fmt.Errorf("%s is on waivers; claims resolve %s", addPlayer.Name, resolves)

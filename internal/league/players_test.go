@@ -60,14 +60,8 @@ func newPlayersTestServiceWithPicks(t *testing.T, pool []Player, extraPicks map[
 	svc = newTestService(t, true)
 	now = time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 	svc.now = func() time.Time { return now }
-	// The fixture sits in the league's DEAD WINDOW: week 1 has been played
-	// but not closed, and week 2 has not kicked off. That is the only part
-	// of the calendar where an instant free-agent signing still exists
-	// (gameWeekUnderway, waivers.go) — inside a game week an acquisition
-	// is a claim, so an instant-add fixture there would be testing a path
-	// no manager can reach. rb-locked (TB) stays drop-locked through the
-	// same window by week 1's own unfinalized close, which is exactly why
-	// that lock rule exists.
+	// PIT's upcoming game leaves its free agents available. rb-locked (TB)
+	// remains drop-locked by week 1's unfinalized close.
 	games := []GameInfo{
 		{ID: "g-tb", Week: 1, Kickoff: now.Add(-72 * time.Hour), Away: "TB", Home: "ATL"},
 		{ID: "g-pit", Week: 2, Kickoff: now.Add(time.Hour), Away: "PIT", Home: "NYJ"},
@@ -1366,7 +1360,7 @@ func TestPlayersDataKickoffLockedResolveTimeAgreesBetweenPoolRowAndMyClaims(t *t
 		t.Fatalf("pool row waiver_resolves = %q, MY CLAIMS resolution_label = %q; the two surfaces must agree", poolResolves, claims[0]["resolution_label"])
 	}
 	resolves, _ := poolResolves.(string)
-	for _, want := range []string{"Resolves after the PIT game ends, at the next waiver run", "·"} {
+	for _, want := range []string{"Resolves after the week's games end, at the next waiver run", "·"} {
 		if !strings.Contains(resolves, want) {
 			t.Fatalf("waiver_resolves = %q, want it to contain %q", resolves, want)
 		}
@@ -1435,7 +1429,7 @@ func TestPlayersDataClaimResolutionStates(t *testing.T) {
 		t.Fatalf("kickoff-locked claim resolution = %+v, want explicit pending state, not degraded", pending)
 	}
 	pendingLabel, _ := pending["resolution_label"].(string)
-	if !strings.Contains(pendingLabel, "Resolves after the PIT game ends, at the next waiver run") {
+	if !strings.Contains(pendingLabel, "Resolves after the week's games end, at the next waiver run") {
 		t.Fatalf("pending claim resolution_label = %q, want the shared kickoff-resolution phrase", pending["resolution_label"])
 	}
 }

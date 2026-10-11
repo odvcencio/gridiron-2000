@@ -175,72 +175,41 @@ const (
 type waiverStatus struct {
 	State      Availability
 	ResolvesAt time.Time
-	// Reason is "dropped", "kickoff", or "game-week" — which ON WAIVERS
-	// condition applies. Empty outside AvailabilityOnWaivers. The first
-	// two are section 5.1's own; "game-week" is the 2026-09-15 owner
-	// directive (see gameWeekUnderway) and differs from them in one way
-	// that matters: it changes how a player is ACQUIRED, never whether a
-	// filed claim may resolve, so waiverStatusBlocksAward reports it as
-	// non-blocking and the daily run awards straight through it.
+	// Reason is "dropped" or "kickoff". A kickoff hold applies only to
+	// players whose own game has started, through that week's clear run.
 	Reason string
 }
 
-// waiverReasonGameWeek marks the ON WAIVERS state that exists only to
-// route an acquisition through the claim queue instead of an instant
-// signing. Unlike a drop's clear window or a live kickoff lock, it never
-// defers a claim at the processing run.
-const waiverReasonGameWeek = "game-week"
-
-// waiverStatusHoldsPlayer reports whether a player genuinely cannot move
-// right now: a drop's clear window has not elapsed, or his own game is in
-// progress. The game-week state is neither — it only routes a MANAGER's
-// acquisition through the claim queue instead of an instant signing, so
-// it must not defer a claim at the processing run (which would defer
-// every claim filed during a game week forever) and must not stop a
-// commissioner correction, which is an administrative fix rather than an
-// acquisition competing for waiver order.
+// waiverStatusHoldsPlayer reports whether a drop or kickoff hold still
+// prevents a claim award or an immediate commissioner correction.
 func waiverStatusHoldsPlayer(status waiverStatus) bool {
-	return status.State == AvailabilityOnWaivers && status.Reason != waiverReasonGameWeek
+	return status.State == AvailabilityOnWaivers
 }
 
-// gameWeekUnderway reports whether the NFL week that now falls in has
-// started playing and has not yet been processed past: true from the
-// week's first kickoff until the first daily waiver run at or after its
-// last game goes final.
-//
-// Inside that window an unrostered player is acquired by CLAIM, resolved
-// in waiver order at the next run, not by whoever clicks first (owner
-// directive, 2026-09-15). Outside it — the dead window between the run
-// that settles a week and the next week's first kickoff — an instant
-// signing is still the right move: nobody has learned anything from a
-// game nobody has played.
-//
-// The window deliberately reads the week's own games rather than a
-// calendar weekday: a Thursday opener, a Saturday slate, and an
-// international Sunday-morning game all move the boundary, and the league
-// should follow the games it actually scores.
-func gameWeekUnderway(cfg Config, games []GameInfo, now time.Time) (bool, time.Time) {
-	week := pickemWeekAt(games, now)
-	var first, lastFinal time.Time
+// gameWeekWaiverClear returns the estimated first run after this week's
+// last game and whether every game is actually final. The estimate alone
+// never releases players while a game is still in progress. Resolve the
+// player's own week directly: the page's current-week resolver can advance
+// to the next week before this week's waiver run.
+func gameWeekWaiverClear(cfg Config, games []GameInfo, week int) (time.Time, bool) {
+	var lastFinal time.Time
+	allFinal := true
 	for _, game := range games {
-		if game.Week != week || game.Kickoff.IsZero() {
+		if game.Week != week {
 			continue
 		}
-		if first.IsZero() || game.Kickoff.Before(first) {
-			first = game.Kickoff
+		allFinal = allFinal && game.Final
+		if game.Kickoff.IsZero() {
+			continue
 		}
 		if end := gameFinalAt(game); lastFinal.IsZero() || end.After(lastFinal) {
 			lastFinal = end
 		}
 	}
-	if first.IsZero() || now.Before(first) {
-		return false, time.Time{}
+	if lastFinal.IsZero() {
+		return time.Time{}, false
 	}
-	settles := firstRunAtOrAfter(cfg, lastFinal)
-	if !now.Before(settles) {
-		return false, time.Time{}
-	}
-	return true, firstRunAtOrAfter(cfg, now)
+	return firstRunAtOrAfter(cfg, lastFinal), allFinal
 }
 
 // waiverResolutionPhrase (J3 F17) is the one shared sentence /team's
@@ -249,13 +218,12 @@ func gameWeekUnderway(cfg Config, games []GameInfo, now time.Time) (bool, time.T
 // printed a bare exact clock time straight off the kickoff-lock estimate
 // while /players printed only the locking event with no time at all, and
 // /scoring stated the daily run time in a third form; the three pages
-// could not agree. A kickoff lock's ResolvesAt is only ever an estimate
-// (section 5.1's kickoff-plus-five-hours default) the live processor does
-// not itself use to decide "due" — the live Final flag does — so the
-// phrasing names the mechanism ("at the next waiver run") rather than
+// could not agree. A kickoff lock's ResolvesAt estimates the first run
+// after the week's last kickoff plus five hours. The live Final flags can
+// delay resolution, so the phrasing names the mechanism rather than
 // promising the estimate as an exact instant. Empty outside
 // AvailabilityOnWaivers or with no resolve instant at all.
-func waiverResolutionPhrase(cfg Config, nflTeam string, status waiverStatus, now time.Time) string {
+func waiverResolutionPhrase(cfg Config, _ string, status waiverStatus, now time.Time) string {
 	if status.State != AvailabilityOnWaivers || status.ResolvesAt.IsZero() {
 		return ""
 	}
@@ -264,11 +232,7 @@ func waiverResolutionPhrase(cfg Config, nflTeam string, status waiverStatus, now
 		when += " · " + relative
 	}
 	if status.Reason == "kickoff" {
-		team := strings.TrimSpace(nflTeam)
-		if team == "" {
-			return "Resolves after the player's game ends, at the next waiver run — " + when + "."
-		}
-		return "Resolves after the " + team + " game ends, at the next waiver run — " + when + "."
+		return "Resolves after the week's games end, at the next waiver run — " + when + "."
 	}
 	return "Resolves " + when + "."
 }
@@ -326,34 +290,37 @@ func lastDropInstant(state PersistedState, playerID string) (at time.Time, origi
 	return at, origin, found
 }
 
-// kickoffLockedGame finds a game for nflTeam that has kicked off (now is
-// at or past Kickoff) and is not yet Final — section 5.1's second ON
-// WAIVERS condition, applied per player (the pick'em lock rule,
-// pickem.go:240-242, extended to free agency).
-func kickoffLockedGame(games []GameInfo, nflTeam string, now time.Time) (GameInfo, bool) {
-	// Item 2 (2026-08-31 post-wave audit): normalize before comparing, the
-	// same fix as teamHasGame/playerLockAt (lineup.go) — a raw compare
-	// here let a LAR/WSH/JAC player stay ON WAIVERS-eligible past their
-	// own kickoff, because nflTeam ("LAR") never matched games'
-	// nflverse-normalized Away/Home ("LA").
+// kickoffWaiverStatus holds a player from their own kickoff through the
+// first daily run after every game in that NFL week is final. Other teams'
+// earlier kickoffs never affect a free agent's availability.
+func kickoffWaiverStatus(cfg Config, games []GameInfo, nflTeam string, now time.Time) (waiverStatus, bool) {
 	team := normalizeNFLAbbreviation(nflTeam)
+	var playerGame GameInfo
+	found := false
 	for _, g := range games {
 		if normalizeNFLAbbreviation(g.Away) != team && normalizeNFLAbbreviation(g.Home) != team {
 			continue
 		}
-		if !g.Kickoff.IsZero() && !g.Final && !now.Before(g.Kickoff) {
-			return g, true
+		if !g.Kickoff.IsZero() && !now.Before(g.Kickoff) && (!found || g.Kickoff.After(playerGame.Kickoff)) {
+			playerGame, found = g, true
 		}
 	}
-	return GameInfo{}, false
+	if !found {
+		return waiverStatus{}, false
+	}
+	clears, allFinal := gameWeekWaiverClear(cfg, games, playerGame.Week)
+	if allFinal && !now.Before(clears) {
+		return waiverStatus{}, false
+	}
+	return waiverStatus{State: AvailabilityOnWaivers, ResolvesAt: clears, Reason: "kickoff"}, true
 }
 
 // gameFinalAt approximates the instant a game turns Final: kickoff plus
 // five hours, the schedule adapter's own rule (roster-ops spec fact 4,
 // main.go:366-370). GameInfo carries only the Final bool, not the instant
-// it flipped, so this is the best available estimate for a "resolves at"
-// display; Store.ProcessWaivers never uses it for the due decision itself
-// (that reads the live g.Final flag, never this estimate).
+// it flipped, so this estimates the week's clear run. The hold also
+// requires every game's live Final flag, so this estimate cannot release
+// players while games are unfinished.
 func gameFinalAt(g GameInfo) time.Time {
 	return g.Kickoff.Add(5 * time.Hour)
 }
@@ -361,13 +328,14 @@ func gameFinalAt(g GameInfo) time.Time {
 // playerWaiverStatus classifies one player's availability (roster-ops
 // spec section 5.1's three-state table): ROSTERED when currentRosters
 // names an owner; ON WAIVERS while a drop's clear window is still open or
-// the player's current game has kicked off and is not yet final; FREE
-// AGENT otherwise.
+// the player's own game has started and that week's clear run has not
+// arrived; FREE AGENT otherwise.
 func playerWaiverStatus(state PersistedState, cfg Config, games []GameInfo, playerID, nflTeam string, now time.Time) waiverStatus {
 	owner := rosterOwner(currentRosters(state))
 	if owner[playerID] != "" {
 		return waiverStatus{State: AvailabilityRostered}
 	}
+	status := waiverStatus{State: AvailabilityFreeAgent}
 	if droppedAt, origin, ok := lastDropInstant(state, playerID); ok {
 		clears := clearsAt(cfg, droppedAt)
 		if origin == "auto-drop" {
@@ -377,24 +345,18 @@ func playerWaiverStatus(state PersistedState, cfg Config, games []GameInfo, play
 			clears = deferredClearsAt(cfg, games, droppedAt)
 		}
 		if now.Before(clears) {
-			return waiverStatus{State: AvailabilityOnWaivers, ResolvesAt: clears, Reason: "dropped"}
+			status = waiverStatus{State: AvailabilityOnWaivers, ResolvesAt: clears, Reason: "dropped"}
 		}
 	}
-	if game, ok := kickoffLockedGame(games, nflTeam, now); ok {
-		return waiverStatus{
-			State:      AvailabilityOnWaivers,
-			ResolvesAt: firstRunAtOrAfter(cfg, gameFinalAt(game)),
-			Reason:     "kickoff",
+	if kickoff, held := kickoffWaiverStatus(cfg, games, nflTeam, now); held {
+		// A recent drop may clear later than the week's games. Both holds
+		// must pass; show the reason and timing of the later boundary.
+		if status.ResolvesAt.After(kickoff.ResolvesAt) {
+			return status
 		}
+		return kickoff
 	}
-	if underway, resolves := gameWeekUnderway(cfg, games, now); underway {
-		return waiverStatus{
-			State:      AvailabilityOnWaivers,
-			ResolvesAt: resolves,
-			Reason:     waiverReasonGameWeek,
-		}
-	}
-	return waiverStatus{State: AvailabilityFreeAgent}
+	return status
 }
 
 // ---------------------------------------------------------------------

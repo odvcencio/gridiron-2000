@@ -370,7 +370,7 @@ func Page() Node {
 					<b class="mono">{data.free_agency_rules.roster_cap}</b>
 				</div>
 			</div>
-			<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis" text="Free agency opens the moment the draft fills every roster spot on every team. Signing onto a full roster names a drop in the same move — one single step, never a separate add and drop. An instant signing is available only in the dead window between the run that settles a week and the next week's first kickoff; once that week's games are being played, the same move is a claim, resolved in waiver order at the next daily run." />
+			<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis" text="Free agency opens the moment the draft fills every roster spot on every team. Signing onto a full roster names a drop in the same move — one single step, never a separate add and drop. A free agent can be signed immediately until their own game kicks off, even if other games have already started. Once their game starts, they stay on waivers until the week's games finish and the next daily waiver run." />
 			<a href="/players" data-gosx-link class="button button--compact">Open the player pool →</a>
 		</details>
 		<details class="player-pool" id="scoring-waivers" open>
@@ -434,7 +434,7 @@ func Page() Node {
 				<TextBlock as="p" class="scoring-note" font="400 13px Plus Jakarta Sans" lineHeight={18} maxLines={3} overflow="ellipsis" text="Each team bids its own FAAB budget on a claim; the highest bid wins, ties broken by the perf-priority order above." />
 			</If>
 			<p class="scoring-note">
-				A dropped player enters ON WAIVERS: the clear window above must pass before anyone can sign them as a free agent. A rostered player whose game has kicked off is also ON WAIVERS until that game ends and waivers clear.
+				A dropped player enters ON WAIVERS: the clear window above must pass before anyone can sign them as a free agent. An unrostered player whose own game has kicked off is also ON WAIVERS until the week's games finish and the next daily run. Players whose games have not started, including Monday players, remain available unless they have a drop hold.
 			</p>
 			<a href="/players" data-gosx-link class="button button--compact">Open the waiver desk →</a>
 		</details>
