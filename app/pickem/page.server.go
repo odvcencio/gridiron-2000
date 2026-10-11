@@ -181,23 +181,6 @@ func pickemValidationWithRedirect(ctx *action.Context, redirect string, err erro
 	return validation
 }
 
-// Managed forms preserve scroll only when the redirect matches the current
-// path and query exactly. Keep /pickem queryless when that is the page the
-// member opened, and omit any game anchor from the previous selection.
-func pickemManagedRedirectTarget(request *http.Request, fallback string) string {
-	if request == nil {
-		return fallback
-	}
-	referer, err := url.Parse(request.Referer())
-	if err != nil || referer.Path != "/pickem" || referer.Host != request.Host || referer.User != nil || (referer.Scheme != "http" && referer.Scheme != "https") {
-		return fallback
-	}
-	if target, ok := action.NormalizeReturnTarget(referer.RequestURI()); ok {
-		return target
-	}
-	return fallback
-}
-
 // pickemSetAction keeps the route's mutation boundary injectable for tests:
 // PickemSet owns market validation and persistence, while this adapter owns
 // only the action's validation projection and selected-week redirect.
@@ -207,14 +190,23 @@ func pickemSetAction(ctx *action.Context, set func(*http.Request, string, string
 		redirect := league.Default().PickemRedirectTarget(ctx.FormData["week"])
 		return pickemValidationWithRedirect(ctx, redirect, err)
 	}
-	// A redirect updates the selected pick and totals. Managed forms refresh
-	// in place; native full-page submissions return to the answered game.
+	// The redirect fires for both native and GoSX-managed callers. GoSX's
+	// managed-form runtime (client/runtime/host/navigation.ts,
+	// submitManagedActionForm) re-renders the current document only when a
+	// JSON action result carries a non-empty "redirect" field; the previous
+	// plain ctx.Success reply, carrying only a "refresh" data value, never
+	// triggered that re-render, so a selected pick kept aria-pressed=false
+	// and "YOUR PICKS THIS WEEK 0" until a manual reload. This matches the
+	// already-working team-rename and notification-set actions.
+	//
+	// J3 F8: the target now names the picked game's own row
+	// (PickemRedirectTargetForGame), and a managed request keeps that
+	// fragment (RedirectWithNoticeToRow) instead of stripping it — a
+	// manager making fourteen picks lands back on the game just answered,
+	// not the top of the page, whether or not JavaScript is available.
 	message := ctx.FormData["team"] + " picked."
 	target := league.Default().PickemRedirectTargetForGame(ctx.FormData["week"], ctx.FormData["game_id"])
-	if action.WantsJSON(ctx.Request) {
-		target = pickemManagedRedirectTarget(ctx.Request, league.Default().PickemRedirectTarget(ctx.FormData["week"]))
-	}
-	actionui.RedirectWithNotice(ctx, target, message)
+	actionui.RedirectWithNoticeToRow(ctx, target, message)
 	return nil
 }
 

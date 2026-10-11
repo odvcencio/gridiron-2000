@@ -11,8 +11,15 @@ import (
 	"m31labs.dev/gosx/action"
 )
 
-// Successful managed picks need a redirect to refresh their selected state,
-// with the current path/query and no fragment so GoSX preserves the viewport.
+// TestPickemSetActionAlwaysRedirectsOnSuccess pins the wave-1 stale-state
+// fix. GoSX's managed-form runtime (client/runtime/host/navigation.ts,
+// submitManagedActionForm) only re-renders the current document when a JSON
+// action result carries a non-empty "redirect" field; it never acts on a
+// bare {ok:true, data:{value:"refresh"}} result. pickem-pick previously
+// answered a managed request with exactly that dead "refresh" signal, so a
+// selected pick kept aria-pressed=false and "YOUR PICKS THIS WEEK 0". A
+// successful pickemSetAction now always redirects — matching the working
+// team-rename/notification-set shape.
 func TestPickemSetActionAlwaysRedirectsOnSuccess(t *testing.T) {
 	// league.Default() is a package-wide sync.Once singleton: whichever test
 	// in this binary reaches it first locks in DATA_FILE/DEMO_MODE for every
@@ -23,26 +30,20 @@ func TestPickemSetActionAlwaysRedirectsOnSuccess(t *testing.T) {
 	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
 	t.Setenv("DEMO_MODE", "true")
 	t.Setenv("GOOGLE_CLIENT_ID", "")
+	// J3 F8: the redirect now names the picked game's own row (game-1
+	// here) so a managed pick lands back on the game it just answered,
+	// not the top of the page — native and managed alike now carry that
+	// fragment (RedirectWithNoticeToRow keeps it for both).
+	target := "/pickem?week=4#game-game-1"
 	for _, tt := range []struct {
-		name    string
-		accept  string
-		referer string
-		target  string
+		name   string
+		accept string
 	}{
-		{name: "native", target: "/pickem?week=4#game-game-1"},
-		{name: "managed fallback", accept: "application/json", target: "/pickem?week=4"},
-		{name: "managed current week", accept: "application/json", referer: "http://example.com/pickem", target: "/pickem"},
-		{name: "managed selected week", accept: "application/json", referer: "http://example.com/pickem?week=4", target: "/pickem?week=4"},
-		{name: "managed previous anchor", accept: "application/json", referer: "http://example.com/pickem?week=4#game-old", target: "/pickem?week=4"},
-		{name: "managed query encoding", accept: "application/json", referer: "http://example.com/pickem?week=04&view=a%20b", target: "/pickem?week=04&view=a%20b"},
-		{name: "managed other origin", accept: "application/json", referer: "http://evil.example/pickem?week=2", target: "/pickem?week=4"},
-		{name: "managed other page", accept: "application/json", referer: "http://example.com/team", target: "/pickem?week=4"},
-		{name: "managed user info", accept: "application/json", referer: "http://evil@example.com/pickem", target: "/pickem?week=4"},
-		{name: "managed malformed query", accept: "application/json", referer: "http://example.com/pickem?week=4%0d%0a", target: "/pickem?week=4"},
+		{name: "native", accept: ""},
+		{name: "managed", accept: "application/json"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, "/pickem/__actions/pickem-set?week=4", nil)
-			request.Header.Set("Referer", tt.referer)
 			if tt.accept != "" {
 				request.Header.Set("Accept", tt.accept)
 				request.Header.Set("X-Requested-With", "XMLHttpRequest")
@@ -59,8 +60,8 @@ func TestPickemSetActionAlwaysRedirectsOnSuccess(t *testing.T) {
 				t.Fatalf("status = %d, want 303", response.Code)
 			}
 			if tt.accept == "" {
-				if got := response.Header().Get("Location"); got != tt.target {
-					t.Fatalf("native Location = %q, want %q", got, tt.target)
+				if got := response.Header().Get("Location"); got != target {
+					t.Fatalf("native Location = %q, want %q", got, target)
 				}
 				return
 			}
@@ -71,8 +72,8 @@ func TestPickemSetActionAlwaysRedirectsOnSuccess(t *testing.T) {
 			if !result.OK {
 				t.Fatalf("managed result.OK = false, want true: %+v", result)
 			}
-			if result.Redirect != tt.target {
-				t.Fatalf("managed result.Redirect = %q, want %q", result.Redirect, tt.target)
+			if result.Redirect != target {
+				t.Fatalf("managed result.Redirect = %q, want %q — a managed pickem-set with no redirect leaves aria-pressed=false", result.Redirect, target)
 			}
 			if string(result.Data) != "" {
 				t.Fatalf("managed result.Data = %s, want no stale refresh signal now that the response redirects", result.Data)
