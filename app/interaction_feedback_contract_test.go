@@ -143,7 +143,9 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// RedirectBackWithNotice (31 -> 32) — the commissioner-only escape
 	// hatch for a frozen final box (internal/league's
 	// AdminReopenFinalGameStats).
-	const wantRedirects = 9
+	// Pick'em now uses RedirectWithNotice to keep managed picks in place
+	// instead of scrolling to the answered row (9 -> 10).
+	const wantRedirects = 10
 	const wantRedirectBacks = 32
 	redirects := 0
 	redirectBacks := 0

@@ -24,6 +24,53 @@ func startPickemScrollBrowserChild(t *testing.T) (*simChild, *simLeague) {
 	return child, league
 }
 
+func TestBrowserPickemPickPreservesScroll(t *testing.T) {
+	chrome := chromePath(t)
+	child, league := startPickemScrollBrowserChild(t)
+	for _, target := range []string{"/pickem", "/pickem?week=1", "/pickem?week=1#game-g-win"} {
+		t.Run(target, func(t *testing.T) {
+			ctx := newBrowserContext(t, chrome)
+			signInBrowserSeat(t, ctx, child, league.bots[0], target, 390, 844)
+			waitPickemLockQASlate(t, ctx)
+			if err := chromedp.Run(ctx, chromedp.Evaluate(`
+document.addEventListener('submit', () => {
+  window.pickemBeforePick = {y: scrollY, origin: performance.timeOrigin};
+}, {capture: true, once: true});
+document.addEventListener('gosx:form:result', () => {window.pickemPickFinished = true;}, {once: true});
+`, nil)); err != nil {
+				t.Fatal(err)
+			}
+			clickPickemLockQATeam(t, ctx, "g-push", "NE")
+			waitPickemLockQAPicked(t, ctx, "g-push", "NE")
+			if err := chromedp.Run(ctx, chromedp.Poll(`window.pickemPickFinished && window.__gosx.navigation.getState().phase === 'idle'`, nil)); err != nil {
+				t.Fatal(err)
+			}
+			var position struct {
+				Before, After float64
+				URL           string
+				SameDocument  bool
+			}
+			if err := chromedp.Run(ctx, chromedp.Evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+  before: window.pickemBeforePick.y, after: scrollY,
+  url: location.pathname + location.search + location.hash,
+  sameDocument: performance.timeOrigin === window.pickemBeforePick.origin
+}))))`, &position, func(p *runtime.EvaluateParams) *runtime.EvaluateParams {
+				return p.WithAwaitPromise(true)
+			})); err != nil {
+				t.Fatal(err)
+			}
+			if position.Before < 800 || position.After < position.Before-8 || position.After > position.Before+8 {
+				t.Fatalf("picking moved the viewport from y=%v to y=%v", position.Before, position.After)
+			}
+			wantURL, _, _ := strings.Cut(target, "#")
+			if position.URL != wantURL || !position.SameDocument {
+				t.Fatalf("pick changed the page: %+v, want URL %q in the same document", position, wantURL)
+			}
+			assertPickemLockQAPersistedPick(t, ctx, child, "g-push", "NE")
+		})
+	}
+}
+
 func TestBrowserPickemRefreshPreservesScrollAfterPicking(t *testing.T) {
 	chrome := chromePath(t)
 	child, league := startPickemScrollBrowserChild(t)
@@ -35,13 +82,11 @@ func TestBrowserPickemRefreshPreservesScrollAfterPicking(t *testing.T) {
 	}
 	clickPickemLockQATeam(t, ctx, "g-win", "MIA")
 	waitPickemLockQAPicked(t, ctx, "g-win", "MIA")
-	if err := chromedp.Run(ctx, chromedp.Poll(`location.hash === '#game-g-win' && window.__gosx.navigation.getState().phase === 'idle'`, nil)); err != nil {
+	if err := chromedp.Run(ctx, chromedp.Poll(`location.hash === '' && window.__gosx.navigation.getState().phase === 'idle'`, nil)); err != nil {
 		t.Fatal(err)
 	}
 
-	// A pick leaves a row anchor in the URL. Once the manager moves on,
-	// background refreshes must keep the current viewport rather than
-	// returning to that earlier row or the top of the page.
+	// Once the manager moves on, background refreshes keep that viewport.
 	var before float64
 	if err := chromedp.Run(ctx, chromedp.Evaluate(`window.scrollTo({top: document.documentElement.scrollHeight, behavior: 'instant'}); window.scrollY`, &before)); err != nil {
 		t.Fatal(err)
@@ -100,10 +145,33 @@ const browser = await webkit.launch({
 try {
   const page = await browser.newPage({viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true});
   page.setDefaultTimeout(15000);
-  await page.goto(base + '/test/signin?user=' + encodeURIComponent(user) + '&to=' + encodeURIComponent('/pickem?week=1'));
-  await page.waitForFunction(() => typeof window.__gosx?.regions?.refresh === 'function');
-  await page.locator('#game-g-win form').filter({has: page.locator('input[name=team][value=MIA]')}).locator('button').click();
-  await page.waitForFunction(() => location.hash === '#game-g-win' && window.__gosx.navigation.getState().phase === 'idle');
+  async function viewport() {
+    return page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(scrollY)))));
+  }
+  function sameViewport(actual, expected, label) {
+    if (Math.abs(actual - expected) > 8) throw new Error(label + ' moved viewport from ' + expected + ' to ' + actual);
+  }
+  for (const target of ['/pickem', '/pickem?week=1', '/pickem?week=1#game-g-win']) {
+    await page.goto(base + '/test/signin?user=' + encodeURIComponent(user) + '&to=' + encodeURIComponent(target));
+    await page.waitForFunction(() => typeof window.__gosx?.regions?.refresh === 'function');
+    await page.evaluate(() => {
+      document.addEventListener('submit', () => {
+        window.pickemBeforePick = {y: scrollY, origin: performance.timeOrigin};
+      }, {capture: true, once: true});
+      document.addEventListener('gosx:form:result', () => {window.pickemPickFinished = true;}, {once: true});
+    });
+    await page.locator('#game-g-push form').filter({has: page.locator('input[name=team][value=NE]')}).locator('button').click();
+    await page.waitForFunction(() => window.pickemPickFinished && window.__gosx.navigation.getState().phase === 'idle');
+    const submission = await page.evaluate(() => ({
+      ...window.pickemBeforePick, url: location.pathname + location.search + location.hash,
+      sameDocument: performance.timeOrigin === window.pickemBeforePick.origin,
+      selected: !!document.querySelector('#game-g-push input[value=NE]')?.closest('form').querySelector('.pickem-your-pick')
+    }));
+    if (submission.y < 800 || !submission.sameDocument || !submission.selected || submission.url !== target.split('#')[0]) {
+      throw new Error('Pick changed the page or lost the selection: ' + JSON.stringify(submission));
+    }
+    sameViewport(await viewport(), submission.y, 'Picking on ' + target);
+  }
   const origin = await page.evaluate(() => performance.timeOrigin);
   const before = await page.evaluate(() => {
     window.scrollTo({top: document.documentElement.scrollHeight, behavior: 'instant'});
@@ -114,12 +182,6 @@ try {
     return scrollY;
   });
   if (before < 800) throw new Error('Fixture slate is too short: ' + before);
-  async function viewport() {
-    return page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(scrollY)))));
-  }
-  function sameViewport(actual, expected, label) {
-    if (Math.abs(actual - expected) > 8) throw new Error(label + ' moved viewport from ' + expected + ' to ' + actual);
-  }
   await page.evaluate(() => window.__gosx.navigation.revalidate());
   sameViewport(await viewport(), before, 'Page revalidation');
   await page.evaluate(() => window.__gosx.regions.refresh(document.getElementById('pickem-live-region')));
@@ -153,7 +215,7 @@ try {
   const state = await page.evaluate(() => ({
     origin: performance.timeOrigin, swaps: window.pickemScrollSwaps,
     week: new URL(location.href).searchParams.get('week'),
-    selected: !!document.querySelector('#game-g-win input[value=MIA]')?.closest('form').querySelector('.pickem-your-pick')
+    selected: !!document.querySelector('#game-g-push input[value=NE]')?.closest('form').querySelector('.pickem-your-pick')
   }));
   if (state.origin !== origin || state.swaps < 2 || state.week !== '1' || !state.selected) {
     throw new Error('Refresh lost the document, pick, week, or swaps: ' + JSON.stringify(state));
