@@ -480,10 +480,10 @@ func TestTeamMatchupRankGlossaryIsADetailsBesideTheLineup(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := string(pageBytes)
-	if !strings.Contains(page, `<details class="matchup-rank-glossary">`) {
+	if !strings.Contains(page, `<details class="matchup-rank-glossary"`) {
 		t.Fatal("page.gsx no longer renders the matchup-rank glossary as a <details>")
 	}
-	glossaryAt := strings.Index(page, `<details class="matchup-rank-glossary">`)
+	glossaryAt := strings.Index(page, `<details class="matchup-rank-glossary"`)
 	slotListAt := strings.Index(page, `<div class="lineup-slot-list">`)
 	if glossaryAt < 0 || slotListAt < 0 || glossaryAt > slotListAt {
 		t.Fatal("the matchup-rank glossary must render directly beside (immediately before) the lineup slot list")
@@ -497,7 +497,7 @@ func TestTeamMatchupRankGlossaryIsADetailsBesideTheLineup(t *testing.T) {
 // TestTeamHouseRankLegendExplainsTheCode pins J3 F18: /team prints the
 // "H###" house-rank code on every lineup and bench row but, before this
 // fix, never defined it anywhere on the page — /players and /board both
-// carry a <details class="pool-legend"> disclosure explaining it. /team
+// carry a pool-legend disclosure explaining it. /team
 // must carry the same disclosure, directly under the lineup heading.
 func TestTeamHouseRankLegendExplainsTheCode(t *testing.T) {
 	pageBytes, err := os.ReadFile("page.gsx")
@@ -506,7 +506,7 @@ func TestTeamHouseRankLegendExplainsTheCode(t *testing.T) {
 	}
 	page := string(pageBytes)
 
-	if strings.Count(page, `<details class="pool-legend">`) != 1 {
+	if strings.Count(page, `<details class="pool-legend"`) != 1 {
 		t.Fatal("page.gsx must render exactly one house-rank pool-legend disclosure")
 	}
 	if !strings.Contains(page, "house rank") {
@@ -516,7 +516,7 @@ func TestTeamHouseRankLegendExplainsTheCode(t *testing.T) {
 	// Decision 2 (J1 F28, wave E) dropped the "01 // " section number
 	// from this eyebrow; the text this test pins changed with it.
 	headingAt := strings.Index(page, `<span class="section-index">STARTING LINEUP</span>`)
-	legendAt := strings.Index(page, `<details class="pool-legend">`)
+	legendAt := strings.Index(page, `<details class="pool-legend"`)
 	slotListAt := strings.Index(page, `<div class="lineup-slot-list">`)
 	if headingAt < 0 || legendAt < 0 || slotListAt < 0 || !(headingAt < legendAt && legendAt < slotListAt) {
 		t.Fatal("the house-rank legend must render directly under the lineup heading, before the slot list")
@@ -775,7 +775,7 @@ func TestBenchRowRendersNewsTipAndHouseRankChip(t *testing.T) {
 		// report 2026-09-18).
 		`<If cond={props.HasHouseRank}><span class="mono house-rank stat-tip__rank" title={props.HouseRankTip}>{props.HouseRank}</span></If>`,
 		`<If cond={props.HasNews}>`,
-		`<details class="stat-tip stat-tip--news">`,
+		`<details class="stat-tip stat-tip--news"`,
 		`<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + props.Name}>📰</summary>`,
 		`<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {props.News}</p>`,
 		`<If cond={props.HasInjury}>`,
@@ -836,7 +836,7 @@ func TestStarterSlotRendersNewsTipAndHouseRankChip(t *testing.T) {
 		// 2026-09-18).
 		`<If cond={slot.has_house_rank}><span class="mono house-rank stat-tip__rank" title={slot.house_rank_tip}>{slot.house_rank}</span></If>`,
 		`<If cond={slot.has_news}>`,
-		`<details class="stat-tip stat-tip--news">`,
+		`<details class="stat-tip stat-tip--news"`,
 		`<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + slot.name}>📰</summary>`,
 		`<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {slot.news}</p>`,
 		`<If cond={slot.has_injury}>`,
@@ -1376,12 +1376,14 @@ func TestMoveDisclosureClosedByDefaultOnStarterAndBenchRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := string(pageBytes)
-	count := strings.Count(page, `<details class="action-disclosure lineup-move-disclosure">`)
-	if count < 2 {
-		t.Fatalf("lineup-move-disclosure count = %d, want at least 2 (starter + bench destination forms)", count)
+	tags := regexp.MustCompile(`<details class="action-disclosure lineup-move-disclosure"[^>]*>`).FindAllString(page, -1)
+	if len(tags) < 2 {
+		t.Fatalf("lineup-move-disclosure count = %d, want at least 2 (starter + bench destination forms)", len(tags))
 	}
-	if strings.Contains(page, `<details class="action-disclosure lineup-move-disclosure" open`) {
-		t.Fatal("a lineup-move-disclosure carries open= — movement must be closed by default")
+	for _, tag := range tags {
+		if regexp.MustCompile(`\sopen(?:\s|=|>)`).MatchString(tag) {
+			t.Fatal("a lineup-move-disclosure carries open= — movement must be closed by default")
+		}
 	}
 }
 
@@ -1446,7 +1448,7 @@ func TestInjuryDesignationChipRendersOutsideNewsDisclosure(t *testing.T) {
 	page := string(pageBytes)
 
 	rosterRowAt := strings.Index(page, "func RosterRow(")
-	benchNewsAt := strings.Index(page[rosterRowAt:], `<details class="stat-tip stat-tip--news">`)
+	benchNewsAt := strings.Index(page[rosterRowAt:], `<details class="stat-tip stat-tip--news"`)
 	benchChipAt := strings.Index(page[rosterRowAt:], `<If cond={props.HasInjuryDesignation}>`)
 	if benchNewsAt < 0 || benchChipAt < 0 {
 		t.Fatal("could not find RosterRow's news disclosure or injury chip")
@@ -1459,7 +1461,7 @@ func TestInjuryDesignationChipRendersOutsideNewsDisclosure(t *testing.T) {
 		t.Fatal("RosterRow's injury chip renders nested inside the news <details>, want it as a sibling after")
 	}
 
-	starterNewsAt := strings.LastIndex(page, `<details class="stat-tip stat-tip--news">`)
+	starterNewsAt := strings.LastIndex(page, `<details class="stat-tip stat-tip--news"`)
 	starterChipAt := strings.Index(page, `<If cond={slot.has_injury_designation}>`)
 	if starterNewsAt < 0 || starterChipAt < 0 {
 		t.Fatal("could not find the starter slot's news disclosure or injury chip")

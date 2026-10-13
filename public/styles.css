@@ -19611,8 +19611,8 @@ a.skip-link {
 .matchups-page .scorebug .starter-cell__proj::before { content: "PROJ "; color: var(--color-text-muted); font-size: var(--type-xs); }
 .matchups-page .scorebug .starter-cell__pts::before { content: "PTS "; color: var(--color-text-muted); font-size: var(--type-xs); }
 
-/* Phone (<=899px, the shell's own breakpoint), AND the 900-1100px rail
-   band: two visual lines per row, the pool row's own pattern — line 1
+/* Phone and narrow desktop widths through 1199px use two visual lines
+   per row, the pool row's own pattern — line 1
    is slot chip · name · PROJ/PTS at the right (a real CSS grid row,
    explicit columns); line 2 is opponent · game · status chips · the
    Swap/Start/Drop disclosure at the right edge (one flex line,
@@ -19627,7 +19627,7 @@ a.skip-link {
    widths (54rem, before gaps) do not fit the narrowed content column
    left over — browser-observed: /team overflowed 24-215px across this
    band before this query covered it too. */
-@media (width <= 899px), (min-width: 56.25rem) and (max-width: 68.75rem) {
+@media (width <= 899px), (min-width: 56.25rem) and (max-width: 74.9375rem) {
   .lineup-slot,
   .roster-row {
     grid-template-columns: 2.25rem minmax(0, 1fr) auto;
@@ -21614,6 +21614,136 @@ body.is-on-clock .draft-command__pill-sentence {
 
   .current-matchup-card__opponent > div {
     min-width: 0;
+  }
+}
+
+/* Expanded Team controls use the row's full width instead of squeezing
+   native selects and confirmations into the compact Action column. */
+.team-page .team-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (width >= 1200px) {
+  .team-page .lineup-slot,
+  .team-page .roster-row,
+  .team-page .lineup-slot-labels {
+    grid-template-columns: 3rem minmax(14rem, 1fr) 5.5rem 6rem 4rem 3.5rem 3.5rem 5rem;
+  }
+
+  .team-page .lineup-slot-labels {
+    display: grid;
+    column-gap: var(--space-sm);
+  }
+}
+
+.team-page .lineup-slot__action:has(.lineup-move-disclosure[open], .action-confirmation[open]) {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  flex-basis: 100%;
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+}
+
+.team-page .lineup-move-disclosure > summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: max-content;
+  min-height: 2.25rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.team-page .lineup-move-disclosure > summary::after {
+  content: "+";
+}
+
+.team-page .lineup-move-disclosure[open] > summary::after {
+  content: "−";
+}
+
+.team-page .lineup-move-disclosure > summary:focus-visible {
+  outline: 2px solid var(--color-accent-cyan);
+  outline-offset: 2px;
+}
+
+.team-page .lineup-move-disclosure[open],
+.team-page .lineup-slot__action .action-confirmation[open] {
+  width: 100%;
+  min-width: 0;
+}
+
+.team-page .lineup-move-disclosure[open] > summary {
+  margin-left: auto;
+  background: var(--color-canvas-deep);
+}
+
+.team-page .lineup-move-disclosure[open] > .lineup-move-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-left: 2px solid var(--color-accent-cyan);
+  border-radius: var(--radius-sm);
+  background: var(--color-canvas-deep);
+  text-align: left;
+}
+
+.team-page .lineup-move-panel__title {
+  grid-column: 1 / -1;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.team-page .lineup-move-panel .lineup-slot__form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+}
+
+.team-page .lineup-move-panel label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+}
+
+.team-page .lineup-move-panel select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.team-page .lineup-slot__action .action-confirmation[open] {
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-canvas-deep);
+  text-align: left;
+}
+
+.team-page .lineup-slot:has(.stat-tip[open]) {
+  z-index: 41;
+}
+
+@media (width < 1200px) {
+  .team-page .lineup-slot__meta:has(.lineup-move-disclosure[open], .action-confirmation[open]) {
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+  }
+
+  .team-page .lineup-move-disclosure[open] > .lineup-move-panel {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

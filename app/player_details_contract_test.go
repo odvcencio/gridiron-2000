@@ -68,12 +68,12 @@ func TestPlayerDetailsUseNativeDisclosureAcrossSurfaces(t *testing.T) {
 				t.Fatal(err)
 			}
 			source := string(sourceBytes)
-			gotIdentity := strings.Count(source, `<details class="stat-tip">`) +
-				strings.Count(source, `<details class="player-identity stat-tip">`)
+			gotIdentity := strings.Count(source, `<details class="stat-tip"`) +
+				strings.Count(source, `<details class="player-identity stat-tip"`)
 			if gotIdentity != tt.identityTips {
 				t.Fatalf("identity stat-tip details = %d, want %d", gotIdentity, tt.identityTips)
 			}
-			gotNews := strings.Count(source, `<details class="stat-tip stat-tip--news">`)
+			gotNews := strings.Count(source, `<details class="stat-tip stat-tip--news"`)
 			if gotNews != tt.newsTips {
 				t.Fatalf("news stat-tip details = %d, want %d", gotNews, tt.newsTips)
 			}

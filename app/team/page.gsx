@@ -198,7 +198,7 @@ func RosterRow(props RosterRowProps) Node {
 			</If>
 		</div>
 		<span class="pool-player-cell lineup-slot__player">
-		<details class="player-identity stat-tip">
+		<details class="player-identity stat-tip" name="team-player-details" data-team-disclosure={"bench-player-" + props.ID}>
 			<summary class="stat-tip__summary">
 			<If cond={props.HasHeadshot}>
 				<img class="player-avatar player-avatar--photo" src={props.Headshot} alt="" loading="lazy" />
@@ -262,7 +262,7 @@ func RosterRow(props RosterRowProps) Node {
 			</div>
 		</details>
 		<If cond={props.HasNews}>
-			<details class="stat-tip stat-tip--news">
+			<details class="stat-tip stat-tip--news" name="team-player-details" data-team-disclosure={"bench-news-" + props.ID}>
 				<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + props.Name}>📰</summary>
 				<div class="stat-tip__panel">
 					<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {props.News}</p>
@@ -308,30 +308,35 @@ func RosterRow(props RosterRowProps) Node {
 			<div class="lineup-slot__action">
 				<If cond={props.RosterComplete && props.Locked == false}>
 									<If cond={props.HasMoveOptions}>
-										<details class="action-disclosure lineup-move-disclosure">
+										<details class="action-disclosure lineup-move-disclosure" name="team-lineup-actions" data-team-disclosure={"bench-move-" + props.ID}>
 											<summary aria-label={"Choose a starter destination for " + props.Name}>
 												<If cond={props.HasOpenSlot}>Start</If>
 												<If cond={props.HasOpenSlot == false}>Move</If>
 											</summary>
+											<div class="lineup-move-panel">
+											<p class="lineup-move-panel__title">{"Start " + props.Name}</p>
 											<form method="post" action={actionPath("lineup-move-player")} data-gosx-managed="true" class="lineup-slot__form lineup-player-move-form">
 												<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 												<input type="hidden" name="team_id" value={props.TeamID}></input>
 												<input type="hidden" name="week" value={props.Week}></input>
 												<input type="hidden" name="player_id" value={props.ID}></input>
+												<label><span>Starter slot</span>
 												<select name="to_slot" aria-label={"Choose a starter destination for " + props.Name}>
 													<Each of={props.MoveOptions} as="opt">
 														<option value={opt.ID}>{opt.Label}</option>
 													</Each>
 												</select>
+												</label>
 												<button class="board-button" type="submit">Start / replace</button>
 											</form>
+											</div>
 										</details>
 									</If>
 					<form method="post" action={actionPath("player-drop")} data-gosx-managed="true" class="roster-row__drop-form">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="team_id" value={props.TeamID}></input>
 						<input type="hidden" name="player_id" value={props.ID}></input>
-						<details class="action-confirmation">
+						<details class="action-confirmation" name="team-lineup-actions" data-team-disclosure={"bench-drop-" + props.ID}>
 							<summary aria-label={"Drop " + props.Name}>Drop</summary>
 							<p>Dropping this player removes them from your roster and starts the waiver process. This roster change cannot be undone from this screen.</p>
 							<label>
@@ -832,7 +837,7 @@ func TeamLineupRegion() Node {
 					<span>Bench · not scored</span>
 					<strong class="mono">{data.bench_projected}</strong>
 					<small class="team-command-strip__hint">{data.bench_projection_coverage_label}</small>
-					<If cond={data.bench_projection_note != ""}><details class="team-projection-details"><summary>Projection details</summary><small>Not included in team score. {data.bench_projection_note}</small></details></If>
+					<If cond={data.bench_projection_note != ""}><details class="team-projection-details" data-team-disclosure="projection-note"><summary>Projection details</summary><small>Not included in team score. {data.bench_projection_note}</small></details></If>
 				</div>
 				<div>
 					<span>Starters</span>
@@ -860,7 +865,7 @@ func TeamLineupRegion() Node {
 						<If cond={data.lineup_deadline.has_deadline}>{data.lineup_deadline.exact + " · " + data.lineup_deadline.relative}</If>
 						<If cond={data.lineup_deadline.has_deadline == false}>{data.lineup_deadline.headline}</If>
 					</strong>
-					<details class="lineup-deadline-details">
+					<details class="lineup-deadline-details" data-team-disclosure="locks">
 						<summary>Lock window details</summary>
 						<If cond={data.lineup_deadline.has_deadline}>
 							<p class="lineup-deadline__relative mono">{data.lineup_deadline.relative} · {data.lineup_deadline.timezone}</p>
@@ -991,7 +996,7 @@ func TeamLineupRegion() Node {
 					<If cond={data.has_week_notice}>
 						<p class="error-message lineup-week-notice" role="status">{data.week_notice}</p>
 					</If>
-					<details class="pool-legend">
+					<details class="pool-legend" data-team-disclosure="rank-legend">
 						<summary>What does H### mean?</summary>
 						<p>H### — house rank: this league's own superflex-aware value order (your scoring and roster rules), shown beside every lineup and bench slot. <a href="/help#glossary" data-gosx-link>More terms in the glossary →</a></p>
 					</details>
@@ -1002,7 +1007,7 @@ func TeamLineupRegion() Node {
 					    they need most weeks; the full slot-by-slot eligibility
 					    legend and positional-depth chips are one click away, not
 					    132px a manager scrolled past every visit. */}
-					<details class="roster-shape" aria-label="League roster shape">
+					<details class="roster-shape" aria-label="League roster shape" data-team-disclosure="roster-shape">
 						<summary class="roster-shape__summary mono">{data.shape_summary}</summary>
 						<Each of={data.roster_shape} as="slot">
 							<span class="roster-shape__slot-wrap">
@@ -1027,7 +1032,7 @@ func TeamLineupRegion() Node {
 						    chrome cost 291px a manager scrolled past every
 						    visit once the season already started; the summary
 						    line alone still names the section. */}
-						<details class="draft-class-callout" aria-labelledby="draft-class-callout-title">
+						<details class="draft-class-callout" aria-labelledby="draft-class-callout-title" data-team-disclosure="draft-class">
 							<summary>
 								<span class="section-index">DRAFT COMPLETE // YOUR CLASS</span>
 								<strong id="draft-class-callout-title">Your draft class</strong>
@@ -1067,7 +1072,7 @@ func TeamLineupRegion() Node {
 							    stays a one-click action; only its own explanatory
 							    sentence collapses, the coordinator's own "toolbar
 							    copy" callout. */}
-							<details class="action-disclosure lineup-action-note">
+							<details class="action-disclosure lineup-action-note" data-team-disclosure="best-lineup-help">
 								<summary>What does Set best lineup do?</summary>
 								<p class="scoring-note">Set best lineup rewrites every currently unlocked starter slot using your roster, highest projection first. Locked slots stay exactly where they are; run it again any time before those players kick off.</p>
 							</details>
@@ -1101,7 +1106,7 @@ func TeamLineupRegion() Node {
 						</div>
 					</If>
 					<If cond={data.has_matchup_source}>
-						<details class="matchup-rank-glossary">
+						<details class="matchup-rank-glossary" data-team-disclosure="matchup-ranks">
 							<summary>What do the matchup ranks mean?</summary>
 							<p class="demo-message">
 								<strong>MATCHUP RANKS:</strong>
@@ -1150,7 +1155,7 @@ func TeamLineupRegion() Node {
 									</div>
 									<If cond={slot.has_player}>
 									<span class="pool-player-cell lineup-slot__player">
-										<details class="player-identity stat-tip">
+										<details class="player-identity stat-tip" name="team-player-details" data-team-disclosure={"starter-player-" + slot.slot_id + "-" + slot.id}>
 											<summary class="stat-tip__summary">
 											<If cond={slot.has_headshot}>
 												<img class="player-avatar player-avatar--photo" src={slot.headshot} alt="" loading="lazy" />
@@ -1200,7 +1205,7 @@ func TeamLineupRegion() Node {
 											</div>
 										</details>
 										<If cond={slot.has_news}>
-											<details class="stat-tip stat-tip--news">
+												<details class="stat-tip stat-tip--news" name="team-player-details" data-team-disclosure={"starter-news-" + slot.slot_id + "-" + slot.id}>
 												<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + slot.name}>📰</summary>
 												<div class="stat-tip__panel">
 													<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {slot.news}</p>
@@ -1265,19 +1270,23 @@ func TeamLineupRegion() Node {
 										</div>
 										<div class="lineup-slot__action">
 											<If cond={data.team_terminal_roster_complete && slot.locked == false}>
-												<details class="action-disclosure lineup-move-disclosure">
-													<summary aria-label={"Move or change " + slot.name}>Move / change</summary>
+												<details class="action-disclosure lineup-move-disclosure" name="team-lineup-actions" data-team-disclosure={"starter-move-" + slot.slot_id + "-" + slot.id}>
+													<summary aria-label={"Move or change " + slot.name}>Edit</summary>
+													<div class="lineup-move-panel">
+													<p class="lineup-move-panel__title">{slot.slot_id + " · " + slot.name}</p>
 													<If cond={slot.has_move_options}>
 														<form method="post" action={actionPath("lineup-move-player")} data-gosx-managed="true" class="lineup-slot__form lineup-player-move-form">
 															<input type="hidden" name="csrf_token" value={csrf.token}></input>
 															<input type="hidden" name="team_id" value={data.team.id}></input>
 															<input type="hidden" name="week" value={data.week}></input>
 															<input type="hidden" name="player_id" value={slot.id}></input>
+															<label><span>Move to</span>
 															<select name="to_slot" aria-label={"Choose a destination for " + slot.name}>
 																<Each of={slot.move_options} as="opt">
 																	<option value={opt.id}>{opt.label}</option>
 																</Each>
 															</select>
+															</label>
 															<button class="board-button" type="submit">Move</button>
 														</form>
 													</If>
@@ -1286,13 +1295,16 @@ func TeamLineupRegion() Node {
 														<input type="hidden" name="team_id" value={data.team.id}></input>
 														<input type="hidden" name="week" value={data.week}></input>
 														<input type="hidden" name="slot" value={slot.slot_id}></input>
+														<label><span>Replace with</span>
 														<select name="player_id" aria-label={"Assign a player to " + slot.slot_id}>
 															<Each of={slot.options} as="opt">
 																<option value={opt.id} selected={opt.selected} disabled={opt.disabled}>{opt.label}</option>
 															</Each>
 														</select>
+														</label>
 														<button class="board-button" type="submit">Set</button>
 													</form>
+													</div>
 												</details>
 											</If>
 										</div>
@@ -1492,7 +1504,7 @@ func TeamLineupRegion() Node {
 					    detail collapses, the same "closed so the page reads
 					    as a lineup, not a form dump" pattern this wave's own
 					    Swap/Swap-with disclosures already use. */}
-					<details class="scout-panel__details">
+					<details class="scout-panel__details" data-team-disclosure="scouting">
 						<summary>Show scouting notes</summary>
 						<If cond={data.scouting_empty}>
 							<div class="empty-tape scout-empty-state">

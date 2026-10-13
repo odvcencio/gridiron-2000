@@ -1496,6 +1496,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		head += `<script data-gridiron-drag-preview="true"` + navigationScriptNonceAttr(nonce) + `>` + lineupDragPreviewScript + `</script>`
 		// Keep the document viewport through Pick'em's live subtree swaps.
 		head += `<script data-gridiron-pickem-scroll="true"` + navigationScriptNonceAttr(nonce) + `>` + pickemScrollScript + `</script>`
+		head += `<script data-gridiron-team-terminal="true"` + navigationScriptNonceAttr(nonce) + `>` + teamTerminalScript + `</script>`
 		if pushEnabled {
 			// The push client (push_transport.go) needs the same nonce the
 			// navigation runtime carries; nothing else on the page may run
