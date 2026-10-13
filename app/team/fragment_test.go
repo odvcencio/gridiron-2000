@@ -131,10 +131,9 @@ func TestTeamLineupFragmentURLPreservesRequestedWeekForNotice(t *testing.T) {
 		t.Errorf("teamLineupFragmentURL(week=99 request, clamped data) = %q, want %q", got, want)
 	}
 
-	// A request with no week param at all still falls back to data["week"]
-	// (an ordinary /team load, current week, no clamp, no notice to carry).
+	// A default view must remain unpinned so an open page follows rollover.
 	bare := httptest.NewRequest(http.MethodGet, "/team", nil)
-	if got, want := teamLineupFragmentURL(data, bare), "/team/fragment?week=1"; got != want {
+	if got, want := teamLineupFragmentURL(data, bare), "/team/fragment"; got != want {
 		t.Errorf("teamLineupFragmentURL(no week param) = %q, want %q", got, want)
 	}
 }

@@ -244,7 +244,7 @@ func TestRosterOpsTickNoTransportStillProcesses(t *testing.T) {
 // TestEvalWeekAutoCloseClosesASettledWeekAndHoldsAnUnsettledOne is the
 // owner directive's own contract (2026-09-15): the fantasy week advances
 // on its own once every NFL game in it is final and the stat ledger has
-// settled 24 hours past the last kickoff, so /matchups stops showing a
+// fetched after the last game's finish, so /matchups stops showing a
 // finished week while /team has already rolled on. A week short of either
 // condition stays open, and a later week never closes past it.
 func TestEvalWeekAutoCloseClosesASettledWeekAndHoldsAnUnsettledOne(t *testing.T) {
@@ -266,11 +266,7 @@ func TestEvalWeekAutoCloseClosesASettledWeekAndHoldsAnUnsettledOne(t *testing.T)
 	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
 		return []WeekStatLine{{Key: "x|WR", Stats: map[string]float64{"recYards": 10}}}
 	})
-	// The readiness gate is the stat LEDGER's own last fetch against the
-	// 24h settle boundary, not wall time (WeekCloseReady deliberately
-	// ignores now), so an unsettled week is modelled by a ledger that has
-	// not caught up -- exactly the stalled-feed case a commissioner still
-	// has to force-close through.
+	// A ledger fetched during the last game must not settle its score.
 	settled := lastKickoff.Add(25 * time.Hour)
 	statsAt := lastKickoff.Add(2 * time.Hour)
 	svc.SetStatsUpdatedSource(func() time.Time { return statsAt })

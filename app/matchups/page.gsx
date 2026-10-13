@@ -513,7 +513,7 @@ func MatchupScoreBlock() Node {
 }
 
 func Page() Node {
-	return <main class="page matchups-page" id="main-content" data-live-root data-gosx-live-src={data.live_src} data-gosx-live-interval={data.live_interval} data-gosx-live-on="scores:changed">
+	return <main class="page matchups-page" id="main-content" data-live-root data-gosx-live-src={data.live_src} data-gosx-live-interval={data.live_interval} data-gosx-live-on="scores:changed" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/week-version">
 		<header class="matchups-masthead">
 			<div class="matchups-masthead__title">
 				<h1 class="display"><span data-gosx-live-bind="weekLabel">{data.live.week_label}</span> <span class="matchups-masthead__word">MATCHUPS</span></h1>

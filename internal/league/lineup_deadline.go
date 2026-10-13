@@ -270,8 +270,8 @@ func sortedPlayedLineupWeeks(games []GameInfo, current int) []int {
 }
 
 // teamWeekOptions resolves /team's own week selector and out-of-range
-// notice. current stays lineupCurrentWeekAt (an NFL-kickoff-driven lock
-// week). The raw NFL schedule mirror (games) is intersected with this
+// notice. The current view follows the league's persisted scoring week;
+// NFL kickoffs still govern edit locks. The raw NFL schedule mirror is intersected with this
 // league's own published season (schedule) when one exists, for both the
 // future weeks the selector offers and (J3 F22, below) the played ones.
 //
@@ -299,7 +299,13 @@ func sortedPlayedLineupWeeks(games []GameInfo, current int) []int {
 // games all kicked off long ago), so the page's existing "no SET form on
 // a locked slot" rule already renders it read-only with no extra gate.
 func teamWeekOptions(rawWeek string, schedule *SeasonSchedule, games []GameInfo, now time.Time) lineupWeekSelection {
-	current := lineupCurrentWeekAt(games, now)
+	calendarWeek := lineupCurrentWeekAt(games, now)
+	current := calendarWeek
+	if schedule != nil {
+		if scheduledWeek := currentScheduleWeek(*schedule); scheduledWeek > 0 {
+			current = scheduledWeek
+		}
+	}
 	offered := filterPublishedWeeks(sortedFutureLineupWeeks(games, current), schedule)
 	played := filterPublishedWeeks(sortedPlayedLineupWeeks(games, current), schedule)
 	if len(offered) == 0 {
@@ -308,7 +314,7 @@ func teamWeekOptions(rawWeek string, schedule *SeasonSchedule, games []GameInfo,
 	all := make([]int, 0, len(played)+len(offered))
 	all = append(all, played...)
 	all = append(all, offered...)
-	selection := lineupWeekSelection{Week: current, CurrentWeek: current, Weeks: all}
+	selection := lineupWeekSelection{Week: current, CurrentWeek: current, Weeks: all, ReadOnly: current < calendarWeek || weekIsFinalInSchedule(schedule, current)}
 	rawWeek = strings.TrimSpace(rawWeek)
 	if rawWeek == "" {
 		return selection
@@ -329,11 +335,17 @@ func teamWeekOptions(rawWeek string, schedule *SeasonSchedule, games []GameInfo,
 		return selection
 	}
 	selection.Week = parsed
+	selection.ReadOnly = parsed < calendarWeek || weekIsFinalInSchedule(schedule, parsed)
 	return selection
 }
 
 func (s *Service) NormalizeLineupWeek(raw string) int {
-	return normalizeLineupWeek(raw, s.schedule(), s.clock()).Week
+	games, now := s.schedule(), s.clock()
+	selection := normalizeLineupWeek(raw, games, now)
+	if strings.TrimSpace(raw) == "" || selection.Notice != "" {
+		return teamWeekOptions("", s.store.Snapshot().Schedule, games, now).CurrentWeek
+	}
+	return selection.Week
 }
 
 func (s *Service) lineupWeekForAction(week int, games []GameInfo, now time.Time) error {

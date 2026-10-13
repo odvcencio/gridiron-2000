@@ -378,7 +378,7 @@ component ManagerAchievementItem(props: ManagerAchievement) {
 // its outer middleware applies the complete-envelope limit before sessions
 // and CSRF parsing (see avatar_handlers.go in the repo root).
 func Page() Node {
-	return <main class="page team-page" id="main-content">
+	return <main class="page team-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/week-version">
 		<If cond={data.has_seat == false}>
 			<section class="no-franchise tone-lime">
 				<div class="signal-label">

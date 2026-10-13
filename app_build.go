@@ -1695,6 +1695,10 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	})
 	app.Mount("GET /api/live/week", liveWeekAPIHandler(requireLeagueAccess))
 	registerLeagueHeartbeatAPIs(app, league.Default(), leagueFingerprint, league.Default().Now)
+	app.API("GET /api/league/week-version", func(ctx *server.Context) (any, error) {
+		ctx.NoStore()
+		return map[string]any{"fingerprint": league.Default().WeekFingerprint()}, nil
+	})
 	// /wire/fragment answers app/wire/page.gsx's data-gosx-region /
 	// data-gosx-region-interval poll (gosx#217): wirepage.FeedFragmentWithError
 	// loads that page program once and renders its typed SignalCard /

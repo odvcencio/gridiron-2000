@@ -67,16 +67,9 @@ const (
 	autoCloseActorName  = "Gridiron"
 )
 
-// evalWeekAutoClose closes a week as soon as it is genuinely settled:
-// every one of its NFL games final AND the stat ledger fetched at least 24
-// hours past the week's last kickoff, which is exactly the readiness gate
-// a commissioner already had to wait for (WeekCloseReady). Before this,
-// nothing advanced the fantasy week on its own, so a Monday with every
-// game final still showed the finished week on /matchups
-// (currentScheduleWeek reads matchup finality, which only a close sets)
-// while /team's own lineup week had already rolled on the NFL calendar --
-// the app disagreeing with itself for a day or more until somebody
-// remembered to press a button (owner report, 2026-09-15).
+// evalWeekAutoClose closes a ready week on the next minute tick. Complete
+// saved final boxes settle it immediately after the last game.
+// The existing weekly turn remains a backstop for delayed game feeds.
 //
 // The walk stops at the first week that is not ready, so weeks can only
 // ever close in order: week 3 never closes past an open week 2, whatever
@@ -94,19 +87,16 @@ func (s *Service) evalWeekAutoClose(now time.Time) {
 		if scheduleWeekIsFinal(scheduled) {
 			continue
 		}
-		// The weekly turn is the rule: a week closes at the first Tuesday
-		// midnight, league time, after its own last kickoff, whether or
-		// not every clean condition went green. A fixed turn is the point
-		// — every manager knows when last week becomes last week, rather
-		// than it depending on which feed settled first, and a
-		// commissioner never has to force a stalled week closed.
-		due, why := weekCloseTurnDue(games, scheduled.Week, statsUpdatedAt, now, s.matchupLocation())
+		info := s.AdminWeekCloseInfo(scheduled.Week, now)
+		due, why := info.Ready, "all games are final and final player stats are available"
+		if !due {
+			due, why = weekCloseTurnDue(games, scheduled.Week, statsUpdatedAt, now, s.matchupLocation())
+		}
 		if !due {
 			return
 		}
-		info := s.AdminWeekCloseInfo(scheduled.Week, now)
 		kind := "week.auto_close"
-		summary := fmt.Sprintf("closed week %d on the weekly turn; every game was final and player stats had settled", scheduled.Week)
+		summary := fmt.Sprintf("closed week %d after every game was final and player stats had settled", scheduled.Week)
 		if !info.Ready {
 			// The turn arrived before the clean conditions did. The close
 			// still happens, and the ledger records that it settled on

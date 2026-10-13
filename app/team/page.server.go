@@ -332,9 +332,7 @@ func teamLineupFragmentURL(data map[string]any, request *http.Request) string {
 	values := url.Values{}
 	week := strings.TrimSpace(stringField(data, "week"))
 	if request != nil {
-		if raw := strings.TrimSpace(request.URL.Query().Get("week")); raw != "" {
-			week = raw
-		}
+		week = strings.TrimSpace(request.URL.Query().Get("week"))
 	}
 	if week != "" {
 		values.Set("week", week)

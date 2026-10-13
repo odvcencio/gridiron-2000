@@ -16,11 +16,14 @@ func TestWeekCloseReady(t *testing.T) {
 	}
 	lastKickoff := kickoff.Add(3 * time.Hour)
 
-	if WeekCloseReady(games, 1, lastKickoff.Add(24*time.Hour), lastKickoff.Add(25*time.Hour)) != true {
-		t.Error("expected ready: every game final, stats updated 24h after the last kickoff")
+	if WeekCloseReady(games, 1, lastKickoff.Add(5*time.Hour), lastKickoff.Add(6*time.Hour)) != true {
+		t.Error("expected ready: every game final, stats updated after the last game's estimated finish")
 	}
-	if WeekCloseReady(games, 1, lastKickoff.Add(23*time.Hour), lastKickoff.Add(25*time.Hour)) != false {
-		t.Error("expected not ready: stats dataset updated less than 24h after the last kickoff")
+	if WeekCloseReady(games, 1, lastKickoff.Add(4*time.Hour), lastKickoff.Add(6*time.Hour)) != false {
+		t.Error("expected not ready: the last stats fetch predates the final game's finish")
+	}
+	if WeekCloseReady(games, 1, lastKickoff.Add(6*time.Hour), lastKickoff.Add(2*time.Hour)) {
+		t.Error("future stats must not close a week before its games finish")
 	}
 	if WeekCloseReady(games, 1, time.Time{}, lastKickoff.Add(25*time.Hour)) != false {
 		t.Error("expected not ready: no stats-updated timestamp at all")
@@ -550,11 +553,11 @@ func TestWeekCloseReasonStaysAllowlistedWhileTheNoticeExplains(t *testing.T) {
 	if err := svc.store.SetSchedule(schedule); err != nil {
 		t.Fatalf("save schedule: %v", err)
 	}
-	// Games final, but the ledger has not reached the 24h settle clause.
+	// Games final, but the ledger still predates the last game's finish.
 	svc.SetStatsUpdatedSource(func() time.Time { return lastKickoff.Add(4 * time.Hour) })
 
 	info := svc.AdminWeekCloseInfo(1, lastKickoff.Add(6*time.Hour))
-	const want = "player stats are not yet 24 hours past the final kickoff"
+	const want = weekCloseStatsPendingReason
 	if info.Reason != want {
 		t.Fatalf("Reason = %q, want exactly %q so the HQ summary passes it through", info.Reason, want)
 	}

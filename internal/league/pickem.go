@@ -111,14 +111,27 @@ func (s *Service) ScheduleSourceForLive() ScheduleSource {
 	return s.schedule
 }
 
-// pickemWeek picks the week to show: the smallest week that still has a game
-// kicking off within the last four hours or later, or the largest week when
-// every game has already passed that window. An empty schedule returns 1.
+// pickemWeek follows the league's open scoring week when it is published.
+// The NFL calendar remains the fallback before a league schedule exists
+// and lets Pick'em continue after the fantasy league's season ends.
 func (s *Service) pickemWeek(games []GameInfo, now time.Time) int {
-	if len(pickemWeeks(games)) == 0 {
+	weeks := pickemWeeks(games)
+	if len(weeks) == 0 {
 		return s.seasonStartWeek()
 	}
-	return pickemWeekAt(games, now)
+	calendarWeek := pickemWeekAt(games, now)
+	if schedule := s.store.Snapshot().Schedule; schedule != nil {
+		current := currentScheduleWeek(*schedule)
+		if weekIsFinalInSchedule(schedule, current) {
+			// Pick'em continues beyond the fantasy league's last matchup.
+			if current+1 > calendarWeek && containsInt(weeks, current+1) {
+				return current + 1
+			}
+		} else if containsInt(weeks, current) {
+			return current
+		}
+	}
+	return calendarWeek
 }
 
 // pickemWeekAt is pickemWeek's pure core, extracted so Store methods that

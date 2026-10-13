@@ -36,6 +36,17 @@ func (s *Service) SeasonPhase(now time.Time) string {
 
 const weekCloseKickoffUnavailableReason = "kickoff timing unavailable"
 
+// WeekFingerprint changes with the active scoring week, not each live play.
+// Open pages use it to refresh their week selectors and season summaries.
+func (s *Service) WeekFingerprint() string {
+	state := s.store.Snapshot()
+	if state.Schedule == nil {
+		return fmt.Sprintf("calendar:%d", lineupCurrentWeekAt(s.schedule(), s.clock()))
+	}
+	week := currentScheduleWeek(*state.Schedule)
+	return fmt.Sprintf("%d:%d:%t:%s", state.Schedule.Season, week, weekIsFinalInSchedule(state.Schedule, week), state.Phase)
+}
+
 // weekCloseLastKickoff returns the latest authoritative kickoff for week.
 // A schedule row without a kickoff is degraded timing data, not an early
 // kickoff; callers must fail closed until the feed supplies the timestamp.
@@ -155,14 +166,11 @@ func weekCloseStatsSettleFloor(games []GameInfo, week int) (time.Time, bool) {
 	return end, !end.IsZero()
 }
 
-// WeekCloseReady reports whether week's two auto-close conditions hold
-// (section 2.5): every real NFL game for that week is final, and the
-// player-stats dataset last updated after the week's last game day plus 24
-// hours. It is advisory only in this work package (open question 3: manual
-// AdminCloseWeek is enough for year one) — nothing calls it automatically
-// yet.
+// WeekCloseReady is the weekly-mirror fallback: every NFL game is final
+// and the ledger has fetched after the last game's estimated finish.
+// Complete saved final boxes let AdminWeekCloseInfo become ready sooner.
 func WeekCloseReady(games []GameInfo, week int, statsUpdatedAt time.Time, now time.Time) bool {
-	lastKickoff, found, kickoffOK := weekCloseLastKickoff(games, week)
+	_, found, kickoffOK := weekCloseLastKickoff(games, week)
 	if !found || !kickoffOK || statsUpdatedAt.IsZero() {
 		return false
 	}
@@ -174,8 +182,25 @@ func WeekCloseReady(games []GameInfo, week int, statsUpdatedAt time.Time, now ti
 			return false
 		}
 	}
-	_ = now // reserved for a future staleness ceiling; unused today.
-	return !statsUpdatedAt.Before(lastKickoff.Add(24 * time.Hour))
+	settled, known := weekCloseStatsSettleFloor(games, week)
+	return known && !now.Before(settled) && !statsUpdatedAt.Before(settled)
+}
+
+const weekCloseStatsPendingReason = "player stats have not caught up with the last game's finish"
+
+// A complete final box is saved only after the provider's final scoring
+// inputs are accepted. It can settle the game before the weekly mirror
+// catches up; incomplete or unrelated boxes cannot settle it.
+func weekCloseFinalBoxTime(state PersistedState, game GameInfo, now time.Time) (time.Time, bool) {
+	if state.Schedule == nil || game.ID == "" || game.Kickoff.IsZero() {
+		return time.Time{}, false
+	}
+	season := state.Schedule.Season
+	box, ok := state.FinalGameStats[finalGameStatsKey(season, game.Week, game.ID)]
+	if !ok || !box.Complete || box.Season != season || box.Week != game.Week || box.GameID != game.ID || box.CapturedAt.IsZero() || box.CapturedAt.Before(game.Kickoff) || box.CapturedAt.After(now) {
+		return time.Time{}, false
+	}
+	return box.CapturedAt, true
 }
 
 // AdminWeekCloseInfo assembles the truthful commissioner view for one week.
@@ -208,15 +233,30 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 	games := gamesInWeek(s.schedule(), week)
 	info.GamesKnown = len(games) > 0
 	info.GamesTotal = len(games)
-	for _, game := range games {
-		if game.Final {
+	allFinalBoxes := info.GamesKnown
+	var finalBoxesAt time.Time
+	for i, game := range games {
+		if captured, complete := weekCloseFinalBoxTime(state, game, now); complete {
+			games[i].Final = true
+			if captured.After(finalBoxesAt) {
+				finalBoxesAt = captured
+			}
+		} else {
+			allFinalBoxes = false
+		}
+		if games[i].Final {
 			info.GamesFinal++
 		}
 	}
 	info.StatsUpdatedAt = s.statsUpdatedAt()
 	lastKickoff, _, kickoffOK := weekCloseLastKickoff(games, week)
 	if info.GamesKnown && kickoffOK {
-		info.StatsFresh = !info.StatsUpdatedAt.IsZero() && !info.StatsUpdatedAt.Before(lastKickoff.Add(24*time.Hour))
+		settled, known := weekCloseStatsSettleFloor(games, week)
+		info.StatsFresh = known && !now.Before(settled) && !info.StatsUpdatedAt.IsZero() && !info.StatsUpdatedAt.Before(settled)
+	}
+	if allFinalBoxes {
+		info.StatsUpdatedAt = finalBoxesAt
+		info.StatsFresh = true
 	}
 	// StaleFeedNotice (F21, J4 console gap-audit): Reason below explains
 	// whichever single fact is currently blocking a normal close — most
@@ -225,13 +265,15 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 	// root cause the reason text never named. If the ledger's last fetch
 	// predates this week's own last kickoff, the feed itself is behind,
 	// regardless of which fact Reason ends up reporting.
-	if info.GamesKnown && kickoffOK && !info.StatsUpdatedAt.IsZero() && info.StatsUpdatedAt.Before(lastKickoff) {
+	if !allFinalBoxes && info.GamesKnown && kickoffOK && !info.StatsUpdatedAt.IsZero() && info.StatsUpdatedAt.Before(lastKickoff) {
 		info.StaleFeedNotice = fmt.Sprintf(
 			"The stat feed's last fetch was %s, before this week's last kickoff. Force the close only if you accept scores computed from that stale feed.",
 			info.StatsUpdatedAt.In(s.matchupLocation()).Format("Jan 2, 3:04 PM MST"),
 		)
 	}
-	if turn, ok := weekCloseTurnAt(games, week, s.matchupLocation()); ok {
+	if allFinalBoxes {
+		info.AutoCloseAt, info.HasAutoCloseAt = finalBoxesAt, true
+	} else if turn, ok := weekCloseTurnAt(games, week, s.matchupLocation()); ok {
 		info.AutoCloseAt, info.HasAutoCloseAt = turn, true
 		if !now.Before(turn) {
 			if due, why := weekCloseTurnDue(games, week, info.StatsUpdatedAt, now, s.matchupLocation()); !due {
@@ -239,7 +281,7 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 			}
 		}
 	}
-	info.Ready = WeekCloseReady(games, week, info.StatsUpdatedAt, now)
+	info.Ready = allFinalBoxes || WeekCloseReady(games, week, info.StatsUpdatedAt, now)
 	if info.Ready {
 		// A ready week has no blocking reason. Keep the panel's WHY line
 		// from retaining the constructor's "generate a schedule first"
@@ -256,7 +298,7 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 	case info.StatsUpdatedAt.IsZero():
 		info.Reason = "Waiting for this week's player stats."
 	case !info.StatsFresh:
-		info.Reason = "player stats are not yet 24 hours past the final kickoff"
+		info.Reason = weekCloseStatsPendingReason
 	case !info.Ready:
 		info.Reason = "week is not ready to close yet"
 	}
@@ -270,11 +312,10 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 	switch {
 	case info.Final || info.Ready:
 	case info.AutoCloseBlocked != "":
-		info.AutoCloseNotice = info.AutoCloseBlocked +
-			", so this one waits for you: closing now would score the week from stats that predate its own games."
+		info.AutoCloseNotice = "This week closes by itself once final player stats arrive. " + info.AutoCloseBlocked + "."
 	case info.HasAutoCloseAt:
 		info.AutoCloseNotice = fmt.Sprintf(
-			"This week closes by itself %s even if nothing else changes, so a force close is only for closing it sooner.",
+			"This week closes by itself once final player stats arrive. The backstop for a delayed game feed is %s; the player-stat ledger still needs to catch up.",
 			info.AutoCloseAt.In(s.matchupLocation()).Format("Mon Jan 2, 3:04 PM MST"))
 	}
 	return info
@@ -576,9 +617,7 @@ func scheduleWeekIsFinal(wk ScheduleWeek) bool {
 }
 
 // WeekCloseInfo is the commissioner-facing readiness snapshot for one
-// scheduled week. Readiness is deliberately advisory: AdminCloseWeek is
-// still the explicit write, while the fields here explain whether the
-// normal close path is safe and why a commissioner may need the override.
+// scheduled week, shared by automatic and commissioner closes.
 type WeekCloseInfo struct {
 	Week           int
 	Exists         bool
@@ -596,20 +635,18 @@ type WeekCloseInfo struct {
 	// games or stats read as not-final when the real cause is a feed that
 	// stopped refreshing days ago.
 	StaleFeedNotice string
-	// AutoCloseAt / HasAutoCloseAt name the instant this week closes by
-	// itself even if its clean conditions never go green
-	// (weekCloseTurnAt). A commissioner reads it as the answer to "do
-	// I have to force this?" — no, not unless you want it sooner.
+	// AutoCloseAt is the final-box arrival time when all games are covered,
+	// or the calendar backstop for a delayed game feed.
 	AutoCloseAt    time.Time
 	HasAutoCloseAt bool
 	// AutoCloseBlocked is non-empty when even the backstop is deliberately
 	// holding: the stat ledger has not fetched since this week's games, so
 	// closing now would post a silently wrong score for every team. This
-	// is the one case that still wants a person.
+	// The ticker retries as the feed recovers.
 	AutoCloseBlocked string
 	// AutoCloseNotice is the commissioner-facing sentence about all of
-	// this: when the week settles itself, or why it is waiting for a
-	// person. It is deliberately separate from Reason, which names only
+	// this: when the week settles itself, or which data it awaits.
+	// It is deliberately separate from Reason, which names only
 	// the blocking condition and is allowlisted verbatim by the
 	// fleet-facing HQ summary.
 	AutoCloseNotice string

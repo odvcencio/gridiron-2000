@@ -344,7 +344,7 @@ func safeWeekCloseReason(reason string) string {
 	case reason == "already final; repeating close is a no-op",
 		reason == "waiting for the real NFL schedule feed",
 		reason == "waiting for the player-stats dataset to report an update",
-		reason == "player stats are not yet 24 hours past the final kickoff",
+		reason == weekCloseStatsPendingReason,
 		reason == weekCloseKickoffUnavailableReason,
 		reason == "week is not ready to close yet":
 		return reason

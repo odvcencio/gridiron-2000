@@ -372,13 +372,13 @@ func TestCommissionerSummaryWeekCloseAttentionTracksActionability(t *testing.T) 
 	service.SetScheduleSource(func() []GameInfo {
 		return []GameInfo{{Week: week, Kickoff: kickoff, Final: true}}
 	})
-	service.SetStatsUpdatedSource(func() time.Time { return kickoff.Add(23 * time.Hour) })
+	service.SetStatsUpdatedSource(func() time.Time { return kickoff.Add(4 * time.Hour) })
 	waiting := service.CommissionerSummary("g2k", commissionerhq.Runtime{Ready: true}, commissionerhq.Pool{Mode: "live", Actual: 300, Target: 300})
 	if !hasCode(waiting, "week_close_waiting") || hasCode(waiting, "week_close_ready") {
 		t.Fatalf("stats-settling week attention = %+v", waiting.Attention)
 	}
 
-	service.SetStatsUpdatedSource(func() time.Time { return kickoff.Add(24 * time.Hour) })
+	service.SetStatsUpdatedSource(func() time.Time { return kickoff.Add(5 * time.Hour) })
 	ready := service.CommissionerSummary("g2k", commissionerhq.Runtime{Ready: true}, commissionerhq.Pool{Mode: "live", Actual: 300, Target: 300})
 	if !hasCode(ready, "week_close_ready") || hasCode(ready, "week_close_waiting") {
 		t.Fatalf("ready week attention = %+v", ready.Attention)
