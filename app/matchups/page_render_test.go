@@ -220,7 +220,7 @@ func TestMatchupsLiveFixtureIsSummaryFirstWithOneStatusLine(t *testing.T) {
 		// readable word ("SCHEDULED", "LIVE", "AWAITING FINAL"), while the
 		// raw token keeps its own key for the polled JSON contract.
 		`data-gosx-live-bind="liveStateLabel"`, `data-gosx-live-bind="sourceLine"`, `data-gosx-live-bind="gamesFinal"`,
-		`class="my-matchup card"`, `data-gosx-live-bind="winProb.`, `data-gosx-live-bind="originalProjected.`, `data-gosx-live-bind="stillToPlay.`,
+		`class="my-matchup card"`, `data-gosx-live-bind="winProbRing.`, `data-gosx-live-bind="originalProjected.`, `data-gosx-live-bind="stillToPlay.`,
 		`class="matchup-pair slot-row"`, `<details class="matchup-ledger" role="cell">`, `data-gosx-live-bind="starterGameState.`, `class="scorebug card"`,
 		`data-gosx-live-on="scores:changed"`, "Live box scores · checked", "Q2 ", "Josh Allen", "Lamar Jackson",
 		// The masthead's plain-language state line is visible, never
@@ -261,7 +261,7 @@ func TestMatchupsWheelCarriesLiveWinChanceText(t *testing.T) {
 		t.Fatalf("fixture process: %v\n%s", err, output)
 	}
 	body := string(output)
-	for _, want := range []string{`class="starter-progress__center"><b data-gosx-live-bind="winProb.`, `data-gosx-live-bind="winProbCaption.`, `class="starter-progress__completion mono"`} {
+	for _, want := range []string{`class="starter-progress__center"><b data-gosx-live-bind="winProbRing.`, `data-gosx-live-bind="winProbCaption.`, `class="starter-progress__completion mono"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("wheel missing %q", want)
 		}

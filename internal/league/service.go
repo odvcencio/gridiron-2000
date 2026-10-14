@@ -2267,7 +2267,10 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 		selectedWeek = live.Week
 	}
 	isCurrentWeek := selectedWeek == currentWeek
-	livePoll := isCurrentWeek && livePollingActive(live)
+	// Lineup edits matter before kickoff, and a delayed feed must recover
+	// without a page reload. Keep the current matchup week subscribed until
+	// its results are posted; the ring settles each matchup independently.
+	livePoll := isCurrentWeek && live.State != MatchupStateFinal && live.State != MatchupStatePreseason
 	liveSrc := "/api/live/week"
 	if hasSchedule {
 		liveSrc = fmt.Sprintf("/api/live/week?week=%d", selectedWeek)
@@ -2340,7 +2343,7 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 		"current_week_href":  currentWeekHref,
 		"week_notice":        weekNotice,
 		"has_week_notice":    weekNotice != "",
-		"live_interval":      map[bool]string{true: "10s", false: ""}[livePoll],
+		"live_interval":      map[bool]string{true: PollPeriod.String(), false: ""}[livePoll],
 		"live_poll":          livePoll,
 		"next_matchup":       s.nextManagerMatchup(state, viewer, state.Schedule, currentWeek, publicEntry),
 		"public_entry":       publicEntryData(publicEntry),
@@ -4170,6 +4173,7 @@ func (s *Service) liveScoresView(live LiveSnapshot, isCurrentWeek bool, currentW
 	scores := make(map[string]string, len(live.Matchups)*2)
 	starterPoints := make(map[string]string)
 	starterPlayerName := make(map[string]string)
+	starterPlayerNameShort := make(map[string]string)
 	starterPosition := make(map[string]string)
 	starterNFLTeam := make(map[string]string)
 	starterProvenance := make(map[string]string)
@@ -4243,6 +4247,7 @@ func (s *Service) liveScoresView(live LiveSnapshot, isCurrentWeek bool, currentW
 	// flip the shown percentage to the wrong side's number the first
 	// time the viewer's team is Away.
 	winProb := make(map[string]string, len(live.Matchups)*2)
+	winProbRing := make(map[string]string, len(live.Matchups)*2)
 	winProbCaption := make(map[string]string, len(live.Matchups)*2)
 	// stillToPlay/stillToPlayTotal are the bare count and the total,
 	// matching my_matchup/other_matchups' own two int fields (round-2
@@ -4292,6 +4297,7 @@ func (s *Service) liveScoresView(live LiveSnapshot, isCurrentWeek bool, currentW
 	liveStatusValue, hasLive := s.liveStatusForWeek(live.Week)
 	pool := s.pool()
 	projectionByID, projectionAvailable, projectionNote := s.projectionPoolForWeek(pool, live.Week)
+	winScoring := s.currentScoringValues()
 	addStarterRow := func(row StarterLedgerRow) {
 		// Keep every visible starter field in a stable, one-level map keyed by
 		// the slot. The page binds all of these fields to the same live key so
@@ -4300,6 +4306,7 @@ func (s *Service) liveScoresView(live LiveSnapshot, isCurrentWeek bool, currentW
 		starterPoints[row.LiveKey] = row.PointsText
 		starterPointsTotalBind[row.LiveKey] = row.PointsText
 		starterPlayerName[row.LiveKey] = row.PlayerName
+		starterPlayerNameShort[row.LiveKey] = StarterPlayerShortName(row.PlayerName)
 		starterPosition[row.LiveKey] = row.Position
 		starterNFLTeam[row.LiveKey] = row.NFLTeam
 		starterProvenance[row.LiveKey] = row.Provenance
@@ -4369,10 +4376,12 @@ func (s *Service) liveScoresView(live LiveSnapshot, isCurrentWeek bool, currentW
 			originalProjectionCoverage[side.team.ID] = side.summary.coverage()
 			originalProjectionNote[side.team.ID] = side.summary.note()
 		}
-		winProb[matchup.Home.ID] = matchupWinEstimate(matchup.Home, matchup.Away, matchup.State, projectionByID, liveStatusValue, hasLive)
-		winProb[matchup.Away.ID] = matchupWinEstimate(matchup.Away, matchup.Home, matchup.State, projectionByID, liveStatusValue, hasLive)
+		winProb[matchup.Home.ID] = matchupWinEstimate(matchup.Home, matchup.Away, matchup.State, projectionByID, liveStatusValue, hasLive, winScoring)
+		winProb[matchup.Away.ID] = matchupWinEstimate(matchup.Away, matchup.Home, matchup.State, projectionByID, liveStatusValue, hasLive, winScoring)
 		winProbCaption[matchup.Home.ID] = WinEstimateCaption(winProb[matchup.Home.ID])
 		winProbCaption[matchup.Away.ID] = WinEstimateCaption(winProb[matchup.Away.ID])
+		winProbRing[matchup.Home.ID] = WinEstimateRingText(winProb[matchup.Home.ID])
+		winProbRing[matchup.Away.ID] = WinEstimateRingText(winProb[matchup.Away.ID])
 		combined := append(append([]StarterLedgerRow{}, matchup.Away.StarterLedger...), matchup.Home.StarterLedger...)
 		stillToPlayCount := stillToPlay(combined, liveStatusValue)
 		stillToPlayBind[matchup.ID] = strconv.Itoa(stillToPlayCount)
@@ -4444,6 +4453,7 @@ func (s *Service) liveScoresView(live LiveSnapshot, isCurrentWeek bool, currentW
 		"originalProjectionNote":     originalProjectionNote,
 		"winProb":                    winProb,
 		"winProbCaption":             winProbCaption,
+		"winProbRing":                winProbRing,
 		"stillToPlay":                stillToPlayBind,
 		"stillToPlayTotal":           stillToPlayTotalBind,
 		"stillToPlaySentence":        stillToPlaySentenceBind,
@@ -4465,6 +4475,7 @@ func (s *Service) liveScoresView(live LiveSnapshot, isCurrentWeek bool, currentW
 		"starterProgressLabel":       starterProgressLabel,
 		"starterProgressPlayers":     starterProgressPlayers,
 		"starterPlayerName":          starterPlayerName,
+		"starterPlayerNameShort":     starterPlayerNameShort,
 		"starterPosition":            starterPosition,
 		"starterNFLTeam":             starterNFLTeam,
 		"starterProvenance":          starterProvenance,
@@ -6219,7 +6230,7 @@ func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, 
 			// redesign 2026-09-07) — the same figure the featured card already
 			// shows for the viewer's own matchup, expressed from the home
 			// side's perspective since neither side of a scorebug is "mine".
-			entry["win_prob_home"] = matchupWinEstimate(m.Home, m.Away, m.State, projectionByID, status, hasLive)
+			entry["win_prob_home"] = matchupWinEstimate(m.Home, m.Away, m.State, projectionByID, status, hasLive, state.Scoring)
 			// The scorebug reports the HOME side's probability; name it, so
 			// the number is attributable to a team instead of floating free.
 			entry["win_prob_team"] = m.Home.Name
@@ -6298,7 +6309,7 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 	theirsProjection := summarizeOriginalProjections(theirs.StarterLedger, byID)
 	// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2): see the
 	// LiveScoresView call site above.
-	winProbText := matchupWinEstimate(mine, theirs, m.State, byID, status, hasLive)
+	winProbText := matchupWinEstimate(mine, theirs, m.State, byID, status, hasLive, state.Scoring)
 	// win_prob_width is a literal CSS width set once at render (not
 	// live-bound, page.gsx's comment beside the bar), so it can never hold
 	// the "—" placeholder winProbText renders for an unknown side; "0%"

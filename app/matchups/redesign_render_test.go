@@ -171,7 +171,7 @@ func TestRedesignedFeaturedTableRendersSlotProjTotalsAndBenches(t *testing.T) {
 	if !strings.Contains(body, `data-gosx-live-bind="starterProgressSummary.`) || !strings.Contains(body, `-home"`) || !strings.Contains(body, `-away"`) {
 		t.Fatalf("featured matchup rings are missing canonical home/away summary bindings: %s", body)
 	}
-	for _, key := range []string{"starterProgressComplete", "winProb"} {
+	for _, key := range []string{"starterProgressComplete", "winProbRing"} {
 		if !strings.Contains(body, `data-gosx-live-bind="`+key+`.`) {
 			t.Errorf("wheel missing %s binding", key)
 		}

@@ -1,6 +1,7 @@
 package league
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -27,12 +28,12 @@ func TestRemainingWinEstimate(t *testing.T) {
 	if late+parse(matchupWinEstimate(b, a, MatchupStateInProgress, pool, lateStatus, true)) != 100 {
 		t.Fatal("not complementary")
 	}
-	if got := matchupWinEstimate(a, b, MatchupStateDegraded, pool, lateStatus, true); got != "" {
-		t.Fatal(got)
+	if got := matchupWinEstimate(a, b, MatchupStateDegraded, pool, lateStatus, true); got != fmt.Sprintf("%d%%", late) {
+		t.Fatalf("temporary feed degradation changed the same known estimate: %q", got)
 	}
 	delete(pool, "b")
-	if got := matchupWinEstimate(a, b, MatchupStateScheduled, pool, LiveStatus{}, false); got != "" {
-		t.Fatal(got)
+	if got := matchupWinEstimate(a, b, MatchupStateScheduled, pool, LiveStatus{}, false); !strings.HasSuffix(got, "%") {
+		t.Fatalf("missing forecast erased the estimate: %q", got)
 	}
 	// A completed player's missing projection is harmless; missing actuals aren't.
 	b.StarterLedger[0].GameFinal = true
@@ -40,8 +41,8 @@ func TestRemainingWinEstimate(t *testing.T) {
 		t.Fatal("finished player required projection")
 	}
 	b.StarterLedger[0].JoinState = "missing-join"
-	if got := matchupWinEstimate(a, b, MatchupStateInProgress, pool, LiveStatus{}, false); got != "" {
-		t.Fatal("missing actual treated as zero")
+	if got := matchupWinEstimate(a, b, MatchupStateInProgress, pool, LiveStatus{}, false); !strings.HasSuffix(got, "%") {
+		t.Fatal("pending final stats erased the estimate")
 	}
 }
 

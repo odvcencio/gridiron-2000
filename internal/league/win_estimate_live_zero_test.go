@@ -1,6 +1,9 @@
 package league
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestWinEstimateUsesLedgersKnownLiveZero(t *testing.T) {
 	svc, _ := featuredMatchupFixture(t)
@@ -21,7 +24,7 @@ func TestWinEstimateUsesLedgersKnownLiveZero(t *testing.T) {
 	}
 }
 
-func TestWinEstimateKnownZeroDoesNotHideActualDataGaps(t *testing.T) {
+func TestWinEstimateRetainsUncertaintyDuringActualDataGaps(t *testing.T) {
 	pool := map[string]Player{"a": {ID: "a", Projection: 20}, "b": {ID: "b", Projection: 15}}
 	a := ScoreTeam{StarterLedger: []StarterLedgerRow{{PlayerID: "a", NFLTeam: "BUF", JoinState: "missing-join", ZeroSoFarKnown: true}}}
 	b := ScoreTeam{StarterLedger: []StarterLedgerRow{{PlayerID: "b", NFLTeam: "PHI", JoinState: "matched", Points: 2}}}
@@ -32,21 +35,24 @@ func TestWinEstimateKnownZeroDoesNotHideActualDataGaps(t *testing.T) {
 	}{
 		{"no affirmative zero", func(row *StarterLedgerRow, _ *LiveStatus) { row.ZeroSoFarKnown = false }},
 		{"missing final actual", func(row *StarterLedgerRow, _ *LiveStatus) { row.GameFinal = true }},
-		{"unexplained nonzero", func(row *StarterLedgerRow, _ *LiveStatus) { row.Points = 5 }},
 		{"degraded source", func(_ *StarterLedgerRow, status *LiveStatus) { status.Degraded = true }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			row, copyStatus := a.StarterLedger[0], status
 			tc.mutate(&row, &copyStatus)
 			copyTeam := ScoreTeam{StarterLedger: []StarterLedgerRow{row}}
-			if got := matchupWinEstimate(copyTeam, b, MatchupStateInProgress, pool, copyStatus, true); got != "" {
-				t.Fatalf("actual-data gap produced estimate %q", got)
+			if got := matchupWinEstimate(copyTeam, b, MatchupStateInProgress, pool, copyStatus, true); !strings.HasSuffix(got, "%") {
+				t.Fatalf("pending scoring data erased the estimate or declared a result: %q", got)
 			}
 		})
 	}
 	delete(pool, "a")
+	if got := matchupWinEstimate(a, b, MatchupStateInProgress, pool, status, true); !strings.HasSuffix(got, "%") {
+		t.Fatalf("missing projection erased the estimate: %q", got)
+	}
+	a.StarterLedger[0].Points = 5
 	if got := matchupWinEstimate(a, b, MatchupStateInProgress, pool, status, true); got != "" {
-		t.Fatalf("missing projection produced estimate %q", got)
+		t.Fatalf("unexplained nonzero score produced estimate %q", got)
 	}
 }
 
@@ -68,8 +74,8 @@ func TestWinEstimateAcceptsPlayerOmittedFromConfirmedFinalBoxAsZero(t *testing.T
 	}
 
 	status.Games["MIN"] = LiveGameState{Final: true}
-	if got := matchupWinEstimate(a, b, MatchupStateInProgress, pool, status, true); got != "" {
-		t.Fatalf("scoreboard-only finality produced estimate %q before the final box arrived", got)
+	if got := matchupWinEstimate(a, b, MatchupStateInProgress, pool, status, true); !strings.HasSuffix(got, "%") {
+		t.Fatalf("scoreboard-only finality erased the estimate or declared a result before the final box arrived: %q", got)
 	}
 }
 

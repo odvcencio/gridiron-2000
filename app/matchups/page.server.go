@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	helpcontent "gridiron-2000/app/help"
 	"gridiron-2000/internal/league"
@@ -266,42 +265,10 @@ func starterCellData(raw any, right bool) StarterCellData {
 	}
 }
 
-// mobileNameOverflowChars is the full "First Last" length past which a
-// name reliably overflows the phone four-column slot-row's name cell (the
-// minmax(0,1fr) track beside the two fixed 54px point columns —
-// public/styles.css's phone-width .matchups-page .slot-row rule): a
-// browser measurement against the replay fixture's own starter names put
-// the fitting budget at roughly 12 characters at the cell's ~12.5px bold
-// body font (sim_matchups_browser_test.go's mobile name-overflow probe,
-// round-1 finding). Kept a plain character count rather than a real glyph
-// measurement: this runs at SSR time, with no canvas or layout available,
-// and every name in the pool has comparable average glyph width, so
-// length is a good enough proxy.
-const mobileNameOverflowChars = 12
-
-// mobileShortName abbreviates a starter's first name to its initial
-// ("Jayden Daniels" -> "J. Daniels") once the full name is long enough to
-// overflow the phone slot-row's name cell (mobileNameOverflowChars). A
-// name at or under the budget, or one gosx-render can't split into a
-// first and last part (no space, or either side blank — a single-word
-// D/ST name, for instance), returns unchanged: StarterCell renders this
-// value only inside the phone breakpoint's own name span, so the full
-// PlayerName still carries desktop's copy and any name this function
-// declines to shorten. The budget counts runes, not bytes (rider on the
-// review of ae1a525, item 6): a multi-byte accented name (for example
-// "José Ramírez") must compare against the same ~12-glyph budget an
-// equally long ASCII name gets, not appear artificially long because
-// len() counts its UTF-8 encoding's extra bytes.
+// mobileShortName shares the live API's abbreviation so a lineup edit
+// displays the same current starter before and after a phone refresh.
 func mobileShortName(name string) string {
-	if utf8.RuneCountInString(name) <= mobileNameOverflowChars {
-		return name
-	}
-	first, last, ok := strings.Cut(name, " ")
-	if !ok || first == "" || last == "" {
-		return name
-	}
-	initial := []rune(first)[0]
-	return string(initial) + ". " + last
+	return league.StarterPlayerShortName(name)
 }
 
 // FeaturedMatchupPairData is one FeaturedMatchupData.Pairs entry: one
@@ -516,8 +483,8 @@ func featuredStarterProgressData(raw map[string]any) StarterProgressData {
 }
 
 // Win chance belongs to the team, independently of the ring's game progress.
-// Unknown projections leave the center empty on both sides. A later live
-// update can fill the existing bindings once the estimate becomes available.
+// The live estimate remains visible through partial forecasts and feed gaps,
+// then changes to the result when both starter sets have settled.
 func starterProgressWinChances(progress StarterProgressData, chance string, second bool) StarterProgressData {
 	chances := []string{"", ""}
 	switch chance {
@@ -537,7 +504,7 @@ func starterProgressWinChances(progress StarterProgressData, chance string, seco
 		chances[0], chances[1] = chances[1], chances[0]
 	}
 	for i := range progress.Teams {
-		progress.Teams[i].WinChance = chances[i]
+		progress.Teams[i].WinChance = league.WinEstimateRingText(chances[i])
 		progress.Teams[i].WinCaption = league.WinEstimateCaption(chances[i])
 	}
 	return progress

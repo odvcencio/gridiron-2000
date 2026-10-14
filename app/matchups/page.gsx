@@ -129,7 +129,7 @@ func StarterProgress(props StarterProgressData) Node {
 									</span>
 								</Each>
 							</span>
-							<span class="starter-progress__center"><b data-gosx-live-bind={"winProb." + team.TeamID}>{team.WinChance}</b><span data-gosx-live-bind={"winProbCaption." + team.TeamID}>{team.WinCaption}</span></span>
+							<span class="starter-progress__center"><b data-gosx-live-bind={"winProbRing." + team.TeamID}>{team.WinChance}</b><span data-gosx-live-bind={"winProbCaption." + team.TeamID}>{team.WinCaption}</span></span>
 						</span>
 						{/* The tips sit OUTSIDE the ring: the ring clips to its circle
 						    to contain its rotated piece boxes, so a panel inside it was
@@ -208,10 +208,8 @@ func WeekBrowser(props WeekBrowserProps) Node {
 // PlayerName) and starter-cell__name-short (the server-abbreviated
 // PlayerNameShort, page.server.go's mobileShortName) — with CSS toggling
 // which one is visible per breakpoint (item 4, round-2 fidelity pass):
-// PlayerNameShort is never itself live-bound (a starter's identity does
-// not change mid-game the way its stat line does), so only the full
-// variant carries data-gosx-live-bind, keeping a live update's textContent
-// patch scoped to the span it actually targets.
+// Both name variants are live-bound so a lineup edit keeps the visible
+// starter in sync with the current matchup estimate at every width.
 //
 // starter-cell__name-short's own TextBlock carries mode="native" (found
 // during the 2026-09-07 matchup redesign's own verification pass): the
@@ -246,7 +244,7 @@ func StarterCell(props StarterCellData) Node {
 			<summary class="starter-cell__name">
 				<strong>
 					<span class="starter-cell__name-full" data-gosx-live-bind={"starterPlayerName." + props.LiveKey}>{props.PlayerName}</span>
-					<TextBlock as="span" class="starter-cell__name-short" font="700 15px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" mode="native" text={props.PlayerNameShort} />
+					<TextBlock as="span" class="starter-cell__name-short" data-gosx-live-bind={"starterPlayerNameShort." + props.LiveKey} font="700 15px Plus Jakarta Sans" lineHeight={18} maxLines={2} overflow="ellipsis" mode="native" text={props.PlayerNameShort} />
 				</strong>
 				<small><span data-gosx-live-bind={"starterPosition." + props.LiveKey}>{props.Position}</span> · <span data-gosx-live-bind={"starterNFLTeam." + props.LiveKey}>{props.NFLTeam}</span><span class="injury-chip" title={props.InjuryLabel} data-gosx-live-bind={"starterInjury." + props.LiveKey}>{props.Injury}</span><span class="visually-hidden" data-gosx-live-bind={"starterInjuryLabel." + props.LiveKey}>{props.InjuryLabel}</span><span class="starter-cell__state-text"> · <span data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span></span><span class="possession-chip" data-gosx-live-bind={"starterPossession." + props.LiveKey}>{props.Possession}</span></small>
 				<span class="starter-cell__game-score" aria-label="NFL game score" data-gosx-live-bind={"starterGameScore." + props.LiveKey}>{props.GameScore}</span>
