@@ -102,7 +102,7 @@ func TestPickemLiveFinalOverlayRequiresFreshCompleteMatchingGame(t *testing.T) {
 	market := PickemMarket{Frozen: true, LinePresent: true, LineTenths: 0}
 	grade := gradePickemAt(merged[0], market, "LA", time.Time{}, kickoff.Add(time.Hour))
 	if grade.Outcome != pickemLoss {
-		t.Fatalf("a tied OT score against a frozen pick'em line graded as %+v, want loss/push policy", grade)
+		t.Fatalf("a tied OT score against a frozen pick'em line graded as %+v, want a loss with no outright winner", grade)
 	}
 	if got := overlayPickemLiveFinals(base, nil); !reflect.DeepEqual(got, base) {
 		t.Fatalf("missing/stale live snapshot changed the canonical schedule: %+v", got)

@@ -178,6 +178,7 @@ const (
 type pickemGrade struct {
 	Outcome        PickemOutcome
 	Cover          string
+	Push           bool
 	AwaitingMarket bool
 }
 
@@ -231,8 +232,9 @@ func pickemEntryAppliesToAnyGame(games []GameInfo, enteredAt time.Time) bool {
 
 // gradePickemAt is the one ATS authority used by cards, records, streaks, and
 // leaderboards. nflverse's positive line means the home team is favored, so
-// subtracting it from the home margin yields the covering side. A game never
-// grades from a moving candidate or placeholder scores.
+// subtracting it from the home margin yields the covering side. On a push,
+// the outright game winner wins the pick. A game never grades from a moving
+// candidate or placeholder scores.
 func gradePickemAt(game GameInfo, market PickemMarket, pick string, enteredAt, now time.Time) pickemGrade {
 	if game.Kickoff.IsZero() || now.Before(game.Kickoff) {
 		return pickemGrade{Outcome: pickemPending}
@@ -259,7 +261,12 @@ func gradePickemAt(game GameInfo, market PickemMarket, pick string, enteredAt, n
 		return pickemGrade{Outcome: pickemPending}
 	}
 	adjustedHomeMarginTenths := (game.HomeScore-game.AwayScore)*10 - market.LineTenths
+	push := adjustedHomeMarginTenths == 0
+	if push {
+		adjustedHomeMarginTenths = (game.HomeScore - game.AwayScore) * 10
+	}
 	if adjustedHomeMarginTenths == 0 {
+		// A tied game at a pick'em line has no outright winner.
 		return pickemGrade{Outcome: pickemLoss}
 	}
 	cover := game.Away
@@ -267,9 +274,9 @@ func gradePickemAt(game GameInfo, market PickemMarket, pick string, enteredAt, n
 		cover = game.Home
 	}
 	if pick == cover {
-		return pickemGrade{Outcome: pickemWin, Cover: cover}
+		return pickemGrade{Outcome: pickemWin, Cover: cover, Push: push}
 	}
-	return pickemGrade{Outcome: pickemLoss, Cover: cover}
+	return pickemGrade{Outcome: pickemLoss, Cover: cover, Push: push}
 }
 
 // gamesInWeek filters games to one week, in schedule order (no sort
@@ -417,9 +424,9 @@ func (s *Service) postseasonPickemRecords(state PersistedState, finalWeek int, n
 
 // pickemStreak computes the viewer's current streak of consecutive ATS
 // wins, walking from the most recent kickoff backward. Losses and missed
-// losses, including games tied against the spread, end the streak; voids
-// and pending games are neutral. Games that share one kickoff instant (a
-// full Sunday 1:00 PM slate) have no order among themselves, so they grade
+// losses end the streak; voids and pending games are neutral. Games that
+// share one kickoff instant (a full Sunday 1:00 PM slate) have no order
+// among themselves, so they grade
 // as one block: a loss-free block adds every one of its wins, and a block
 // holding any loss ends the walk at its boundary without adding its own
 // wins. Without the block rule a loss inside a slate ended the streak at
@@ -753,10 +760,16 @@ func pickemResultLabel(grade pickemGrade, locked, marketUnavailable, picked bool
 	}
 	switch grade.Outcome {
 	case pickemWin:
+		if grade.Push {
+			return "WIN · " + grade.Cover + " WON ON PUSH"
+		}
 		return "WIN · " + grade.Cover + " COVERED"
 	case pickemLoss:
 		if grade.Cover == "" {
 			return "LOSS · TIE AGAINST SPREAD"
+		}
+		if grade.Push {
+			return "LOSS · " + grade.Cover + " WON ON PUSH"
 		}
 		return "LOSS · " + grade.Cover + " COVERED"
 	case pickemMissedLoss:

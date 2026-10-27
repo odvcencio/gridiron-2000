@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -1042,23 +1043,31 @@ func TestGradePickemAgainstFrozenSpread(t *testing.T) {
 	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
 	base := GameInfo{ID: "ats", Week: 1, Kickoff: now.Add(-time.Hour), Away: "BUF", Home: "MIA", AwayScore: 21, HomeScore: 24, Final: true, ScoresPresent: true}
 	tests := []struct {
-		name string
-		line int
-		pick string
-		want PickemOutcome
+		name      string
+		line      int
+		pick      string
+		want      PickemOutcome
+		wantLabel string
 	}{
 		{name: "home favorite covers", line: 25, pick: "MIA", want: pickemWin},
 		{name: "home favorite fails", line: 35, pick: "BUF", want: pickemWin},
 		{name: "away favorite home covers", line: -25, pick: "MIA", want: pickemWin},
 		{name: "pick em home wins", line: 0, pick: "MIA", want: pickemWin},
-		{name: "tie against spread is loss", line: 30, pick: "BUF", want: pickemLoss},
+		{name: "home push winning side", line: 30, pick: "MIA", want: pickemWin, wantLabel: "WIN · MIA WON ON PUSH"},
+		{name: "home push losing side", line: 30, pick: "BUF", want: pickemLoss, wantLabel: "LOSS · MIA WON ON PUSH"},
 		{name: "wrong side", line: 25, pick: "BUF", want: pickemLoss},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			market := PickemMarket{Frozen: true, LinePresent: true, LineTenths: tt.line}
-			if got := gradePickemAt(base, market, tt.pick, base.Kickoff.Add(-time.Hour), now).Outcome; got != tt.want {
-				t.Fatalf("outcome = %s, want %s", got, tt.want)
+			grade := gradePickemAt(base, market, tt.pick, base.Kickoff.Add(-time.Hour), now)
+			if grade.Outcome != tt.want {
+				t.Fatalf("outcome = %s, want %s", grade.Outcome, tt.want)
+			}
+			if tt.wantLabel != "" {
+				if got := pickemResultLabel(grade, true, false, true); got != tt.wantLabel {
+					t.Errorf("result label = %q, want %q", got, tt.wantLabel)
+				}
 			}
 		})
 	}
@@ -1066,6 +1075,98 @@ func TestGradePickemAgainstFrozenSpread(t *testing.T) {
 	withoutScores.ScoresPresent = false
 	if got := gradePickemAt(withoutScores, PickemMarket{Frozen: true, LinePresent: true}, "MIA", base.Kickoff.Add(-time.Hour), now).Outcome; got != pickemPending {
 		t.Fatalf("result without scores = %s, want pending", got)
+	}
+}
+
+func TestPickemPushUsesGameWinnerAcrossProjections(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		line      int
+		awayScore int
+		homeScore int
+		winner    string
+		loser     string
+	}{
+		{name: "home favorite wins by three", line: 30, awayScore: 24, homeScore: 27, winner: "DET", loser: "GB"},
+		{name: "away favorite wins by three", line: -30, awayScore: 27, homeScore: 24, winner: "GB", loser: "DET"},
+	} {
+		for _, source := range []string{"schedule", "live final"} {
+			t.Run(tc.name+"/"+source, func(t *testing.T) {
+				service := newTestService(t, true)
+				now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+				service.now = func() time.Time { return now }
+				game := GameInfo{
+					ID: "gb-det-push", Week: 8, Kickoff: now.Add(-24 * time.Hour), Away: "GB", Home: "DET",
+					AwayScore: tc.awayScore, HomeScore: tc.homeScore, Final: true, ScoresPresent: true,
+					SpreadLineTenths: tc.line, SpreadLinePresent: true, SourceObservedAt: now.Add(-14 * 24 * time.Hour),
+				}
+				if source == "live final" {
+					final := game
+					final.SpreadLinePresent, final.SpreadLineTenths = false, 0
+					service.SetPickemFinalSource(func() []GameInfo { return []GameInfo{final} })
+					game.Final, game.ScoresPresent = false, false
+					game.AwayScore, game.HomeScore = 0, 0
+				}
+				service.SetScheduleSource(func() []GameInfo { return []GameInfo{game} })
+				if err := service.pickemMarketTick(now); err != nil {
+					t.Fatal(err)
+				}
+				for owner, pick := range map[string]string{"demo-guest": tc.winner, "loser@example.com": tc.loser} {
+					if err := service.store.SetPickem(owner, game.ID, pick, game.Kickoff.Add(-time.Hour)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				before := service.store.Snapshot()
+				request := httptest.NewRequest(http.MethodGet, "/pickem?week=8", nil)
+				data := service.PickemDataReadOnly(request)
+				rows := data["games"].([]PickemGameRow)
+				if len(rows) != 1 {
+					t.Fatalf("game rows = %+v, want the GB-DET fixture", rows)
+				}
+				row := rows[0]
+				if !row.Final || !row.Correct || row.Wrong || row.Winner != tc.winner || row.Outcome != string(pickemWin) {
+					t.Fatalf("push game row = %+v, want a win for %s", row, tc.winner)
+				}
+				if want := "WIN · " + tc.winner + " WON ON PUSH"; row.ResultLabel != want {
+					t.Errorf("push result label = %q, want %q", row.ResultLabel, want)
+				}
+				if len(row.LeaguePicks) != 2 {
+					t.Fatalf("push ledger = %+v, want both entrants", row.LeaguePicks)
+				}
+				for _, entry := range row.LeaguePicks {
+					won := entry.PickLabel == tc.winner
+					wantOutcome := string(pickemLoss)
+					if won {
+						wantOutcome = string(pickemWin)
+					}
+					if entry.Correct != won || entry.Wrong == won || entry.Outcome != wantOutcome {
+						t.Errorf("push ledger entry = %+v, want %s", entry, wantOutcome)
+					}
+				}
+				record := data["record"].(map[string]any)
+				for key, want := range map[string]int{"week_wins": 1, "week_losses": 0, "season_wins": 1, "season_losses": 0, "streak": 1} {
+					if record[key] != want {
+						t.Errorf("record[%s] = %v, want %d", key, record[key], want)
+					}
+				}
+				for _, key := range []string{"leaderboard", "week_leaderboard"} {
+					board := data[key].([]PickemLeaderboardEntry)
+					if len(board) != 2 || board[0].Name != "demo-guest" || board[0].Wins != 1 || board[0].Losses != 0 || board[1].Wins != 0 || board[1].Losses != 1 {
+						t.Errorf("%s = %+v, want winner 1-0 and loser 0-1", key, board)
+					}
+				}
+				home := service.pickemHomeSummary(request, now)
+				if home["season_wins"] != 1 || home["season_losses"] != 0 || home["streak"] != 1 {
+					t.Errorf("home summary = %+v, want a 1-0 record and one-game streak", home)
+				}
+				if after := service.store.Snapshot(); !reflect.DeepEqual(before, after) {
+					t.Error("regrading the saved push changed persisted state")
+				}
+				t.Logf("GB %d, DET %d at frozen home line %+.1f: %s pick=%s; weekly %v-%v, season %v-%v, streak %v",
+					tc.awayScore, tc.homeScore, float64(tc.line)/10, row.Pick, row.Outcome,
+					record["week_wins"], record["week_losses"], record["season_wins"], record["season_losses"], record["streak"])
+			})
+		}
 	}
 }
 
@@ -1263,7 +1364,7 @@ func TestPickemSetAndDataUseInjectedPerGameClock(t *testing.T) {
 	}
 }
 
-func TestPickemStreakTieAgainstSpreadAndMissBreakWhileVoidIsNeutral(t *testing.T) {
+func TestPickemStreakPushUsesGameWinnerAndMissBreaksWhileVoidIsNeutral(t *testing.T) {
 	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
 	games := []GameInfo{
 		{ID: "win-old", Week: 1, Kickoff: now.Add(-4 * time.Hour), Away: "A", Home: "B", AwayScore: 10, HomeScore: 20, Final: true, ScoresPresent: true},
@@ -1277,13 +1378,17 @@ func TestPickemStreakTieAgainstSpreadAndMissBreakWhileVoidIsNeutral(t *testing.T
 	markets["push"] = push
 	picks := map[string]string{"win-old": "B", "push": "E", "win-new": "H"}
 	if got := pickemStreak(games, markets, picks, games[0].Kickoff.Add(-time.Hour), now); got != 1 {
-		t.Fatalf("streak = %d, want latest win then tie-against-spread loss break", got)
+		t.Fatalf("streak = %d, want latest win then losing push pick to break the streak", got)
+	}
+	picks["push"] = "F"
+	if got := pickemStreak(games, markets, picks, games[0].Kickoff.Add(-time.Hour), now); got != 2 {
+		t.Fatalf("streak = %d, want latest win and winning push pick before the missed loss", got)
 	}
 	void := markets["miss"]
 	void.Void, void.Frozen, void.LinePresent = true, false, false
 	markets["miss"] = void
-	if got := pickemStreak(games, markets, picks, games[0].Kickoff.Add(-time.Hour), now); got != 1 {
-		t.Fatalf("streak with void miss = %d, want tie-against-spread loss to break the streak", got)
+	if got := pickemStreak(games, markets, picks, games[0].Kickoff.Add(-time.Hour), now); got != 3 {
+		t.Fatalf("streak with void miss = %d, want the winning push pick to continue the streak", got)
 	}
 }
 

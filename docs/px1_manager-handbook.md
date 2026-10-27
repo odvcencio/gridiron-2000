@@ -467,7 +467,7 @@ Choose against the displayed market line with per-game locks and an independent 
 - Phases: `pre-draft`, `draft`, `preseason`, `regular-season`, `post-season`, `complete`, `unknown`
 - Data states: `loading`, `empty`, `no-results`, `pending`, `saved`, `locked`, `disabled`, `stale`, `degraded`, `offline`, `unavailable`, `failed`, `permission-denied`, `not-applicable`
 - Privacy: Pick visibility follows configured pre/post-lock policy.
-- Consequence: After week entry, a missed kickoff is a loss; a game tied against the spread is also a loss, and a void has no result.
+- Consequence: After week entry, a missed kickoff is a loss. A push goes to the game's outright winner; picks of the losing team lose. A tied game at a zero spread is a loss for both picks, and a void has no result.
 - Reversibility: Edits stop at each game's runtime lock; scored/corrected results persist.
 - Result: Each game reports saved, locked, missed, loss, void, or scored state.
 - Failure: Stale slate, unavailable line, validation, and authorization preserve unaffected picks.
@@ -792,7 +792,7 @@ The table is derived from the executable glossary entries and keeps each related
 | person |  | This is you, the person using the app. The human using Gridiron. | `/login` |
 | PF | points for | This is the total points your team has scored all season. PF (points for) is the running season total; a single week's matchup score is separate. | `/team` |
 | pick |  | This is one player your team drafted, in order. One persisted draft selection with team/player/order. | `/draft` |
-| Pick'em |  | Independent against-the-spread game with per-game locks and W-L; a tie against the spread is a loss. | `/pickem` |
+| Pick'em |  | Independent against-the-spread game with per-game locks and W-L; pushes go to the outright game winner. | `/pickem` |
 | player |  | A canonical football participant in the pool. | `/players` |
 | player pool |  | This is every player the league can draft or add. Source-backed players available to the league. | `/players` |
 | Players |  | Route showing pool, free agents, waivers, and claims. | `/players` |

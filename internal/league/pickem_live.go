@@ -58,7 +58,7 @@ func pickemGameLiveView(game GameInfo, status LiveStatus, now time.Time) pickemL
 }
 
 // pickemLiveStanding never grades a pick or uses a moving market candidate.
-// A final push still follows gradePickemAt's existing loss rule.
+// Final results, including push tiebreaks, belong to gradePickemAt.
 func pickemLiveStanding(game GameInfo, market PickemMarket, pick string, view pickemLiveView) (string, string) {
 	if game.Final || !validPick(game, pick) || market.Void || !view.InProgress {
 		return "", ""
